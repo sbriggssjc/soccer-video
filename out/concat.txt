@@ -1,0 +1,2 @@
+file 'out/a_stab.mp4'
+file 'out/b_stab.mp4'
