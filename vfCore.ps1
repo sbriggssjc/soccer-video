@@ -1,0 +1,1 @@
+$vfCore = ("scale=ceil(iw*{0}/2)*2:ceil(ih*{0}/2)*2,crop=floor(in_w/{0}/2)*2:floor(in_h/{0}/2)*2:floor((in_w-in_w/{0})/2):floor((in_h-in_h/{0})/2),hqdn3d=0.7:1.0:6.0:6.0,unsharp=3:3:0.9:3:3:0.3,eq=contrast=1.06:saturation=1.08:gamma=1.02,setpts=PTS-STARTPTS" -f $zoom)
