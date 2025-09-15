@@ -39,6 +39,7 @@ def main() -> None:
     p.add_argument("--csv", default="out/highlights.csv")
     p.add_argument("--outdir", default="out/clips")
     p.add_argument("--overwrite", action="store_true")
+    p.add_argument("--min-dur", type=float, default=3.0, help="skip clips shorter than this")
     args = p.parse_args()
 
     outdir = Path(args.outdir)
@@ -46,13 +47,18 @@ def main() -> None:
 
     with open(args.csv) as f:
         reader = csv.DictReader(f)
-        for idx, row in enumerate(reader, 1):
+        idx = 1
+        for row in reader:
             start = float(row["start"])
             end = float(row["end"])
+            if end - start < args.min_dur:
+                continue
             out = outdir / safe_name(idx)
             if out.exists() and not args.overwrite:
+                idx += 1
                 continue
             run_ffmpeg(args.video, start, end, out)
+            idx += 1
 
 
 if __name__ == "__main__":
