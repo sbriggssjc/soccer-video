@@ -17,17 +17,41 @@ def safe_name(idx: int) -> str:
 
 
 def run_ffmpeg(src: str, start: float, end: float, out: Path) -> None:
+    """Re-encode a clip with audio fades and timestamp cleanup."""
+
+    # Duration is needed to position the fade-out filter.
+    dur = max(0.0, end - start)
+    fade = min(0.05, dur / 2)  # tiny fades at head/tail
+    af = (
+        f"afade=t=in:st=0:d={fade:.3f},"
+        f"afade=t=out:st={max(dur - fade, 0):.3f}:d={fade:.3f},"
+        "asetpts=N/SR/TB,aresample=async=1"
+    )
+
     cmd = [
         "ffmpeg",
         "-y",
-        "-i",
-        src,
         "-ss",
         f"{start}",
         "-to",
         f"{end}",
-        "-c",
-        "copy",
+        "-i",
+        src,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-af",
+        af,
+        "-shortest",
+        "-movflags",
+        "+faststart",
         str(out),
     ]
     sp.run(cmd, check=True)
