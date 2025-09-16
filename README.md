@@ -1,27 +1,70 @@
-# soccer-video
+# Soccer Highlights Suite
 
-Scripts for building soccer highlight clips and social reels.
+`soccerhl` is a Windows-friendly end-to-end toolkit for turning a full match
+recording into polished highlight reels. The pipeline combines motion analysis,
+audio excitement, peak tightening, clip exports, smart ranking, and final reels
+with transitions.
 
-## Quick A/V sync knob
+## Installation
 
-If the commentary is slightly out of sync, adjust the `audioOffset` environment
-variable (in seconds) when running `05_make_social_reel.sh` and re-run.
-
-- **Audio late** (you see the kick before you hear it): `audioOffset=-0.08`
-- **Audio early**: `audioOffset=0.08`
-
-Values in the ±0.06–0.12 range usually work best.
-
-Tools for detecting exciting moments and assembling highlight reels from a full game recording.
-
-If a final `ffmpeg` concat ever prints a `Non-monotonous DTS` warning, re-encode the list instead of stream-copying:
-
-```
-ffmpeg -hide_banner -loglevel warning -y -safe 0 -f concat -i list.txt \
-  -c:v libx264 -preset veryfast -crf 20 -c:a aac -b:a 160k \
-  out/smart10_clean_zoom.mp4
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate
+pip install -e .
 ```
 
-`list.txt` should contain `file` lines pointing at the parts to concatenate.
+The toolkit depends on FFmpeg/FFprobe and the libraries listed in
+`pyproject.toml`. Install FFmpeg separately and ensure it is on your `PATH`.
 
+## Configuration
 
+All commands read settings from `config.yaml` (or another YAML file passed via
+`--config`). Configuration includes paths, detection thresholds, jersey colors,
+output profiles, and encoding parameters. Profiles are provided for broadcast,
+social-vertical, and coach-review outputs.
+
+## CLI Overview
+
+Each pipeline stage is available as a subcommand of `soccerhl`:
+
+```powershell
+soccerhl detect --video .\out\full_game_stabilized.mp4 --pre 5 --post 6 --max-count 40
+soccerhl shrink --video .\out\full_game_stabilized.mp4 --csv .\out\highlights.csv --out .\out\highlights_smart.csv --aspect vertical --pre 3 --post 5 --bias-blue
+soccerhl clips --video .\out\full_game_stabilized.mp4 --csv .\out\highlights_smart.csv --outdir .\out\clips --workers 4
+soccerhl topk --candirs .\out\clips,.\out\clips_acc --k 10 --max-len 18
+soccerhl reel --list .\out\smart_top10_concat.txt --out .\out\reels\top10.mp4 --profile social-vertical
+```
+
+All examples use Windows PowerShell syntax without line continuations. The
+commands are idempotent—rerun them to resume processing, and add `--overwrite`
+to regenerate clips when needed.
+
+## Pipeline Summary
+
+1. **detect** – merges motion and audio scores per second, applies hysteresis
+   and sustain filters, and writes `out/highlights.csv`.
+2. **shrink** – tightens highlight windows around motion peaks (optionally
+   jersey-biased) and can write tracked social clips.
+3. **clips** – exports frame-accurate MP4 clips with small audio fades using
+   parallel FFmpeg workers.
+4. **topk** – scores candidate clips, trims slow starts, and writes both CSV and
+   concat list files for the best plays.
+5. **reel** – renders finished reels with title slates, numbered overlays,
+   crossfades, and gentle audio ducking.
+
+Each command updates `out/report.md` with summary statistics so you always know
+how many windows, clips, and reel duration were produced.
+
+## Examples & Tests
+
+`examples/generate_sample.py` creates a small synthetic match clip that drives a
+regression test. After running the generator, process the clip with the
+PowerShell commands shown in `examples/README.md`.
+
+Run the automated test to verify the entire pipeline on the synthetic clip:
+
+```powershell
+pytest -k pipeline
+```
+
+This produces a short reel under `examples/out/reels/` as part of the test run.
