@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import subprocess as sp
 from pathlib import Path
 
@@ -59,31 +60,53 @@ def run_ffmpeg(src: str, start: float, end: float, out: Path) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--video", default="full_game_stabilized.mp4")
-    p.add_argument("--csv", default="out/highlights.csv")
-    p.add_argument("--outdir", default="out/clips")
+    p.add_argument("--video", required=True)
+    p.add_argument("--csv", required=True)
+    p.add_argument("--out", required=True)
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--min-dur", type=float, default=3.0, help="skip clips shorter than this")
+    p.add_argument("--pre-roll", type=float, default=1.8, help="seconds before start")
+    p.add_argument("--post-roll", type=float, default=2.4, help="seconds after end")
     args = p.parse_args()
 
-    outdir = Path(args.outdir)
+    outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        with open(args.csv, newline="") as f:
-            rows = list(csv.DictReader(f))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"[make_highlights] No rows in {args.csv}. Aborting.") from exc
+    if not os.path.exists(args.csv):
+        raise SystemExit(f"[make_highlights] CSV not found: {args.csv}")
+
+    rows = []
+    with open(args.csv, newline="") as f:
+        reader = csv.DictReader(f)
+        for idx, row in enumerate(reader, start=1):
+            start_raw = row.get("start") or row.get("t0")
+            end_raw = row.get("end") or row.get("t1")
+
+            if start_raw in (None, "") or end_raw in (None, ""):
+                raise SystemExit(
+                    f"[make_highlights] Missing start/end values in row {idx} of {args.csv}."
+                )
+
+            try:
+                start = float(start_raw)
+                end = float(end_raw)
+            except (TypeError, ValueError) as exc:
+                raise SystemExit(
+                    f"[make_highlights] Invalid start/end values in row {idx} of {args.csv}."
+                ) from exc
+
+            clip_start = max(0.0, start - args.pre_roll)
+            clip_end = max(clip_start + 0.80, end + args.post_roll)
+
+            rows.append((clip_start, clip_end))
 
     if not rows:
-        raise SystemExit(f"[make_highlights] No rows in {args.csv}. Aborting.")
+        raise SystemExit(f"[make_highlights] No rows in {args.csv}.")
 
     print(f"[make_highlights] Using CSV: {args.csv}  rows={len(rows)}")
 
     idx = 1
-    for row in rows:
-        start = float(row["start"])
-        end = float(row["end"])
+    for start, end in rows:
         if end - start < args.min_dur:
             continue
         out = outdir / safe_name(idx)
