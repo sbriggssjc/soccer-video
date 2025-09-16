@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soccer-highlights"
+version = "0.1.0"
+description = "End-to-end soccer highlight generation toolkit"
+authors = [{ name = "OpenAI", email = "opensource@example.com" }]
+requires-python = ">=3.9"
+dependencies = [
+    "loguru",
+    "pydantic>=1.10",
+    "PyYAML",
+    "tqdm",
+    "numpy",
+    "opencv-python",
+    "librosa",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+soccerhl = "soccer_highlights.cli:main"
+
+[tool.pytest.ini_options]
+addopts = "-m 'not slow'"
+markers = ["slow: marks tests that take longer to run"]
