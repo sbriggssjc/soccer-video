@@ -30,6 +30,12 @@ $followBall   = $false
 $followZoom   = 1.55
 $followSmooth = 0.85
 
+$vfCore = ('scale=ceil(iw*{0}/2)*2:ceil(ih*{0}/2)*2,' +
+           'crop=floor(in_w/{0}/2)*2:floor(in_h/{0}/2)*2:' +
+           'floor((in_w-in_w/{0})/2):floor((in_h-in_h/{0})/2),' +
+           'hqdn3d=0.7:1.0:6.0:6.0,unsharp=3:3:0.9:3:3:0.3,eq=contrast=1.06:saturation=1.08:gamma=1.02,setpts=PTS-STARTPTS'
+          ) -f $zoom
+
 function New-HashSet([Type]$T) {
   New-Object "System.Collections.Generic.HashSet``1[[$($T.FullName)]]" ([StringComparer]::OrdinalIgnoreCase)
 }
@@ -177,13 +183,9 @@ for ($i=0; $i -lt $moments.Count; $i++) {
   # Build per-clip video filter chain
   $vf = ''
   if ($trfUse) {
-    $vf += ("vidstabtransform=input='{0}':smoothing=30:optzoom=0:crop=black,setpts=PTS-STARTPTS," -f $trfUse)
-  } else {
-    $vf += "setpts=PTS-STARTPTS,"   # still reset PTS if no vidstab
+    $vf += ("vidstabtransform=input='{0}':smoothing=30:optzoom=0:crop=black," -f $trfUse)
   }
-  $vf += ('scale=ceil(iw*{0}/2)*2:ceil(ih*{0}/2)*2,' -f $zoom)
-  $vf += ('crop=floor(in_w/{0}/2)*2:floor(in_h/{0}/2)*2:floor((in_w-in_w/{0})/2):floor((in_h-in_h/{0})/2),' -f $zoom)
-  $vf += 'hqdn3d=0.6:1.0:6.0:6.0,unsharp=3:3:1.0:3:3:0.35,eq=contrast=1.07:saturation=1.08:gamma=1.02'
+  $vf += $vfCore
 
   $fi  = [string]::Format($ci, "{0:F3}", $fade)
   $foS = [string]::Format($ci, "{0:F3}", [Math]::Max(0.0, $m.dur - $fade))
