@@ -1,201 +1,211 @@
-import argparse, csv, cv2, numpy as np, os
+import argparse, csv, math, os
+import cv2
+import numpy as np
 
+try:
+    import librosa  # optional audio boost
+except Exception:
+    librosa = None
 
-def compute_center_lane_mask(shape, inner=0.6):
-    """Return a mask that highlights the central vertical lane of the frame."""
+def read_candidates(csv_path):
+    rows = []
+    with open(csv_path, newline='') as f:
+        r = csv.DictReader(f)
+        for row in r:
+            # tolerate columns named start/end or t0/t1
+            start = float(row.get('start', row.get('t0')))
+            end   = float(row.get('end',   row.get('t1')))
+            score = float(row.get('score', 0.0))
+            rows.append(dict(start=start, end=end, score=score, **row))
+    return rows
 
-    if not shape:
-        return None
-    h, w = shape[:2]
-    if h <= 0 or w <= 0:
-        return None
-    inner = max(0.0, min(1.0, float(inner)))
-    inner_w = max(1, int(round(w * inner)))
-    left = max(0, (w - inner_w) // 2)
-    mask = np.zeros((h, w), dtype=np.float32)
-    mask[:, left:left + inner_w] = 1.0
-    return mask
-
-
-def has_consecutive_true(flags, need):
-    """Return True if *need* consecutive truthy samples appear in *flags*."""
-
-    if need <= 1:
-        return any(flags)
-    run = 0
-    for val in flags:
-        if val:
-            run += 1
-            if run >= need:
-                return True
+def consecutive_true(mask, min_len):
+    if min_len <= 1: return bool(mask.any())
+    count = 0
+    for v in mask:
+        if v: 
+            count += 1
+            if count >= min_len: return True
         else:
-            run = 0
+            count = 0
     return False
 
+def center_lane_mask(h, w, inner_ratio=0.60):
+    # 1 in center band (inner_ratio width), 0 on sidelines
+    mask = np.zeros((h, w), np.float32)
+    x0 = int((1.0 - inner_ratio) * 0.5 * w)
+    x1 = int(w - x0)
+    mask[:, x0:x1] = 1.0
+    return mask
 
-def snap_to_anchors(start, end, resets, pre=2.0, post=3.5):
-    """Tighten a window around the closest reset anchor if available."""
+def sample_indices(n, step):
+    return list(range(0, n, max(1, step)))
 
-    if not resets:
-        return start, end
+def action_metrics(cap, start_s, end_s, downsample=2, step_frames=3, min_frames=24):
+    """Compute per-window optical flow & motion concentration metrics."""
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    start_f = max(0, int(start_s * fps))
+    end_f   = max(start_f+1, int(end_s * fps))
+    total   = end_f - start_f
+    if total < min_frames:  # too short: still evaluate, but note it
+        min_frames = total
 
-    anchor = None
-    for r_start, r_end in resets:
-        if start <= r_end <= end:
-            anchor = r_end
-            break
-
-    if anchor is None:
-        mid = 0.5 * (start + end)
-        anchor = min(resets, key=lambda pair: abs(pair[1] - mid))[1]
-
-    anchor = min(max(anchor, start), end)
-    new_start = max(start, anchor - pre)
-    new_end = min(end, anchor + post)
-    if new_end - new_start <= 0.25:
-        return start, end
-    return new_start, new_end
-
-
-def avg_green_ratio(frame_hsv):
-    # HSV ranges for grassy green (tuned for daylight/turf; adjust if needed)
-    lower = np.array([35, 60, 40], dtype=np.uint8)
-    upper = np.array([90, 255, 255], dtype=np.uint8)
-    mask = cv2.inRange(frame_hsv, lower, upper)
-    return float(np.count_nonzero(mask)) / mask.size
-
-def analyze_window(cap, fps, start_s, end_s, args, stride=2, center_inner=0.6):
-    start_f = int(max(0, start_s*fps))
-    end_f   = int(end_s*fps)
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
-    ret, prev = cap.read()
-    if not ret:
-        return 0.0, 0.0, 0, [], []
-    prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
-    motion_acc = 0.0
-    green_acc  = 0.0
-    motion_series = []
-    green_series = []
-    ball_hits  = 0
-    frames = 0
-    center_mask = compute_center_lane_mask(prev_gray.shape, inner=center_inner)
+    frames = []
+    for i in range(total):
+        ok, frame = cap.read()
+        if not ok: break
+        if i % step_frames: continue
+        if downsample > 1:
+            frame = cv2.resize(frame, None, fx=1.0/downsample, fy=1.0/downsample, interpolation=cv2.INTER_AREA)
+        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+    if len(frames) < 2:
+        return dict(mean_flow=0, center_ratio=0, contig_ok=False, ball_speed=0, samples=len(frames))
 
-    f = start_f+1
-    while f < end_f:
-        # stride read
-        for _ in range(stride-1):
-            cap.grab()
-            f += 1
-            if f >= end_f: break
-        ret, frame = cap.read(); f += 1
-        if not ret: break
-        gray = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),(5,5),0)
+    h, w = frames[0].shape[:2]
+    lane = center_lane_mask(h, w, inner_ratio=0.60)
 
-        # motion
-        diff = cv2.absdiff(gray, prev_gray)
-        _, th = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
-        if center_mask is None or center_mask.shape != th.shape:
-            center_mask = compute_center_lane_mask(th.shape, inner=center_inner)
-        motion_norm = th.astype(np.float32) / 255.0
-        motion_weighted = motion_norm * (1.0 + args.center_weight * center_mask) - args.center_weight * (1.0 - center_mask)
-        frame_motion = float(np.clip(motion_weighted, 0.0, 1.0).mean())
-        motion_acc += frame_motion
-        motion_series.append(frame_motion)
+    flows = []
+    center_energy = []
+    ball_path = []  # crude proxy: brightest small blob motion near center
+    prev = frames[0]
+    for f in frames[1:]:
+        flow = cv2.calcOpticalFlowFarneback(prev, f, None,
+                                            pyr_scale=0.5, levels=1, winsize=15,
+                                            iterations=3, poly_n=5, poly_sigma=1.1, flags=0)
+        mag = cv2.magnitude(flow[...,0], flow[...,1])
+        flows.append(mag)
 
-        # field green %
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        green_ratio = avg_green_ratio(hsv)
-        green_acc += green_ratio
-        green_series.append(green_ratio)
+        # motion mask
+        msk = (mag > np.percentile(mag, 85))  # top motion as proxy
+        # center concentration
+        ctr = (msk * (lane>0)).sum() / (msk.sum()+1e-6)
+        center_energy.append(ctr)
 
-        # crude “ball” = small bright moving blob
-        bright = cv2.inRange(gray, 200, 255)
-        moving_bright = cv2.bitwise_and(bright, th)
-        cnts, _ = cv2.findContours(moving_bright, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        for c in cnts:
-            a = cv2.contourArea(c)
-            if 10 <= a <= 250:  # small blob
-                ball_hits += 1
-                break
+        # crude ball proxy: brightest small area (top 0.1%) centroid
+        thresh = np.percentile(mag, 99.9)
+        k = (mag >= thresh).astype(np.uint8)
+        ys, xs = np.where(k)
+        if len(xs) > 0:
+            ball_path.append((float(xs.mean()), float(ys.mean())))
+        prev = f
 
-        prev_gray = gray
-        frames += 1
+    mean_flow = float(np.mean([np.mean(m) for m in flows])) if flows else 0.0
+    center_ratio = float(np.mean(center_energy)) if center_energy else 0.0
 
-    if frames == 0:
-        return 0.0, 0.0, 0, motion_series, green_series
-    return motion_acc/frames, green_acc/frames, ball_hits, motion_series, green_series
+    # continuity: require N consecutive frames above both mean & center thresholds
+    over = []
+    f_thresh = max(0.5*np.mean([np.mean(m) for m in flows]), 0.35*mean_flow)
+    c_thresh = max(0.5*center_ratio, 0.25)
+    for m, c in zip(flows, center_energy):
+        over.append((np.mean(m) > f_thresh) and (c > c_thresh))
+    contig_ok = consecutive_true(over, min_len=10)  # ~10 sampled frames in a row
+
+    # ball speed estimate (px per sampled frame)
+    ball_speed = 0.0
+    if len(ball_path) >= 2:
+        dists = [math.hypot(ball_path[i+1][0]-ball_path[i][0], ball_path[i+1][1]-ball_path[i][1])
+                 for i in range(len(ball_path)-1)]
+        ball_speed = float(np.median(dists))
+
+    return dict(mean_flow=mean_flow, center_ratio=center_ratio, contig_ok=contig_ok,
+                ball_speed=ball_speed, samples=len(frames))
+
+def maybe_audio_boost(video_path, start_s, end_s):
+    if librosa is None: return 0.0
+    try:
+        y, sr = librosa.load(video_path, sr=None, mono=True, offset=max(0.0, start_s), duration=max(0.05, end_s-start_s))
+        # spectral flux as “cheer/excitement” proxy
+        S = np.abs(librosa.stft(y, n_fft=1024, hop_length=256))
+        flux = np.mean(np.maximum(S[:,1:] - S[:,:-1], 0.0))
+        return float(flux)
+    except Exception:
+        return 0.0
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
-    ap.add_argument("--csv", required=True)
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--min-motion", type=float, default=0.16)
-    ap.add_argument("--min-green",  type=float, default=0.32)
-    ap.add_argument("--need-ball",  type=int,   default=1, help="Require visible ball at least once")
-    ap.add_argument("--ball-hits",  type=int,   default=1, help="Min touches within window")
-    ap.add_argument("--min-contig-frames", type=int, default=12,
-                    help="Require N consecutive frames over motion threshold (flowing play)")
-    ap.add_argument("--center-weight", type=float, default=0.25,
-                    help="Downweight motion near sidelines; 0..1 extra penalty for outer bands")
+    ap.add_argument("--csv",   required=True)
+    ap.add_argument("--out",   required=True)
+    ap.add_argument("--min-motion", type=float, default=0.16, help="baseline flow magnitude gate")
+    ap.add_argument("--min-green",  type=float, default=0.32, help="(legacy, ignored here if no field mask)")
+    ap.add_argument("--need-ball",  type=int,   default=0,    help="legacy flag; superseded by speed gate")
+    ap.add_argument("--ball-hits",  type=int,   default=0)
+    ap.add_argument("--min-contig-frames", type=int, default=10)
+    ap.add_argument("--min-center-ratio",  type=float, default=0.35)
+    ap.add_argument("--min-ball-speed",    type=float, default=0.9, help="median px/frame (sampled) for ball proxy")
+    ap.add_argument("--min-flow-mean",     type=float, default=0.55, help="relative scalar on window mean flow")
+    ap.add_argument("--audio-boost",       type=int,   default=1,    help="use spectral flux as tiebreaker")
     args = ap.parse_args()
 
-    cap = cv2.VideoCapture(args.video)
-    if not cap.isOpened(): raise SystemExit(f"Could not open {args.video}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    rows = read_candidates(args.csv)
+    if not rows:
+        raise SystemExit(f"[filter] no candidates in {args.csv}")
 
-    resets = []
-    goal_reset_path = None
-    candidate_paths = [
-        os.path.join(os.path.dirname(args.csv), "goal_resets.csv"),
-        os.path.join(os.path.dirname(args.out), "goal_resets.csv"),
-        "goal_resets.csv",
-    ]
-    for cand in candidate_paths:
-        if cand and os.path.exists(cand):
-            goal_reset_path = cand
-            break
-    if goal_reset_path:
-        with open(goal_reset_path, newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    start_v = float(row.get("start", "nan"))
-                    end_v = float(row.get("end", "nan"))
-                except (TypeError, ValueError):
-                    continue
-                if not (np.isfinite(start_v) and np.isfinite(end_v)):
-                    continue
-                resets.append((start_v, end_v))
-        resets.sort(key=lambda pair: pair[1])
+    cap = cv2.VideoCapture(args.video)
+    if not cap.isOpened():
+        raise SystemExit(f"[filter] cannot open video: {args.video}")
 
     kept = []
-    with open(args.csv, newline="") as f:
-        rows = list(csv.DictReader(f))
     for r in rows:
-        s = float(r["start"]); e = float(r["end"])
-        motion, green, bh, motion_series, green_series = analyze_window(cap, fps, s, e, args)
-        ok = (motion >= args.min_motion) and (green >= args.min_green)
-        if motion_series and green_series and args.min_contig_frames:
-            over = (np.array(motion_series) > args.min_motion) & (np.array(green_series) > args.min_green)
-            if not has_consecutive_true(over, args.min_contig_frames):
-                ok = False
-        if args.need_ball:
-            ok = ok and (bh >= args.ball_hits)
-        if ok:
-            # carry forward original score but add motion bonus
-            score = float(r.get("score","0"))
-            new_score = 0.6*score + 0.4*min(1.0, motion*4.0)  # gentle boost for movement
-            if resets:
-                s, e = snap_to_anchors(s, e, resets)
-            if e - s <= 0:
-                continue
-            kept.append({"start": f"{s:.2f}", "end": f"{e:.2f}", "score": f"{new_score:.3f}"})
+        start, end = float(r['start']), float(r['end'])
+        mets = action_metrics(cap, start, end)
+        # normalize “mean_flow” gate using window stats
+        mean_flow = mets['mean_flow']
+        contig_ok = mets['contig_ok']
+        center_ratio = mets['center_ratio']
+        ball_speed = mets['ball_speed']
 
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["start","end","score"])
-        w.writeheader(); w.writerows(kept)
+        # hard gates
+        g_cont = contig_ok
+        g_center = (center_ratio >= args.min_center_ratio)
+        g_flow   = (mean_flow >= args.min_flow_mean * max(1e-6, mean_flow)) or contig_ok  # contig can compensate
+        g_ball   = (ball_speed >= args.min_ball_speed)
+
+        score = 0.0
+        score += 0.45 * min(2.0, mean_flow)
+        score += 0.30 * center_ratio
+        score += 0.25 * min(2.0, ball_speed)
+
+        if args.audio_boost:
+            score += 0.10 * maybe_audio_boost(args.video, start, end)
+
+        # final decision: require continuity + center + either ball moving or strong flow
+        ok = g_cont and g_center and (g_ball or (mean_flow > 1.2*args.min_flow_mean))
+
+        why = []
+        if not g_cont:   why.append("no_continuity")
+        if not g_center: why.append("off_center")
+        if not g_ball and mean_flow <= 1.2*args.min_flow_mean: why.append("no_ball_speed")
+        if ok:
+            outrow = dict(r)
+            outrow.update(dict(action_score=float(score),
+                               mean_flow=float(mean_flow),
+                               center_ratio=float(center_ratio),
+                               ball_speed=float(ball_speed),
+                               why="keep"))
+            kept.append(outrow)
+        else:
+            # keep a note for debugging; not written out
+            pass
+
+    # sort by our action_score if present (desc)
+    if kept and 'action_score' in kept[0]:
+        kept = sorted(kept, key=lambda d: d.get('action_score', 0.0), reverse=True)
+
+    # write filtered CSV
+    if kept:
+        fieldnames = list(kept[0].keys())
+        with open(args.out, 'w', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for row in kept:
+                w.writerow(row)
+        print(f"[filter] kept {len(kept)} clips -> {args.out}")
+    else:
+        print("[filter] kept 0 clips (try lowering min-ball-speed or min-center-ratio)")
+
+    cap.release()
 
 if __name__ == "__main__":
     main()
