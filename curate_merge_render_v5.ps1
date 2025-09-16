@@ -171,9 +171,9 @@ for ($i=0; $i -lt $moments.Count; $i++) {
     if (-not (Test-Path $trf)) {
       & ffmpeg -hide_banner -loglevel warning -y -i $src -vf ("vidstabdetect=shakiness=5:accuracy=15:result='{0}'" -f $trf) -f null NUL
       if ($LASTEXITCODE -ne 0) { Write-Host "vidstabdetect failed on $src â€” falling back to no stabilization for this source." -ForegroundColor Yellow; $trf = $null }
-    }
+#FIX commented to repair brace mismatch:     }
     $trfFor[$src] = $trf
-  }
+#FIX commented to repair brace mismatch:   }
   $trfUse = $trfFor[$src]
 
   # Build per-clip video filter chain
@@ -207,7 +207,7 @@ for ($i=0; $i -lt $moments.Count; $i++) {
   }
 
   $concatLines += "file '$part'"
-}
+#FIX commented to repair brace mismatch: }
 
 # -------- concat parts (stream copy) --------
 $concatList = Join-Path $partsDir 'concat.txt'
