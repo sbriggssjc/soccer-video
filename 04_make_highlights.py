@@ -69,20 +69,29 @@ def main() -> None:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    with open(args.csv) as f:
-        reader = csv.DictReader(f)
-        idx = 1
-        for row in reader:
-            start = float(row["start"])
-            end = float(row["end"])
-            if end - start < args.min_dur:
-                continue
-            out = outdir / safe_name(idx)
-            if out.exists() and not args.overwrite:
-                idx += 1
-                continue
-            run_ffmpeg(args.video, start, end, out)
+    try:
+        with open(args.csv, newline="") as f:
+            rows = list(csv.DictReader(f))
+    except FileNotFoundError as exc:
+        raise SystemExit(f"[make_highlights] No rows in {args.csv}. Aborting.") from exc
+
+    if not rows:
+        raise SystemExit(f"[make_highlights] No rows in {args.csv}. Aborting.")
+
+    print(f"[make_highlights] Using CSV: {args.csv}  rows={len(rows)}")
+
+    idx = 1
+    for row in rows:
+        start = float(row["start"])
+        end = float(row["end"])
+        if end - start < args.min_dur:
+            continue
+        out = outdir / safe_name(idx)
+        if out.exists() and not args.overwrite:
             idx += 1
+            continue
+        run_ffmpeg(args.video, start, end, out)
+        idx += 1
 
 
 if __name__ == "__main__":
