@@ -1,0 +1,2 @@
+file 'out/stabilized_A.mp4'
+file 'out/stabilized_B.mp4'
