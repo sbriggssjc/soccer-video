@@ -1,0 +1,55 @@
+paths:
+  video: full_game_stabilized.mp4
+  output_dir: out
+
+detect:
+  min_gap: 2.0
+  pre: 5.0
+  post: 6.0
+  max_count: 40
+  audio_weight: 0.5
+  threshold_std: 0.5
+  hysteresis: 0.3
+  sustain: 1.0
+
+shrink:
+  mode: smart
+  pre: 3.0
+  post: 5.0
+  aspect: horizontal
+  zoom: 1.2
+  bias_blue: false
+
+clips:
+  min_duration: 3.0
+  preset: veryfast
+  crf: 20
+  audio_bitrate: 160k
+  workers: 2
+  overwrite: false
+
+rank:
+  k: 10
+  max_len: 18.0
+  sustain: 1.25
+  min_tail: 6.0
+
+reels:
+  profile: broadcast
+  topk_title: Top Plays
+  full_title: Full Highlights
+
+colors:
+  calibrate: false
+  pitch_hsv:
+    h: 90
+    s: 80
+    v: 80
+  team_primary:
+    h: 210
+    s: 70
+    v: 70
+  team_secondary:
+    h: 30
+    s: 70
+    v: 70
