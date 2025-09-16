@@ -1,0 +1,297 @@
+### 02_detect_events.py
+# 02_detect_events.py
+# Detects soccer-specific highlight moments:
+#  - pass chains (blue->blue)
+#  - shots/goals (ball speed into goal corridor + stoppage)
+#  - intensity (optical flow), lightly blended with audio if available
+#
+# Output: out/highlights.csv  (start,end,score,event)
+
+import os, csv, argparse, math
+import numpy as np
+import cv2
+
+def clamp(v, lo, hi): return max(lo, min(hi, v))
+
+# --------- field / team / ball masks (tweak here if needed) ----------
+def mask_green(bgr):
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    # broad pitch green
+    lower = np.array([35, 40, 40], np.uint8)
+    upper = np.array([90,255,255], np.uint8)
+    return cv2.inRange(hsv, lower, upper)
+
+def mask_blue(bgr):
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    lower = np.array([90,  40,  40], np.uint8)   # <-- adjust if your kit is darker/lighter
+
+### 02_detect_scenes.py
+#!/usr/bin/env python3
+"""Pick highlight segments based on audio and motion.
+
+Scores each second by combining RMS audio energy and total motion
+magnitude. Segments whose combined score exceed a dynamic threshold are
+expanded with pre/post roll and merged. Results are written to
+``out/highlights.csv`` with columns ``start,end,score`` in seconds.
+
+CLI options:
+  --video PATH     Input video (default full_game_stabilized.mp4)
+  --min-gap SEC    Minimum gap between merged segments (default 2.0)
+  --pre SEC        Seconds to prepend before a hit (default 5)
+  --post SEC       Seconds to append after a hit (default 6)
+  --max-count N    Limit number of segments (default 40)
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+from pathlib import Path
+
+import cv2
+import librosa
+import numpy as np
+
+### 03_motion_zoom.py
+#!/usr/bin/env python3
+"""Motion guided auto-crop/zoom.
+
+Reads a video, downsamples it for motion estimation and outputs smoothed
+crop windows with constant aspect ratio. Crop coordinates are written to
+``out/crops.jsonl`` and a temporary video is produced at
+``out/zoomed_temp.mp4``. The script feeds raw BGR frames to FFmpeg via
+stdin and falls back to OpenCV's ``VideoWriter`` when FFmpeg is missing.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess as sp
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+def ensure_bounds(cx: float, cy: float, cw: int, ch: int, W: int, H: int) -> tuple[float, float]:
+    """Clamp center so the crop stays inside the full frame."""
+
+    cx = float(np.clip(cx, cw / 2, W - cw / 2))
+    cy = float(np.clip(cy, ch / 2, H - ch / 2))
+
+### 03_shrink_highlights.py
+import argparse, csv, math, os
+import cv2
+import numpy as np
+
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--video", required=True, help="Proxy or full video (use proxy for speed)")
+    ap.add_argument("--csv", required=True, help="Input highlights.csv from detector")
+    ap.add_argument("--out", default="out/highlights_tight.csv", help="Output refined CSV")
+    ap.add_argument("--target", type=float, default=8.0, help="target clip length (sec)")
+    ap.add_argument("--pre", type=float, default=3.0, help="seconds before peak")
+    ap.add_argument("--post", type=float, default=5.0, help="seconds after peak")
+    ap.add_argument("--sample_fps", type=float, default=6.0, help="sampling fps for motion scoring")
+    return ap.parse_args()
+
+def clamp(a, lo, hi): return max(lo, min(a, hi))
+
+def main():
+    args = parse_args()
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+
+    cap = cv2.VideoCapture(args.video)
+    if not cap.isOpened():
+        raise SystemExit(f"Could not open video: {args.video}")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+
+### 03_smart_shrink.py
+# 03_smart_shrink.py
+# Finds peak action within coarse highlights and (optionally) writes
+# short, tracked clips for social media.
+#
+# Usage example (vertical social):
+#   python 03_smart_shrink.py --video .\full_game_stabilized.mp4 ^
+#       --csv .\out\highlights.csv --outcsv .\out\highlights_smart.csv ^
+#       --aspect vertical --write-clips .\out\smart_vertical --pre 3 --post 5 --bias-blue
+
+import os, csv, argparse, math
+import numpy as np
+import cv2
+
+# Optional audio (helps pick the exact peak). Falls back gracefully.
+def audio_envelope(video_path):
+    try:
+        import librosa
+        y, sr = librosa.load(video_path, sr=None, mono=True)
+        # onset strength is a decent "excitement" proxy
+        hop = 512
+        env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+        t = librosa.frames_to_time(np.arange(len(env)), sr=sr, hop_length=hop)
+        env = env.astype(np.float32)
+        if env.size:
+            env = (env - env.min()) / (env.max() - env.min() + 1e-8)
+
+### 04_make_highlights.py
+#!/usr/bin/env python3
+"""Export highlight clips using FFmpeg.
+
+Reads ``out/highlights.csv`` and writes individual clips to
+``out/clips/clip_####.mp4``. Existing clips are skipped unless
+``--overwrite`` is given."""
+from __future__ import annotations
+
+import argparse
+import csv
+import subprocess as sp
+from pathlib import Path
+
+
+def safe_name(idx: int) -> str:
+    return f"clip_{idx:04d}.mp4"
+
+
+def run_ffmpeg(src: str, start: float, end: float, out: Path) -> None:
+    """Re-encode a clip with audio fades and timestamp cleanup."""
+
+    # Duration is needed to position the fade-out filter.
+    dur = max(0.0, end - start)
+    fade = min(0.05, dur / 2)  # tiny fades at head/tail
+    af = (
+
+### 05_filter_by_motion.py
+import argparse, csv, cv2, numpy as np, os
+
+def avg_green_ratio(frame_hsv):
+    # HSV ranges for grassy green (tuned for daylight/turf; adjust if needed)
+    lower = np.array([35, 60, 40], dtype=np.uint8)
+    upper = np.array([90, 255, 255], dtype=np.uint8)
+    mask = cv2.inRange(frame_hsv, lower, upper)
+    return float(np.count_nonzero(mask)) / mask.size
+
+def analyze_window(cap, fps, start_s, end_s, stride=2):
+    start_f = int(max(0, start_s*fps))
+    end_f   = int(end_s*fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
+    ret, prev = cap.read()
+    if not ret: return 0.0, 0.0, 0
+    prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
+    motion_acc = 0.0
+    green_acc  = 0.0
+    ball_hits  = 0
+    frames = 0
+
+    f = start_f+1
+    while f < end_f:
+        # stride read
+        for _ in range(stride-1):
+
+### 05_smart_top10.py
+# 05_smart_top10.py
+import os, glob, csv, math
+import numpy as np
+import cv2
+
+def activity_profile(path, sample_fps=6):
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    stride = max(1, int(round(fps / sample_fps)))
+
+    ok, prev = cap.read()
+    if not ok:
+        cap.release()
+        return [], [], []
+    prev = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
+
+    times = []
+    cover = []  # fraction of pixels moving
+    mag   = []  # mean abs diff (0..1)
+
+    while True:
+        # skip to next sampled frame
+        for _ in range(stride - 1):
+            if not cap.grab():
+                break
+
+### 06_detect_goal_resets.py
+import argparse, csv, os, math
+import numpy as np
+import cv2
+import librosa
+from scipy.signal import find_peaks
+
+def load_audio_peaks(path, hop_s=0.05, win_s=0.20, prom_mult=2.5, min_sep_s=12.0):
+    y, sr = librosa.load(path, sr=None, mono=True)
+    hop = int(sr*hop_s)
+    win = int(sr*win_s)
+    rms = librosa.feature.rms(y=y, frame_length=win, hop_length=hop, center=True)[0]
+    t = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
+    # Normalize
+    rms = (rms - np.median(rms)) / (np.std(rms) + 1e-8)
+    prom = prom_mult  # since z-scored
+    dist = int(max(1, min_sep_s / hop_s))
+    peaks, props = find_peaks(rms, prominence=prom, distance=dist)
+    return t[peaks], props.get("prominences", np.ones_like(peaks)), t[-1] if len(t) else 0.0
+
+def white_line_mask(bgr):
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    # Field-ish green (for masking non-pitch)
+    g_lo, g_hi = np.array([35, 60, 40], np.uint8), np.array([90, 255, 255], np.uint8)
+    green = cv2.inRange(hsv, g_lo, g_hi)
+    # White paint lines (low saturation, high value)
+
+### 07_merge_csv.py
+import argparse, csv
+
+def read_csv(p):
+    with open(p, newline="") as f:
+        return [{k: v for k,v in r.items()} for r in csv.DictReader(f)]
+
+def iou(a, b):
+    # a,b are (start,end) in seconds
+    inter = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
+    uni   = (a[1]-a[0]) + (b[1]-b[0]) - inter
+    return inter/uni if uni>0 else 0.0
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--a", required=True)   # base CSV
+    ap.add_argument("--b", required=True)   # additions CSV
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--min-iou", type=float, default=0.5)
+    args = ap.parse_args()
+
+    A = read_csv(args.a)
+    B = read_csv(args.b)
+    # Convert to floats and sort by score desc
+    for R in (A+B):
+        R["start"] = float(R["start"]); R["end"] = float(R["end"]); R["score"] = float(R["score"])
+
+### smart_zoom.py
+# smart_zoom.py
+import argparse, cv2, numpy as np, os, subprocess, sys
+
+p = argparse.ArgumentParser()
+p.add_argument('--inp', required=True, help='input mp4 (with audio)')
+p.add_argument('--out', required=True, help='output mp4 (video-only temp)')
+p.add_argument('--zoom', type=float, default=1.45, help='zoom factor for crop window')
+p.add_argument('--smooth', type=float, default=0.85, help='EMA smoothing 0..1 (higher = steadier)')
+args = p.parse_args()
+
+cap = cv2.VideoCapture(args.inp)
+if not cap.isOpened():
+    print("Failed to open input", file=sys.stderr); sys.exit(1)
+
+w  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+h  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+
+# crop size (keep aspect)
+cw = max(2, int((w / args.zoom) // 2 * 2))
+ch = max(2, int((h / args.zoom) // 2 * 2))
+
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # widely supported
+tmpv = args.out
+vw = cv2.VideoWriter(tmpv, fourcc, fps, (w, h))
+
