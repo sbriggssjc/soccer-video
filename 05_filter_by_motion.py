@@ -7,6 +7,17 @@ try:
 except Exception:
     librosa = None
 
+def hsv_mask_team(frame_bgr, low=(105, 80, 20), high=(130, 255, 160)):
+    """Return binary mask for NAVY kit in HSV (OpenCV: H 0..180)."""
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    low  = np.array(low, dtype=np.uint8)
+    high = np.array(high, dtype=np.uint8)
+    m = cv2.inRange(hsv, low, high)
+    return m
+
+TEAM_LOW = (105, 80, 20)
+TEAM_HIGH = (130, 255, 160)
+
 def read_candidates(csv_path):
     rows = []
     with open(csv_path, newline='') as f:
@@ -52,15 +63,17 @@ def action_metrics(cap, start_s, end_s, downsample=2, step_frames=3, min_frames=
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
     frames = []
+    frames_color = []
     for i in range(total):
         ok, frame = cap.read()
         if not ok: break
         if i % step_frames: continue
+        frames_color.append(frame.copy())
         if downsample > 1:
             frame = cv2.resize(frame, None, fx=1.0/downsample, fy=1.0/downsample, interpolation=cv2.INTER_AREA)
         frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
     if len(frames) < 2:
-        return dict(mean_flow=0, center_ratio=0, contig_ok=False, ball_speed=0, samples=len(frames))
+        return dict(mean_flow=0, center_ratio=0, contig_ok=False, ball_speed=0, samples=len(frames), team_presence=0.0)
 
     h, w = frames[0].shape[:2]
     lane = center_lane_mask(h, w, inner_ratio=0.60)
@@ -68,6 +81,7 @@ def action_metrics(cap, start_s, end_s, downsample=2, step_frames=3, min_frames=
     flows = []
     center_energy = []
     ball_path = []  # crude proxy: brightest small blob motion near center
+    team_presence_steps = []
     prev = frames[0]
     for f in frames[1:]:
         flow = cv2.calcOpticalFlowFarneback(prev, f, None,
@@ -76,11 +90,25 @@ def action_metrics(cap, start_s, end_s, downsample=2, step_frames=3, min_frames=
         mag = cv2.magnitude(flow[...,0], flow[...,1])
         flows.append(mag)
 
+        if frames_color:
+            color_idx = min(len(flows), len(frames_color) - 1)
+            team_m = hsv_mask_team(frames_color[color_idx], low=TEAM_LOW, high=TEAM_HIGH)
+        else:
+            team_m = np.zeros_like(mag, dtype=np.uint8)
+        if downsample > 1:
+            team_m = cv2.resize(team_m, (mag.shape[1], mag.shape[0]), interpolation=cv2.INTER_NEAREST)
+
         # motion mask
         msk = (mag > np.percentile(mag, 85))  # top motion as proxy
         # center concentration
         ctr = (msk * (lane>0)).sum() / (msk.sum()+1e-6)
         center_energy.append(ctr)
+
+        motion_mask = msk.astype(np.uint8)
+        motion_pixels = motion_mask.sum() + 1e-6
+        team_pixels = ((motion_mask > 0) & (team_m > 0)).sum()
+        team_presence_step = float(team_pixels / motion_pixels)
+        team_presence_steps.append(team_presence_step)
 
         # crude ball proxy: brightest small area (top 0.1%) centroid
         thresh = np.percentile(mag, 99.9)
@@ -108,8 +136,10 @@ def action_metrics(cap, start_s, end_s, downsample=2, step_frames=3, min_frames=
                  for i in range(len(ball_path)-1)]
         ball_speed = float(np.median(dists))
 
+    team_presence = float(np.mean(team_presence_steps)) if team_presence_steps else 0.0
+
     return dict(mean_flow=mean_flow, center_ratio=center_ratio, contig_ok=contig_ok,
-                ball_speed=ball_speed, samples=len(frames))
+                ball_speed=ball_speed, samples=len(frames), team_presence=team_presence)
 
 def maybe_audio_boost(video_path, start_s, end_s):
     if librosa is None: return 0.0
@@ -136,7 +166,19 @@ def main():
     ap.add_argument("--min-ball-speed",    type=float, default=0.9, help="median px/frame (sampled) for ball proxy")
     ap.add_argument("--min-flow-mean",     type=float, default=0.55, help="relative scalar on window mean flow")
     ap.add_argument("--audio-boost",       type=int,   default=1,    help="use spectral flux as tiebreaker")
+    ap.add_argument("--team-hsv-low",  type=str, default="105,80,20")
+    ap.add_argument("--team-hsv-high", type=str, default="130,255,160")
+    ap.add_argument("--min-team-pres", type=float, default=0.12, help="min fraction of motion that is team color (navy)")
+    ap.add_argument("--team-bias",     type=float, default=0.25, help="score bonus weight for team presence")
     args = ap.parse_args()
+
+    def parse_triplet(s):
+        a, b, c = [int(x) for x in s.split(",")]
+        return (a, b, c)
+
+    global TEAM_LOW, TEAM_HIGH
+    TEAM_LOW = parse_triplet(args.team_hsv_low)
+    TEAM_HIGH = parse_triplet(args.team_hsv_high)
 
     rows = read_candidates(args.csv)
     if not rows:
@@ -155,23 +197,26 @@ def main():
         contig_ok = mets['contig_ok']
         center_ratio = mets['center_ratio']
         ball_speed = mets['ball_speed']
+        team_presence = mets.get('team_presence', 0.0)
 
         # hard gates
         g_cont = contig_ok
         g_center = (center_ratio >= args.min_center_ratio)
-        g_flow   = (mean_flow >= args.min_flow_mean * max(1e-6, mean_flow)) or contig_ok  # contig can compensate
         g_ball   = (ball_speed >= args.min_ball_speed)
+        g_team   = (team_presence >= args.min_team_pres)
 
-        score = 0.0
-        score += 0.45 * min(2.0, mean_flow)
-        score += 0.30 * center_ratio
-        score += 0.25 * min(2.0, ball_speed)
+        score = 0.45 * min(2.0, mean_flow) \
+              + 0.30 * center_ratio \
+              + 0.25 * min(2.0, ball_speed) \
+              + args.team_bias * team_presence
 
         if args.audio_boost:
             score += 0.10 * maybe_audio_boost(args.video, start, end)
 
-        # final decision: require continuity + center + either ball moving or strong flow
+        # final decision: require continuity + center; allow either ball or strong flow; prefer team
         ok = g_cont and g_center and (g_ball or (mean_flow > 1.2*args.min_flow_mean))
+        if not ok and g_team and contig_ok and center_ratio >= (args.min_center_ratio + 0.03):
+            ok = True
 
         why = []
         if not g_cont:   why.append("no_continuity")
@@ -183,6 +228,7 @@ def main():
                                mean_flow=float(mean_flow),
                                center_ratio=float(center_ratio),
                                ball_speed=float(ball_speed),
+                               team_presence=float(team_presence),
                                why="keep"))
             kept.append(outrow)
         else:
