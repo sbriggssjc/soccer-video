@@ -143,7 +143,7 @@ if (-not (Test-Path $trfDir)) { New-Item -ItemType Directory $trfDir | Out-Null 
 $trfFor = @{}  # path -> trf
 
 # Audio filter builder (delay or advance + fades, reset PTS)
-function Build-AFilter([double]$offset, [string]$fadeIn, [string]$fadeOutStart) {
+function New-AFilter([double]$offset, [string]$fadeIn, [string]$fadeOutStart) {
   if ($offset -ge 0) {
     $ms = [int]([math]::Round($offset * 1000))
     return ("adelay=delays={0}:all=1,asetpts=PTS-STARTPTS,afade=t=in:st=0:d={1}:curve=tri,afade=t=out:st={2}:d={1}:curve=tri,aresample=async=1:first_pts=0" -f $ms, $fadeIn, $fadeOutStart)
@@ -153,7 +153,8 @@ function Build-AFilter([double]$offset, [string]$fadeIn, [string]$fadeOutStart) 
     return ("atrim=start={0},asetpts=PTS-STARTPTS,afade=t=in:st=0:d={1}:curve=tri,afade=t=out:st={2}:d={1}:curve=tri,apad=pad_dur={0},aresample=async=1:first_pts=0" -f $cutStr, $fadeIn, $fadeOutStart)
   }
 }
-
+# Audio filter builder (delay or advance + fades, reset PTS)
+# (Renamed from Build-AFilter to New-AFilter to use an approved verb)
 $concatLines = @()
 
 for ($i=0; $i -lt $moments.Count; $i++) {
