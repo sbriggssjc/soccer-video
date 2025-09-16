@@ -26,6 +26,24 @@ def ensure_bounds(cx: float, cy: float, cw: int, ch: int, W: int, H: int) -> tup
     return cx, cy
 
 
+def clamp_int(a: float | int, lo: int, hi: int) -> int:
+    return int(max(lo, min(hi, a)))
+
+
+def crop_rect(cx: int, cy: int, cw: int, ch: int, W: int, H: int, border: int = 24):
+    # keep a margin so we don't request pixels outside the frame
+    half_w = cw // 2
+    half_h = ch // 2
+    x0 = clamp_int(cx - half_w, border, W - border - cw)
+    y0 = clamp_int(cy - half_h, border, H - border - ch)
+    x1 = x0 + cw
+    y1 = y0 + ch
+    # final guard
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return x0, y0, x1, y1
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--in", dest="inp", default="full_game_stabilized.mp4")
@@ -35,7 +53,8 @@ def main() -> None:
     p.add_argument("--smooth", type=float, default=0.85)
     p.add_argument("--downscale", type=int, default=640, help="width used for motion estimation")
     p.add_argument("--max-zoom", type=float, default=1.8, help="maximum zoom factor")
-    p.add_argument("--border", type=float, default=0.06, help="safe border fraction")
+    p.add_argument("--margin", type=float, default=0.06, help="safe border fraction for motion box")
+    p.add_argument("--border", type=int, default=24, help="safety border (px) to keep inside frame")
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -91,6 +110,7 @@ def main() -> None:
     scale = max_scale  # current scale factor
     still = 0  # frames with little motion
     frame_idx = 0
+    last_rect: tuple[int, int, int, int] | None = None
 
     while True:
         ret, frame = cap.read()
@@ -126,8 +146,8 @@ def main() -> None:
 
         # Desired scale so the motion stays inside the crop with margin.
         req_scale = max(
-            w_full / (1 - args.border) / args.width,
-            h_full / (1 - args.border) / args.height,
+            w_full / (1 - args.margin) / args.width,
+            h_full / (1 - args.margin) / args.height,
             min_scale,
         )
         if still > fps * 0.75:
@@ -141,21 +161,49 @@ def main() -> None:
         cx += (ncx - cx) / 12.0
         cy += (ncy - cy) / 12.0
 
-        x0 = int(round(cx - cw / 2))
-        y0 = int(round(cy - ch / 2))
+        rect = crop_rect(int(round(cx)), int(round(cy)), cw, ch, W, H, border=args.border)
+
+        if rect is None:
+            if last_rect is not None:
+                rect = last_rect
+            else:
+                rect = (0, 0, min(W, cw), min(H, ch))
+
+        x0, y0, x1, y1 = rect
+        crop = frame[y0:y1, x0:x1]
+
+        if crop is None or crop.size == 0:
+            if last_rect is not None:
+                x0, y0, x1, y1 = last_rect
+                crop = frame[y0:y1, x0:x1]
+            else:
+                fallback_cw = min(cw, W)
+                fallback_ch = min(ch, H)
+                cx0 = max(0, (W - fallback_cw) // 2)
+                cy0 = max(0, (H - fallback_ch) // 2)
+                x1 = min(W, cx0 + fallback_cw)
+                y1 = min(H, cy0 + fallback_ch)
+                crop = frame[cy0:y1, cx0:x1]
+                x0, y0 = cx0, cy0
+
+        if crop is None or crop.size == 0:
+            frame_idx += 1
+            continue
+
+        last_rect = (x0, y0, x1, y1)
+
         jsonl.write(
             json.dumps({
                 "frame": frame_idx,
                 "t": frame_idx / fps,
                 "x": x0,
                 "y": y0,
-                "w": cw,
-                "h": ch,
+                "w": x1 - x0,
+                "h": y1 - y0,
             })
             + "\n"
         )
 
-        crop = frame[y0 : y0 + ch, x0 : x0 + cw]
         crop = cv2.resize(crop, (args.width, args.height), interpolation=cv2.INTER_LINEAR)
 
         if writer is not None:
