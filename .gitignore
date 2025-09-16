@@ -10,3 +10,5 @@ livestream_logs/
 *.png
 *.jpg
 *.wav
+
+*.trf
