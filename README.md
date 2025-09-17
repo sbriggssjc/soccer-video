@@ -55,6 +55,7 @@ to regenerate clips when needed.
 Each command updates `out/report.md` with summary statistics so you always know
 how many windows, clips, and reel duration were produced.
 
+
 ### Cheer-anchored Top-10
 
 When you have a CSV of cheer timestamps (see `09_detect_cheers.py`), run
@@ -63,6 +64,27 @@ Top-10 reel. The script keeps up to four well-spaced cheers, pads each window
 with additional context, fills remaining slots using the highest
 `action_score` clips from `out/highlights_filtered.csv`, then renders
 `out/top10.mp4` along with the individual clips and concat list.
+
+## Motion Filter Tuning Notes
+
+The optional `05_filter_by_motion.py` stage keeps the most action-packed windows
+by combining motion strength, a rough ball-speed proxy, and a navy jersey mask.
+You can adjust several parameters when your footage or uniforms differ from the
+defaults:
+
+* **Jersey mask** – `--team-hsv-low`/`--team-hsv-high` accept `H,S,V` triplets in
+  OpenCV ranges. The dark-navy defaults are `105,70,20` through `130,255,160`.
+  Raise the upper V toward `190` when clips look too dim, or increase the lower
+  S to ~`90` if the mask is catching sky and bleachers.
+* **Sensitivity knobs** – Lower `--min-flow-mean` (alias `--min-flow`) when fast
+  plays are being dropped, or reduce `--min-ball-speed` when the ball appears
+  small or far from the camera. Raising `--min-center-ratio` nudges the filter
+  toward activity in the attacking thirds.
+
+The filter now drops windows with low residual motion (such as pure camera pans)
+and those lacking a moving ball or visible pitch, so expect filler "in-between"
+clips to disappear as thresholds tighten.
+
 
 ## Examples & Tests
 
