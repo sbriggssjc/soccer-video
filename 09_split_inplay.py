@@ -1,5 +1,5 @@
-# 09_split_inplay.py
-import argparse, csv, math, re
+# 09_split_inplay.py  (fixed)
+import argparse, csv, math, re, os
 from typing import List, Tuple
 
 def fnum(x):
@@ -18,6 +18,15 @@ def read_intervals(path) -> List[Tuple[float,float]]:
     rows.sort(key=lambda t:t[0])
     return rows
 
+def read_points(path) -> List[float]:
+    pts=[]
+    with open(path, newline='', encoding='utf-8') as fh:
+        for r in csv.DictReader(fh):
+            t = fnum(r.get('start') or r.get('time') or r.get('t'))
+            if not math.isnan(t):
+                pts.append(t)
+    return sorted(pts)
+
 def merge_close(iv: List[Tuple[float,float]], max_gap: float) -> List[Tuple[float,float]]:
     if not iv: return []
     out=[]; cs,ce=iv[0]
@@ -28,7 +37,6 @@ def merge_close(iv: List[Tuple[float,float]], max_gap: float) -> List[Tuple[floa
     return out
 
 def subtract_dead(seg: Tuple[float,float], dead: List[Tuple[float,float]]):
-    # subtract union of dead intervals from a single segment, return list of kept pieces
     s0,e0 = seg
     keep=[(s0,e0)]
     for ds,de in dead:
@@ -56,23 +64,29 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--filtered", required=True)
     ap.add_argument("--resets", required=False, default=None)
-    ap.add_argument("--ignore-before", type=float, default=15.0)   # skip pre-kickoff noise
-    ap.add_argument("--max-gap", type=float, default=2.0)          # merge windows if within 2s
-    ap.add_argument("--dead-before", type=float, default=1.5)      # around restarts to cut out dead time
+    ap.add_argument("--ignore-before", type=float, default=15.0)
+    ap.add_argument("--max-gap", type=float, default=2.0)
+    ap.add_argument("--dead-before", type=float, default=1.5)
     ap.add_argument("--dead-after", type=float, default=2.5)
     ap.add_argument("--min-play", type=float, default=4.0)
     ap.add_argument("--out", required=True)
     args=ap.parse_args()
 
     base = read_intervals(args.filtered)
-    base = [(max(s, args.ignore_before), e) for s,e in base if e>args.ignore_before]
+    base = [(max(s, args.ignore-before if False else args.ignore_before), e) for s,e in base if e>args.ignore_before]  # ignore kickoff noise
     base = merge_close(base, args.max_gap)
 
     dead=[]
-    if args.resets:
-        for t,_ in read_intervals(args.resets):
-            dead.append((t-args.dead-before, t+args.dead_after))
-        dead = union([(max(0.0,s), max(0.0,e)) for s,e in dead])
+    if args.resets and os.path.exists(args.resets):
+        # accept either points CSV (start/time) or interval CSV
+        pts = read_points(args.resets)
+        if not pts:
+            iv = read_intervals(args.resets)
+            pts = [s for s,_ in iv]
+        for t in pts:
+            dead.append((t - args.dead_before, t + args.dead_after))
+        dead = [(max(0.0,s), max(0.0,e)) for s,e in dead]
+        dead = union(dead)
 
     plays=[]
     for seg in base:
@@ -80,13 +94,11 @@ def main():
         for s,e in pieces:
             if e-s >= args.min_play:
                 plays.append((s,e))
-
-    # final tidy merge (again) in case subtract created close neighbors
     plays = merge_close(plays, args.max_gap)
 
     with open(args.out, "w", newline="", encoding="ascii") as fh:
-        cw=csv.writer(fh); cw.writerow(["start","end"])
-        for s,e in plays: cw.writerow([f"{s:.2f}", f"{e:.2f}"])
+        w=csv.writer(fh); w.writerow(["start","end"])
+        for s,e in plays: w.writerow([f"{s:.2f}", f"{e:.2f}"])
 
 if __name__=="__main__":
     main()
