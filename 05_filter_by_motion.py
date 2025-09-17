@@ -7,7 +7,7 @@ try:
 except Exception:
     librosa = None
 
-def hsv_mask_team(frame_bgr, low=(105, 80, 20), high=(130, 255, 160)):
+def hsv_mask_team(frame_bgr, low=(105, 70, 20), high=(130, 255, 160)):
     """Return binary mask for NAVY kit in HSV (OpenCV: H 0..180)."""
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
     low  = np.array(low, dtype=np.uint8)
@@ -15,7 +15,7 @@ def hsv_mask_team(frame_bgr, low=(105, 80, 20), high=(130, 255, 160)):
     m = cv2.inRange(hsv, low, high)
     return m
 
-TEAM_LOW = (105, 80, 20)
+TEAM_LOW = (105, 70, 20)
 TEAM_HIGH = (130, 255, 160)
 
 def read_candidates(csv_path):
@@ -178,9 +178,16 @@ def main():
     ap.add_argument("--min-contig-frames", type=int, default=10)
     ap.add_argument("--min-center-ratio",  type=float, default=0.35)
     ap.add_argument("--min-ball-speed",    type=float, default=0.9, help="median px/frame (sampled) for ball proxy")
-    ap.add_argument("--min-flow-mean",     type=float, default=0.55, help="relative scalar on window mean flow")
+    ap.add_argument(
+        "--min-flow-mean",
+        "--min-flow",
+        dest="min_flow_mean",
+        type=float,
+        default=0.55,
+        help="relative scalar on window mean flow (alias --min-flow)",
+    )
     ap.add_argument("--audio-boost",       type=int,   default=1,    help="use spectral flux as tiebreaker")
-    ap.add_argument("--team-hsv-low",  type=str, default="105,80,20")
+    ap.add_argument("--team-hsv-low",  type=str, default="105,70,20")
     ap.add_argument("--team-hsv-high", type=str, default="130,255,160")
     ap.add_argument("--min-team-pres", type=float, default=0.12, help="min fraction of motion that is team color (navy)")
     ap.add_argument("--team-bias",     type=float, default=0.25, help="score bonus weight for team presence")
