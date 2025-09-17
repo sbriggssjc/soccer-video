@@ -20,14 +20,28 @@ TEAM_HIGH = (130, 255, 160)
 
 def read_candidates(csv_path):
     rows = []
-    with open(csv_path, newline='') as f:
+    with open(csv_path, newline='', encoding='utf-8-sig') as f:
         r = csv.DictReader(f)
-        for row in r:
+        if r.fieldnames:
+            r.fieldnames = [fn.strip().lower().lstrip('\ufeff') for fn in r.fieldnames]
+        for idx, row in enumerate(r, start=1):
             # tolerate columns named start/end or t0/t1
-            start = float(row.get('start', row.get('t0')))
-            end   = float(row.get('end',   row.get('t1')))
-            score = float(row.get('score', 0.0))
-            rows.append({**row, 'start': start, 'end': end, 'score': score})
+            s_val = row.get('start', row.get('t0'))
+            e_val = row.get('end',   row.get('t1'))
+            try:
+                start = float(str(s_val).replace(',', '.'))
+                end   = float(str(e_val).replace(',', '.'))
+            except Exception:
+                print(f"[filter_by_motion] Skipping row {idx}: cannot parse start/end -> {row}")
+                continue
+
+            score_val = row.get('score', 0.0)
+            try:
+                score = float(str(score_val).replace(',', '.'))
+            except Exception:
+                score = 0.0
+
+            rows.append({**row, "start": start, "end": end, "score": score})
     return rows
 
 def consecutive_true(mask, min_len):
