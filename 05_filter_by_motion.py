@@ -1,4 +1,4 @@
-import argparse, csv, math, os
+﻿import argparse, csv, math, os
 import cv2
 import numpy as np
 
@@ -27,7 +27,7 @@ def read_candidates(csv_path):
             start = float(row.get('start', row.get('t0')))
             end   = float(row.get('end',   row.get('t1')))
             score = float(row.get('score', 0.0))
-            rows.append(dict(start=start, end=end, score=score, **row))
+            rows.append({**row, 'start': start, 'end': end, 'score': score})
     return rows
 
 def consecutive_true(mask, min_len):
@@ -145,7 +145,7 @@ def maybe_audio_boost(video_path, start_s, end_s):
     if librosa is None: return 0.0
     try:
         y, sr = librosa.load(video_path, sr=None, mono=True, offset=max(0.0, start_s), duration=max(0.05, end_s-start_s))
-        # spectral flux as “cheer/excitement” proxy
+        # spectral flux as â€œcheer/excitementâ€ proxy
         S = np.abs(librosa.stft(y, n_fft=1024, hop_length=256))
         flux = np.mean(np.maximum(S[:,1:] - S[:,:-1], 0.0))
         return float(flux)
@@ -192,7 +192,7 @@ def main():
     for r in rows:
         start, end = float(r['start']), float(r['end'])
         mets = action_metrics(cap, start, end)
-        # normalize “mean_flow” gate using window stats
+        # normalize â€œmean_flowâ€ gate using window stats
         mean_flow = mets['mean_flow']
         contig_ok = mets['contig_ok']
         center_ratio = mets['center_ratio']
@@ -255,3 +255,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
