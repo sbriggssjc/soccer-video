@@ -55,6 +55,15 @@ to regenerate clips when needed.
 Each command updates `out/report.md` with summary statistics so you always know
 how many windows, clips, and reel duration were produced.
 
+### Cheer-anchored Top-10
+
+When you have a CSV of cheer timestamps (see `09_detect_cheers.py`), run
+`08b_build_top10_cheers.py` to guarantee those big moments appear in the final
+Top-10 reel. The script keeps up to four well-spaced cheers, pads each window
+with additional context, fills remaining slots using the highest
+`action_score` clips from `out/highlights_filtered.csv`, then renders
+`out/top10.mp4` along with the individual clips and concat list.
+
 ## Examples & Tests
 
 `examples/generate_sample.py` creates a small synthetic match clip that drives a
