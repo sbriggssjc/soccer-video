@@ -76,24 +76,24 @@ def main() -> None:
         raise SystemExit(f"[make_highlights] CSV not found: {args.csv}")
 
     rows = []
-    with open(args.csv, newline="") as f:
+    with open(args.csv, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
+        if reader.fieldnames:
+            reader.fieldnames = [fn.strip().lower().lstrip("\ufeff") for fn in reader.fieldnames]
         for idx, row in enumerate(reader, start=1):
-            start_raw = row.get("start") or row.get("t0")
-            end_raw = row.get("end") or row.get("t1")
-
-            if start_raw in (None, "") or end_raw in (None, ""):
-                raise SystemExit(
-                    f"[make_highlights] Missing start/end values in row {idx} of {args.csv}."
-                )
+            s_val = row.get("start", row.get("t0"))
+            e_val = row.get("end", row.get("t1"))
 
             try:
-                start = float(start_raw)
-                end = float(end_raw)
-            except (TypeError, ValueError) as exc:
-                raise SystemExit(
-                    f"[make_highlights] Invalid start/end values in row {idx} of {args.csv}."
-                ) from exc
+                start = float(str(s_val).replace(",", "."))
+                end = float(str(e_val).replace(",", "."))
+            except Exception:
+                print(f"[make_highlights] Skipping row {idx}: cannot parse start/end -> {row}")
+                continue
+
+            if not (end > start):
+                print(f"[make_highlights] Skipping row {idx}: end<=start -> {row}")
+                continue
 
             clip_start = max(0.0, start - args.pre_roll)
             clip_end = max(clip_start + 0.80, end + args.post_roll)
