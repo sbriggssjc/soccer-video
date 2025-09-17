@@ -55,6 +55,16 @@ to regenerate clips when needed.
 Each command updates `out/report.md` with summary statistics so you always know
 how many windows, clips, and reel duration were produced.
 
+
+### Cheer-anchored Top-10
+
+When you have a CSV of cheer timestamps (see `09_detect_cheers.py`), run
+`08b_build_top10_cheers.py` to guarantee those big moments appear in the final
+Top-10 reel. The script keeps up to four well-spaced cheers, pads each window
+with additional context, fills remaining slots using the highest
+`action_score` clips from `out/highlights_filtered.csv`, then renders
+`out/top10.mp4` along with the individual clips and concat list.
+
 ## Motion Filter Tuning Notes
 
 The optional `05_filter_by_motion.py` stage keeps the most action-packed windows
@@ -74,6 +84,7 @@ defaults:
 The filter now drops windows with low residual motion (such as pure camera pans)
 and those lacking a moving ball or visible pitch, so expect filler "in-between"
 clips to disappear as thresholds tighten.
+
 
 ## Examples & Tests
 
