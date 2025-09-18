@@ -1,6 +1,8 @@
 # 05b_filter_action_cv.py
 import argparse, csv, math, os, sys
 from dataclasses import dataclass
+from typing import Optional, Tuple
+
 import cv2, numpy as np, pandas as pd
 
 def _to_num(x):
@@ -36,6 +38,109 @@ def parse_hsv(arg):
     a = [int(x) for x in arg.split(',')]
     if len(a)!=6: raise ValueError("HSV must be 6 ints: hL,sL,vL,hH,sH,vH")
     return HSVRange(*a)
+
+
+class KitClassifier:
+    """Simple HSV-based two-class jersey classifier updated online."""
+
+    def __init__(self, navy_hsv: HSVRange, opponent_seed: Optional[HSVRange] = None) -> None:
+        self.tol = np.array([15.0, 70.0, 80.0], dtype=np.float32)
+        self.navy_center = np.array(
+            [
+                0.5 * (navy_hsv.h_low + navy_hsv.h_high),
+                0.5 * (navy_hsv.s_low + navy_hsv.s_high),
+                0.5 * (navy_hsv.v_low + navy_hsv.v_high),
+            ],
+            dtype=np.float32,
+        )
+        if opponent_seed is not None:
+            self.opp_center = np.array(
+                [
+                    0.5 * (opponent_seed.h_low + opponent_seed.h_high),
+                    0.5 * (opponent_seed.s_low + opponent_seed.s_high),
+                    0.5 * (opponent_seed.v_low + opponent_seed.v_high),
+                ],
+                dtype=np.float32,
+            )
+        else:
+            self.opp_center = np.array([30.0, 45.0, 200.0], dtype=np.float32)
+        self.navy_weight = 1.0
+        self.opp_weight = 1.0
+
+    @staticmethod
+    def _clip_center(center: np.ndarray) -> np.ndarray:
+        center[0] = float(np.clip(center[0], 0.0, 180.0))
+        center[1] = float(np.clip(center[1], 0.0, 255.0))
+        center[2] = float(np.clip(center[2], 0.0, 255.0))
+        return center
+
+    def _valid_pixels(self, roi: np.ndarray) -> np.ndarray:
+        if roi.size == 0:
+            return np.zeros((0, 3), dtype=np.float32)
+        sat_mask = roi[..., 1] > 45
+        val_mask = roi[..., 2] > 60
+        green = cv2.inRange(roi, (30, 30, 30), (90, 255, 255)) > 0
+        fg = sat_mask & val_mask & (~green)
+        if not np.any(fg):
+            return np.zeros((0, 3), dtype=np.float32)
+        pixels = roi[fg]
+        return pixels.astype(np.float32)
+
+    def _range(self, center: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        low = np.clip(center - self.tol, [0.0, 0.0, 0.0], [180.0, 255.0, 255.0]).astype(np.uint8)
+        high = np.clip(center + self.tol, [0.0, 0.0, 0.0], [180.0, 255.0, 255.0]).astype(np.uint8)
+        return low, high
+
+    def _ratio(self, roi: np.ndarray, center: np.ndarray) -> float:
+        low, high = self._range(center)
+        mask = cv2.inRange(roi, low, high)
+        return float(mask.mean() / 255.0)
+
+    def _update(self, label: str, sample: np.ndarray, weight: float) -> None:
+        sample = self._clip_center(sample.copy())
+        weight = float(max(0.0, weight))
+        if weight <= 0:
+            return
+        if label == "navy":
+            total = self.navy_weight + weight
+            self.navy_center = self._clip_center(
+                (self.navy_center * self.navy_weight + sample * weight) / total
+            )
+            self.navy_weight = min(total, 1000.0)
+        else:
+            total = self.opp_weight + weight
+            self.opp_center = self._clip_center(
+                (self.opp_center * self.opp_weight + sample * weight) / total
+            )
+            self.opp_weight = min(total, 1000.0)
+
+    def classify_patch(
+        self, hsv_frame: np.ndarray, cx: int, cy: int, patch: int = 28
+    ) -> Tuple[Optional[str], float, float, float]:
+        h, w = hsv_frame.shape[:2]
+        x1 = max(0, cx - patch)
+        y1 = max(0, cy - patch)
+        x2 = min(w, cx + patch)
+        y2 = min(h, cy + patch)
+        roi = hsv_frame[y1:y2, x1:x2]
+        if roi.size == 0:
+            return None, 0.0, 0.0, 0.0
+        pixels = self._valid_pixels(roi)
+        if pixels.size == 0:
+            return None, 0.0, 0.0, 0.0
+        sample = np.median(pixels, axis=0)
+        navy_ratio = self._ratio(roi, self.navy_center)
+        opp_ratio = self._ratio(roi, self.opp_center)
+        total_ratio = navy_ratio + opp_ratio
+        if total_ratio < 1e-4:
+            return None, 0.0, navy_ratio, opp_ratio
+        label = "navy" if navy_ratio >= opp_ratio else "opponent"
+        confidence = abs(navy_ratio - opp_ratio)
+        if confidence >= 0.02:
+            # weight updates by fraction of foreground pixels to remain stable
+            fg_weight = min(pixels.shape[0] / 200.0, 1.0)
+            self._update(label, sample, max(confidence, 0.05) * fg_weight)
+        return label, float(confidence), float(navy_ratio), float(opp_ratio)
 
 def optical_flow_metrics(prev_gray, gray):
     flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 25, 3, 5, 1.1, 0)
@@ -87,12 +192,13 @@ def team_presence_near(hsv, cx, cy, team_hsv:HSVRange, patch=22):
     mask = cv2.inRange(roi, team_hsv.low(), team_hsv.high())
     return float(np.mean(mask>0))
 
-def analyze_window(cap, start, end, fps_sample, team_hsv, att_third_cut=0.18):
+def analyze_window(cap, start, end, fps_sample, team_hsv, kit: KitClassifier, att_third_cut=0.18):
     cap.set(cv2.CAP_PROP_POS_MSEC, max(0,start)*1000.0)
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)); w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     step = max(1,int(round(cap.get(cv2.CAP_PROP_FPS)/fps_sample))) if cap.get(cv2.CAP_PROP_FPS)>0 else 4
     idx=0; prev_gray=None; prev_ball=None
     green_rates=[]; flow_resid=[]; ball_speeds=[]; team_near=[]; att_pos=[]
+    navy_touch=0.0; opp_touch=0.0; last_touch=None; touch_events=0; touch_conf_sum=0.0
     while True:
         t = start + (idx/fps_sample)
         if t>=end: break
@@ -117,6 +223,21 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, att_third_cut=0.18):
             team_near.append(team_presence_near(hsv,cx,cy,team_hsv))
             # attacking thirds in X (left/right edges)
             att_pos.append( 1.0 if (cx < att_third_cut*w or cx > (1.0-att_third_cut)*w) else 0.0 )
+            label, conf, navy_ratio, opp_ratio = kit.classify_patch(hsv, cx, cy)
+            navy_touch += navy_ratio
+            opp_touch += opp_ratio
+            if label is not None:
+                last_touch = label
+                touch_events += 1
+                touch_conf_sum += conf
+                if label == "navy":
+                    navy_touch += max(0.02, conf * 0.25)
+                else:
+                    opp_touch += max(0.02, conf * 0.25)
+            elif last_touch == "navy":
+                navy_touch += 0.01
+            elif last_touch == "opponent":
+                opp_touch += 0.01
         idx += 1
     # Aggregate
     green_ok = np.mean(green_rates) if green_rates else 0
@@ -131,10 +252,30 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, att_third_cut=0.18):
         speed_med=0.0; contig=0; hits=0
     team_pres = float(np.mean(team_near)) if team_near else 0.0
     att_frac  = float(np.mean(att_pos))  if att_pos  else 0.0
+    total_touch = navy_touch + opp_touch
+    if total_touch > 1e-6:
+        navy_poss = float(navy_touch / total_touch)
+        opp_poss = float(opp_touch / total_touch)
+    elif last_touch == "navy":
+        navy_poss, opp_poss = 1.0, 0.0
+    elif last_touch == "opponent":
+        navy_poss, opp_poss = 0.0, 1.0
+    else:
+        navy_poss = opp_poss = 0.0
+    if last_touch == "navy":
+        last_touch_flag = 1.0
+    elif last_touch == "opponent":
+        last_touch_flag = 0.0
+    else:
+        last_touch_flag = 0.5
+    avg_touch_conf = (touch_conf_sum / touch_events) if touch_events else 0.0
+    poss_conf = max(abs(navy_poss - opp_poss), avg_touch_conf)
     return dict(
         green_ok=green_ok, flow=flow,
         speed_med=speed_med, contig=contig, hits=hits,
-        team_pres=team_pres, att_frac=att_frac
+        team_pres=team_pres, att_frac=att_frac,
+        navy_possession=navy_poss, opp_possession=opp_poss,
+        last_touch_navy=last_touch_flag, possession_conf=poss_conf
     )
 
 def main():
@@ -151,10 +292,13 @@ def main():
     ap.add_argument('--team-hsv', default='105,70,20,130,255,160')
     ap.add_argument('--min-team-pres', type=float, default=0.10)
     ap.add_argument('--team-bias', type=float, default=0.25)
+    ap.add_argument('--opp-hsv', default=None, help="optional HSV seed for opponent kit (hL,sL,vL,hH,sH,vH)")
     ap.add_argument('--att-third-cut', type=float, default=0.18)
     args = ap.parse_args()
 
     team_hsv = parse_hsv(args.team_hsv)
+    opp_seed = parse_hsv(args.opp_hsv) if args.opp_hsv else None
+    kit = KitClassifier(team_hsv, opp_seed)
     rows = read_candidates(args.csv)
     if not rows:
         print(f"No valid rows in {args.csv}", file=sys.stderr)
@@ -163,7 +307,7 @@ def main():
     cap = cv2.VideoCapture(args.video)
     out_rows=[]
     for r in rows:
-        m = analyze_window(cap, r['start'], r['end'], args.fps_sample, team_hsv, args.att_third_cut)
+        m = analyze_window(cap, r['start'], r['end'], args.fps_sample, team_hsv, kit, args.att_third_cut)
         if m['green_ok'] < args.min_green:  # off-field/bench
             continue
         if m['flow'] < args.min_flow:
@@ -178,7 +322,9 @@ def main():
         out_rows.append(dict(
             start=r['start'], end=r['end'], action_score=round(float(action),4),
             flow=m['flow'], speed_med=m['speed_med'], contig=m['contig'], hits=m['hits'],
-            team_pres=m['team_pres'], att_frac=m['att_frac']
+            team_pres=m['team_pres'], att_frac=m['att_frac'],
+            navy_possession=m['navy_possession'], opp_possession=m['opp_possession'],
+            last_touch_navy=m['last_touch_navy'], possession_conf=m['possession_conf']
         ))
     cap.release()
 
