@@ -156,6 +156,10 @@ def detect_highlights(config: AppConfig, video_path: Path, output_csv: Path) -> 
         else:
             idx += 1
 
+    banned = {event.lower() for event in (config.detect.exclude_events or [])}
+    if banned:
+        windows = [w for w in windows if str(w.event).lower() not in banned]
+
     merged = merge_overlaps(windows, config.detect.min_gap)
     merged.sort(key=lambda w: w.score, reverse=True)
     if config.detect.max_count:
