@@ -110,6 +110,7 @@ def main():
     ball_pos_prev = None
     ball_speed_series = []
     ball_x_series = []
+    ball_y_series = []
     owners = []  # nearest blue cluster index (or -1 if none)
     blue_pts_series = []
     moving_players_series = []
@@ -210,6 +211,7 @@ def main():
         if bpos is not None:
             ball_pos = bpos
         ball_x_series.append(ball_pos[0] if ball_pos else np.nan)
+        ball_y_series.append(ball_pos[1] if ball_pos else np.nan)
 
         if bpos_half is not None:
             bx_half = int(round(bpos_half[0]))
@@ -251,6 +253,8 @@ def main():
     flow_mag = np.array(flow_mag_series, dtype=np.float32)
     flow_mag = (flow_mag - flow_mag.min())/(flow_mag.max()-flow_mag.min()+1e-8)
 
+    blue_pts_series = blue_pts_series[:len(times)]
+
     ball_speed = np.array(ball_speed_series[:len(times)], dtype=np.float32)
     bs_norm = ball_speed / (np.nanmax(ball_speed)+1e-8)
 
@@ -270,17 +274,82 @@ def main():
     else:
         ball_on_pitch = np.ones(len(times), dtype=bool)
 
+    by = np.array(ball_y_series[:len(times)], dtype=np.float32)
+
     # audio align
     if at is not None and aenv is not None and aenv.size:
         audio_s = np.interp(times, at, aenv).astype(np.float32)
     else:
         audio_s = np.zeros_like(times, dtype=np.float32)
 
+    owners_arr = np.array(owners[:len(times)], dtype=np.int32)
+
+    # ---------- TACKLES / DUELS (POSSESSION FLIPS) ----------
+    tackle_events = []
+    if len(times) > 1:
+        quick_frames = max(1, int(round(1.6 * samp_fps)))
+        quick_secs = quick_frames / samp_fps
+        flow_thr = 0.55
+        prox_radius = 0.12 * W
+        prox_needed = 2
+
+        for i in range(1, len(times)):
+            new_owner = owners_arr[i]
+            if new_owner < 0:
+                continue
+            if np.isnan(bx[i]) or np.isnan(by[i]):
+                continue
+
+            window_start = max(0, i - quick_frames)
+            last_non_blue = None
+            for k in range(i - 1, window_start - 1, -1):
+                if owners_arr[k] < 0:
+                    last_non_blue = k
+                    break
+            if last_non_blue is None:
+                continue
+
+            dt = times[i] - times[last_non_blue]
+            if dt > quick_secs:
+                continue
+
+            sl_start = last_non_blue
+            sl = slice(sl_start, i + 1)
+            flow_window = flow_mag[sl]
+            if flow_window.size == 0:
+                continue
+            flow_peak = float(np.max(flow_window))
+            if flow_peak < flow_thr:
+                continue
+
+            max_prox = 0
+            for m in range(sl_start, i + 1):
+                if np.isnan(bx[m]) or np.isnan(by[m]):
+                    continue
+                pts = blue_pts_series[m]
+                close = 0
+                for (px, py) in pts:
+                    if ((px - bx[m])**2 + (py - by[m])**2) ** 0.5 <= prox_radius:
+                        close += 1
+                if close > max_prox:
+                    max_prox = close
+                if max_prox >= prox_needed:
+                    break
+            if max_prox < prox_needed:
+                continue
+
+            peak_offset = int(np.argmax(flow_window))
+            event_idx = sl_start + peak_offset
+            event_time = times[event_idx]
+
+            quickness = 1.0 - clamp(dt / quick_secs, 0.0, 1.0)
+            crowd = clamp(max_prox / 3.0, 0.0, 1.0)
+            score = clamp(0.6 * flow_peak + 0.25 * quickness + 0.15 * crowd, 0.0, 1.0)
+            tackle_events.append((event_time, score, 'tackle'))
+
     # ---------- PASS CHAIN DETECTION ----------
     win = int(round(args.pass_window * samp_fps))
     pass_events = []
-    owners_arr = np.array(owners[:len(times)])
-    owners_arr = owners_arr.astype(np.int32)
 
     for i in range(len(times)):
         j0 = max(0, i-win)
@@ -339,7 +408,7 @@ def main():
             peaks.append( (times[i], float(flow_mag[i]), 'intensity') )
 
     # ---------- MERGE + NMS ----------
-    all_events = pass_events + goal_events + peaks
+    all_events = pass_events + goal_events + tackle_events + peaks
     all_events.sort(key=lambda x: x[0])
 
     merged = []
@@ -358,6 +427,7 @@ def main():
     # ---------- Window each event (pre/post) + write CSV ----------
     rows = []
     for (t, s, tag) in merged:
+
         start = clamp(t - args.pre, 0, dur-0.1)
         end   = clamp(t + args.post, 0, dur)
         idx0 = int(np.searchsorted(times, start, side='left'))
@@ -382,6 +452,16 @@ def main():
             off_pitch_ratio = float(np.mean(~ball_slice))
             if median_pan < 0.05 and off_pitch_ratio > 0.5:
                 continue
+
+        if tag == 'tackle':
+            pre = min(args.pre, 1.8)
+            post = min(args.post, 3.5)
+        else:
+            pre = args.pre
+            post = args.post
+        start = clamp(t - pre, 0, dur-0.1)
+        end   = clamp(t + post, 0, dur)
+
         rows.append((start, end, min(1.0, s), tag))
 
     with open(args.out, 'w', newline='') as f:
