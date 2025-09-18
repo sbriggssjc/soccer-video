@@ -72,21 +72,70 @@ def _motion_timeseries(cap: cv2.VideoCapture, f0: int, f1: int, use_mask: Option
     return arr, np.array(times, dtype=np.float32)
 
 
-def _find_peak(cap: cv2.VideoCapture, win: HighlightWindow, audio_t: Optional[np.ndarray], audio_env: Optional[np.ndarray],
-               use_mask: Optional[np.ndarray], total_frames: int) -> float:
+def _find_peak(
+    cap: cv2.VideoCapture,
+    win: HighlightWindow,
+    audio_t: Optional[np.ndarray],
+    audio_env: Optional[np.ndarray],
+    use_mask: Optional[np.ndarray],
+    total_frames: int,
+) -> tuple[float, np.ndarray, np.ndarray]:
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     start_frame = clamp(int(win.start * fps), 0, max(total_frames - 2, 0))
     end_frame = clamp(int(win.end * fps), start_frame + 1, max(total_frames - 1, start_frame + 1))
     motion, times = _motion_timeseries(cap, start_frame, end_frame, use_mask)
     if motion.size == 0 or times.size == 0:
-        return (win.start + win.end) / 2.0
+        center = (win.start + win.end) / 2.0
+        return center, motion, times
     score = motion.copy()
     if audio_t is not None and audio_env is not None and audio_env.size:
         interp = np.interp(times, audio_t, audio_env)
         interp = (interp - interp.min()) / (interp.max() - interp.min() + 1e-8)
         score = 0.75 * score + 0.25 * interp
     idx = int(np.argmax(score))
-    return float(times[idx])
+    return float(times[idx]), motion, times
+
+
+def _ball_in_play_gate(
+    times: np.ndarray,
+    motion: np.ndarray,
+    peak_time: float,
+    default_start: float,
+    default_end: float,
+    total_dur: float,
+) -> tuple[float, float]:
+    if motion.size == 0 or times.size == 0:
+        return default_start, default_end
+    idx = int(np.argmin(np.abs(times - peak_time)))
+    if idx < 0 or idx >= motion.size:
+        return default_start, default_end
+    peak_val = float(motion[idx])
+    if peak_val <= 1e-6:
+        return default_start, default_end
+    baseline = float(np.percentile(motion, 40))
+    level = max(0.18, min(peak_val * 0.7, baseline + 0.15))
+    if level >= peak_val:
+        level = peak_val * 0.6
+    if level <= 1e-6:
+        return default_start, default_end
+    start_idx = idx
+    while start_idx > 0 and motion[start_idx - 1] >= level:
+        start_idx -= 1
+    end_idx = idx
+    n = motion.size
+    while end_idx + 1 < n and motion[end_idx + 1] >= level:
+        end_idx += 1
+    start_time = float(times[start_idx])
+    end_time = float(times[end_idx])
+    start_time = max(0.0, start_time - 0.4)
+    end_time = min(total_dur, end_time + 0.9)
+    start = max(default_start, start_time)
+    end = min(default_end, end_time)
+    if end <= start:
+        end = min(default_end, max(start + 1.2, end_time + 0.5))
+    if end < peak_time + 0.4:
+        end = min(default_end, max(end, peak_time + 0.4))
+    return start, min(end, total_dur)
 
 
 def _tracked_frames(cap: cv2.VideoCapture, f0: int, f1: int) -> Iterable[np.ndarray]:
@@ -167,9 +216,11 @@ def smart_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWin
     if tracker_out:
         Path(tracker_out).mkdir(parents=True, exist_ok=True)
     for idx, win in enumerate(tqdm(windows, desc="shrink", unit="clip", leave=False), start=1):
-        peak = _find_peak(cap, win, audio_t, audio_env, mask, total_frames)
+        peak, motion_series, motion_times = _find_peak(cap, win, audio_t, audio_env, mask, total_frames)
         rs = clamp(peak - config.shrink.pre, 0.0, total_dur)
         re = clamp(peak + config.shrink.post, 0.0, total_dur)
+        if win.event == "goal":
+            rs, re = _ball_in_play_gate(motion_times, motion_series, peak, rs, re, total_dur)
         if re <= rs + 0.1:
             re = clamp(rs + 0.1, 0.0, total_dur)
         refined.append(HighlightWindow(start=rs, end=re, score=win.score, event=win.event))
