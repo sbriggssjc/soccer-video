@@ -1,21 +1,25 @@
-﻿param(
+param(
   [string]$Video = ".\out\full_game_stabilized.mp4",
   [string]$OutDir = ".\out",
+  [ValidateSet("ignore","strict","loose")] [string]$GoalMode = "strict",
   [int]$MaxActionLen = 7,
   [int]$MaxGoalLen   = 6,
   [float]$MergeGap   = 1.5,
   [float]$GoalPad    = 1.2,
   [float]$ActionPad  = 0.8,
-  [float]$MaxFractionOfRaw = 0.6   # keep final selection under ~60% of raw duration
+  [float]$MaxFractionOfRaw = 0.25,
+  [int]$MaxGoals = 6,
+  [float]$MinGoalSeparation = 20.0
 )
 
 $ErrorActionPreference = "Stop"
 if (!(Test-Path $Video)) { throw "Missing input video: $Video" }
+New-Item -ItemType Directory -Force -Path $OutDir, ".\scripts" | Out-Null
 
-$hiCSV = Join-Path $OutDir "highlights.csv"
+$hiCSV = Join-Path $OutDir "plays.csv"         # ranked actions from 05_filter_by_motion.py
 $grCSV = Join-Path $OutDir "goal_resets.csv"
-if (!(Test-Path $hiCSV)) { throw "Missing $hiCSV (run 02_detect_events.py first)" }
-if (!(Test-Path $OutDir)) { New-Item -ItemType Directory -Force -Path $OutDir | Out-Null }
+if (!(Test-Path $hiCSV)) { throw "Missing $hiCSV (run 05_filter_by_motion.py)" }
+if (!(Test-Path $grCSV)) { Write-Host "[warn] No $grCSV; proceeding without goals." }
 
 $goalsDir = Join-Path $OutDir "clips_goals"
 $actsDir  = Join-Path $OutDir "clips_top"
@@ -24,31 +28,61 @@ New-Item -ItemType Directory -Force -Path $goalsDir,$actsDir,$logsDir | Out-Null
 Remove-Item "$goalsDir\*", "$actsDir\*", (Join-Path $OutDir "concat_goals*.txt"), (Join-Path $OutDir "top_highlights_*.mp4") -Recurse -ErrorAction SilentlyContinue
 
 function Read-Spans($csvPath, $preferStartEnd=$true) {
-  $rows = Import-Csv $csvPath
-  if ($rows.Count -eq 0) { return @() }
+  $rows = Import-Csv $csvPath; if ($rows.Count -eq 0) { return @() }
   $cols = $rows[0].PSObject.Properties.Name
-  $startCol = @("start","t0","start_s","begin","clip_start") | Where-Object { $cols -contains $_ } | Select-Object -First 1
-  $endCol   = @("end","t1","end_s","finish","clip_end")      | Where-Object { $cols -contains $_ } | Select-Object -First 1
-  $timeCol  = @("time","t","ts","sec","seconds","goal_time","center","mid") | Where-Object { $cols -contains $_ } | Select-Object -First 1
-
+  $startCol = @("start","t0","start_s","begin","clip_start") | ? { $cols -contains $_ } | select -First 1
+  $endCol   = @("end","t1","end_s","finish","clip_end")      | ? { $cols -contains $_ } | select -First 1
+  $timeCol  = @("time","t","ts","sec","seconds","goal_time","center","mid") | ? { $cols -contains $_ } | select -First 1
   $out=@()
   foreach ($r in $rows) {
-    $t0 = $null; $t1 = $null
+    $t0=$null; $t1=$null
     if ($preferStartEnd -and $startCol -and $endCol) {
       [double]$a=0; [double]$b=0
-      if ([double]::TryParse("$($r.$startCol)",[ref]$a) -and [double]::TryParse("$($r.$endCol)",[ref]$b) -and $b -gt $a) {
-        $t0=$a; $t1=$b
-      }
+      if ([double]::TryParse("$($r.$startCol)",[ref]$a) -and [double]::TryParse("$($r.$endCol)",[ref]$b) -and $b -gt $a) { $t0=$a; $t1=$b }
     }
     if ($t0 -eq $null -and $timeCol) {
       [double]$c=0
-      if ([double]::TryParse("$($r.$timeCol)",[ref]$c)) {
-        $t0=[math]::Max(0,$c-$GoalPad); $t1=$c+$GoalPad
-      }
+      if ([double]::TryParse("$($r.$timeCol)",[ref]$c)) { $t0=[math]::Max(0,$c-$GoalPad); $t1=$c+$GoalPad }
     }
-    if ($t0 -ne $null -and $t1 -ne $null) { $out += [pscustomobject]@{ t0=[double]$t0; t1=[double]$t1 } }
+    if ($t0 -ne $null -and $t1 -ne $null -and $t1 -gt $t0) { $out += [pscustomobject]@{ t0=[double]$t0; t1=[double]$t1 } }
   }
   $out | Where-Object { $_.t1 - $_.t0 -gt 0.05 }
+}
+
+function Get-GoalSpans($csvPath, $mode="strict", $minSep=20.0, $maxN=6) {
+  if ($mode -eq "ignore" -or -not (Test-Path $csvPath)) { return @() }
+  $rows = Import-Csv $csvPath; if ($rows.Count -eq 0) { return @() }
+  $cols = $rows[0].PSObject.Properties.Name
+  $startCol = @("start","t0","start_s","begin","clip_start") | ? { $cols -contains $_ } | select -First 1
+  $endCol   = @("end","t1","end_s","finish","clip_end")      | ? { $cols -contains $_ } | select -First 1
+  $timeCol  = @("time","t","ts","sec","seconds","goal_time","center","mid") | ? { $cols -contains $_ } | select -First 1
+
+  $cands=@()
+  foreach ($r in $rows) {
+    $txt = ("$($r.is_goal) $($r.goal) $($r.event) $($r.label) $($r.type)").ToLower()
+    [double]$sd=0; $hasScore = ([double]::TryParse("$($r.score_delta)",[ref]$sd) -and $sd -gt 0)
+    $isGoal = if ($mode -eq "strict") { $hasScore -or ($txt -match "goal|scored|score\+") } else { $hasScore -or ($txt -match "goal|scored|score\+|reset|whistle") }
+    if (-not $isGoal) { continue }
+
+    if ($startCol -and $endCol) {
+      [double]$a=0; [double]$b=0
+      if ([double]::TryParse("$($r.$startCol)",[ref]$a) -and [double]::TryParse("$($r.$endCol)",[ref]$b) -and $b -gt $a) {
+        $cands += [pscustomobject]@{ t0=$a; t1=$b }; continue
+      }
+    }
+    if ($timeCol) {
+      [double]$c=0
+      if ([double]::TryParse("$($r.$timeCol)",[ref]$c)) { $cands += [pscustomobject]@{ t0=[math]::Max(0,$c-$GoalPad); t1=$c+$GoalPad } }
+    }
+  }
+
+  $cands = $cands | Sort-Object t0
+  $out=@()
+  foreach ($s in $cands) {
+    if ($out.Count -eq 0 -or $s.t0 - $out[-1].t1 -ge $minSep) { $out += $s } else { $out[-1].t1 = [math]::Max($out[-1].t1, $s.t1) }
+  }
+  if ($maxN -gt 0) { $out = $out | Select-Object -First $maxN }
+  $out
 }
 
 function Merge-Spans($spans, $gap, $maxLen) {
@@ -57,14 +91,9 @@ function Merge-Spans($spans, $gap, $maxLen) {
   foreach ($s in $spans) {
     if ($merged.Count -eq 0) { $merged += [pscustomobject]@{ t0=$s.t0; t1=$s.t1 }; continue }
     $last = $merged[-1]
-    if ($s.t0 -le ($last.t1 + $gap)) {
-      $last.t1 = [math]::Max($last.t1, $s.t1)
-      $merged[-1] = $last
-    } else {
-      $merged += [pscustomobject]@{ t0=$s.t0; t1=$s.t1 }
-    }
+    if ($s.t0 -le ($last.t1 + $gap)) { $last.t1 = [math]::Max($last.t1, $s.t1); $merged[-1] = $last }
+    else { $merged += [pscustomobject]@{ t0=$s.t0; t1=$s.t1 } }
   }
-  # cap maximum length; split long spans
   $out=@()
   foreach ($m in $merged) {
     $len = $m.t1 - $m.t0
@@ -103,59 +132,56 @@ function Dedup($spans) {
 function Get-Duration($path) {
   try {
     $p = & ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 $path 2>$null
-    [double]::Parse(($p -replace ",","."), [globalization.cultureinfo]::InvariantCulture)
+    [double]::Parse($p, [globalization.cultureinfo]::InvariantCulture)
   } catch { return 0 }
 }
 
-# 1) read and normalize
-$actionSpans = Read-Spans $hiCSV $true | ForEach-Object { [pscustomobject]@{ t0=[math]::Max(0, $_.t0 - $ActionPad); t1=$_.t1 + $ActionPad } }
-$goalSpans   = if (Test-Path $grCSV) { Read-Spans $grCSV $true } else { @() }
+# 1) read actions (from ranked plays.csv) and optional goals
+$rows = Import-Csv (Join-Path $OutDir "plays.csv")
+$actionSpans = @()
+foreach ($r in $rows) {
+  [double]$a=0; [double]$b=0
+  if ([double]::TryParse("$($r.start)",[ref]$a) -and [double]::TryParse("$($r.end)",[ref]$b) -and $b -gt $a) {
+    $actionSpans += [pscustomobject]@{ t0=[math]::Max(0,$a - $ActionPad); t1=$b + $ActionPad }
+  }
+}
+$goalSpans = Get-GoalSpans $grCSV $GoalMode $MinGoalSeparation $MaxGoals
 
-# 2) merge + cap
-$goalSpans   = Merge-Spans $goalSpans $MergeGap $MaxGoalLen
-$actionSpans = Merge-Spans $actionSpans $MergeGap $MaxActionLen
+# 2) merge + cap + dedupe
+$goalSpans   = Dedup (Merge-Spans $goalSpans $MergeGap $MaxGoalLen)
+$actionSpans = Dedup (Merge-Spans $actionSpans $MergeGap $MaxActionLen)
 
-# 3) drop action overlapping goals (avoid dupes)
+# 3) remove action windows that touch goal windows (avoid dupes)
 $actionSpans = Subtract-Spans $actionSpans $goalSpans 1.5
 
-# 4) dedupe
-$goalSpans   = Dedup $goalSpans
-$actionSpans = Dedup $actionSpans
-
-# 5) duration guard (use proper measurement)
+# 4) total duration limit relative to raw
 $rawDur = Get-Duration $Video
-$goalDur   = ($goalSpans   | ForEach-Object { $_.t1 - $_.t0 } | Measure-Object -Sum).Sum
-$actionDur = ($actionSpans | ForEach-Object { $_.t1 - $_.t0 } | Measure-Object -Sum).Sum
-$totDur = $goalDur + $actionDur
-
-if ($rawDur -gt 0 -and $totDur -gt ($rawDur * $MaxFractionOfRaw)) {
-  Write-Host ("[warn] Selected {0:N1}s > {1:P0} of raw ({2:N1}s). Trimming actions." -f $totDur, $MaxFractionOfRaw, $rawDur)
-  $budget = [math]::Max(60, ($rawDur * $MaxFractionOfRaw) - $goalDur)
-  if ($budget -lt 30) { $budget = 30 }
+$totActions = ($actionSpans | ForEach-Object { $_.t1 - $_.t0 } | Measure-Object -Sum).Sum
+$totGoals   = ($goalSpans   | ForEach-Object { $_.t1 - $_.t0 } | Measure-Object -Sum).Sum
+$budget = if ($rawDur -gt 0) { [math]::Max(60, $rawDur * $MaxFractionOfRaw) } else { 240 }
+if ($totGoals + $totActions -gt $budget) {
+  # keep all goals first; trim actions to fit
+  $remain = [math]::Max(30, $budget - $totGoals)
   $acc=0.0; $trimmed=@()
   foreach ($a in $actionSpans) {
     $len = $a.t1 - $a.t0
-    if ($acc + $len -le $budget) { $trimmed += $a; $acc += $len }
+    if ($acc + $len -le $remain) { $trimmed += $a; $acc += $len }
     else {
-      $need = $budget - $acc
+      $need = $remain - $acc
       if ($need -gt 1.0) { $trimmed += [pscustomobject]@{ t0=$a.t0; t1=$a.t0+$need }; $acc += $need }
       break
     }
   }
   $actionSpans = $trimmed
-  $actionDur = ($actionSpans | ForEach-Object { $_.t1 - $_.t0 } | Measure-Object -Sum).Sum
-  $totDur = $goalDur + $actionDur
 }
 
-# 6) debug TSV
+# 5) debug TSV
 $tsv = Join-Path $OutDir "segments.tsv"
 "kind`tstart`tend`tlen" | Set-Content -Encoding ascii $tsv
-$goalSpans   | ForEach-Object { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f "goal", $_.t0, $_.t1, ($_.t1-$_.t0) } | Add-Content -Encoding ascii $tsv
-$actionSpans | ForEach-Object { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f "action", $_.t0, $_.t1, ($_.t1-$_.t0) } | Add-Content -Encoding ascii $tsv
+$goalSpans   | % { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f "goal", $_.t0, $_.t1, ($_.t1-$_.t0) } | Add-Content -Encoding ascii $tsv
+$actionSpans | % { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f "action", $_.t0, $_.t1, ($_.t1-$_.t0) } | Add-Content -Encoding ascii $tsv
 
-Write-Host ("[plan] goals={0} ({1:N1}s), actions={2} ({3:N1}s), total={4:N1}s" -f $goalSpans.Count, $goalDur, $actionSpans.Count, $actionDur, $totDur)
-
-# 7) cut (re-encode)
+# 6) cut clips (re-encode for smooth starts)
 $iG=0; $iA=0
 foreach ($g in $goalSpans) {
   $iG++; $dst = Join-Path $goalsDir ("goal_{0:D2}.mp4" -f $iG)
@@ -166,15 +192,16 @@ foreach ($a in $actionSpans) {
   ffmpeg -ss $($a.t0) -to $($a.t1) -i $Video -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -movflags +faststart -y $dst | Out-Null
 }
 
-# 8) concat + final
+# 7) concat lists
 $concatGoals = Join-Path $OutDir "concat_goals.txt"
 $concatBoth  = Join-Path $OutDir "concat_goals_plus_top.txt"
-(Get-ChildItem $goalsDir -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | ForEach-Object { "file '$($_.FullName)'" }) | Set-Content -Encoding ascii $concatGoals
+(Get-ChildItem $goalsDir -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | % { "file '$($_.FullName)'" }) | Set-Content -Encoding ascii $concatGoals
 @(
-  Get-ChildItem $goalsDir -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | ForEach-Object { "file '$($_.FullName)'" }
-  Get-ChildItem $actsDir  -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | ForEach-Object { "file '$($_.FullName)'" }
+  Get-ChildItem $goalsDir -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | % { "file '$($_.FullName)'" }
+  Get-ChildItem $actsDir  -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | % { "file '$($_.FullName)'" }
 ) -join "`r`n" | Set-Content -Encoding ascii $concatBoth
 
+# 8) final render (consistent GOP + loudness)
 $final = Join-Path $OutDir "top_highlights_goals_first.mp4"
-ffmpeg -f concat -safe 0 -i $concatBoth -r 24 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -movflags +faststart -y $final
-Write-Host ("[done] goals={0}, actions={1}, total~{2:N1}s -> {3}" -f $iG, $iA, $totDur, $final)
+ffmpeg -f concat -safe 0 -i $concatBoth -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -movflags +faststart -y $final
+Write-Host "[done] goals=$iG, actions=$iA -> $final"
