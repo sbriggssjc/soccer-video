@@ -5,7 +5,116 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from ._pydantic_compat import BaseModel, Field, validator
-import yaml
+
+try:  # pragma: no cover - exercised through fallbacks in tests
+    import yaml  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    yaml = None  # type: ignore
+
+
+def _parse_scalar(value: str):
+    text = value.strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in {"null", "none", "~"}:
+        return None
+    if lowered in {"true", "yes", "on"}:
+        return True
+    if lowered in {"false", "no", "off"}:
+        return False
+    if text.startswith(("'", '"')) and text.endswith(text[0]):
+        return text[1:-1]
+    if text.startswith("[") and text.endswith("]"):
+        inner = text[1:-1].strip()
+        if not inner:
+            return []
+        parts = [part.strip() for part in inner.split(",")]
+        return [_parse_scalar(part) for part in parts]
+    try:
+        if "." in text or "e" in text.lower():
+            return float(text)
+        return int(text)
+    except ValueError:
+        return text
+
+
+def _simple_yaml_load(text: str):
+    tokens = []
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        tokens.append((indent, line.strip()))
+
+    if not tokens:
+        return {}
+
+    def parse_block(index: int, indent_level: int):
+        result = None
+        while index < len(tokens):
+            indent, content = tokens[index]
+            if indent < indent_level:
+                break
+            if content.startswith("- "):
+                if result is None:
+                    result = []
+                elif not isinstance(result, list):
+                    raise ValueError("Mixed mapping and sequence entries in simple YAML parser")
+                value_str = content[2:].strip()
+                index += 1
+                child = None
+                if index < len(tokens) and tokens[index][0] > indent:
+                    child, index = parse_block(index, tokens[index][0])
+                if value_str:
+                    if ":" in value_str:
+                        key, rest = value_str.split(":", 1)
+                        key = key.strip()
+                        rest = rest.strip()
+                        if child is not None and not rest:
+                            entry = {key: child}
+                        else:
+                            entry = {key: _parse_scalar(rest)}
+                            if child is not None and isinstance(child, dict):
+                                entry[key] = child
+                    else:
+                        entry = child if child is not None else _parse_scalar(value_str)
+                else:
+                    entry = child
+                result.append(entry)
+                continue
+
+            if result is None:
+                result = {}
+            elif not isinstance(result, dict):
+                raise ValueError("Mixed sequence and mapping entries in simple YAML parser")
+
+            if ":" not in content:
+                result[content] = None
+                index += 1
+                continue
+
+            key, rest = content.split(":", 1)
+            key = key.strip()
+            rest = rest.strip()
+            index += 1
+            child = None
+            if index < len(tokens) and tokens[index][0] > indent:
+                child, index = parse_block(index, tokens[index][0])
+            if rest:
+                value = _parse_scalar(rest)
+                if child is not None:
+                    value = child
+            else:
+                value = child if child is not None else {}
+            result[key] = value
+        if result is None:
+            return {}, index
+        return result, index
+
+    parsed, _ = parse_block(0, tokens[0][0])
+    return parsed
 
 
 class PathsConfig(BaseModel):
@@ -92,9 +201,9 @@ class HSVRange(BaseModel):
 
 
 class ColorsConfig(BaseModel):
-    pitch_hsv: HSVRange = Field(HSVRange(h=90, s=80, v=80))
-    team_primary: HSVRange = Field(HSVRange(h=210, s=70, v=70))
-    team_secondary: HSVRange = Field(HSVRange(h=30, s=70, v=70))
+    pitch_hsv: HSVRange = Field(default_factory=lambda: HSVRange(h=90, s=80, v=80))
+    team_primary: HSVRange = Field(default_factory=lambda: HSVRange(h=210, s=70, v=70))
+    team_secondary: HSVRange = Field(default_factory=lambda: HSVRange(h=30, s=70, v=70))
     calibrate: bool = Field(False)
 
 
@@ -147,5 +256,12 @@ def load_config(path: Path | str) -> AppConfig:
     cfg_path = Path(path)
     if not cfg_path.exists():
         return AppConfig()
-    data = yaml.safe_load(cfg_path.read_text()) or {}
+    text = cfg_path.read_text()
+    if yaml is not None:
+        data = yaml.safe_load(text) or {}
+    else:
+        try:
+            data = _simple_yaml_load(text) or {}
+        except Exception as exc:  # pragma: no cover - defensive guard
+            raise RuntimeError("Failed to parse configuration without PyYAML installed") from exc
     return AppConfig.parse_obj(data)
