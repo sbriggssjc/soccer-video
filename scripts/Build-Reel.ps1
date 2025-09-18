@@ -15,12 +15,17 @@
 )
 
 # ---------- helpers ----------
-function TryParse-Double([object]$x, [ref] [double]$out) {
+function TryParse-Double([object]$x, [ref]$out) {
   $s = "$x" -replace ',', ''
-  return [double]::TryParse($s,
-    [Globalization.NumberStyles]::Float,
-    [Globalization.CultureInfo]::InvariantCulture,
-    [ref]$out)
+  [double]$tmp = 0
+  $ok = [System.Double]::TryParse(
+    $s,
+    [System.Globalization.NumberStyles]::Float,
+    [System.Globalization.CultureInfo]::InvariantCulture,
+    [ref]$tmp
+  )
+  $out.Value = $tmp
+  return $ok
 }
 
 function Get-VideoDurationSec([string]$path) {
@@ -186,3 +191,4 @@ ffmpeg -y -hide_banner -loglevel error -stats -i $Video `
   $outPath
 
 Write-Host "[done] -> $outPath"
+
