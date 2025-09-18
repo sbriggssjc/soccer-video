@@ -175,6 +175,7 @@ foreach ($a in $actionSpans) {
   $end    = [Math]::Min($VideoDuration, $center + $ActionPadAfter)
   $segments += [pscustomobject]@{ kind='action'; start=$start; end=$end }
 }
+}
 
 [double]$VideoDuration = if ($rawDur -gt 0) { $rawDur } else { [double]::MaxValue }
 # Ensure we have a list to append to (faster/safer than += on arrays)
