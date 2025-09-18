@@ -7,6 +7,8 @@ param(
   [float]$MergeGap   = 1.5,
   [float]$GoalPad    = 1.2,
   [float]$ActionPad  = 0.8,
+  [float]$ActionPadBefore = 3.5,
+  [float]$ActionPadAfter  = 3.5,
   [float]$MaxFractionOfRaw = 0.25,
   [int]$MaxGoals = 6,
   [float]$MinGoalSeparation = 20.0
@@ -175,24 +177,49 @@ if ($totGoals + $totActions -gt $budget) {
   $actionSpans = $trimmed
 }
 
-# 5) debug TSV
+[double]$VideoDuration = if ($rawDur -gt 0) { $rawDur } else { [double]::MaxValue }
+$segments = @()
+foreach ($g in $goalSpans) {
+  $t0 = [double]$g.t0
+  $t1 = [double]$g.t1
+  $segments += [pscustomobject]@{ kind='goal'; start=$t0; end=$t1 }
+}
+
+# 5) derive action segments centered on span midpoints
+foreach ($a in $actionSpans) {
+  $t0 = [double]$a.t0
+  $t1 = [double]$a.t1
+  $center = ($t0 + $t1) / 2.0
+
+  # tune these pads to taste
+  $start = [Math]::Max(0, $center - $ActionPadBefore)
+  $end   = [Math]::Min($VideoDuration, $center + $ActionPadAfter)
+
+  $segments += [pscustomobject]@{ kind='action'; start=$start; end=$end }
+}
+
+$actionSpans = $segments | Where-Object { $_.kind -eq 'action' } | ForEach-Object {
+  [pscustomobject]@{ t0=[double]$_.start; t1=[double]$_.end }
+}
+
+# 6) debug TSV
 $tsv = Join-Path $OutDir "segments.tsv"
 "kind`tstart`tend`tlen" | Set-Content -Encoding ascii $tsv
-$goalSpans   | % { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f "goal", $_.t0, $_.t1, ($_.t1-$_.t0) } | Add-Content -Encoding ascii $tsv
-$actionSpans | % { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f "action", $_.t0, $_.t1, ($_.t1-$_.t0) } | Add-Content -Encoding ascii $tsv
+$segments | Sort-Object start | % { "{0}`t{1:N2}`t{2:N2}`t{3:N2}" -f $_.kind, $_.start, $_.end, ($_.end-$_.start) } | Add-Content -Encoding ascii $tsv
 
-# 6) cut clips (re-encode for smooth starts)
-$iG=0; $iA=0
+# 7) cut clips (re-encode for smooth starts)
+$iG=0
 foreach ($g in $goalSpans) {
   $iG++; $dst = Join-Path $goalsDir ("goal_{0:D2}.mp4" -f $iG)
   ffmpeg -ss $($g.t0) -to $($g.t1) -i $Video -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -movflags +faststart -y $dst | Out-Null
 }
+$iA=0
 foreach ($a in $actionSpans) {
   $iA++; $dst = Join-Path $actsDir ("clip_{0:D4}.mp4" -f $iA)
   ffmpeg -ss $($a.t0) -to $($a.t1) -i $Video -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -movflags +faststart -y $dst | Out-Null
 }
 
-# 7) concat lists
+# 8) concat lists
 $concatGoals = Join-Path $OutDir "concat_goals.txt"
 $concatBoth  = Join-Path $OutDir "concat_goals_plus_top.txt"
 (Get-ChildItem $goalsDir -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | % { "file '$($_.FullName)'" }) | Set-Content -Encoding ascii $concatGoals
@@ -201,7 +228,7 @@ $concatBoth  = Join-Path $OutDir "concat_goals_plus_top.txt"
   Get-ChildItem $actsDir  -Filter *.mp4 -ea SilentlyContinue | Sort-Object Name | % { "file '$($_.FullName)'" }
 ) -join "`r`n" | Set-Content -Encoding ascii $concatBoth
 
-# 8) final render (consistent GOP + loudness)
+# 9) final render (consistent GOP + loudness)
 $final = Join-Path $OutDir "top_highlights_goals_first.mp4"
 ffmpeg -f concat -safe 0 -i $concatBoth -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -movflags +faststart -y $final
 Write-Host "[done] goals=$iG, actions=$iA -> $final"
