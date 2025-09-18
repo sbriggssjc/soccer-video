@@ -1,2 +1,0 @@
-file 'C:/Users/scott/soccer-video/out/_p1.mp4'
-file 'C:/Users/scott/soccer-video/out/_p2.mp4'
