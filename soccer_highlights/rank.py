@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from ._loguru import logger
 
+from .clip_gating import first_live_frame
 from .config import AppConfig
 from .utils import clamp
 
@@ -249,12 +250,40 @@ def _clip_duration(path: Path) -> float:
     cap.release()
     return float(frames / fps) if frames else 0.0
 
-
 def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> RankedClip:
     times_list, cover_arr, mag_arr = _activity_profile(path)
     times = np.array(times_list, dtype=np.float32)
     cover = np.asarray(cover_arr, dtype=np.float32)
     mag = np.asarray(mag_arr, dtype=np.float32)
+
+def score_clip(path: Path, sustain_sec: float) -> RankedClip:
+    times, cover, mag = _activity_profile(path)
+    inpoint = _find_first_active(times, cover, mag, sustain_sec)
+    if times and cover.size and mag.size:
+        frame_metrics = []
+        ball_metrics = []
+        for cov, motion in zip(cover.tolist(), mag.tolist()):
+            cov_f = float(max(0.0, cov))
+            mot_f = float(max(0.0, motion))
+            frame_metrics.append(
+                {
+                    "pitch_ratio": cov_f,
+                    "moving_players": cov_f * 30.0,
+                    "touch_prob": mot_f,
+                    "motion": mot_f,
+                }
+            )
+            ball_metrics.append({"speed": mot_f * 40.0, "touch_prob": mot_f})
+        idx = first_live_frame(frame_metrics, ball_metrics, None)
+        if idx is not None and idx < len(times):
+            if len(times) >= 2:
+                step = max(0.1, float(times[idx] - times[idx - 1]) if idx > 0 else float(times[1] - times[0]))
+            else:
+                step = 0.3
+            gate_start = max(0.0, float(times[idx]) - step)
+            inpoint = max(inpoint, gate_start)
+    motion_score = float(np.percentile(mag[cover > 0] if cover.size and (cover > 0).any() else mag, 80)) if mag.size else 0.0
+    audio_score = _audio_rms(path)
     duration = _clip_duration(path)
     first_time, last_time = _find_active_bounds(times, cover, mag, sustain_sec, duration)
     peak_time = _peak_time(times, cover, mag, duration)
