@@ -3,6 +3,14 @@
   [string]$OutDir = ".\out",
   [ValidateSet("ignore","strict","loose")
 
+
+function TryParse-Double([object]\, [ref] [double]\) {
+  \@{t0=247; t1=251.38} = ""\"" -replace ',', ''
+  return [double]::TryParse(\@{t0=247; t1=251.38},
+    [Globalization.NumberStyles]::Float,
+    [Globalization.CultureInfo]::InvariantCulture,
+    [ref]\)
+}
 ] [string]$GoalMode = "strict",
   [int]$MaxActionLen = 7,
   [int]$MaxGoalLen   = 6,
@@ -250,6 +258,7 @@ $concatBoth  = Join-Path $OutDir "concat_goals_plus_top.txt"
 $final = Join-Path $OutDir "top_highlights_goals_first.mp4"
 ffmpeg -f concat -safe 0 -i $concatBoth -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -movflags +faststart -y $final
 Write-Host "[done] goals=$iG, actions=$iA -> $final"
+
 
 
 
