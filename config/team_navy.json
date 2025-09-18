@@ -1,0 +1,7 @@
+{
+  "team_name": "Navy",
+  "hsv_low": [100, 25, 25],
+  "hsv_high": [140, 255, 255],
+  "presence_min": 0.55,
+  "presence_bias": 1.35
+}
