@@ -16,8 +16,8 @@ class PathsConfig(BaseModel):
 
 class DetectConfig(BaseModel):
     min_gap: float = Field(2.0, description="Minimum gap between merged segments in seconds.")
-    pre: float = Field(5.0, description="Seconds of pre-roll when expanding detections.")
-    post: float = Field(6.0, description="Seconds of post-roll when expanding detections.")
+    pre: float = Field(1.0, description="Seconds of pre-roll when expanding detections.")
+    post: float = Field(2.0, description="Seconds of post-roll when expanding detections.")
     max_count: int = Field(40, description="Maximum number of highlight windows to keep.")
     audio_weight: float = Field(0.5, ge=0.0, le=1.0, description="Weight of audio score in blended detection score.")
     threshold_std: float = Field(0.5, description="Multiplier for std-dev when computing adaptive threshold.")

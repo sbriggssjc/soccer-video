@@ -57,7 +57,13 @@ def merge_overlaps(windows: Sequence[HighlightWindow], min_gap: float) -> List[H
         if win.start - last.end <= min_gap:
             new_end = max(last.end, win.end)
             new_score = max(last.score, win.score)
-            merged[-1] = HighlightWindow(start=last.start, end=new_end, score=new_score, event=last.event)
+            if last.event == win.event:
+                new_event = last.event
+            elif "goal" in {last.event, win.event}:
+                new_event = "goal"
+            else:
+                new_event = last.event if last.score >= win.score else win.event
+            merged[-1] = HighlightWindow(start=last.start, end=new_end, score=new_score, event=new_event)
         else:
             merged.append(win)
     return merged

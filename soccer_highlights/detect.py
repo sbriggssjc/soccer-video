@@ -11,6 +11,7 @@ from ._tqdm import tqdm
 from dataclasses import dataclass
 
 from .config import AppConfig
+from .goals import detect_goal_windows
 from .io import video_stream_info
 from .utils import HighlightWindow, merge_overlaps, summary_stats, write_highlights
 
@@ -159,6 +160,9 @@ def detect_highlights(config: AppConfig, video_path: Path, output_csv: Path) -> 
     banned = {event.lower() for event in (config.detect.exclude_events or [])}
     if banned:
         windows = [w for w in windows if str(w.event).lower() not in banned]
+    goal_windows = detect_goal_windows(config, video_path, info, windows)
+    if goal_windows:
+        windows.extend(goal_windows)
 
     merged = merge_overlaps(windows, config.detect.min_gap)
     merged.sort(key=lambda w: w.score, reverse=True)
