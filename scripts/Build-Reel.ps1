@@ -1,6 +1,4 @@
-﻿$path = '.\scripts\Build-Reel.ps1'
-@'
-param(
+﻿param(
   [string]$Video = ".\out\full_game_stabilized.mp4",
 
   [ValidateSet("ignore","strict","loose")]
@@ -249,4 +247,3 @@ ffmpeg -y -hide_banner -loglevel error -stats -i $Video `
   $outPath
 
 Write-Host "[done] -> $outPath"
-'@ | Set-Content $path -Encoding UTF8
