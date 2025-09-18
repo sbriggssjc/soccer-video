@@ -157,6 +157,9 @@ def detect_highlights(config: AppConfig, video_path: Path, output_csv: Path) -> 
         else:
             idx += 1
 
+    banned = {event.lower() for event in (config.detect.exclude_events or [])}
+    if banned:
+        windows = [w for w in windows if str(w.event).lower() not in banned]
     goal_windows = detect_goal_windows(config, video_path, info, windows)
     if goal_windows:
         windows.extend(goal_windows)
