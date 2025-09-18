@@ -251,6 +251,22 @@ def _clip_duration(path: Path) -> float:
     return float(frames / fps) if frames else 0.0
 
 
+def _estimate_step(times: np.ndarray, index: int) -> float:
+    if times.size <= 1:
+        if times.size == 1:
+            return max(0.1, float(times[0]))
+        return 0.3
+    if index <= 0:
+        return max(0.1, float(times[1] - times[0]))
+    prev = float(times[index - 1])
+    curr = float(times[min(index, times.size - 1)])
+    step = curr - prev
+    if step <= 1e-6 and index + 1 < times.size:
+        step = float(times[index + 1] - curr)
+    return max(0.1, step)
+
+
+
 def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> RankedClip:
     times_list, cover_arr, mag_arr = _activity_profile(path)
     times = np.asarray(times_list, dtype=np.float32)
@@ -263,7 +279,11 @@ def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> 
     category = _classify_event(meta)
     trim_start, trim_end = _compute_trim_bounds(category, first_time, peak_time, last_time, duration)
 
+
+    inpoint = max(0.0, first_time)
+
     gate_start = first_time
+
     if times.size and cover.size and mag.size:
         frame_metrics = []
         ball_metrics = []
@@ -281,6 +301,17 @@ def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> 
             ball_metrics.append({"speed": mot_f * 40.0, "touch_prob": mot_f})
         idx = first_live_frame(frame_metrics, ball_metrics, None)
         if idx is not None and 0 <= idx < len(times):
+
+            step = _estimate_step(times, idx)
+            gate_start = max(0.0, float(times[idx]) - step)
+            inpoint = max(inpoint, gate_start)
+
+    trim_start = max(trim_start, inpoint)
+    if trim_end < trim_start:
+        trim_end = trim_start
+
+    motion_ref = mag[cover > 0] if cover.size and (cover > 0).any() else mag
+
             if len(times) >= 2:
                 if idx > 0:
                     prev_time = float(times[idx - 1])
@@ -298,6 +329,7 @@ def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> 
             trim_end = min(duration, trim_start + 0.1)
 
     motion_ref = mag[cover > 0] if cover.size and np.any(cover > 0) else mag
+
     motion_score = float(np.percentile(motion_ref, 80)) if motion_ref.size else 0.0
     audio_score = _audio_rms(path)
     score = 0.65 * motion_score + 0.35 * audio_score
@@ -344,13 +376,28 @@ def write_rankings(csv_path: Path, clips: List[RankedClip]) -> None:
 
 def write_concat(list_path: Path, clips: List[RankedClip], max_len: float) -> None:
     list_path.parent.mkdir(parents=True, exist_ok=True)
+    top_lines: List[str] = []
     with list_path.open("w", newline="\n", encoding="utf-8") as f:
         for clip in clips:
             base_out = clip.outpoint if clip.outpoint > clip.inpoint else clip.duration
             outpoint = min(base_out, clip.inpoint + max_len, clip.duration)
-            f.write(f"file '{clip.path.as_posix()}'\n")
-            f.write(f"inpoint {clip.inpoint:.3f}\n")
-            f.write(f"outpoint {outpoint:.3f}\n")
+            file_line = f"file '{clip.path.as_posix()}'"
+            in_line = f"inpoint {clip.inpoint:.3f}"
+            out_line = f"outpoint {outpoint:.3f}"
+            for line in (file_line, in_line, out_line):
+                f.write(f"{line}\n")
+            top_lines.extend([file_line, in_line, out_line])
+
+    goals_path = list_path.parent / "concat_goals.txt"
+    combined_path = list_path.parent / "concat_goals_plus_top.txt"
+    if goals_path.exists():
+        base_text = goals_path.read_text(encoding="utf-8")
+        base_lines = base_text.splitlines()
+        combined_lines = base_lines + top_lines if top_lines else base_lines
+        combined_text = "\n".join(combined_lines)
+        if combined_text:
+            combined_text += "\n"
+        combined_path.write_text(combined_text, encoding="utf-8")
 
 
 def run_topk(config: AppConfig, candidate_dirs: List[Path], csv_out: Path, concat_out: Path, k: int | None = None, max_len: float | None = None) -> List[RankedClip]:
