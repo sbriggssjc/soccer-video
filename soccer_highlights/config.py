@@ -24,6 +24,10 @@ class DetectConfig(BaseModel):
     hysteresis: float = Field(0.3, description="Fraction of threshold used as low hysteresis.")
     sustain: float = Field(1.0, description="Seconds a detection must sustain to be accepted.")
     merge_hysteresis: float = Field(0.75, description="Merge overlapping windows when overlap exceeds this fraction.")
+    exclude_events: list[str] = Field(
+        default_factory=lambda: ["restart", "setup"],
+        description="Event categories that should be dropped before merging windows.",
+    )
 
 
 class ShrinkConfig(BaseModel):
