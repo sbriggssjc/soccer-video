@@ -77,8 +77,8 @@ def main():
     ap.add_argument('--sample-fps', type=float, default=8.0, help='analysis fps (downsample)')
     ap.add_argument('--pass-window', type=float, default=8.0, help='seconds window for pass chains')
     ap.add_argument('--passes-needed', type=int, default=3, help='blue->blue completions to trigger event')
-    ap.add_argument('--pre', type=float, default=5.0, help='seconds before peak')
-    ap.add_argument('--post', type=float, default=6.0, help='seconds after peak')
+    ap.add_argument('--pre', type=float, default=1.0, help='seconds before peak')
+    ap.add_argument('--post', type=float, default=2.0, help='seconds after peak')
     ap.add_argument('--bias-blue', action='store_true', help='slightly favor blue-side intensity')
     args = ap.parse_args()
 
@@ -107,10 +107,14 @@ def main():
 
     # ball / players tracking state
     ball_pos = None
+    ball_pos_prev = None
     ball_speed_series = []
     ball_x_series = []
     owners = []  # nearest blue cluster index (or -1 if none)
     blue_pts_series = []
+    moving_players_series = []
+    cam_pan_speed_series = []
+    ball_on_pitch_series = []
 
     # global motion for stoppage detection
     global_motion = []
@@ -132,7 +136,6 @@ def main():
         # shrink work image
         work = cv2.resize(frame, (W//2, H//2))
         gmask = mask_green(work)
-        inv_field = cv2.bitwise_not(gmask)
 
         # intensity via absdiff (fast & stable)
         gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
@@ -141,11 +144,13 @@ def main():
             f += 1
             continue
         diff = cv2.absdiff(gray, prev)
+        flow = cv2.calcOpticalFlowFarneback(prev, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
         prev = gray
         mag = float(np.mean(diff))
         flow_mag_series.append(mag)
         times.append(t)
         global_motion.append(mag)
+        cam_pan_speed_series.append(float(np.median(np.abs(flow[...,0]))))
 
         # slightly favor blue motion if requested
         if args.bias_blue:
@@ -161,21 +166,38 @@ def main():
         blue_pts_full = [ (x*2, y*2) for (x,y) in blue_pts ]
         blue_pts_series.append(blue_pts_full)
 
+        motion_thr = max(10, int(diff.mean() + 1.5*diff.std()))
+        motion_mask = diff > motion_thr
+        moving_count = 0
+        for (x, y) in blue_pts:
+            x = int(np.clip(x, 0, motion_mask.shape[1] - 1))
+            y = int(np.clip(y, 0, motion_mask.shape[0] - 1))
+            x0 = max(0, x - 1)
+            y0 = max(0, y - 1)
+            x1 = min(motion_mask.shape[1], x + 2)
+            y1 = min(motion_mask.shape[0], y + 2)
+            if motion_mask[y0:y1, x0:x1].any():
+                moving_count += 1
+        moving_players_series.append(moving_count)
+
         # ball detection: white + moving
         wb = mask_white_ball(work)
-        moving = (diff > max(10, int(diff.mean()+1.5*diff.std()))).astype(np.uint8)*255
+        moving = motion_mask.astype(np.uint8) * 255
         ball_cand = cv2.bitwise_and(wb, moving)
         cnts, _ = cv2.findContours(ball_cand, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         bpos = None
         bestd = 1e9
+        bpos_half = None
         for c in cnts:
             a = cv2.contourArea(c)
             if a < 5 or a > 200:  # size gate at half-res
                 continue
             x,y,wc,hc = cv2.boundingRect(c)
-            cx = (x + wc/2.0) * 2
-            cy = (y + hc/2.0) * 2
+            cx_half = x + wc/2.0
+            cy_half = y + hc/2.0
+            cx = cx_half * 2
+            cy = cy_half * 2
             if ball_pos is not None:
                 d = ((cx-ball_pos[0])**2 + (cy-ball_pos[1])**2)**0.5
             else:
@@ -183,21 +205,31 @@ def main():
             if d < bestd:
                 bestd = d
                 bpos = (cx, cy)
+                bpos_half = (cx_half, cy_half)
 
-        if bpos is not None: ball_pos = bpos
+        if bpos is not None:
+            ball_pos = bpos
         ball_x_series.append(ball_pos[0] if ball_pos else np.nan)
 
+        if bpos_half is not None:
+            bx_half = int(round(bpos_half[0]))
+            by_half = int(round(bpos_half[1]))
+            if 0 <= bx_half < gmask.shape[1] and 0 <= by_half < gmask.shape[0]:
+                on_pitch = bool(gmask[by_half, bx_half] > 0)
+            else:
+                on_pitch = False
+        else:
+            on_pitch = True
+        ball_on_pitch_series.append(on_pitch)
+
         # speed (pixels/sec at full-res)
-        if len(ball_speed_series) == 0 or ball_pos is None:
+        if len(ball_speed_series) == 0 or ball_pos is None or ball_pos_prev is None:
             ball_speed_series.append(0.0)
         else:
             prev_pos = ball_pos_prev
-            if prev_pos is None:
-                ball_speed_series.append(0.0)
-            else:
-                dt = (stride / fps)
-                v = (((ball_pos[0]-prev_pos[0])**2 + (ball_pos[1]-prev_pos[1])**2)**0.5) / max(1e-6, dt)
-                ball_speed_series.append(float(v))
+            dt = (stride / fps)
+            v = (((ball_pos[0]-prev_pos[0])**2 + (ball_pos[1]-prev_pos[1])**2)**0.5) / max(1e-6, dt)
+            ball_speed_series.append(float(v))
         ball_pos_prev = tuple(ball_pos) if ball_pos else None
 
         # possession owner = nearest blue cluster
@@ -223,6 +255,20 @@ def main():
     bs_norm = ball_speed / (np.nanmax(ball_speed)+1e-8)
 
     bx = np.array(ball_x_series[:len(times)], dtype=np.float32)
+    moving_players = (
+        np.array(moving_players_series[:len(times)], dtype=np.int32)
+        if moving_players_series
+        else np.zeros(len(times), dtype=np.int32)
+    )
+    cam_pan_speed = (
+        np.array(cam_pan_speed_series[:len(times)], dtype=np.float32)
+        if cam_pan_speed_series
+        else np.zeros(len(times), dtype=np.float32)
+    )
+    if ball_on_pitch_series:
+        ball_on_pitch = np.array(ball_on_pitch_series[:len(times)], dtype=bool)
+    else:
+        ball_on_pitch = np.ones(len(times), dtype=bool)
 
     # audio align
     if at is not None and aenv is not None and aenv.size:
@@ -314,6 +360,28 @@ def main():
     for (t, s, tag) in merged:
         start = clamp(t - args.pre, 0, dur-0.1)
         end   = clamp(t + args.post, 0, dur)
+        idx0 = int(np.searchsorted(times, start, side='left'))
+        idx1 = int(np.searchsorted(times, end, side='right'))
+        idx0 = max(0, min(idx0, len(times)))
+        idx1 = max(idx0 + 1, min(idx1, len(times))) if len(times) else 0
+        window_len = idx1 - idx0
+        if window_len <= 0:
+            continue
+        flow_slice = flow_mag[idx0:idx1]
+        if flow_slice.size and float(np.median(flow_slice)) < 0.4:
+            continue
+        moving_slice = moving_players[idx0:idx1]
+        if moving_slice.size:
+            active_ratio = float(np.sum(moving_slice >= 4)) / window_len
+            if active_ratio < 0.6:
+                continue
+        pan_slice = cam_pan_speed[idx0:idx1]
+        ball_slice = ball_on_pitch[idx0:idx1]
+        if pan_slice.size and ball_slice.size:
+            median_pan = float(np.median(pan_slice))
+            off_pitch_ratio = float(np.mean(~ball_slice))
+            if median_pan < 0.05 and off_pitch_ratio > 0.5:
+                continue
         rows.append((start, end, min(1.0, s), tag))
 
     with open(args.out, 'w', newline='') as f:
