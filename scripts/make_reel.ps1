@@ -179,10 +179,16 @@ if ($totGoals + $totActions -gt $budget) {
 
 [double]$VideoDuration = if ($rawDur -gt 0) { $rawDur } else { [double]::MaxValue }
 # Ensure we have a list to append to (faster/safer than += on arrays)
-$segments = [System.Collections.Generic.List[object]]::new()
+if (-not ($segments -is [System.Collections.Generic.List[object]])) {
+  $existing = $segments
+  $segments = [System.Collections.Generic.List[object]]::new()
+  if ($existing) {
+    foreach ($item in $existing) { $null = $segments.Add($item) }
+  }
+}
 foreach ($g in $goalSpans) {
-  $t0 = [double]$g.t0
-  $t1 = [double]$g.t1
+  $t0 = [double]($g.t0)
+  $t1 = [double]($g.t1)
   # Append (discard return value so we don't spam the console)
   $null = $segments.Add([pscustomobject]@{ kind='goal'; start=$t0; end=$t1 })
 }
@@ -199,20 +205,23 @@ $actionSpans = $actionSpans | ForEach-Object {
 }
 
 foreach ($a in $actionSpans) {
-  $t0 = [double]$a.t0
-  $t1 = [double]$a.t1
+  $t0 = [double]($a.t0)
+  $t1 = [double]($a.t1)
   $center = ($t0 + $t1) / 2.0
 
   # tune these pads to taste
   $start = [Math]::Max(0, $center - $ActionPadBefore)
   $end   = [Math]::Min($VideoDuration, $center + $ActionPadAfter)
 
+  # guard against inverted spans if upstream values end up swapped
+  if ($start -gt $end) { $tmp = $start; $start = $end; $end = $tmp }
+
   # Append (discard return value so we don't spam the console)
   $null = $segments.Add([pscustomobject]@{ kind='action'; start=$start; end=$end })
 }
 
 $actionSpans = $segments | Where-Object { $_.kind -eq 'action' } | ForEach-Object {
-  [pscustomobject]@{ t0=[double]$_.start; t1=[double]$_.end }
+  [pscustomobject]@{ t0=[double]($_.start); t1=[double]($_.end) }
 }
 
 # 6) debug TSV
