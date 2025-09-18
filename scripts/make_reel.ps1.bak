@@ -190,7 +190,7 @@ foreach ($g in $goalSpans) {
   $t0 = [double]($g.t0)
   $t1 = [double]($g.t1)
   # Append (discard return value so we don't spam the console)
-  $segments += [pscustomobject]@{ kind='goal'; start=$t0; end=$t1 })
+  $null = $segments.Add([pscustomobject]@{ kind='goal'; start=$t0; end=$t1 })
 }
 
 # 5) derive action segments centered on span midpoints
@@ -217,7 +217,7 @@ foreach ($a in $actionSpans) {
   if ($start -gt $end) { $tmp = $start; $start = $end; $end = $tmp }
 
   # Append (discard return value so we don't spam the console)
-  $segments += [pscustomobject]@{ kind='action'; start=$start; end=$end })
+  $null = $segments.Add([pscustomobject]@{ kind='action'; start=$start; end=$end })
 }
 
 $actionSpans = $segments | Where-Object { $_.kind -eq 'action' } | ForEach-Object {
