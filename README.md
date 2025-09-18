@@ -28,7 +28,7 @@ social-vertical, and coach-review outputs.
 Each pipeline stage is available as a subcommand of `soccerhl`:
 
 ```powershell
-soccerhl detect --video .\out\full_game_stabilized.mp4 --pre 5 --post 6 --max-count 40
+soccerhl detect --video .\out\full_game_stabilized.mp4 --pre 1.0 --post 2.0 --max-count 40
 soccerhl shrink --video .\out\full_game_stabilized.mp4 --csv .\out\highlights.csv --out .\out\highlights_smart.csv --aspect vertical --pre 3 --post 5 --bias-blue
 soccerhl clips --video .\out\full_game_stabilized.mp4 --csv .\out\highlights_smart.csv --outdir .\out\clips --workers 4
 soccerhl topk --candirs .\out\clips,.\out\clips_acc --k 10 --max-len 18
