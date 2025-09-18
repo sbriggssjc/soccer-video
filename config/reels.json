@@ -1,0 +1,7 @@
+{
+  "presets": {
+    "youtube_1080p": { "width": 1920, "height": 1080, "fps": 24, "afilters": "loudnorm=I=-16:TP=-1.5:LRA=11", "vf": "" },
+    "tiktok_9x16":   { "width": 1080, "height": 1920, "fps": 24, "afilters": "loudnorm=I=-16:TP=-1.5:LRA=11", "vf": "scale=1080:-2:flags=lanczos, crop=1080:1920" },
+    "square_1x1":    { "width": 1080, "height": 1080, "fps": 24, "afilters": "loudnorm=I=-16:TP=-1.5:LRA=11", "vf": "scale=1080:-2:flags=lanczos, crop=1080:1080" }
+  }
+}

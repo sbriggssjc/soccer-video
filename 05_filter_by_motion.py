@@ -1,279 +1,515 @@
-﻿import argparse, csv, math, os
+import argparse
+import csv
+import json
+import math
+import os
+from typing import Dict, List, Sequence, Tuple
+
 import cv2
 import numpy as np
 
 try:
-    import librosa  # optional audio boost
-except Exception:
+    import librosa  # type: ignore
+except Exception:  # pragma: no cover - librosa optional
     librosa = None
 
-def hsv_mask_team(frame_bgr, low=(105, 70, 20), high=(130, 255, 160)):
-    """Return binary mask for NAVY kit in HSV (OpenCV: H 0..180)."""
-    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    low  = np.array(low, dtype=np.uint8)
-    high = np.array(high, dtype=np.uint8)
-    m = cv2.inRange(hsv, low, high)
-    return m
 
-TEAM_LOW = (105, 70, 20)
-TEAM_HIGH = (130, 255, 160)
+def parse_triplet(value: str) -> Tuple[int, int, int]:
+    parts = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError("expected comma separated triplet like 100,25,25")
+    nums = []
+    for p in parts:
+        try:
+            nums.append(int(float(p)))
+        except ValueError as exc:  # pragma: no cover - defensive
+            raise argparse.ArgumentTypeError(f"invalid HSV component '{p}'") from exc
+    return tuple(max(0, min(255, n)) for n in nums)  # type: ignore[return-value]
 
-def read_candidates(csv_path):
-    rows = []
-    with open(csv_path, newline='', encoding='utf-8-sig') as f:
-        r = csv.DictReader(f)
-        if r.fieldnames:
-            r.fieldnames = [fn.strip().lower().lstrip('\ufeff') for fn in r.fieldnames]
-        for idx, row in enumerate(r, start=1):
-            # tolerate columns named start/end or t0/t1
-            s_val = row.get('start', row.get('t0'))
-            e_val = row.get('end',   row.get('t1'))
+
+def ensure_dir(path: str) -> None:
+    directory = os.path.dirname(os.path.abspath(path))
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+
+
+def read_candidates(csv_path: str) -> List[Dict[str, float]]:
+    rows: List[Dict[str, float]] = []
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Missing highlights CSV: {csv_path}")
+
+    with open(csv_path, newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        field_map = []
+        if reader.fieldnames:
+            field_map = [fn.strip().lower().lstrip("\ufeff") for fn in reader.fieldnames]
+            reader.fieldnames = field_map
+        idx = 0
+        for row in reader:
+            idx += 1
+            lowered = {k.lower(): v for k, v in row.items()}
+            start = lowered.get("start") or lowered.get("t0") or lowered.get("clip_start")
+            end = lowered.get("end") or lowered.get("t1") or lowered.get("clip_end")
+            center = lowered.get("center") or lowered.get("mid") or lowered.get("time")
+            if start is None or end is None:
+                if center is not None:
+                    try:
+                        mid = float(str(center).replace(",", "."))
+                    except ValueError:
+                        continue
+                    start = str(mid - 2.0)
+                    end = str(mid + 2.0)
+                else:
+                    continue
             try:
-                start = float(str(s_val).replace(',', '.'))
-                end   = float(str(e_val).replace(',', '.'))
-            except Exception:
-                print(f"[filter_by_motion] Skipping row {idx}: cannot parse start/end -> {row}")
+                s_val = float(str(start).replace(",", "."))
+                e_val = float(str(end).replace(",", "."))
+            except ValueError:
                 continue
-
-            score_val = row.get('score', 0.0)
-            try:
-                score = float(str(score_val).replace(',', '.'))
-            except Exception:
-                score = 0.0
-
-            rows.append({**row, "start": start, "end": end, "score": score})
+            if math.isfinite(s_val) and math.isfinite(e_val) and e_val > s_val:
+                rows.append({
+                    "start": s_val,
+                    "end": e_val,
+                    "kind": str(lowered.get("kind") or lowered.get("label") or lowered.get("event") or "action"),
+                })
     return rows
 
-def consecutive_true(mask, min_len):
-    if min_len <= 1: return bool(mask.any())
-    count = 0
-    for v in mask:
-        if v: 
-            count += 1
-            if count >= min_len: return True
-        else:
-            count = 0
-    return False
 
-def center_lane_mask(h, w, inner_ratio=0.60):
-    # 1 in center band (inner_ratio width), 0 on sidelines
-    mask = np.zeros((h, w), np.float32)
-    x0 = int((1.0 - inner_ratio) * 0.5 * w)
-    x1 = int(w - x0)
-    mask[:, x0:x1] = 1.0
+def hsv_mask(frame_bgr: np.ndarray, low: Sequence[int], high: Sequence[int]) -> np.ndarray:
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    low_arr = np.array(low, dtype=np.uint8)
+    high_arr = np.array(high, dtype=np.uint8)
+    mask = cv2.inRange(hsv, low_arr, high_arr)
     return mask
 
-def sample_indices(n, step):
-    return list(range(0, n, max(1, step)))
 
-def action_metrics(cap, start_s, end_s, downsample=2, step_frames=3, min_frames=24):
-    """Compute per-window optical flow & motion concentration metrics."""
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+def center_lane_mask(height: int, width: int, inner_ratio: float = 0.6) -> np.ndarray:
+    mask = np.zeros((height, width), dtype=np.uint8)
+    x0 = int((1.0 - inner_ratio) * 0.5 * width)
+    x1 = max(x0 + 1, int(width - x0))
+    mask[:, x0:x1] = 1
+    return mask
+
+
+def calc_action_metrics(
+    cap: cv2.VideoCapture,
+    start_s: float,
+    end_s: float,
+    team_low: Sequence[int],
+    team_high: Sequence[int],
+    presence_bias: float,
+    step_frames: int = 3,
+    downsample: int = 2,
+) -> Dict[str, float]:
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    if fps <= 0:
+        fps = 30.0
     start_f = max(0, int(start_s * fps))
-    end_f   = max(start_f+1, int(end_s * fps))
-    total   = end_f - start_f
-    if total < min_frames:  # too short: still evaluate, but note it
-        min_frames = total
-
+    end_f = max(start_f + 1, int(end_s * fps))
+    total_frames = end_f - start_f
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
-    frames = []
-    frames_color = []
-    for i in range(total):
+
+    gray_frames: List[np.ndarray] = []
+    color_frames: List[np.ndarray] = []
+    for idx in range(total_frames):
         ok, frame = cap.read()
-        if not ok: break
-        if i % step_frames: continue
-        frames_color.append(frame.copy())
+        if not ok:
+            break
+        if idx % step_frames != 0:
+            continue
+        color_frames.append(frame.copy())
         if downsample > 1:
-            frame = cv2.resize(frame, None, fx=1.0/downsample, fy=1.0/downsample, interpolation=cv2.INTER_AREA)
-        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-    if len(frames) < 2:
-        return dict(mean_flow=0, center_ratio=0, contig_ok=False, ball_speed=0, samples=len(frames), team_presence=0.0)
+            frame = cv2.resize(frame, None, fx=1.0 / downsample, fy=1.0 / downsample, interpolation=cv2.INTER_AREA)
+        gray_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
 
-    h, w = frames[0].shape[:2]
-    lane = center_lane_mask(h, w, inner_ratio=0.60)
+    if len(gray_frames) < 2:
+        return {
+            "flow_mean": 0.0,
+            "flow_std": 0.0,
+            "center_ratio": 0.0,
+            "contig_frames": 0.0,
+            "ball_speed": 0.0,
+            "ball_pitch_ratio": 0.0,
+            "navy_presence": 0.0,
+            "motion_ratio": 0.0,
+            "samples": float(len(gray_frames)),
+        }
 
-    flows = []
-    center_energy = []
-    ball_path = []  # crude proxy: brightest small blob motion near center
-    team_presence_steps = []
-    prev = frames[0]
-    for f in frames[1:]:
-        flow = cv2.calcOpticalFlowFarneback(prev, f, None,
-                                            pyr_scale=0.5, levels=1, winsize=15,
-                                            iterations=3, poly_n=5, poly_sigma=1.1, flags=0)
-        mag = cv2.magnitude(flow[...,0], flow[...,1])
-        flows.append(mag)
+    height, width = gray_frames[0].shape[:2]
+    lane_mask = center_lane_mask(height, width, inner_ratio=0.62).astype(bool)
 
-        if frames_color:
-            color_idx = min(len(flows), len(frames_color) - 1)
-            team_m = hsv_mask_team(frames_color[color_idx], low=TEAM_LOW, high=TEAM_HIGH)
-        else:
-            team_m = np.zeros_like(mag, dtype=np.uint8)
+    flow_means: List[float] = []
+    center_samples: List[float] = []
+    motion_area_samples: List[float] = []
+    presence_samples: List[float] = []
+    ball_points: List[Tuple[float, float]] = []
+
+    prev = gray_frames[0]
+    for idx, frame in enumerate(gray_frames[1:], start=1):
+        flow = cv2.calcOpticalFlowFarneback(
+            prev,
+            frame,
+            None,
+            pyr_scale=0.5,
+            levels=2,
+            winsize=15,
+            iterations=3,
+            poly_n=5,
+            poly_sigma=1.1,
+            flags=0,
+        )
+        mag = cv2.magnitude(flow[..., 0], flow[..., 1])
+        flow_mean = float(np.mean(mag))
+        flow_means.append(flow_mean)
+
+        motion_threshold = float(np.percentile(mag, 85))
+        motion_mask = mag > motion_threshold
+        motion_ratio = float(np.mean(motion_mask))
+        motion_area_samples.append(motion_ratio)
+
+        center_ratio = float((motion_mask & lane_mask).sum() / (motion_mask.sum() + 1e-6))
+        center_samples.append(center_ratio)
+
+        color_idx = min(idx, len(color_frames) - 1)
+        team_mask = hsv_mask(color_frames[color_idx], team_low, team_high)
         if downsample > 1:
-            team_m = cv2.resize(team_m, (mag.shape[1], mag.shape[0]), interpolation=cv2.INTER_NEAREST)
+            team_mask = cv2.resize(team_mask, (width, height), interpolation=cv2.INTER_NEAREST)
+        team_overlap = float(((motion_mask.astype(np.uint8) > 0) & (team_mask > 0)).sum())
+        motion_pixels = float(motion_mask.sum() + 1e-6)
+        presence_samples.append(team_overlap / motion_pixels)
 
-        # motion mask
-        msk = (mag > np.percentile(mag, 85))  # top motion as proxy
-        # center concentration
-        ctr = (msk * (lane>0)).sum() / (msk.sum()+1e-6)
-        center_energy.append(ctr)
-
-        motion_mask = msk.astype(np.uint8)
-        motion_pixels = motion_mask.sum() + 1e-6
-        team_pixels = ((motion_mask > 0) & (team_m > 0)).sum()
-        team_presence_step = float(team_pixels / motion_pixels)
-        team_presence_steps.append(team_presence_step)
-
-        # crude ball proxy: brightest small area (top 0.1%) centroid
-        thresh = np.percentile(mag, 99.9)
-        k = (mag >= thresh).astype(np.uint8)
-        ys, xs = np.where(k)
+        bright_threshold = float(np.percentile(mag, 99.5))
+        bright_mask = mag >= bright_threshold
+        ys, xs = np.where(bright_mask)
         if len(xs) > 0:
-            ball_path.append((float(xs.mean()), float(ys.mean())))
-        prev = f
+            ball_points.append((float(xs.mean()), float(ys.mean())))
+        prev = frame
 
-    mean_flow = float(np.mean([np.mean(m) for m in flows])) if flows else 0.0
-    center_ratio = float(np.mean(center_energy)) if center_energy else 0.0
+    flow_mean = float(np.mean(flow_means)) if flow_means else 0.0
+    flow_std = float(np.std(flow_means)) if flow_means else 0.0
+    center_ratio = float(np.mean(center_samples)) if center_samples else 0.0
+    navy_raw = float(np.mean(presence_samples)) if presence_samples else 0.0
+    navy_presence = float(np.clip(navy_raw * presence_bias, 0.0, 1.0))
+    motion_ratio = float(np.mean(motion_area_samples)) if motion_area_samples else 0.0
 
-    # continuity: require N consecutive frames above both mean & center thresholds
-    over = []
-    f_thresh = max(0.5*np.mean([np.mean(m) for m in flows]), 0.35*mean_flow)
-    c_thresh = max(0.5*center_ratio, 0.25)
-    for m, c in zip(flows, center_energy):
-        over.append((np.mean(m) > f_thresh) and (c > c_thresh))
-    contig_ok = consecutive_true(over, min_len=10)  # ~10 sampled frames in a row
+    if flow_means:
+        flow_gate = max(0.6 * flow_mean, float(np.percentile(flow_means, 50)))
+    else:
+        flow_gate = 0.0
+    center_gate = max(0.18, center_ratio * 0.6)
+    contig = 0
+    best = 0
+    for f_val, c_val in zip(flow_means, center_samples):
+        if f_val >= flow_gate and c_val >= center_gate:
+            contig += step_frames
+            best = max(best, contig)
+        else:
+            contig = 0
+    contig_frames = float(best)
 
-    # ball speed estimate (px per sampled frame)
     ball_speed = 0.0
-    if len(ball_path) >= 2:
-        dists = [math.hypot(ball_path[i+1][0]-ball_path[i][0], ball_path[i+1][1]-ball_path[i][1])
-                 for i in range(len(ball_path)-1)]
-        ball_speed = float(np.median(dists))
+    if len(ball_points) >= 2:
+        distances = [
+            math.hypot(ball_points[i + 1][0] - ball_points[i][0], ball_points[i + 1][1] - ball_points[i][1])
+            for i in range(len(ball_points) - 1)
+        ]
+        if distances:
+            ball_speed = float(np.median(distances))
 
-    team_presence = float(np.mean(team_presence_steps)) if team_presence_steps else 0.0
+    if ball_points:
+        margin_x = 0.08 * width
+        margin_y = 0.06 * height
+        inside = 0
+        for x, y in ball_points:
+            if margin_x <= x <= (width - margin_x) and margin_y <= y <= (height - margin_y):
+                inside += 1
+        ball_pitch_ratio = float(inside / len(ball_points))
+    else:
+        ball_pitch_ratio = 0.0
 
-    return dict(mean_flow=mean_flow, center_ratio=center_ratio, contig_ok=contig_ok,
-                ball_speed=ball_speed, samples=len(frames), team_presence=team_presence)
+    return {
+        "flow_mean": flow_mean,
+        "flow_std": flow_std,
+        "center_ratio": center_ratio,
+        "contig_frames": contig_frames,
+        "ball_speed": ball_speed,
+        "ball_pitch_ratio": ball_pitch_ratio,
+        "navy_presence": navy_presence,
+        "motion_ratio": motion_ratio,
+        "samples": float(len(gray_frames)),
+    }
 
-def maybe_audio_boost(video_path, start_s, end_s):
-    if librosa is None: return 0.0
+
+def maybe_audio_db(video_path: str, start_s: float, end_s: float) -> float:
+    if librosa is None:
+        return 0.0
+    duration = max(0.05, end_s - start_s)
     try:
-        y, sr = librosa.load(video_path, sr=None, mono=True, offset=max(0.0, start_s), duration=max(0.05, end_s-start_s))
-        # spectral flux as â€œcheer/excitementâ€ proxy
-        S = np.abs(librosa.stft(y, n_fft=1024, hop_length=256))
-        flux = np.mean(np.maximum(S[:,1:] - S[:,:-1], 0.0))
-        return float(flux)
+        y, sr = librosa.load(video_path, sr=None, mono=True, offset=max(0.0, start_s), duration=duration)
     except Exception:
         return 0.0
+    if y.size == 0:
+        return 0.0
+    rms = float(np.sqrt(np.mean(np.square(y))))
+    if rms <= 1e-6:
+        return -60.0
+    return float(20.0 * math.log10(rms + 1e-9))
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--video", required=True)
-    ap.add_argument("--csv",   required=True)
-    ap.add_argument("--out",   required=True)
-    ap.add_argument("--min-motion", type=float, default=0.16, help="baseline flow magnitude gate")
-    ap.add_argument("--min-green",  type=float, default=0.32, help="(legacy, ignored here if no field mask)")
-    ap.add_argument("--need-ball",  type=int,   default=0,    help="legacy flag; superseded by speed gate")
-    ap.add_argument("--ball-hits",  type=int,   default=0)
-    ap.add_argument("--min-contig-frames", type=int, default=10)
-    ap.add_argument("--min-center-ratio",  type=float, default=0.35)
-    ap.add_argument("--min-ball-speed",    type=float, default=0.9, help="median px/frame (sampled) for ball proxy")
-    ap.add_argument(
-        "--min-flow-mean",
-        "--min-flow",
-        dest="min_flow_mean",
-        type=float,
-        default=0.55,
-        help="relative scalar on window mean flow (alias --min-flow)",
-    )
-    ap.add_argument("--audio-boost",       type=int,   default=1,    help="use spectral flux as tiebreaker")
-    ap.add_argument("--team-hsv-low",  type=str, default="105,70,20")
-    ap.add_argument("--team-hsv-high", type=str, default="130,255,160")
-    ap.add_argument("--min-team-pres", type=float, default=0.12, help="min fraction of motion that is team color (navy)")
-    ap.add_argument("--team-bias",     type=float, default=0.25, help="score bonus weight for team presence")
-    args = ap.parse_args()
 
-    def parse_triplet(s):
-        a, b, c = [int(x) for x in s.split(",")]
-        return (a, b, c)
+def time_iou(a: Dict[str, float], b: Dict[str, float]) -> float:
+    inter = max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
+    if inter <= 0:
+        return 0.0
+    union = (a["end"] - a["start"]) + (b["end"] - b["start"]) - inter
+    if union <= 0:
+        return 0.0
+    return inter / union
 
-    global TEAM_LOW, TEAM_HIGH
-    TEAM_LOW = parse_triplet(args.team_hsv_low)
-    TEAM_HIGH = parse_triplet(args.team_hsv_high)
 
-    rows = read_candidates(args.csv)
-    if not rows:
-        raise SystemExit(f"[filter] no candidates in {args.csv}")
+def violates_min_sep(a: Dict[str, float], b: Dict[str, float], gap: float) -> bool:
+    if gap <= 0:
+        return False
+    if a["start"] >= b["end"] + gap:
+        return False
+    if b["start"] >= a["end"] + gap:
+        return False
+    return True
+
+
+def load_team_config(json_path: str) -> Dict[str, object]:
+    cfg: Dict[str, object] = {}
+    if json_path and os.path.exists(json_path):
+        with open(json_path, "r", encoding="utf-8") as handle:
+            cfg = json.load(handle)
+    return cfg
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Rank soccer actions by motion and Navy presence")
+    parser.add_argument("--video", required=True, help="Input stabilized match video")
+    parser.add_argument("--csv", "--highlights", dest="csv", required=True, help="Candidate highlight CSV")
+    parser.add_argument("--out", default=os.path.join("out", "plays.csv"), help="Output ranked plays CSV")
+    parser.add_argument("--goal-resets", dest="goal_resets", help="Legacy compat; ignored")
+    parser.add_argument("--top-dir", dest="legacy_top_dir", help="Legacy compat directory (ignored)")
+    parser.add_argument("--goals-dir", dest="legacy_goals_dir", help="Legacy compat directory (ignored)")
+    parser.add_argument("--min-flow-mean", dest="min_flow_mean", type=float, default=1.6)
+    parser.add_argument("--min-flow", dest="min_flow_mean", type=float, help="Alias for --min-flow-mean")
+    parser.add_argument("--min-ball-speed", type=float, default=1.2)
+    parser.add_argument("--min-center-ratio", type=float, default=0.1)
+    parser.add_argument("--min-contig-frames", type=float, default=12)
+    parser.add_argument("--min-duration", type=float, default=2.4)
+    parser.add_argument("--max-duration", type=float, default=12.0)
+    parser.add_argument("--need-ball", type=int, default=0, help="Require ball on pitch (1=yes)")
+    parser.add_argument("--ball-on-pitch-required", dest="need_ball", action="store_const", const=1)
+    parser.add_argument("--min-team-pres", dest="min_team_pres", type=float)
+    parser.add_argument("--min-navy-pres", dest="min_navy_pres", type=float)
+    parser.add_argument("--team-hsv-low", type=parse_triplet, dest="team_hsv_low")
+    parser.add_argument("--team-hsv-high", type=parse_triplet, dest="team_hsv_high")
+    parser.add_argument("--navy-json", default=os.path.join("config", "team_navy.json"))
+    parser.add_argument("--rank-top", type=int, default=20)
+    parser.add_argument("--min-sep", type=float, default=4.0, help="Minimum separation between kept plays (seconds)")
+    parser.add_argument("--audio-boost", type=float, default=1.0, help="Scaling applied to audio z-score")
+    parser.add_argument("--downsample", type=int, default=2)
+    parser.add_argument("--step-frames", type=int, default=3)
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--min-moving-players", dest="legacy_min_players", type=float, help="Legacy compat (ignored)")
+    return parser
+
+
+def main() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    team_cfg = load_team_config(args.navy_json)
+    default_low = tuple(team_cfg.get("hsv_low", (100, 25, 25)))  # type: ignore[arg-type]
+    default_high = tuple(team_cfg.get("hsv_high", (140, 255, 255)))  # type: ignore[arg-type]
+    team_low = args.team_hsv_low or default_low
+    team_high = args.team_hsv_high or default_high
+    presence_bias = float(team_cfg.get("presence_bias", 1.0))
+
+    min_navy = args.min_navy_pres
+    if min_navy is None:
+        min_navy = team_cfg.get("presence_min")
+    if min_navy is None:
+        min_navy = args.min_team_pres if args.min_team_pres is not None else 0.35
+    min_navy = float(min_navy)
+
+    candidates = read_candidates(args.csv)
+    if not candidates:
+        raise RuntimeError("No candidate highlights found in CSV")
+
+    ensure_dir(args.out)
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
-        raise SystemExit(f"[filter] cannot open video: {args.video}")
+        raise RuntimeError(f"Unable to open video: {args.video}")
 
-    kept = []
-    for r in rows:
-        start, end = float(r['start']), float(r['end'])
-        mets = action_metrics(cap, start, end)
-        # normalize â€œmean_flowâ€ gate using window stats
-        mean_flow = mets['mean_flow']
-        contig_ok = mets['contig_ok']
-        center_ratio = mets['center_ratio']
-        ball_speed = mets['ball_speed']
-        team_presence = mets.get('team_presence', 0.0)
+    metrics_list: List[Dict[str, float]] = []
+    audio_values: List[float] = []
+    enriched_candidates: List[Dict[str, float]] = []
 
-        # hard gates
-        g_cont = contig_ok
-        g_center = (center_ratio >= args.min_center_ratio)
-        g_ball   = (ball_speed >= args.min_ball_speed)
-        g_team   = (team_presence >= args.min_team_pres)
+    for cand in candidates:
+        start = float(cand["start"])
+        end = float(cand["end"])
+        if end - start < args.min_duration or end - start > args.max_duration:
+            continue
+        metrics = calc_action_metrics(
+            cap,
+            start,
+            end,
+            team_low,
+            team_high,
+            float(presence_bias),
+            step_frames=max(1, int(args.step_frames)),
+            downsample=max(1, int(args.downsample)),
+        )
+        navy_presence = metrics.get("navy_presence", 0.0)
+        contig_frames = metrics.get("contig_frames", 0.0)
+        ball_pitch_ratio = metrics.get("ball_pitch_ratio", 0.0)
+        ball_speed = metrics.get("ball_speed", 0.0)
+        if contig_frames < args.min_contig_frames:
+            continue
+        if navy_presence < min_navy:
+            continue
+        if args.need_ball and ball_pitch_ratio < 0.5:
+            continue
+        if metrics.get("flow_mean", 0.0) < args.min_flow_mean:
+            continue
+        if metrics.get("ball_speed", 0.0) < args.min_ball_speed:
+            continue
+        if metrics.get("center_ratio", 0.0) < args.min_center_ratio:
+            continue
 
-        score = 0.45 * min(2.0, mean_flow) \
-              + 0.30 * center_ratio \
-              + 0.25 * min(2.0, ball_speed) \
-              + args.team_bias * team_presence
+        audio_db = maybe_audio_db(args.video, start, end)
+        audio_values.append(audio_db)
 
-        if args.audio_boost:
-            score += 0.10 * maybe_audio_boost(args.video, start, end)
-
-        # final decision: require continuity + center; allow either ball or strong flow; prefer team
-        ok = g_cont and g_center and (g_ball or (mean_flow > 1.2*args.min_flow_mean))
-        if not ok and g_team and contig_ok and center_ratio >= (args.min_center_ratio + 0.03):
-            ok = True
-
-        why = []
-        if not g_cont:   why.append("no_continuity")
-        if not g_center: why.append("off_center")
-        if not g_ball and mean_flow <= 1.2*args.min_flow_mean: why.append("no_ball_speed")
-        if ok:
-            outrow = dict(r)
-            outrow.update(dict(action_score=float(score),
-                               mean_flow=float(mean_flow),
-                               center_ratio=float(center_ratio),
-                               ball_speed=float(ball_speed),
-                               team_presence=float(team_presence),
-                               why="keep"))
-            kept.append(outrow)
-        else:
-            # keep a note for debugging; not written out
-            pass
-
-    # sort by our action_score if present (desc)
-    if kept and 'action_score' in kept[0]:
-        kept = sorted(kept, key=lambda d: d.get('action_score', 0.0), reverse=True)
-
-    # write filtered CSV
-    if kept:
-        fieldnames = list(kept[0].keys())
-        with open(args.out, 'w', newline='') as f:
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
-            for row in kept:
-                w.writerow(row)
-        print(f"[filter] kept {len(kept)} clips -> {args.out}")
-    else:
-        print("[filter] kept 0 clips (try lowering min-ball-speed or min-center-ratio)")
+        enriched = {
+            "start": start,
+            "end": end,
+            "kind": cand.get("kind", "action"),
+            "flow_mean": metrics.get("flow_mean", 0.0),
+            "flow_std": metrics.get("flow_std", 0.0),
+            "center_ratio": metrics.get("center_ratio", 0.0),
+            "contig_frames": contig_frames,
+            "ball_speed": ball_speed,
+            "ball_pitch_ratio": ball_pitch_ratio,
+            "navy_presence": navy_presence,
+            "motion_ratio": metrics.get("motion_ratio", 0.0),
+            "audio_db": audio_db,
+        }
+        metrics_list.append(metrics)
+        enriched_candidates.append(enriched)
 
     cap.release()
 
+    if not enriched_candidates:
+        raise RuntimeError("No plays passed the motion filters")
+
+    audio_mean = float(np.mean(audio_values)) if audio_values else 0.0
+    audio_std = float(np.std(audio_values)) if audio_values else 0.0
+
+    scored: List[Dict[str, float]] = []
+    for item in enriched_candidates:
+        audio_db = item["audio_db"]
+        audio_z = 0.0
+        if audio_std > 1e-5:
+            audio_z = (audio_db - audio_mean) / audio_std
+        flow_mean = item["flow_mean"]
+        ball_speed = item["ball_speed"]
+        center_ratio = item["center_ratio"]
+        navy_presence = item["navy_presence"]
+
+        penalty_low_motion = max(0.0, args.min_flow_mean - flow_mean) * 1.5
+        penalty_low_motion += max(0.0, args.min_ball_speed - ball_speed) * 1.2
+        penalty_static = 0.0
+        if item["flow_std"] < 0.12:
+            penalty_static += 0.8
+        if item["motion_ratio"] < 0.015:
+            penalty_static += 0.7
+        penalty_pitch = 0.0
+        if center_ratio < args.min_center_ratio:
+            penalty_pitch += (args.min_center_ratio - center_ratio) * 2.0
+        if navy_presence < min_navy:
+            penalty_pitch += (min_navy - navy_presence) * 3.0
+        if item["ball_pitch_ratio"] < 0.4:
+            penalty_pitch += 0.6
+
+        score = (
+            1.5 * flow_mean
+            + 2.0 * ball_speed
+            + 1.5 * center_ratio
+            + 2.0 * navy_presence
+            + 0.5 * audio_z * args.audio_boost
+            - penalty_low_motion
+            - penalty_static
+            - penalty_pitch
+        )
+
+        flow_norm = flow_mean / max(args.min_flow_mean, 1e-3)
+        ball_norm = ball_speed / max(args.min_ball_speed, 1e-3)
+        center_norm = center_ratio / max(args.min_center_ratio, 1e-3)
+        navy_norm = navy_presence / max(min_navy, 1e-3)
+        confidence = max(0.0, min(1.0, (flow_norm + ball_norm + center_norm + navy_norm) / 4.0))
+
+        scored.append({
+            **item,
+            "score": score,
+            "audio_z": audio_z,
+            "confidence": confidence,
+        })
+
+    scored.sort(key=lambda r: r["score"], reverse=True)
+
+    selected: List[Dict[str, float]] = []
+    for cand in scored:
+        if len(selected) >= args.rank_top:
+            break
+        reject = False
+        for prev in selected:
+            if time_iou(cand, prev) > 0.5:
+                reject = True
+                break
+            if violates_min_sep(cand, prev, args.min_sep):
+                reject = True
+                break
+        if reject:
+            continue
+        selected.append(cand)
+
+    selected.sort(key=lambda r: r["start"])
+
+    with open(args.out, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "start",
+            "end",
+            "score",
+            "kind",
+            "confidence",
+            "ball_speed",
+            "flow_mean",
+            "center_ratio",
+            "navy_presence",
+            "audio_db",
+        ])
+        for row in selected:
+            writer.writerow([
+                f"{row['start']:.3f}",
+                f"{row['end']:.3f}",
+                f"{row['score']:.4f}",
+                row.get("kind", "action"),
+                f"{row['confidence']:.3f}",
+                f"{row['ball_speed']:.3f}",
+                f"{row['flow_mean']:.3f}",
+                f"{row['center_ratio']:.3f}",
+                f"{row['navy_presence']:.3f}",
+                f"{row['audio_db']:.3f}",
+            ])
+
+    if args.verbose:
+        print(f"[filter] kept {len(selected)} plays from {len(scored)} scored candidates")
+        print(f"[filter] output -> {args.out}")
+
+
 if __name__ == "__main__":
     main()
-
