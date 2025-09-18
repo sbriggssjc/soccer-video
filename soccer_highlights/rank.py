@@ -306,23 +306,10 @@ def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> 
             gate_start = max(0.0, float(times[idx]) - step)
             inpoint = max(inpoint, gate_start)
 
-    trim_start = max(trim_start, inpoint)
+    trim_start = max(trim_start, inpoint, gate_start)
     if trim_end < trim_start:
         trim_end = trim_start
 
-    motion_ref = mag[cover > 0] if cover.size and (cover > 0).any() else mag
-
-            if len(times) >= 2:
-                if idx > 0:
-                    prev_time = float(times[idx - 1])
-                else:
-                    prev_time = float(times[1])
-                step = max(0.1, float(times[idx]) - prev_time)
-            else:
-                step = 0.3
-            gate_start = max(gate_start, max(0.0, float(times[idx]) - step))
-
-    trim_start = max(trim_start, gate_start)
     if trim_end - trim_start < 0.1:
         trim_end = min(duration, max(trim_start + 0.1, trim_end))
         if trim_end <= trim_start:
