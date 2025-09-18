@@ -1,7 +1,12 @@
 ﻿param(
-  [string]$Video = ".\out\full_game_stabilized.mp4",
+  [Parameter(Mandatory=$true)][string]$Video,
+  [ValidateSet("ignore","strict","loose")][string]$GoalMode = "strict",
+  [int]$MaxGoals = 6,
+  [double]$MinGoalSeparation = 20.0,
+  [double]$MaxFractionOfRaw = 0.20,
   [string]$OutDir = ".\out",
-  [ValidateSet("ignore","strict","loose")
+  [double]$ActionPad = 0.8
+)
 
 
 function TryParse-Double([object]\, [ref] [double]\) {
@@ -258,6 +263,7 @@ $concatBoth  = Join-Path $OutDir "concat_goals_plus_top.txt"
 $final = Join-Path $OutDir "top_highlights_goals_first.mp4"
 ffmpeg -f concat -safe 0 -i $concatBoth -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -movflags +faststart -y $final
 Write-Host "[done] goals=$iG, actions=$iA -> $final"
+
 
 
 
