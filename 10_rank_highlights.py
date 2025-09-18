@@ -27,6 +27,7 @@ def robust_metric(row:Dict, candidates:List[str], default=0.0):
 def aggregate_for_segment(seg, filt_rows):
     s,e=seg; dur=max(1e-6, e-s)
     tot_ov=0.0; m_ball=0.0; m_hits=0.0; m_flow=0.0; m_team=0.0
+    m_navp=0.0; m_opp=0.0; m_touch=0.0; m_conf=0.0
     for r in filt_rows:
         rs=fnum(r.get("start")); re=fnum(r.get("end"))
         if math.isnan(rs) or math.isnan(re) or re<=rs: continue
@@ -37,12 +38,20 @@ def aggregate_for_segment(seg, filt_rows):
         m_hits += ov * robust_metric(r, ["ball_hits","hits","ballhits"], 0.0)
         m_flow += ov * robust_metric(r, ["avg_flow","flow","motion","min_flow","max_flow"], 0.0)
         m_team += ov * robust_metric(r, ["team_pres","team_presence","navy_presence","avg_team_pres","min_team_pres","max_team_pres"], 0.0)
+        m_navp += ov * robust_metric(r, ["navy_possession","possession_navy","navy_poss"], 0.0)
+        m_opp += ov * robust_metric(r, ["opp_possession","opponent_possession","opp_poss"], 0.0)
+        m_touch += ov * robust_metric(r, ["last_touch_navy","possession_team","last_touch"], 0.5)
+        m_conf += ov * robust_metric(r, ["possession_conf","poss_conf","possession_confidence"], 0.0)
     if tot_ov<=0: tot_ov=dur
     return {
         "ball": m_ball/tot_ov,
         "hits": m_hits/tot_ov,
         "flow": m_flow/tot_ov,
-        "team": m_team/tot_ov
+        "team": m_team/tot_ov,
+        "navy_poss": m_navp/tot_ov,
+        "opp_poss": m_opp/tot_ov,
+        "last_touch": m_touch/tot_ov,
+        "poss_conf": m_conf/tot_ov
     }
 
 def cheer_score(seg, cheers, pre=8.0, post=2.5):
@@ -123,11 +132,35 @@ def main():
     cheers_s = norm(cheers_s)
     durs = norm(dur)
 
+    navy_shares = [f.get("navy_poss", 0.0) for f in feats]
+    opp_shares = [f.get("opp_poss", 0.0) for f in feats]
+    touch_flags = [f.get("last_touch", 0.5) for f in feats]
+    poss_conf = [f.get("poss_conf", 0.0) for f in feats]
+
+    opponent_floor = 0.15
     scores=[]
     for i in range(len(plays)):
         # weights tuned to prefer shots/ball speed + motion, but keep team-navy & cheer influence
-        s = 2.5*balls[i] + 0.8*hits[i] + 2.0*flows[i] + 1.2*teams[i] + 1.0*cheers_s[i] + 0.3*durs[i]
-        scores.append(s)
+        base = 2.5*balls[i] + 0.8*hits[i] + 2.0*flows[i] + 1.2*teams[i] + 1.0*cheers_s[i] + 0.3*durs[i]
+        navy_share = navy_shares[i]
+        opp_share = opp_shares[i]
+        last_touch = touch_flags[i]
+        conf = poss_conf[i]
+        if (navy_share + opp_share) <= 1e-6:
+            is_navy = (last_touch >= 0.5)
+        else:
+            if abs(navy_share - opp_share) < 0.05 and conf < 0.05:
+                is_navy = (last_touch >= 0.5)
+            else:
+                is_navy = navy_share >= opp_share
+        if is_navy:
+            score = base
+        else:
+            if base < opponent_floor:
+                score = 0.0
+            else:
+                score = max(opponent_floor, base * 0.35)
+        scores.append(score)
 
     keep_idx = nms_keep(plays, scores, iou_thresh=0.40)[:args.topn]
     chosen = sorted(keep_idx, key=lambda i: scores[i], reverse=True)
