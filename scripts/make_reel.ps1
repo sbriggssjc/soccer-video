@@ -41,7 +41,7 @@ function Read-Spans($csvPath, $preferStartEnd=$true) {
   foreach ($r in $rows) {
     $t0=$null; $t1=$null
     if ($preferStartEnd -and $startCol -and $endCol) {
-      [double]$a=0; [double]$b=0
+      $a=0; [double]$b=0
       if ([double]::TryParse("$($r.$startCol)",[ref]$a) -and [double]::TryParse("$($r.$endCol)",[ref]$b) -and $b -gt $a) { $t0=$a; $t1=$b }
     }
     if ($t0 -eq $null -and $timeCol) {
@@ -69,7 +69,7 @@ function Get-GoalSpans($csvPath, $mode="strict", $minSep=20.0, $maxN=6) {
     if (-not $isGoal) { continue }
 
     if ($startCol -and $endCol) {
-      [double]$a=0; [double]$b=0
+      $a=0; [double]$b=0
       if ([double]::TryParse("$($r.$startCol)",[ref]$a) -and [double]::TryParse("$($r.$endCol)",[ref]$b) -and $b -gt $a) {
         $cands += [pscustomobject]@{ t0=$a; t1=$b }; continue
       }
@@ -144,7 +144,7 @@ function Get-Duration($path) {
 $rows = Import-Csv (Join-Path $OutDir "plays.csv")
 $actionSpans = @()
 foreach ($r in $rows) {
-  [double]$a=0; [double]$b=0
+  $a=0; [double]$b=0
   if ([double]::TryParse("$($r.start)",[ref]$a) -and [double]::TryParse("$($r.end)",[ref]$b) -and $b -gt $a) {
     $actionSpans += [pscustomobject]@{ t0=[math]::Max(0,$a - $ActionPad); t1=$b + $ActionPad }
   }
@@ -250,6 +250,7 @@ $concatBoth  = Join-Path $OutDir "concat_goals_plus_top.txt"
 $final = Join-Path $OutDir "top_highlights_goals_first.mp4"
 ffmpeg -f concat -safe 0 -i $concatBoth -r 24 -g 48 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -c:a aac -ar 48000 -af "loudnorm=I=-16:TP=-1.5:LRA=11" -movflags +faststart -y $final
 Write-Host "[done] goals=$iG, actions=$iA -> $final"
+
 
 
 
