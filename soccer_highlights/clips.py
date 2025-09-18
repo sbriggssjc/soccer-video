@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import csv
 from pathlib import Path
 from typing import List
 
@@ -77,9 +78,11 @@ def export_clips(config: AppConfig, video_path: Path, csv_path: Path, out_dir: P
         return []
     out_dir.mkdir(parents=True, exist_ok=True)
     tasks = []
+    metadata_rows = []
     for idx, win in enumerate(windows, start=1):
         out_path = out_dir / f"clip_{idx:04d}.mp4"
         tasks.append((idx, win, out_path))
+        metadata_rows.append((out_path.name, win))
 
     exported: List[Path] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=config.clips.workers) as executor:
@@ -96,8 +99,27 @@ def export_clips(config: AppConfig, video_path: Path, csv_path: Path, out_dir: P
             else:
                 if result:
                     exported.append(out_path)
+    _write_metadata(out_dir, metadata_rows)
     return exported
 
 
 def run_clips(config: AppConfig, video_path: Path, csv_path: Path, out_dir: Path) -> List[Path]:
     return export_clips(config, video_path, csv_path, out_dir)
+
+
+def _write_metadata(out_dir: Path, rows: List[tuple[str, HighlightWindow]]) -> None:
+    meta_path = out_dir / "clips_metadata.csv"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    with meta_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["filename", "event", "start", "end", "score"])
+        for filename, window in rows:
+            writer.writerow(
+                [
+                    filename,
+                    window.event or "",
+                    f"{window.start:.3f}",
+                    f"{window.end:.3f}",
+                    f"{window.score:.4f}",
+                ]
+            )
