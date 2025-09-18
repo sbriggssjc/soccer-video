@@ -147,14 +147,22 @@ def optical_flow_metrics(prev_gray, gray):
     mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1], angleInDegrees=False)
     # Global (camera) direction ~ vector median of flow
     vx = np.median(flow[...,0]); vy = np.median(flow[...,1])
-    vmag = math.hypot(float(vx), float(vy)) + 1e-6
+    vmag = math.hypot(float(vx), float(vy))
     # Pixels that deviate from global direction by > ~35°
-    dot = (flow[...,0]*vx + flow[...,1]*vy) / (vmag*np.maximum(1e-6, np.sqrt(flow[...,0]**2+flow[...,1]**2)))
+    denom = np.maximum(1e-6, np.sqrt(flow[...,0]**2+flow[...,1]**2))
+    base = max(vmag, 1e-6)
+    dot = (flow[...,0]*vx + flow[...,1]*vy) / (base * denom)
     dev_mask = (dot < math.cos(math.radians(35)))
     # Residual action magnitude (not camera pan)
     residual = mag[dev_mask]
     residual_mag = float(np.median(residual)) if residual.size else 0.0
-    return residual_mag
+    median_flow = float(np.median(mag)) if mag.size else 0.0
+    return dict(
+        residual=residual_mag,
+        camera_mag=float(vmag),
+        camera_dir=float(math.atan2(float(vy), float(vx))) if vmag > 1e-6 else 0.0,
+        median_flow=median_flow,
+    )
 
 def green_ratio(hsv):
     # wide green band for pitches
@@ -196,9 +204,16 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, kit: KitClassifier, at
     cap.set(cv2.CAP_PROP_POS_MSEC, max(0,start)*1000.0)
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)); w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     step = max(1,int(round(cap.get(cv2.CAP_PROP_FPS)/fps_sample))) if cap.get(cv2.CAP_PROP_FPS)>0 else 4
+
     idx=0; prev_gray=None; prev_ball=None
     green_rates=[]; flow_resid=[]; ball_speeds=[]; team_near=[]; att_pos=[]
     navy_touch=0.0; opp_touch=0.0; last_touch=None; touch_events=0; touch_conf_sum=0.0
+
+    idx=0; prev_gray=None; prev_ball=None; prev_ball_time=None; ball_miss=0
+    green_rates=[]; flow_resid=[]; pan_mags=[]; pan_dirs=[]; flow_medians=[]
+    ball_speeds=[]; ball_speed_track=[]; ball_positions=[]; team_near=[]; att_pos=[]
+    ball_visible=0
+
     while True:
         t = start + (idx/fps_sample)
         if t>=end: break
@@ -211,18 +226,35 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, kit: KitClassifier, at
         g = green_ratio(hsv); green_rates.append(g)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if prev_gray is not None:
-            flow_resid.append(optical_flow_metrics(prev_gray, gray))
+            flow_m = optical_flow_metrics(prev_gray, gray)
+            flow_resid.append(flow_m['residual'])
+            pan_mags.append(flow_m['camera_mag'])
+            pan_dirs.append(flow_m['camera_dir'])
+            flow_medians.append(flow_m['median_flow'])
         prev_gray = gray
         ball = find_ball_centroid(frame)
+        t_rel = (idx / fps_sample) if fps_sample else 0.0
         if ball:
+            ball_visible += 1
             cx,cy = ball
+            ball_positions.append((t_rel, float(cx), float(cy)))
             if prev_ball:
+                dt_frames = max(1, idx - prev_ball_time) if prev_ball_time is not None else 1
                 dx = (cx-prev_ball[0]); dy = (cy-prev_ball[1])
-                ball_speeds.append(math.hypot(dx,dy))
+                speed = math.hypot(dx,dy)
+                if dt_frames > 1:
+                    speed /= dt_frames
+                ball_speeds.append(speed)
+                ball_speed_track.append(speed)
+            else:
+                ball_speed_track.append(0.0)
             prev_ball = ball
+            prev_ball_time = idx
+            ball_miss = 0
             team_near.append(team_presence_near(hsv,cx,cy,team_hsv))
             # attacking thirds in X (left/right edges)
             att_pos.append( 1.0 if (cx < att_third_cut*w or cx > (1.0-att_third_cut)*w) else 0.0 )
+
             label, conf, navy_ratio, opp_ratio = kit.classify_patch(hsv, cx, cy)
             navy_touch += navy_ratio
             opp_touch += opp_ratio
@@ -238,10 +270,22 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, kit: KitClassifier, at
                 navy_touch += 0.01
             elif last_touch == "opponent":
                 opp_touch += 0.01
+
+        else:
+            ball_speed_track.append(0.0)
+            ball_miss += 1
+            if ball_miss > 3:
+                prev_ball = None
+                prev_ball_time = None
+
         idx += 1
     # Aggregate
     green_ok = np.mean(green_rates) if green_rates else 0
     flow   = np.median(flow_resid) if flow_resid else 0
+    residual_peak = float(np.max(flow_resid)) if flow_resid else 0.0
+    flow_mean = float(np.mean(flow_resid)) if flow_resid else 0.0
+    pan_peak = float(np.max(pan_mags)) if pan_mags else 0.0
+    pan_mean = float(np.mean(pan_mags)) if pan_mags else 0.0
     if ball_speeds:
         sp = np.array(ball_speeds)
         # robust stats
@@ -250,8 +294,10 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, kit: KitClassifier, at
         hits = int(np.sum((sp[1:]-sp[:-1])>2.5))  # acceleration spikes
     else:
         speed_med=0.0; contig=0; hits=0
+        sp = np.array([], dtype=float)
     team_pres = float(np.mean(team_near)) if team_near else 0.0
     att_frac  = float(np.mean(att_pos))  if att_pos  else 0.0
+
     total_touch = navy_touch + opp_touch
     if total_touch > 1e-6:
         navy_poss = float(navy_touch / total_touch)
@@ -270,13 +316,264 @@ def analyze_window(cap, start, end, fps_sample, team_hsv, kit: KitClassifier, at
         last_touch_flag = 0.5
     avg_touch_conf = (touch_conf_sum / touch_events) if touch_events else 0.0
     poss_conf = max(abs(navy_poss - opp_poss), avg_touch_conf)
+
+    ball_visible_ratio = float(ball_visible / max(1, idx))
+    speed_track_max = float(max(ball_speed_track)) if ball_speed_track else 0.0
+    contig_frames = 0
+    if ball_speed_track:
+        run = 0
+        for v in ball_speed_track:
+            if v > 3.5:
+                run += 1
+                if run > contig_frames:
+                    contig_frames = run
+            else:
+                run = 0
+
     return dict(
         green_ok=green_ok, flow=flow,
         speed_med=speed_med, contig=contig, hits=hits,
         team_pres=team_pres, att_frac=att_frac,
+
         navy_possession=navy_poss, opp_possession=opp_poss,
         last_touch_navy=last_touch_flag, possession_conf=poss_conf
+
+        residual_series=flow_resid,
+        residual_peak=residual_peak,
+        residual_mean=flow_mean,
+        pan_series=pan_mags,
+        pan_dir_series=pan_dirs,
+        pan_peak=pan_peak,
+        pan_mean=pan_mean,
+        flow_median_series=flow_medians,
+        ball_speeds=ball_speeds,
+        ball_speed_track=ball_speed_track,
+        ball_positions=ball_positions,
+        ball_visible_ratio=ball_visible_ratio,
+        speed_max=float(np.max(sp)) if sp.size else 0.0,
+        speed_track_max=speed_track_max,
+        contig_frames=contig_frames,
+        att_flags=att_pos,
+        team_series=team_near,
+        green_series=green_rates,
+        duration=float(max(0.0, end-start)),
+        sample_dt=(1.0/fps_sample) if fps_sample else 0.0,
+        frame_width=float(w),
+        frame_height=float(h),
+
     )
+
+
+def _to_array(values):
+    if not values:
+        return np.zeros(0, dtype=np.float32)
+    return np.array(values, dtype=np.float32)
+
+
+def _ball_arrays(win):
+    pts = win.get('ball_positions') or []
+    if not pts:
+        empty = np.zeros(0, dtype=np.float32)
+        return empty, empty, empty
+    arr = np.array(pts, dtype=np.float32)
+    if arr.ndim != 2 or arr.shape[1] < 3:
+        empty = np.zeros(0, dtype=np.float32)
+        return empty, empty, empty
+    times = arr[:, 0]
+    xs = arr[:, 1]
+    ys = arr[:, 2]
+    return times, xs, ys
+
+
+def _camera_pan_alignment(win, ball_dir):
+    if abs(ball_dir) < 1e-3:
+        return 0.0
+    dirs = _to_array(win.get('pan_dir_series'))
+    if dirs.size == 0:
+        return 0.0
+    mags = _to_array(win.get('pan_series'))
+    cos_vals = np.cos(dirs)
+    aligned = cos_vals * float(ball_dir)
+    if mags.size and mags.size == aligned.size:
+        val = float(np.average(aligned, weights=np.maximum(mags, 1e-6)))
+    else:
+        val = float(aligned.mean())
+    return max(0.0, val)
+
+
+def is_shot(win):
+    times, xs, _ = _ball_arrays(win)
+    if xs.size < 2:
+        return 0.0
+    width = max(float(win.get('frame_width', 1.0)), 1.0)
+    start_x = xs[0] / width
+    end_x = xs[-1] / width
+    progress = end_x - start_x
+    direction = math.copysign(1.0, progress) if abs(progress) > 1e-3 else 0.0
+    toward_goal = abs(end_x - 0.5) > 0.30
+    speed_peak = max(float(win.get('speed_max', 0.0)), float(win.get('speed_track_max', 0.0)))
+    spike = (speed_peak > 6.0) or (speed_peak > 5.0 and int(win.get('hits', 0)) >= 2)
+    alignment = _camera_pan_alignment(win, direction)
+    pan_peak = float(win.get('pan_peak', 0.0))
+    residual_peak = float(win.get('residual_peak', 0.0))
+    final_presence = final_third_presence(win)
+    if spike and toward_goal and alignment > 0.1 and pan_peak > 1.0 and residual_peak > 0.9 and final_presence > 0.25:
+        return 1.0
+    att_flags = _to_array(win.get('att_flags'))
+    enters_box = bool(att_flags.size) and float(att_flags.mean()) > 0.25
+    if enters_box and residual_peak > 1.1 and speed_peak > 4.0:
+        return 1.0
+    return 0.0
+
+
+def is_shot_attempt(win, shot_conf=None):
+    shot_conf = shot_conf if shot_conf is not None else is_shot(win)
+    if shot_conf >= 1.0:
+        return 1.0
+    speed_peak = max(float(win.get('speed_max', 0.0)), float(win.get('speed_track_max', 0.0)))
+    if speed_peak < 4.0:
+        return 0.0
+    if final_third_presence(win) < 0.2:
+        return 0.0
+    residual_peak = float(win.get('residual_peak', 0.0))
+    pan_peak = float(win.get('pan_peak', 0.0))
+    if residual_peak > 0.75 or pan_peak > 0.8:
+        return 1.0
+    return 0.0
+
+
+def has_pass_chain(win, min_len=3, window_s=8):
+    times, xs, _ = _ball_arrays(win)
+    if xs.size < min_len:
+        return 0.0
+    width = max(float(win.get('frame_width', 1.0)), 1.0)
+    xs_norm = xs / width
+    team_series = _to_array(win.get('team_series'))
+    team_avg = float(team_series.mean()) if team_series.size else 0.0
+    if team_avg < 0.08 or float(win.get('ball_visible_ratio', 0.0)) < 0.4:
+        return 0.0
+    for i in range(0, len(xs_norm) - min_len + 1):
+        j = i + min_len - 1
+        dt = float(times[j] - times[i])
+        if dt > window_s:
+            continue
+        seg = xs_norm[i:j+1]
+        progress = float(seg[-1] - seg[0])
+        direction = math.copysign(1.0, progress) if abs(progress) > 1e-3 else 0.0
+        if abs(progress) < 0.18 or direction == 0.0:
+            continue
+        diffs = np.diff(seg)
+        touches = int(np.sum(np.abs(diffs) > 0.015)) + 1
+        if touches < min_len:
+            continue
+        if np.any(diffs * direction < -0.02):
+            continue
+        return 1.0
+    return 0.0
+
+
+def has_switch_of_play(win):
+    times, xs, _ = _ball_arrays(win)
+    if xs.size < 2:
+        return 0.0
+    width = max(float(win.get('frame_width', 1.0)), 1.0)
+    xs_norm = xs / width
+    span = float(xs_norm.max() - xs_norm.min()) if xs_norm.size else 0.0
+    if span < 0.45:
+        return 0.0
+    idx_min = int(np.argmin(xs_norm))
+    idx_max = int(np.argmax(xs_norm))
+    dt = abs(float(times[idx_max] - times[idx_min]))
+    crosses_mid = ((xs_norm[idx_min] < 0.4 and xs_norm[idx_max] > 0.6) or
+                   (xs_norm[idx_max] < 0.4 and xs_norm[idx_min] > 0.6))
+    edge_flip = ((xs_norm[idx_min] < 0.25 and xs_norm[idx_max] > 0.75) or
+                 (xs_norm[idx_max] < 0.25 and xs_norm[idx_min] > 0.75))
+    if dt <= 4.0 and (crosses_mid or edge_flip):
+        return 1.0
+    return 0.0
+
+
+def has_tackle_or_press(win):
+    speeds = _to_array(win.get('ball_speed_track'))
+    if speeds.size < 2:
+        return 0.0
+    residual_peak = float(win.get('residual_peak', 0.0))
+    if residual_peak < 0.75:
+        return 0.0
+    team_series = _to_array(win.get('team_series'))
+    team_peak = float(team_series.max()) if team_series.size else 0.0
+    dt = float(win.get('sample_dt', 0.0))
+    if dt <= 0:
+        dt = 1.0 / 6.0
+    look = max(1, int(round(1.0 / max(dt, 1e-3))))
+    press = False
+    for i in range(len(speeds)):
+        if speeds[i] < 3.0:
+            continue
+        j = min(len(speeds) - 1, i + look)
+        if float(np.min(speeds[i:j+1])) < 0.8:
+            press = True
+            break
+    if not press:
+        for i in range(len(speeds)):
+            if speeds[i] > 0.9:
+                continue
+            j = min(len(speeds) - 1, i + look)
+            if float(np.max(speeds[i:j+1])) > 3.2:
+                press = True
+                break
+    if press and team_peak > 0.12:
+        return 1.0
+    return 0.0
+
+
+def final_third_presence(win):
+    val = win.get('att_frac', 0.0)
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def is_restart_setup(win):
+    flow_med = float(win.get('flow', 0.0))
+    pan_mean = float(win.get('pan_mean', 0.0))
+    speed_peak = float(win.get('speed_track_max', 0.0))
+    ball_vis = float(win.get('ball_visible_ratio', 0.0))
+    team_avg = float(_to_array(win.get('team_series')).mean()) if win.get('team_series') else 0.0
+    green_mean = float(np.mean(win.get('green_series'))) if win.get('green_series') else 0.0
+    duration = float(win.get('duration', 0.0))
+    if duration < 2.0:
+        return 0.0
+    if flow_med < 0.18 and pan_mean < 0.35 and speed_peak < 1.5 and ball_vis < 0.25 and team_avg < 0.08:
+        return 1.0
+    if flow_med < 0.22 and speed_peak < 2.0 and green_mean > 0.55 and ball_vis < 0.35:
+        return 1.0
+    return 0.0
+
+
+def is_stationary_block(win):
+    residual = float(win.get('flow', 0.0))
+    speed_peak = float(win.get('speed_track_max', 0.0))
+    pan_peak = float(win.get('pan_peak', 0.0))
+    if residual < 0.2 and speed_peak < 1.0 and pan_peak < 0.6:
+        return 1.0
+    if residual < 0.28 and speed_peak < 1.4 and float(win.get('ball_visible_ratio', 0.0)) < 0.45:
+        return 1.0
+    return 0.0
+
+
+def action_score(win):
+    shot = is_shot(win)
+    attempt = is_shot_attempt(win, shot)
+    score  = 3.0 * shot + 2.0 * attempt
+    score += 2.0 * has_pass_chain(win, min_len=3, window_s=8)
+    score += 1.5 * has_switch_of_play(win)
+    score += 1.2 * has_tackle_or_press(win)
+    score += 0.8 * final_third_presence(win)
+    score -= 2.0 * is_restart_setup(win)
+    score -= 1.0 * is_stationary_block(win)
+    return score
 
 def main():
     ap = argparse.ArgumentParser()
@@ -310,21 +607,60 @@ def main():
         m = analyze_window(cap, r['start'], r['end'], args.fps_sample, team_hsv, kit, args.att_third_cut)
         if m['green_ok'] < args.min_green:  # off-field/bench
             continue
-        if m['flow'] < args.min_flow:
+        action = action_score(m)
+        if m['flow'] < args.min_flow and action < 1.0:
             continue
-        if m['speed_med'] < args.min_ball_speed or m['contig'] < args.min_contig_frames or m['hits'] < args.min_ball_hits:
+        low_ball = (
+            m['speed_med'] < args.min_ball_speed
+            or m.get('contig_frames', 0) < args.min_contig_frames
+            or m['hits'] < args.min_ball_hits
+        )
+        if low_ball and action < 1.5:
             continue
-        # action score: flow + ball speed + attacking third + team presence
-        action = (0.55*m['flow']
-                  + 0.65*(m['speed_med']/8.0)
-                  + 0.35*m['att_frac']
-                  + (args.team_bias * m['team_pres']))
+
+        mean_flow = float(m['flow'])
+        g_cont = (m.get('contig_frames', 0) >= args.min_contig_frames)
+        g_ball = (m['speed_med'] >= args.min_ball_speed)
+        g_hits = (m['hits'] >= args.min_ball_hits)
+        g_team = (m['team_pres'] >= args.min_team_pres)
+
+        ok = g_cont and (g_ball or g_hits or mean_flow >= args.min_flow * 1.15)
+        if not ok and g_team and mean_flow >= args.min_flow:
+            ok = True
+
+        action_override = False
+        if not ok and action >= 1.5:
+            ok = True
+            action_override = True
+
+        why = []
+        if not g_cont:
+            why.append("no_continuity")
+        if not g_ball:
+            why.append("no_ball_speed")
+        if not g_hits:
+            why.append("no_ball_hits")
+        if mean_flow < args.min_flow:
+            why.append("low_flow")
+        if not g_team:
+            why.append("low_team")
+
+        if not ok:
+            continue
+
+        label = "keep_action" if action_override else "keep"
         out_rows.append(dict(
             start=r['start'], end=r['end'], action_score=round(float(action),4),
+
             flow=m['flow'], speed_med=m['speed_med'], contig=m['contig'], hits=m['hits'],
             team_pres=m['team_pres'], att_frac=m['att_frac'],
             navy_possession=m['navy_possession'], opp_possession=m['opp_possession'],
             last_touch_navy=m['last_touch_navy'], possession_conf=m['possession_conf']
+
+            flow=m['flow'], speed_med=m['speed_med'], contig=m['contig'], contig_frames=m.get('contig_frames', 0), hits=m['hits'],
+            team_pres=m['team_pres'], att_frac=m['att_frac'],
+            why=label if not why else f"{label}({'/'.join(why)})"
+
         ))
     cap.release()
 
