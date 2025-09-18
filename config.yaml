@@ -4,8 +4,8 @@ paths:
 
 detect:
   min_gap: 2.0
-  pre: 5.0
-  post: 6.0
+  pre: 1.0
+  post: 2.0
   max_count: 40
   audio_weight: 0.5
   threshold_std: 0.5

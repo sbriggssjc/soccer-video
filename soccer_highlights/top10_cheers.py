@@ -5,9 +5,34 @@ import csv
 import math
 import re
 import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Dict, Iterable, List, Sequence
+
+SHOT_KEYWORDS = {
+    "shot",
+    "goal",
+    "attempt",
+    "finish",
+    "chance",
+    "penalty",
+    "header",
+    "volley",
+}
+TACTICAL_KEYWORDS = {
+    "tackle",
+    "press",
+    "pressure",
+    "switch",
+    "steal",
+    "block",
+    "intercept",
+    "turnover",
+    "duel",
+}
+
+_NUMERIC_RE = re.compile(r"[^0-9.\-]+")
 
 
 @dataclass
@@ -19,6 +44,8 @@ class ClipCandidate:
     score: float
     priority: int
     source: str
+    event: str = "unknown"
+    is_opponent: bool = False
 
 
 @dataclass
@@ -31,9 +58,10 @@ class SelectedClip:
     source: str
     raw_start: float
     raw_end: float
-
-
-_NUMERIC_RE = re.compile(r"[^0-9.\-]+")
+    event: str = "unknown"
+    bucket: str | None = None
+    is_goal_like: bool = False
+    is_opponent: bool = False
 
 
 def _parse_float(value: object) -> float | None:
@@ -58,6 +86,110 @@ def _parse_float(value: object) -> float | None:
         return float(cleaned)
     except ValueError:
         return None
+
+
+def _normalize_event(value: object) -> str:
+    if value is None:
+        return "unknown"
+    text = str(value).strip()
+    return text or "unknown"
+
+
+def _infer_bucket(event: str) -> str:
+    name = (event or "").lower()
+    if any(keyword in name for keyword in SHOT_KEYWORDS):
+        return "shots"
+    if any(keyword in name for keyword in TACTICAL_KEYWORDS):
+        return "tackles"
+    return "build"
+
+
+def _is_goal_like(event: str, source: str) -> bool:
+    if source == "cheer":
+        return True
+    name = (event or "").lower()
+    return any(keyword in name for keyword in ("goal", "shot", "chance", "attempt", "penalty"))
+
+
+def _value_is_true(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "y"}:
+        return True
+    if text in {"0", "false", "no", "n"}:
+        return False
+    return None
+
+
+def _row_is_opponent(row: Dict[str, object]) -> bool:
+    """Best-effort inference of whether a clip favours the opponent."""
+
+    candidate_keys = (
+        "team",
+        "side",
+        "favors",
+        "favours",
+        "benefits",
+        "for",
+        "club",
+        "label",
+        "who",
+        "possession",
+        "opponent",
+        "is_opponent",
+        "favour",
+    )
+    positive_tokens = {"us", "ours", "our", "home", "team", "self", "favourable", "favorable"}
+    negative_tokens = {"opp", "opponent", "opposition", "against", "their", "them", "away", "rival"}
+
+    for key in candidate_keys:
+        if key not in row:
+            continue
+        value = row.get(key)
+        if value is None:
+            continue
+        flag = _value_is_true(value)
+        if flag is not None:
+            return bool(flag)
+        num = _parse_float(value)
+        if num is not None:
+            if num < 0:
+                return True
+            if num > 0:
+                return False
+        text = str(value).strip().lower()
+        if not text:
+            continue
+        if any(tok in text for tok in negative_tokens):
+            return True
+        if any(tok in text for tok in positive_tokens):
+            return False
+
+    return False
+
+
+def _allocate_bucket_targets(weights: Dict[str, float], remaining: int) -> Dict[str, int]:
+    if remaining <= 0:
+        return {name: 0 for name in weights}
+    base: Dict[str, int] = {}
+    used = 0
+    for name, weight in weights.items():
+        count = int(math.floor(max(0.0, remaining * max(0.0, weight))))
+        base[name] = count
+        used += count
+    leftover = max(0, remaining - used)
+    if leftover:
+        for name, _ in sorted(weights.items(), key=lambda item: item[1], reverse=True):
+            if leftover <= 0:
+                break
+            base[name] += 1
+            leftover -= 1
+    return base
 
 
 def load_cheer_candidates(
@@ -114,6 +246,7 @@ def load_cheer_candidates(
                 score=999.0,
                 priority=0,
                 source="cheer",
+                event="cheer",
             )
         )
     return forced
@@ -145,6 +278,8 @@ def load_filtered_candidates(csv_path: Path) -> List[ClipCandidate]:
                     break
             if score_value is None:
                 score_value = 0.0
+            event = _normalize_event(row.get("event"))
+            is_opponent = _row_is_opponent(row)
             candidates.append(
                 ClipCandidate(
                     start=start,
@@ -152,6 +287,8 @@ def load_filtered_candidates(csv_path: Path) -> List[ClipCandidate]:
                     score=score_value,
                     priority=1,
                     source="filtered",
+                    event=event,
+                    is_opponent=is_opponent,
                 )
             )
     return candidates
@@ -171,29 +308,49 @@ def select_top_candidates(
     pad_post: float,
     min_length: float,
     overlap_threshold: float,
+    *,
+    bucket_weights: Dict[str, float] | None = None,
+    min_spacing: float = 20.0,
+    opponent_cap: int | None = 2,
 ) -> List[SelectedClip]:
     """Apply padding and overlap suppression to choose the final highlight list."""
 
     selected: List[SelectedClip] = []
     taken: List[tuple[float, float]] = []
-    for candidate in candidates:
-        if len(selected) >= max_count:
-            break
+    bucket_weights = bucket_weights or {"shots": 0.4, "build": 0.4, "tackles": 0.2}
+    bucket_weights = {k: max(0.0, v) for k, v in bucket_weights.items()}
+    forced = [c for c in candidates if c.priority == 0]
+    others = [c for c in candidates if c.priority != 0]
+    opponent_selected = 0
+    bucket_counts: Dict[str, int] = defaultdict(int)
+    bucket_targets: Dict[str, int] = {}
 
+    def attempt(candidate: ClipCandidate, bucket: str | None, enforce_bucket: bool) -> bool:
+        nonlocal opponent_selected
+        if len(selected) >= max_count:
+            return False
         padded_start = max(0.0, candidate.start - pad_pre)
         padded_end = min(duration, candidate.end + pad_post)
         if padded_end - padded_start < min_length:
-            continue
-
-        overlap = False
+            return False
         for other_start, other_end in taken:
             intersect = max(0.0, min(padded_end, other_end) - max(padded_start, other_start))
             denom = max(padded_end - padded_start, other_end - other_start)
             if denom > 0 and intersect / denom > overlap_threshold:
-                overlap = True
-                break
-        if overlap:
-            continue
+                return False
+        goal_like = _is_goal_like(candidate.event, candidate.source)
+        if min_spacing and min_spacing > 0 and not goal_like:
+            for clip in selected:
+                if clip.is_goal_like:
+                    continue
+                if candidate.start < clip.raw_end + min_spacing and candidate.end > clip.raw_start - min_spacing:
+                    return False
+        if opponent_cap is not None and candidate.is_opponent and opponent_selected >= opponent_cap:
+            return False
+        if enforce_bucket and bucket:
+            target = bucket_targets.get(bucket, 0)
+            if bucket_counts[bucket] >= target:
+                return False
 
         selected.append(
             SelectedClip(
@@ -203,9 +360,47 @@ def select_top_candidates(
                 source=candidate.source,
                 raw_start=candidate.start,
                 raw_end=candidate.end,
+                event=candidate.event,
+                bucket=bucket,
+                is_goal_like=goal_like,
+                is_opponent=candidate.is_opponent,
             )
         )
         taken.append((padded_start, padded_end))
+        if bucket:
+            bucket_counts[bucket] += 1
+        if candidate.is_opponent:
+            opponent_selected += 1
+        return True
+
+    for candidate in forced:
+        attempt(candidate, bucket=None, enforce_bucket=False)
+
+    remaining_slots = max(0, max_count - len(selected))
+    bucket_targets = _allocate_bucket_targets(bucket_weights, remaining_slots)
+
+    deferred: List[tuple[ClipCandidate, str | None]] = []
+    for candidate in others:
+        if len(selected) >= max_count:
+            break
+        bucket = _infer_bucket(candidate.event)
+        if bucket not in bucket_targets:
+            bucket = max(bucket_targets, key=bucket_targets.get, default=None)
+        if bucket and bucket_targets.get(bucket, 0) <= 0:
+            deferred.append((candidate, bucket))
+            continue
+        if bucket and bucket_counts[bucket] >= bucket_targets.get(bucket, 0):
+            deferred.append((candidate, bucket))
+            continue
+        added = attempt(candidate, bucket=bucket, enforce_bucket=True)
+        if not added:
+            continue
+
+    if len(selected) < max_count:
+        for candidate, bucket in deferred:
+            if len(selected) >= max_count:
+                break
+            attempt(candidate, bucket=bucket if bucket in bucket_targets else None, enforce_bucket=False)
 
     return selected
 
@@ -237,43 +432,6 @@ def _run_command(cmd: Sequence[str]) -> None:
             "Command failed with code %s: %s\nSTDOUT: %s\nSTDERR: %s"
             % (result.returncode, " ".join(cmd), result.stdout.strip(), result.stderr.strip())
         )
-
-
-def probe_duration(video_path: Path, ffprobe: str = "ffprobe", fallback: float | None = None) -> float:
-    """Return the video duration in seconds using ffprobe."""
-
-    cmd = [
-        ffprobe,
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=nw=1:nk=1",
-        str(video_path),
-    ]
-    try:
-        result = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    except FileNotFoundError as exc:
-        if fallback is not None:
-            return fallback
-        raise RuntimeError("ffprobe not found; install FFmpeg or supply fallback duration") from exc
-
-    if result.returncode == 0:
-        output = result.stdout.strip()
-        try:
-            value = float(output)
-            if math.isfinite(value):
-                return value
-        except ValueError:
-            pass
-
-    if fallback is not None:
-        return fallback
-
-    raise RuntimeError(
-        f"Unable to determine duration for {video_path}. ffprobe output: {result.stderr.strip() or result.stdout.strip()}"
-    )
 
 
 def render_clips(
@@ -337,7 +495,7 @@ def write_concat_file(clips: Sequence[Path], concat_path: Path) -> None:
     for clip in sorted(clips):
         full = clip.resolve()
         # Use forward slashes for ffmpeg compatibility and escape single quotes.
-        normalized = full.as_posix().replace("'", "\\'")
+        normalized = full.as_posix().replace("'", "\'")
         lines.append(f"file '{normalized}'")
     concat_path.write_text("\n".join(lines), encoding="ascii")
 
@@ -363,6 +521,43 @@ def concat_clips(concat_path: Path, output_path: Path, ffmpeg: str = "ffmpeg") -
         str(output_path),
     ]
     _run_command(cmd)
+
+
+def probe_duration(video_path: Path, *, ffprobe: str = "ffprobe", fallback: float | None = None) -> float:
+    """Return media duration in seconds using ffprobe when available."""
+
+    cmd = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=nw=1:nk=1",
+        str(video_path),
+    ]
+    try:
+        result = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except FileNotFoundError as exc:
+        if fallback is not None:
+            return fallback
+        raise RuntimeError("ffprobe not found; install FFmpeg or supply fallback duration") from exc
+
+    if result.returncode == 0:
+        output = result.stdout.strip()
+        try:
+            value = float(output)
+            if math.isfinite(value):
+                return value
+        except ValueError:
+            pass
+
+    if fallback is not None:
+        return fallback
+
+    raise RuntimeError(
+        f"Unable to determine duration for {video_path}. ffprobe output: {result.stderr.strip() or result.stdout.strip()}"
+    )
 
 
 def build_cheers_top10(
@@ -457,4 +652,3 @@ __all__ = [
     "probe_duration",
     "build_cheers_top10",
 ]
-
