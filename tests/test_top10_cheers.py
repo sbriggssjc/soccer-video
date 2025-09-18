@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ load_cheer_candidates = TOP10.load_cheer_candidates
 load_filtered_candidates = TOP10.load_filtered_candidates
 rank_candidates = TOP10.rank_candidates
 select_top_candidates = TOP10.select_top_candidates
+ClipCandidate = TOP10.ClipCandidate
 
 
 def write_csv(path: Path, header: list[str], rows: list[list[object]]) -> None:
@@ -140,4 +142,107 @@ def test_build_cheers_top10_skip_render(tmp_path: Path, cheer_gap: float) -> Non
     assert selected, "expected at least one selected clip"
     assert csv_out.exists()
     assert not clips_dir.exists(), "skip_render should not create clips"
+
+
+def make_candidate(
+    start: float,
+    *,
+    duration: float = 6.0,
+    score: float,
+    event: str,
+    priority: int = 1,
+    source: str = "filtered",
+    is_opponent: bool = False,
+) -> ClipCandidate:
+    return ClipCandidate(
+        start=start,
+        end=start + duration,
+        score=score,
+        priority=priority,
+        source=source,
+        event=event,
+        is_opponent=is_opponent,
+    )
+
+
+def test_bucketed_sampling_diversifies_selection() -> None:
+    candidates = []
+    for idx in range(6):
+        candidates.append(make_candidate(start=idx * 120.0, score=10.0 - idx, event="shot"))
+    for idx in range(6):
+        candidates.append(make_candidate(start=60.0 + idx * 120.0, score=9.5 - idx, event="passes"))
+    for idx in range(4):
+        candidates.append(make_candidate(start=90.0 + idx * 120.0, score=8.0 - idx, event="press"))
+
+    ranked = rank_candidates(candidates)
+    selected = select_top_candidates(
+        ranked,
+        duration=2000.0,
+        max_count=10,
+        pad_pre=1.0,
+        pad_post=1.0,
+        min_length=0.8,
+        overlap_threshold=0.5,
+    )
+
+    assert len(selected) == 10
+    buckets = Counter(clip.bucket for clip in selected)
+    assert buckets["shots"] == 4
+    assert buckets["build"] == 4
+    assert buckets["tackles"] == 2
+
+
+def test_spacing_enforced_with_goal_exception() -> None:
+    candidates = [
+        make_candidate(start=10.0, score=5.0, event="press"),
+        make_candidate(start=25.0, score=4.5, event="press"),
+        make_candidate(start=32.0, score=9.0, event="goal"),
+        make_candidate(start=36.0, score=8.5, event="shot"),
+        make_candidate(start=80.0, score=7.0, event="passes"),
+        make_candidate(start=140.0, score=6.5, event="passes"),
+    ]
+
+    ranked = rank_candidates(candidates)
+    selected = select_top_candidates(
+        ranked,
+        duration=400.0,
+        max_count=5,
+        pad_pre=1.0,
+        pad_post=1.0,
+        min_length=0.8,
+        overlap_threshold=0.5,
+    )
+
+    times = [clip.raw_start for clip in selected]
+    assert 10.0 in times
+    assert 32.0 in times and 36.0 in times
+    assert 25.0 not in times
+
+
+def test_opponent_cap_limits_selection() -> None:
+    candidates = [
+        make_candidate(start=0.0, score=10.0, event="shot", is_opponent=True),
+        make_candidate(start=70.0, score=9.5, event="shot", is_opponent=True),
+        make_candidate(start=140.0, score=9.0, event="shot", is_opponent=True),
+        make_candidate(start=210.0, score=8.5, event="shot", is_opponent=True),
+        make_candidate(start=300.0, score=8.0, event="shot"),
+        make_candidate(start=100.0, score=7.0, event="passes"),
+        make_candidate(start=170.0, score=6.8, event="passes"),
+        make_candidate(start=240.0, score=6.5, event="press"),
+    ]
+
+    ranked = rank_candidates(candidates)
+    selected = select_top_candidates(
+        ranked,
+        duration=500.0,
+        max_count=6,
+        pad_pre=1.0,
+        pad_post=1.0,
+        min_length=0.8,
+        overlap_threshold=0.5,
+    )
+
+    opponents = [clip for clip in selected if clip.is_opponent]
+    assert len(opponents) == 2
+    assert any(not clip.is_opponent and clip.bucket == "shots" for clip in selected)
 
