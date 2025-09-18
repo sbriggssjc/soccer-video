@@ -2,6 +2,7 @@
   [string]$Video = ".\out\full_game_stabilized.mp4",
   [string]$OutDir = ".\out",
   [ValidateSet("ignore","strict","loose")
+$segments = @()
 ] [string]$GoalMode = "strict",
   [int]$MaxActionLen = 7,
   [int]$MaxGoalLen   = 6,
@@ -14,7 +15,6 @@
   [int]$MaxGoals = 6,
   [float]$MinGoalSeparation = 20.0
 )
-$segments = @()
 
 $ErrorActionPreference = "Stop"
 if (!(Test-Path $Video)) { throw "Missing input video: $Video" }
