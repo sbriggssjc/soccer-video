@@ -178,14 +178,26 @@ if ($totGoals + $totActions -gt $budget) {
 }
 
 [double]$VideoDuration = if ($rawDur -gt 0) { $rawDur } else { [double]::MaxValue }
-$segments = @()
+# Ensure we have a list to append to (faster/safer than += on arrays)
+$segments = [System.Collections.Generic.List[object]]::new()
 foreach ($g in $goalSpans) {
   $t0 = [double]$g.t0
   $t1 = [double]$g.t1
-  $segments += [pscustomobject]@{ kind='goal'; start=$t0; end=$t1 }
+  # Append (discard return value so we don't spam the console)
+  $null = $segments.Add([pscustomobject]@{ kind='goal'; start=$t0; end=$t1 })
 }
 
 # 5) derive action segments centered on span midpoints
+# Normalize action spans -> numbers (handles comma thousands + invariant decimals)
+$actionSpans = $actionSpans | ForEach-Object {
+  $t0s = ($_ | Select-Object -Expand t0) -replace ',', ''
+  $t1s = ($_ | Select-Object -Expand t1) -replace ',', ''
+  [pscustomobject]@{
+    t0 = [double]::Parse($t0s, [Globalization.NumberStyles]::Float -bor [Globalization.NumberStyles]::AllowThousands, [Globalization.CultureInfo]::InvariantCulture)
+    t1 = [double]::Parse($t1s, [Globalization.NumberStyles]::Float -bor [Globalization.NumberStyles]::AllowThousands, [Globalization.CultureInfo]::InvariantCulture)
+  }
+}
+
 foreach ($a in $actionSpans) {
   $t0 = [double]$a.t0
   $t1 = [double]$a.t1
@@ -195,7 +207,8 @@ foreach ($a in $actionSpans) {
   $start = [Math]::Max(0, $center - $ActionPadBefore)
   $end   = [Math]::Min($VideoDuration, $center + $ActionPadAfter)
 
-  $segments += [pscustomobject]@{ kind='action'; start=$start; end=$end }
+  # Append (discard return value so we don't spam the console)
+  $null = $segments.Add([pscustomobject]@{ kind='action'; start=$start; end=$end })
 }
 
 $actionSpans = $segments | Where-Object { $_.kind -eq 'action' } | ForEach-Object {
