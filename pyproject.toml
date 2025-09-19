@@ -14,8 +14,10 @@ dependencies = [
     "PyYAML",
     "tqdm",
     "numpy",
-    "opencv-python",
+    "opencv-python-headless",
     "librosa",
+    "pandas",
+    "soundfile",
 ]
 
 [project.optional-dependencies]

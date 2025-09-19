@@ -4,8 +4,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-import cv2
 import numpy as np
+
+try:  # pragma: no cover - optional dependency
+    import cv2  # type: ignore
+    _cv2_error = cv2.error  # type: ignore[attr-defined]
+except Exception as exc:  # pragma: no cover
+    cv2 = None  # type: ignore
+    _cv2_error = RuntimeError
+    _cv2_import_error = exc
+else:
+    _cv2_import_error = None
 from ._loguru import logger
 from ._tqdm import tqdm
 

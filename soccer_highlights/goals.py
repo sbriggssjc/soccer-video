@@ -5,8 +5,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-import cv2
 import numpy as np
+
+try:  # pragma: no cover - optional dependency
+    import cv2  # type: ignore
+    _cv2_error = cv2.error  # type: ignore[attr-defined]
+except Exception as exc:  # pragma: no cover - runtime guard
+    cv2 = None  # type: ignore
+    _cv2_error = RuntimeError
+    _cv2_import_error = exc
+else:
+    _cv2_import_error = None
 
 from ._loguru import logger
 from .config import AppConfig
@@ -32,8 +41,12 @@ class GoalSignal:
 
     def anchor_time(self) -> float:
         non_score = [t for t, src in self.records if src != "scoreboard"]
+        score = [t for t, src in self.records if src == "scoreboard"]
         if non_score:
-            return float(min(non_score))
+            anchor = float(min(non_score))
+            if score:
+                anchor = min(anchor, max(0.0, float(min(score)) - 1.5))
+            return anchor
         earliest = float(min(t for t, _ in self.records))
         return max(0.0, earliest - 1.5)
 
@@ -46,9 +59,15 @@ def _merge_signals(signals: Sequence[Tuple[float, str]], tolerance: float = 4.0)
     for time, source in ordered:
         placed = False
         for group in groups:
-            if any(abs(time - existing_time) <= tolerance for existing_time, _ in group.records):
-                group.add(time, source)
-                placed = True
+            for existing_time, existing_source in group.records:
+                effective_tol = tolerance
+                if "scoreboard" in {source, existing_source}:
+                    effective_tol = tolerance + 2.5
+                if abs(time - existing_time) <= effective_tol:
+                    group.add(time, source)
+                    placed = True
+                    break
+            if placed:
                 break
         if not placed:
             groups.append(GoalSignal(records=[(time, source)]))
@@ -86,11 +105,11 @@ def _parse_score_text(text: str) -> Optional[Tuple[int, int]]:
 
 
 def _ocr_score(roi: np.ndarray) -> Optional[Tuple[int, int]]:
-    if pytesseract is None:
+    if pytesseract is None or cv2 is None:
         return None
     try:
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    except cv2.error:
+    except _cv2_error:
         return None
     if gray.size == 0:
         return None
@@ -114,8 +133,8 @@ def _ocr_score(roi: np.ndarray) -> Optional[Tuple[int, int]]:
 
 
 def detect_scoreboard_deltas(video_path: Path, sample_rate: float = 1.5) -> List[float]:
-    if pytesseract is None:
-        logger.debug("pytesseract unavailable; skipping scoreboard delta detection")
+    if pytesseract is None or cv2 is None:
+        logger.debug("OCR prerequisites unavailable; skipping scoreboard delta detection")
         return []
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -202,6 +221,9 @@ def _find_motion_spikes(times: Sequence[float], energy: Sequence[float], min_dis
 
 
 def detect_net_events(video_path: Path, fps: float, sample_fps: float = 15.0) -> List[float]:
+    if cv2 is None:
+        logger.debug("OpenCV unavailable; skipping net-region analysis")
+        return []
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         logger.warning("Could not open %s for net-region analysis", video_path)
