@@ -233,15 +233,15 @@ $labelsA = New-Object System.Collections.Generic.List[string]
 $i = 0
 foreach ($s in $final) {
   $i++
-  $startStr = [string]::Format($ci, "{0:F3}", $s.t0)
-  $endStr   = [string]::Format($ci, "{0:F3}", $s.t1)
+  $start = [string]::Format($ci, "{0:F3}", $s.t0)
+  $dur   = [string]::Format($ci, "{0:F3}", ($s.t1 - $s.t0))
   $sv = "v$i"; $sa = "a$i"
-  $parts.Add(("[0:v]trim=start={0}:end={1},setpts=PTS-STARTPTS[{2}]" -f $startStr, $endStr, $sv))
-  $parts.Add(("[0:a]atrim=start={0}:end={1},asetpts=PTS-STARTPTS[{2}]" -f $startStr, $endStr, $sa))
+  $parts.Add("[0:v]trim=start=${start}:duration=${dur},setpts=PTS-STARTPTS[$sv]")
+  $parts.Add("[0:a]atrim=start=${start}:duration=${dur},asetpts=PTS-STARTPTS[$sa]")
   $labelsV.Add("[$sv]"); $labelsA.Add("[$sa]")
 }
 $concatLine = ($labelsV + $labelsA) -join ''
-$concatLine += "concat=n=$i:v=1:a=1[v][a]"
+$concatLine += ("concat=n={0}:v=1:a=1[v][a]" -f $i)
 $filter = ($parts + $concatLine) -join ";"
 
 $filterPath = Join-Path $OutDir 'filter_complex.txt'
