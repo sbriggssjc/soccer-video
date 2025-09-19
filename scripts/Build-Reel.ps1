@@ -259,14 +259,7 @@ ffmpeg -y -hide_banner -loglevel error -stats -i $Video `
 
 Write-Host "[done] -> $outPath"
 
-function Validate-Spans($spans) {
-  $bad = @(); $ok = @()
-  foreach ($s in $spans) {
-    [double]$a = 0; [double]$b = 0
-    # defensive parse in case something upstream left strings
-    [void][double]::TryParse((""+$s.t0) -replace ',', '', [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$a)
-    [void][double]::TryParse((""+$s.t1) -replace ',', '', [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$b)
-    if ($b -le $a) { $bad += [pscustomobject]@{ t0=$a; t1=$b; src = ($s.PSObject.Properties.Match('src').Count   -gt 0) ? $s.src : $null } else { $ok += [pscustomobject]@{ t0=$a; t1=$b; src = ($s.PSObject.Properties.Match('src').Count   -gt 0) ? $s.src : $null } }
+System.Func`2[System.Text.RegularExpressions.Match,System.String] else { $ok += [pscustomobject]@{ t0=$a; t1=$b; src = ($s.PSObject.Properties.Match('src').Count   -gt 0) ? $s.src : $null } }
   }
   if ($bad.Count) {
     Write-Warning ("Dropping {0} invalid span(s) (t1<=t0). First few:" -f $bad.Count)
@@ -274,3 +267,30 @@ function Validate-Spans($spans) {
   }
   return $ok
 }
+
+function Validate-Spans($spans) {
+  $bad = @(); $ok = @()
+  foreach ($s in $spans) {
+    [double]$a = 0; [double]$b = 0
+    $s0 = (""+$s.t0) -replace ',', ''
+    $s1 = (""+$s.t1) -replace ',', ''
+    [void][double]::TryParse($s0, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$a)
+    [void][double]::TryParse($s1, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$b)
+
+    $srcVal = $null
+    if ($s.PSObject.Properties.Match('src').Count -gt 0) { $srcVal = $s.src }
+
+    if ($b -le $a) {
+      $bad += [pscustomobject]@{ t0=$a; t1=$b; src=$srcVal }
+    } else {
+      $ok  += [pscustomobject]@{ t0=$a; t1=$b; src=$srcVal }
+    }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Warning ("Dropping {0} invalid span(s) (t1<=t0). First few:" -f $bad.Count)
+    $bad | Select-Object -First 6 @{n='t0';e={[math]::Round($_.t0,3)}}, @{n='t1';e={[math]::Round($_.t1,3)}}, src |
+      Format-Table | Out-String | Write-Host
+  }
+  return $ok
+}
+
