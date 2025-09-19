@@ -17,7 +17,7 @@
 )
 
 # ---------- helpers ----------
-function TryParse-Double([object]$x, [ref]$out) {
+function Test-DoubleParse([object]$x, [ref]$out) {
   $s = "$x" -replace ',', ''
   [double]$tmp = 0
   $ok = [System.Double]::TryParse(
@@ -32,7 +32,7 @@ function TryParse-Double([object]$x, [ref]$out) {
 
 function Get-VideoDurationSec([string]$path) {
   $durStr = & ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 $path
-  [double]$d = 0; TryParse-Double $durStr ([ref]$d) | Out-Null
+  [double]$d = 0; Test-DoubleParse $durStr ([ref]$d) | Out-Null
   return [math]::Round($d,3)
 }
 
@@ -42,7 +42,7 @@ function Read-Spans([string]$csvPath, [double]$padBefore=0.0, [double]$padAfter=
   $rows = Import-Csv $csvPath
   foreach ($r in $rows) {
     [double]$a=0; [double]$b=0
-    if (TryParse-Double $r.start ([ref]$a) -and TryParse-Double $r.end ([ref]$b) -and $b -gt $a) {
+    if (Test-DoubleParse $r.start ([ref]$a) -and Test-DoubleParse $r.end ([ref]$b) -and $b -gt $a) {
       $t0 = [math]::Max(0,$a - $padBefore)
       $t1 = $b + $padAfter
       if ($t1 -gt $t0) { $sp += [pscustomobject]@{ t0=$t0; t1=$t1; src=$source } }
@@ -82,7 +82,7 @@ function Merge-GoalSpans($spans, [double]$minGap=0.0) {
   return $out
 }
 
-function Cap-ByFraction($spans, [double]$videoDur, [double]$maxFrac) {
+function Get-SpansByFraction($spans, [double]$videoDur, [double]$maxFrac) {
   if (-not $spans -or $spans.Count -eq 0) { return @() }
   if ($maxFrac -le 0 -or $maxFrac -ge 1) { return $spans }
   $budget = $videoDur * $maxFrac
@@ -117,8 +117,8 @@ function Get-GoalSpans([string]$outDir, [string]$mode, [double]$minSep, [int]$ma
     $rows = Import-Csv $grCSV
     foreach ($r in $rows) {
       [double]$a=0; [double]$b=0; [double]$sc=0
-      if (TryParse-Double $r.start ([ref]$a) -and TryParse-Double $r.end ([ref]$b) -and $b -gt $a) {
-        TryParse-Double $r.score ([ref]$sc) | Out-Null
+      if (Test-DoubleParse $r.start ([ref]$a) -and Test-DoubleParse $r.end ([ref]$b) -and $b -gt $a) {
+        Test-DoubleParse $r.score ([ref]$sc) | Out-Null
         $cand += [pscustomobject]@{ t0=$a; t1=$b; score=$sc; src="goal" }
       }
     }
@@ -128,7 +128,7 @@ function Get-GoalSpans([string]$outDir, [string]$mode, [double]$minSep, [int]$ma
     $rows = Import-Csv $fgCSV
     foreach ($r in $rows) {
       [double]$a=0; [double]$b=0
-      if (TryParse-Double $r.start ([ref]$a) -and TryParse-Double $r.end ([ref]$b) -and $b -gt $a) {
+      if (Test-DoubleParse $r.start ([ref]$a) -and Test-DoubleParse $r.end ([ref]$b) -and $b -gt $a) {
         $cand += [pscustomobject]@{ t0=$a; t1=$b; score=1.0; src="goal_forced" }
       }
     }
@@ -158,8 +158,8 @@ $goals = $goals | ForEach-Object {
   $s = $_
   [double]$t0 = 0
   [double]$t1 = 0
-  TryParse-Double $s.t0 ([ref]$t0) | Out-Null
-  TryParse-Double $s.t1 ([ref]$t1) | Out-Null
+  Test-DoubleParse $s.t0 ([ref]$t0) | Out-Null
+  Test-DoubleParse $s.t1 ([ref]$t1) | Out-Null
 
   $t0 = [math]::Max(0, $t0 - $GoalPadBefore)
   $t1 = [math]::Min($duration, $t1 + $GoalPadAfter)
@@ -168,7 +168,7 @@ $goals = $goals | ForEach-Object {
   $sc = 0.0
   if ($s.PSObject.Properties.Match('score').Count -gt 0) {
     [double]$tmp = 0
-    if (TryParse-Double $s.score ([ref]$tmp)) { $sc = $tmp }
+    if (Test-DoubleParse $s.score ([ref]$tmp)) { $sc = $tmp }
   }
 
   [pscustomobject]@{ t0 = $t0; t1 = $t1; src = $s.src; score = $sc }
@@ -202,7 +202,7 @@ $__preTotal = (($final | ForEach-Object { $_.t1 - $_.t0 } | Measure-Object -Sum)
 $__budget   = [math]::Round($duration * $MaxFractionOfRaw,3)
 Write-Host ("[debug] pre-cap: n={0}, total={1:F3}s, budget={2:F3}s" -f $__preCount, $__preTotal, $__budget)
 
-$final = Cap-ByFraction $final $duration $MaxFractionOfRaw
+$final = Get-SpansByFraction $final $duration $MaxFractionOfRaw
 
 # drop tiny spans
 $final = $final | Where-Object { ($_.t1 - $_.t0) -ge $MinSpanSec }
@@ -233,11 +233,11 @@ $labelsA = New-Object System.Collections.Generic.List[string]
 $i = 0
 foreach ($s in $final) {
   $i++
-  $start = [string]::Format($ci, "{0:F3}", $s.t0)
-  $end   = [string]::Format($ci, "{0:F3}", $s.t1)
+  $startStr = [string]::Format($ci, "{0:F3}", $s.t0)
+  $endStr   = [string]::Format($ci, "{0:F3}", $s.t1)
   $sv = "v$i"; $sa = "a$i"
-  $parts.Add("[0:v]trim=start=$start:end=$end,setpts=PTS-STARTPTS[$sv]")
-  $parts.Add("[0:a]atrim=start=$start:end=$end,asetpts=PTS-STARTPTS[$sa]")
+  $parts.Add(("[0:v]trim=start={0}:end={1},setpts=PTS-STARTPTS[{2}]" -f $startStr, $endStr, $sv))
+  $parts.Add(("[0:a]atrim=start={0}:end={1},asetpts=PTS-STARTPTS[{2}]" -f $startStr, $endStr, $sa))
   $labelsV.Add("[$sv]"); $labelsA.Add("[$sa]")
 }
 $concatLine = ($labelsV + $labelsA) -join ''
@@ -259,23 +259,14 @@ ffmpeg -y -hide_banner -loglevel error -stats -i $Video `
 
 Write-Host "[done] -> $outPath"
 
-System.Func`2[System.Text.RegularExpressions.Match,System.String] else { $ok += [pscustomobject]@{ t0=$a; t1=$b; src = ($s.PSObject.Properties.Match('src').Count   -gt 0) ? $s.src : $null } }
-  }
-  if ($bad.Count) {
-    Write-Warning ("Dropping {0} invalid span(s) (t1<=t0). First few:" -f $bad.Count)
-    $bad | Select-Object -First 6 @{n='t0';e={[math]::Round($_.t0,3)}}, @{n='t1';e={[math]::Round($_.t1,3)}}, src | Format-Table | Out-String | Write-Host
-  }
-  return $ok
-}
-
-function Validate-Spans($spans) {
+function Test-Spans($spans) {
   $bad = @(); $ok = @()
   foreach ($s in $spans) {
     [double]$a = 0; [double]$b = 0
     $s0 = (""+$s.t0) -replace ',', ''
     $s1 = (""+$s.t1) -replace ',', ''
-    [void][double]::TryParse($s0, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$a)
-    [void][double]::TryParse($s1, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$b)
+    Test-DoubleParse $s0 ([ref]$a) | Out-Null
+    Test-DoubleParse $s1 ([ref]$b) | Out-Null
 
     $srcVal = $null
     if ($s.PSObject.Properties.Match('src').Count -gt 0) { $srcVal = $s.src }
@@ -283,7 +274,13 @@ function Validate-Spans($spans) {
     if ($b -le $a) {
       $bad += [pscustomobject]@{ t0=$a; t1=$b; src=$srcVal }
     } else {
-      $ok  += [pscustomobject]@{ t0=$a; t1=$b; src=$srcVal }
+      $props = [ordered]@{ t0=$a; t1=$b }
+      if ($null -ne $srcVal) { $props.src = $srcVal }
+      if ($s.PSObject.Properties.Match('score').Count -gt 0) {
+        [double]$scoreVal = 0
+        if (Test-DoubleParse $s.score ([ref]$scoreVal)) { $props.score = $scoreVal }
+      }
+      $ok  += [pscustomobject]$props
     }
   }
   if ($bad.Count -gt 0) {
