@@ -155,17 +155,23 @@ $hi2CSV   = Join-Path $OutDir "highlights_filtered.csv"
 $goals = Get-GoalSpans $OutDir $GoalMode $MinGoalSeparation $MaxGoals
 # pad goals (pre/post) and clamp within video duration
 $goals = $goals | ForEach-Object {
-  $t0 = [math]::Max(0, $_.t0 - $GoalPadBefore)
-  $t1 = [math]::Min($duration, $_.t1 + $GoalPadAfter)
+  $s = $_
+  [double]$t0 = 0
+  [double]$t1 = 0
+  TryParse-Double $s.t0 ([ref]$t0) | Out-Null
+  TryParse-Double $s.t1 ([ref]$t1) | Out-Null
+
+  $t0 = [math]::Max(0, $t0 - $GoalPadBefore)
+  $t1 = [math]::Min($duration, $t1 + $GoalPadAfter)
 
   # compute score without using a ternary (PS5.1-safe)
   $sc = 0.0
-  if ($_.PSObject.Properties.Match('score').Count -gt 0) {
+  if ($s.PSObject.Properties.Match('score').Count -gt 0) {
     [double]$tmp = 0
-    if (TryParse-Double $_.score ([ref]$tmp)) { $sc = $tmp }
+    if (TryParse-Double $s.score ([ref]$tmp)) { $sc = $tmp }
   }
 
-  [pscustomobject]@{ t0 = $t0; t1 = $t1; src = $_.src; score = $sc }
+  [pscustomobject]@{ t0 = $t0; t1 = $t1; src = $s.src; score = $sc }
 }
 
 $actions = @()
