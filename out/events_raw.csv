@@ -1,0 +1,205 @@
+start,end,type,source,score,team,reason,event_id
+60.89,80.89,SAVE_OUR_GK,highlights_filtered,89.283,us,filtered save action=1.544 speed=122.4,save_our_gk_0146
+68.51,86.51,DEF_ACTION,highlights_filtered,69.008,unknown,filtered def action=1.517 speed=63.7,def_action_0165
+74.51,92.51,DEF_ACTION,highlights_filtered,71.424,unknown,filtered def action=1.530 speed=134.0,def_action_0155
+151.15,171.15,SHOT,highlights_shots,97.567,opp,shots_csv action=1.558 ball_speed=102.0 team_presence=0.023,shot_0087
+153.65,171.65,DEF_ACTION,highlights_filtered,70.736,unknown,filtered def action=1.554 speed=102.0,def_action_0139
+182.91,202.91,SHOT,highlights_shots,96.853,us,shots_csv action=1.548 ball_speed=89.3 team_presence=0.039,shot_0094
+213.41,231.41,DEF_ACTION,highlights_filtered,71.302,unknown,filtered def action=1.512 speed=122.2,def_action_0168
+220.16,238.16,DEF_ACTION,highlights_filtered,71.49,unknown,filtered def action=1.525 speed=103.7,def_action_0161
+238.42,258.42,SHOT,highlights_shots,97.088,opp,shots_csv action=1.575 ball_speed=89.7 team_presence=0.023,shot_0051
+240.92,258.92,DEF_ACTION,highlights_filtered,70.113,unknown,filtered def action=1.571 speed=89.7,def_action_0125
+262.8,282.8,SHOT,highlights_shots,96.511,us,shots_csv action=1.570 ball_speed=79.0 team_presence=0.026,shot_0062
+265.3,283.3,DEF_ACTION,highlights_filtered,69.541,unknown,filtered def action=1.566 speed=79.0,def_action_0131
+271.3,289.3,DEF_ACTION,highlights_filtered,69.718,unknown,filtered def action=1.534 speed=69.2,def_action_0153
+296.93,316.93,SHOT,highlights_shots,96.456,us,shots_csv action=1.577 ball_speed=76.9 team_presence=0.034,shot_0047
+304.05,324.05,SHOT,highlights_shots,96.819,us,shots_csv action=1.560 ball_speed=86.8 team_presence=0.031,shot_0083
+319.56,339.56,SHOT,highlights_shots,97.629,us,shots_csv action=1.578 ball_speed=100.1 team_presence=0.041,shot_0045
+325.06,346.06,OFF_BUILDUP,highlights_build,67.837,us,build_csv action=1.606 ball_speed=106.6,off_buildup_0178
+326.06,346.06,SHOT,highlights_shots,98.146,us,shots_csv action=1.602 ball_speed=106.6 team_presence=0.089,shot_0019
+337.94,357.94,SHOT,highlights_shots,97.44,us,shots_csv action=1.277 ball_speed=144.5 team_presence=0.165,shot_0112
+344.06,365.06,OFF_BUILDUP,highlights_build,67.351,us,build_csv action=1.627 ball_speed=86.4,off_buildup_0177
+345.06,365.06,SHOT,highlights_shots,97.297,us,shots_csv action=1.622 ball_speed=86.4 team_presence=0.085,shot_0017
+357.81,377.81,SHOT,highlights_shots,98.846,opp,shots_csv action=1.566 ball_speed=126.4 team_presence=0.017,shot_0072
+358.81,378.81,SAVE_OUR_GK,highlights_filtered,90.424,us,filtered save action=1.563 speed=126.4,save_our_gk_0133
+379.57,397.57,DEF_ACTION,highlights_filtered,70.666,unknown,filtered def action=1.534 speed=102.0,def_action_0154
+404.95,422.95,DEF_ACTION,highlights_filtered,71.082,unknown,filtered def action=1.525 speed=107.6,def_action_0162
+410.95,428.95,DEF_ACTION,highlights_filtered,70.504,unknown,filtered def action=1.511 speed=93.0,def_action_0169
+460.58,478.58,DEF_ACTION,highlights_filtered,69.825,unknown,filtered def action=1.541 speed=112.8,def_action_0149
+481.71,499.71,DEF_ACTION,highlights_filtered,68.877,unknown,filtered def action=1.516 speed=79.7,def_action_0166
+496.59,516.59,SAVE_OUR_GK,highlights_filtered,89.376,us,filtered save action=1.528 speed=118.0,save_our_gk_0158
+534.47,552.47,DEF_ACTION,highlights_filtered,69.658,unknown,filtered def action=1.536 speed=73.1,def_action_0151
+543.35,563.35,SHOT,highlights_shots,94.237,us,shots_csv action=1.470 ball_speed=49.6 team_presence=0.037,shot_0103
+561.1,581.1,SHOT,highlights_shots,99.255,us,shots_csv action=1.566 ball_speed=134.6 team_presence=0.043,shot_0071
+570.73,590.73,SHOT,highlights_shots,96.184,us,shots_csv action=1.572 ball_speed=72.2 team_presence=0.042,shot_0059
+576.1,597.1,OFF_BUILDUP,highlights_build,66.688,unknown,build_csv action=1.582 ball_speed=73.3,off_buildup_0201
+577.1,597.1,SHOT,highlights_shots,96.299,us,shots_csv action=1.579 ball_speed=73.3 team_presence=0.042,shot_0042
+599.48,619.48,SHOT,highlights_shots,96.893,us,shots_csv action=1.574 ball_speed=86.1 team_presence=0.037,shot_0055
+613.86,633.86,SHOT,highlights_shots,96.789,us,shots_csv action=1.575 ball_speed=83.8 team_presence=0.028,shot_0053
+616.36,634.36,DEF_ACTION,highlights_filtered,70.34,unknown,filtered def action=1.570 speed=83.8,def_action_0128
+701.12,721.12,SHOT,highlights_shots,98.776,us,shots_csv action=1.564 ball_speed=125.3 team_presence=0.053,shot_0073
+707.12,727.12,SHOT,highlights_shots,91.765,us,shots_csv action=0.892 ball_speed=92.5 team_presence=0.069,shot_0121
+770.64,791.64,OFF_BUILDUP,highlights_build,67.406,unknown,build_csv action=1.601 ball_speed=93.3,off_buildup_0181
+771.64,791.64,SHOT,highlights_shots,97.456,us,shots_csv action=1.599 ball_speed=93.3 team_presence=0.045,shot_0021
+777.89,797.89,SHOT,highlights_shots,98.528,us,shots_csv action=1.569 ball_speed=119.6 team_presence=0.055,shot_0063
+825.02,845.02,SHOT,highlights_shots,96.804,us,shots_csv action=1.566 ball_speed=85.5 team_presence=0.028,shot_0070
+827.52,845.52,DEF_ACTION,highlights_filtered,70.771,unknown,filtered def action=1.561 speed=85.5,def_action_0134
+831.27,851.27,SHOT,highlights_shots,97.697,opp,shots_csv action=1.563 ball_speed=103.8 team_presence=0.017,shot_0077
+833.77,851.77,DEF_ACTION,highlights_filtered,70.493,unknown,filtered def action=1.560 speed=103.8,def_action_0135
+837.27,857.27,SHOT,highlights_shots,98.194,opp,shots_csv action=1.568 ball_speed=113.1 team_presence=0.022,shot_0067
+839.77,857.77,DEF_ACTION,highlights_filtered,70.535,unknown,filtered def action=1.564 speed=113.1,def_action_0132
+862.15,882.15,SHOT,highlights_shots,91.448,us,shots_csv action=1.243 ball_speed=30.1 team_presence=0.028,shot_0113
+870.53,890.53,SHOT,highlights_shots,95.232,us,shots_csv action=1.575 ball_speed=52.6 team_presence=0.033,shot_0050
+877.03,897.03,SHOT,highlights_shots,95.673,us,shots_csv action=1.434 ball_speed=84.0 team_presence=0.036,shot_0105
+889.16,909.16,SHOT,highlights_shots,89.247,us,shots_csv action=0.872 ball_speed=45.4 team_presence=0.039,shot_0122
+938.92,958.92,SHOT,highlights_shots,97.328,us,shots_csv action=1.574 ball_speed=94.7 team_presence=0.037,shot_0054
+955.17,976.17,OFF_BUILDUP,highlights_build,67.054,unknown,build_csv action=1.585 ball_speed=84.9,off_buildup_0197
+956.17,976.17,SHOT,highlights_shots,96.904,us,shots_csv action=1.583 ball_speed=84.9 team_presence=0.042,shot_0036
+964.04,984.04,SHOT,highlights_shots,94.624,us,shots_csv action=1.419 ball_speed=65.4 team_presence=0.050,shot_0108
+992.55,1012.55,SHOT,highlights_shots,97.106,opp,shots_csv action=1.557 ball_speed=93.1 team_presence=0.025,shot_0088
+995.05,1013.05,DEF_ACTION,highlights_filtered,69.067,unknown,filtered def action=1.552 speed=93.1,def_action_0142
+1004.85,1016.85,GOAL,goal_resets,110.0,us,goal_resets score=0.978; goal_resets score=1.000; goal_resets score=1.000,goal_0001
+1006.93,1026.93,SHOT,highlights_shots,94.519,us,shots_csv action=1.498 ball_speed=50.7 team_presence=0.033,shot_0100
+1033.56,1053.56,SHOT,highlights_shots,96.51,us,shots_csv action=1.572 ball_speed=78.6 team_presence=0.047,shot_0058
+1053.93,1071.93,DEF_ACTION,highlights_filtered,68.666,unknown,filtered def action=1.529 speed=103.1,def_action_0157
+1059.94,1077.94,DEF_ACTION,highlights_filtered,66.562,unknown,filtered def action=1.362 speed=91.9,def_action_0174
+1178.21,1198.21,SHOT,highlights_shots,96.794,us,shots_csv action=1.563 ball_speed=85.8 team_presence=0.044,shot_0078
+1194.21,1214.21,SHOT,highlights_shots,96.225,opp,shots_csv action=1.555 ball_speed=75.7 team_presence=0.023,shot_0091
+1196.71,1214.71,DEF_ACTION,highlights_filtered,69.308,unknown,filtered def action=1.551 speed=75.7,def_action_0143
+1201.09,1221.09,SHOT,highlights_shots,94.725,opp,shots_csv action=1.425 ball_speed=66.5 team_presence=0.014,shot_0107
+1203.59,1221.59,DEF_ACTION,highlights_filtered,67.103,unknown,filtered def action=1.423 speed=66.5,def_action_0173
+1254.85,1274.85,SHOT,highlights_shots,95.862,us,shots_csv action=1.545 ball_speed=70.0 team_presence=0.030,shot_0097
+1257.35,1275.35,DEF_ACTION,highlights_filtered,68.404,unknown,filtered def action=1.540 speed=70.0,def_action_0150
+1281.35,1301.35,SHOT,highlights_shots,99.519,us,shots_csv action=1.576 ball_speed=138.2 team_presence=0.028,shot_0048
+1283.85,1301.85,DEF_ACTION,highlights_filtered,70.853,unknown,filtered def action=1.571 speed=138.2,def_action_0126
+1294.35,1315.35,OFF_BUILDUP,highlights_build,68.997,unknown,build_csv action=1.606 ball_speed=145.3,off_buildup_0179
+1295.35,1315.35,SHOT,highlights_shots,100.087,us,shots_csv action=1.603 ball_speed=145.3 team_presence=0.071,shot_0018
+1308.6,1329.6,OFF_BUILDUP,highlights_build,67.329,us,build_csv action=1.639 ball_speed=83.1,off_buildup_0175
+1309.6,1329.6,SHOT,highlights_shots,97.225,us,shots_csv action=1.634 ball_speed=83.1 team_presence=0.111,shot_0015
+1314.61,1335.61,OFF_BUILDUP,highlights_build,67.043,us,build_csv action=1.632 ball_speed=75.1,off_buildup_0176
+1315.61,1335.61,SHOT,highlights_shots,96.762,us,shots_csv action=1.626 ball_speed=75.1 team_presence=0.115,shot_0016
+1324.11,1344.11,SHOT,highlights_shots,95.488,us,shots_csv action=1.564 ball_speed=59.6 team_presence=0.037,shot_0074
+1353.24,1373.24,SHOT,highlights_shots,95.709,us,shots_csv action=1.547 ball_speed=66.6 team_presence=0.037,shot_0095
+1366.24,1386.24,SHOT,highlights_shots,97.813,us,shots_csv action=1.576 ball_speed=104.2 team_presence=0.053,shot_0049
+1372.24,1392.24,SHOT,highlights_shots,97.619,us,shots_csv action=1.562 ball_speed=102.5 team_presence=0.045,shot_0081
+1389.62,1410.62,OFF_BUILDUP,highlights_build,68.732,us,build_csv action=1.599 ball_speed=137.9,off_buildup_0182
+1390.62,1410.62,SHOT,highlights_shots,99.651,us,shots_csv action=1.595 ball_speed=137.9 team_presence=0.092,shot_0023
+1396.99,1416.99,SHOT,highlights_shots,99.065,us,shots_csv action=1.552 ball_speed=133.0 team_presence=0.110,shot_0092
+1425.5,1445.5,SAVE_OUR_GK,highlights_filtered,90.895,us,filtered save action=1.545 speed=150.5,save_our_gk_0145
+1431.63,1451.63,SAVE_OUR_GK,highlights_filtered,90.755,us,filtered save action=1.528 speed=155.1,save_our_gk_0160
+1469.26,1489.26,SHOT,highlights_shots,98.269,us,shots_csv action=1.578 ball_speed=113.0 team_presence=0.032,shot_0046
+1475.26,1495.26,SHOT,highlights_shots,96.527,us,shots_csv action=1.563 ball_speed=80.5 team_presence=0.038,shot_0080
+1486.26,1506.26,SHOT,highlights_shots,97.425,us,shots_csv action=1.405 ball_speed=123.7 team_presence=0.051,shot_0109
+1540.39,1558.39,DEF_ACTION,highlights_filtered,68.236,unknown,filtered def action=1.515 speed=176.6,def_action_0167
+1629.04,1649.04,SHOT,highlights_shots,98.316,opp,shots_csv action=1.427 ball_speed=138.1 team_presence=0.014,shot_0106
+1631.54,1649.54,DEF_ACTION,highlights_filtered,67.141,unknown,filtered def action=1.424 speed=138.1,def_action_0172
+1648.66,1668.66,SHOT,highlights_shots,96.686,us,shots_csv action=1.568 ball_speed=82.9 team_presence=0.039,shot_0066
+1660.54,1681.54,OFF_BUILDUP,highlights_build,67.344,unknown,build_csv action=1.587 ball_speed=94.0,off_buildup_0192
+1661.54,1681.54,SHOT,highlights_shots,97.377,us,shots_csv action=1.585 ball_speed=94.0 team_presence=0.054,shot_0031
+1687.67,1708.67,OFF_BUILDUP,highlights_build,68.499,unknown,build_csv action=1.588 ball_speed=132.4,off_buildup_0191
+1688.67,1708.67,SHOT,highlights_shots,99.296,us,shots_csv action=1.585 ball_speed=132.4 team_presence=0.064,shot_0030
+1697.3,1718.3,OFF_BUILDUP,highlights_build,67.607,unknown,build_csv action=1.585 ball_speed=103.3,off_buildup_0196
+1698.3,1718.3,SHOT,highlights_shots,97.819,us,shots_csv action=1.582 ball_speed=103.3 team_presence=0.058,shot_0037
+1699.64,1711.64,GOAL,goal_resets,109.96,us,goal_resets score=0.996,goal_0002
+1717.93,1737.93,SHOT,highlights_shots,93.348,us,shots_csv action=0.956 ball_speed=113.9 team_presence=0.113,shot_0117
+1733.55,1754.55,OFF_BUILDUP,highlights_build,66.701,unknown,build_csv action=1.599 ball_speed=70.3,off_buildup_0183
+1734.55,1754.55,SHOT,highlights_shots,96.277,us,shots_csv action=1.595 ball_speed=70.3 team_presence=0.069,shot_0022
+1755.06,1775.06,SHOT,highlights_shots,97.965,us,shots_csv action=1.507 ball_speed=118.1 team_presence=0.067,shot_0099
+1757.65,1769.65,GOAL,goal_resets,109.69,us,goal_resets score=0.969,goal_0003
+1761.43,1782.43,OFF_BUILDUP,highlights_build,68.568,unknown,build_csv action=1.591 ball_speed=134.1,off_buildup_0187
+1762.43,1782.43,SHOT,highlights_shots,99.413,us,shots_csv action=1.588 ball_speed=134.1 team_presence=0.048,shot_0027
+1773.69,1793.69,SHOT,highlights_shots,94.633,us,shots_csv action=1.302 ball_speed=84.3 team_presence=0.067,shot_0111
+1823.57,1843.57,SHOT,highlights_shots,96.534,us,shots_csv action=1.570 ball_speed=79.4 team_presence=0.057,shot_0061
+1842.2,1862.2,SHOT,highlights_shots,97.717,us,shots_csv action=1.568 ball_speed=103.5 team_presence=0.049,shot_0068
+1851.66,1863.66,GOAL,goal_resets,109.78,us,goal_resets score=0.978,goal_0004
+1892.96,1913.96,OFF_BUILDUP,highlights_build,68.466,unknown,build_csv action=1.581 ball_speed=132.6,off_buildup_0203
+1893.96,1913.96,SHOT,highlights_shots,99.271,opp,shots_csv action=1.580 ball_speed=132.6 team_presence=0.025,shot_0040
+1896.46,1914.46,DEF_ACTION,highlights_filtered,70.402,unknown,filtered def action=1.576 speed=132.6,def_action_0123
+1900.33,1920.33,SHOT,highlights_shots,97.713,opp,shots_csv action=1.563 ball_speed=104.1 team_presence=0.022,shot_0075
+1902.83,1920.83,DEF_ACTION,highlights_filtered,70.766,unknown,filtered def action=1.560 speed=104.1,def_action_0136
+1910.08,1930.08,SHOT,highlights_shots,98.755,us,shots_csv action=1.566 ball_speed=124.5 team_presence=0.033,shot_0069
+1919.34,1939.34,SHOT,highlights_shots,99.085,us,shots_csv action=1.550 ball_speed=133.7 team_presence=0.048,shot_0093
+1925.46,1945.46,SHOT,highlights_shots,95.622,us,shots_csv action=1.448 ball_speed=80.8 team_presence=0.047,shot_0104
+1937.96,1957.96,SHOT,highlights_shots,93.454,us,shots_csv action=1.231 ball_speed=72.1 team_presence=0.092,shot_0114
+1945.22,1966.22,OFF_BUILDUP,highlights_build,67.005,us,build_csv action=1.590 ball_speed=82.1,off_buildup_0188
+1946.22,1966.22,SHOT,highlights_shots,96.795,us,shots_csv action=1.586 ball_speed=82.1 team_presence=0.083,shot_0028
+1951.22,1972.22,OFF_BUILDUP,highlights_build,66.302,us,build_csv action=1.598 ball_speed=57.2,off_buildup_0184
+1952.22,1972.22,SHOT,highlights_shots,95.601,us,shots_csv action=1.592 ball_speed=57.2 team_presence=0.102,shot_0025
+1957.68,1969.68,GOAL,goal_resets,110.0,us,goal_resets score=1.000; goal_resets score=1.000,goal_0005
+1978.97,1998.97,SHOT,highlights_shots,96.109,us,shots_csv action=1.089 ball_speed=147.9 team_presence=0.094,shot_0115
+1993.72,2013.72,SHOT,highlights_shots,95.571,us,shots_csv action=1.568 ball_speed=60.5 team_presence=0.061,shot_0064
+2008.35,2029.35,OFF_BUILDUP,highlights_build,67.916,us,build_csv action=1.606 ball_speed=109.3,off_buildup_0180
+2009.35,2029.35,SHOT,highlights_shots,98.282,us,shots_csv action=1.602 ball_speed=109.3 team_presence=0.084,shot_0020
+2023.6,2044.6,OFF_BUILDUP,highlights_build,67.393,unknown,build_csv action=1.585 ball_speed=96.0,off_buildup_0195
+2024.6,2044.6,SHOT,highlights_shots,97.463,us,shots_csv action=1.583 ball_speed=96.0 team_presence=0.053,shot_0035
+2046.36,2066.36,SHOT,highlights_shots,90.023,us,shots_csv action=0.987 ball_speed=42.5 team_presence=0.079,shot_0116
+2059.11,2079.11,SHOT,highlights_shots,90.946,us,shots_csv action=0.912 ball_speed=73.0 team_presence=0.078,shot_0118
+2074.49,2092.49,DEF_ACTION,highlights_filtered,70.578,unknown,filtered def action=1.525 speed=111.9,def_action_0163
+2083.99,2103.99,SHOT,highlights_shots,95.241,opp,shots_csv action=1.319 ball_speed=93.8 team_presence=0.019,shot_0110
+2110.87,2128.87,DEF_ACTION,highlights_filtered,70.326,unknown,filtered def action=1.521 speed=108.7,def_action_0164
+2170.38,2182.38,GOAL,goal_resets,110.0,us,goal_resets score=1.000,goal_0006
+2189.76,2210.76,OFF_BUILDUP,highlights_build,67.858,us,build_csv action=1.589 ball_speed=110.8,off_buildup_0189
+2190.76,2210.76,SHOT,highlights_shots,98.216,us,shots_csv action=1.584 ball_speed=110.8 team_presence=0.090,shot_0033
+2217.01,2237.01,SHOT,highlights_shots,97.183,us,shots_csv action=1.487 ball_speed=105.7 team_presence=0.045,shot_0101
+2234.77,2254.77,SAVE_OUR_GK,highlights_filtered,91.342,us,filtered save action=1.544 speed=129.9,save_our_gk_0147
+2240.14,2260.14,SHOT,highlights_shots,99.592,opp,shots_csv action=1.574 ball_speed=140.1 team_presence=0.023,shot_0056
+2241.14,2261.14,SAVE_OUR_GK,highlights_filtered,91.577,us,filtered save action=1.570 speed=140.1,save_our_gk_0129
+2253.64,2274.64,OFF_BUILDUP,highlights_build,69.058,unknown,build_csv action=1.581 ball_speed=152.5,off_buildup_0204
+2254.64,2274.64,SHOT,highlights_shots,100.259,opp,shots_csv action=1.579 ball_speed=152.5 team_presence=0.025,shot_0043
+2257.14,2275.14,DEF_ACTION,highlights_filtered,70.952,unknown,filtered def action=1.575 speed=152.5,def_action_0124
+2264.52,2285.52,OFF_BUILDUP,highlights_build,70.244,unknown,build_csv action=1.592 ball_speed=189.6,off_buildup_0186
+2265.52,2285.52,SHOT,highlights_shots,102.196,us,shots_csv action=1.589 ball_speed=189.6 team_presence=0.065,shot_0026
+2270.52,2291.52,OFF_BUILDUP,highlights_build,69.307,unknown,build_csv action=1.587 ball_speed=159.4,off_buildup_0193
+2271.52,2291.52,SHOT,highlights_shots,100.648,us,shots_csv action=1.585 ball_speed=159.4 team_presence=0.056,shot_0032
+2290.9,2311.9,OFF_BUILDUP,highlights_build,66.953,unknown,build_csv action=1.582 ball_speed=82.0,off_buildup_0199
+2291.9,2311.9,SHOT,highlights_shots,96.743,us,shots_csv action=1.580 ball_speed=82.0 team_presence=0.037,shot_0039
+2313.74,2325.74,GOAL,goal_resets,109.83,us,goal_resets score=0.983,goal_0007
+2325.08,2337.08,GOAL,goal_resets,110.0,us,goal_resets score=1.000,goal_0008
+2331.53,2352.53,OFF_BUILDUP,highlights_build,68.038,unknown,build_csv action=1.587 ball_speed=117.2,off_buildup_0194
+2332.53,2352.53,SHOT,highlights_shots,98.527,us,shots_csv action=1.583 ball_speed=117.2 team_presence=0.071,shot_0034
+2353.08,2365.08,GOAL,goal_resets,110.0,us,goal_resets score=1.000,goal_0009
+2356.04,2376.04,SHOT,highlights_shots,95.749,us,shots_csv action=1.484 ball_speed=77.6 team_presence=0.049,shot_0102
+2367.41,2387.41,SHOT,highlights_shots,89.726,us,shots_csv action=0.903 ball_speed=50.1 team_presence=0.050,shot_0120
+2385.75,2397.75,GOAL,goal_resets,110.0,us,goal_resets score=1.000; goal_resets score=1.000,goal_0010
+2405.42,2426.42,OFF_BUILDUP,highlights_build,68.13,unknown,build_csv action=1.595 ball_speed=118.6,off_buildup_0185
+2406.42,2426.42,SHOT,highlights_shots,98.672,us,shots_csv action=1.593 ball_speed=118.6 team_presence=0.051,shot_0024
+2418.67,2438.67,SHOT,highlights_shots,95.024,us,shots_csv action=1.573 ball_speed=48.7 team_presence=0.070,shot_0057
+2587.08,2605.08,DEF_ACTION,highlights_filtered,67.6,unknown,filtered def action=1.464 speed=73.9,def_action_0170
+2599.79,2611.79,GOAL,goal_resets,110.0,us,goal_resets score=0.974; goal_resets score=1.000,goal_0011
+2621.13,2633.13,GOAL,goal_resets,109.85,us,goal_resets score=0.985,goal_0012
+2644.96,2664.96,SHOT,highlights_shots,97.524,us,shots_csv action=1.514 ball_speed=108.2 team_presence=0.045,shot_0098
+2663.72,2684.72,OFF_BUILDUP,highlights_build,68.542,unknown,build_csv action=1.583 ball_speed=134.9,off_buildup_0198
+2664.72,2684.72,SHOT,highlights_shots,99.389,us,shots_csv action=1.581 ball_speed=134.9 team_presence=0.040,shot_0038
+2704.1,2724.1,SAVE_OUR_GK,highlights_filtered,92.663,us,filtered save action=1.528 speed=213.7,save_our_gk_0159
+2741.98,2761.98,SHOT,highlights_shots,96.848,us,shots_csv action=1.563 ball_speed=86.8 team_presence=0.043,shot_0076
+2780.61,2800.61,SAVE_OUR_GK,highlights_filtered,91.953,us,filtered save action=1.543 speed=158.1,save_our_gk_0148
+2803.61,2821.61,DEF_ACTION,highlights_filtered,67.717,unknown,filtered def action=1.459 speed=81.5,def_action_0171
+2822.12,2842.12,SHOT,highlights_shots,98.323,us,shots_csv action=1.555 ball_speed=117.6 team_presence=0.028,shot_0090
+2824.62,2842.62,DEF_ACTION,highlights_filtered,69.163,unknown,filtered def action=1.551 speed=117.6,def_action_0144
+2828.12,2848.12,SHOT,highlights_shots,96.55,us,shots_csv action=1.575 ball_speed=79.0 team_presence=0.029,shot_0052
+2830.62,2848.62,DEF_ACTION,highlights_filtered,70.627,unknown,filtered def action=1.570 speed=79.0,def_action_0127
+2835.25,2855.25,SHOT,highlights_shots,98.1,us,shots_csv action=1.563 ball_speed=111.9 team_presence=0.029,shot_0079
+2837.75,2855.75,DEF_ACTION,highlights_filtered,70.046,unknown,filtered def action=1.558 speed=111.9,def_action_0137
+2861.0,2881.0,SHOT,highlights_shots,96.754,opp,shots_csv action=1.556 ball_speed=86.0 team_presence=0.023,shot_0089
+2863.5,2881.5,DEF_ACTION,highlights_filtered,70.615,unknown,filtered def action=1.553 speed=86.0,def_action_0141
+2870.88,2890.88,SHOT,highlights_shots,96.195,us,shots_csv action=1.547 ball_speed=76.4 team_presence=0.051,shot_0096
+2888.0,2908.0,SHOT,highlights_shots,98.743,us,shots_csv action=1.568 ball_speed=123.9 team_presence=0.033,shot_0065
+2913.13,2933.13,SHOT,highlights_shots,96.901,us,shots_csv action=1.561 ball_speed=88.3 team_presence=0.026,shot_0082
+2915.63,2933.63,DEF_ACTION,highlights_filtered,69.247,unknown,filtered def action=1.557 speed=88.3,def_action_0138
+2974.27,2994.27,SHOT,highlights_shots,90.51,us,shots_csv action=0.912 ball_speed=64.3 team_presence=0.118,shot_0119
+2989.77,3009.77,SHOT,highlights_shots,96.888,us,shots_csv action=1.559 ball_speed=88.4 team_presence=0.029,shot_0086
+2992.27,3010.27,DEF_ACTION,highlights_filtered,70.657,unknown,filtered def action=1.554 speed=88.4,def_action_0140
+3006.28,3026.28,SHOT,highlights_shots,97.731,us,shots_csv action=1.559 ball_speed=105.2 team_presence=0.032,shot_0084
+3020.4,3040.4,SAVE_OUR_GK,highlights_filtered,92.535,us,filtered save action=1.530 speed=149.4,save_our_gk_0156
+3032.03,3052.03,SHOT,highlights_shots,96.713,us,shots_csv action=1.559 ball_speed=84.9 team_presence=0.033,shot_0085
+3043.91,3064.91,OFF_BUILDUP,highlights_build,67.639,unknown,build_csv action=1.582 ball_speed=104.9,off_buildup_0200
+3044.91,3064.91,SHOT,highlights_shots,97.883,us,shots_csv action=1.580 ball_speed=104.9 team_presence=0.044,shot_0041
+3051.66,3071.66,SHOT,highlights_shots,99.217,opp,shots_csv action=1.571 ball_speed=133.0 team_presence=0.023,shot_0060
+3054.16,3072.16,DEF_ACTION,highlights_filtered,71.152,unknown,filtered def action=1.567 speed=133.0,def_action_0130
+3061.28,3079.28,DEF_ACTION,highlights_filtered,69.217,unknown,filtered def action=1.535 speed=87.6,def_action_0152
+3073.87,3085.87,GOAL,goal_resets,110.0,us,goal_resets score=1.000; goal_resets score=0.994; goal_resets score=1.000,goal_0013
+3081.21,3093.21,GOAL,goal_resets,110.0,us,goal_resets score=1.000,goal_0014
+3091.54,3112.54,OFF_BUILDUP,highlights_build,67.651,unknown,build_csv action=1.581 ball_speed=105.4,off_buildup_0202
+3092.54,3112.54,SHOT,highlights_shots,97.907,us,shots_csv action=1.579 ball_speed=105.4 team_presence=0.038,shot_0044
+3107.54,3124.88,OFF_BUILDUP,highlights_build,69.505,unknown,build_csv action=1.588 ball_speed=165.8,off_buildup_0190
+3108.54,3124.88,SHOT,highlights_shots,100.978,us,shots_csv action=1.586 ball_speed=165.8 team_presence=0.052,shot_0029

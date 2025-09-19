@@ -1,0 +1,25 @@
+{
+  "video_duration": 3126.88,
+  "counts": {
+    "raw_events": 204,
+    "selected_spans": 40,
+    "dropped_spans": 12
+  },
+  "coverage": {
+    "goals_total": 14,
+    "goals_included": 14,
+    "shots_total": 108,
+    "shots_included": 108,
+    "saves_total": 10,
+    "saves_included": 4,
+    "def_total": 42,
+    "def_included": 30,
+    "off_total": 30,
+    "off_included": 30,
+    "stoppage_segments": 0
+  },
+  "missing": {
+    "goals": [],
+    "shots": []
+  }
+}
