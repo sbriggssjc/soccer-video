@@ -1,41 +1,41 @@
-start,end,type,score,team,source,reason,event_ids,all_types
-151.15,171.65,SHOT,97.567,opp,highlights_shots;highlights_filtered,shots_csv action=1.558 ball_speed=102.0 team_presence=0.023; filtered def action=1.554 speed=102.0,"def_action_0139,shot_0087",DEF_ACTION;SHOT
-182.91,202.91,SHOT,96.853,us,highlights_shots,shots_csv action=1.548 ball_speed=89.3 team_presence=0.039,shot_0094,SHOT
-213.41,258.92,SHOT,97.088,opp,highlights_filtered;highlights_shots,filtered def action=1.512 speed=122.2; filtered def action=1.525 speed=103.7; shots_csv action=1.575 ball_speed=89.7 team_presence=0.023; filtered def action=1.571 speed=89.7,"def_action_0125,def_action_0161,def_action_0168,shot_0051",DEF_ACTION;SHOT
-262.8,289.3,SHOT,96.511,us,highlights_shots;highlights_filtered,shots_csv action=1.570 ball_speed=79.0 team_presence=0.026; filtered def action=1.566 speed=79.0; filtered def action=1.534 speed=69.2,"def_action_0131,def_action_0153,shot_0062",DEF_ACTION;SHOT
-296.93,378.81,SHOT,98.846,mixed,highlights_shots;highlights_build;highlights_filtered,shots_csv action=1.577 ball_speed=76.9 team_presence=0.034; shots_csv action=1.560 ball_speed=86.8 team_presence=0.031; shots_csv action=1.578 ball_speed=100.1 team_presence=0.041; build_csv action=1.606 ball_speed=106.6; shots_csv action=1.602 ball_speed=106.6 team_presence=0.089; shots_csv action=1.277 ball_speed=144.5 team_presence=0.165; build_csv action=1.627 ball_speed=86.4; shots_csv action=1.622 ball_speed=86.4 team_presence=0.085; shots_csv action=1.566 ball_speed=126.4 team_presence=0.017; filtered save action=1.563 speed=126.4,"off_buildup_0177,off_buildup_0178,save_our_gk_0133,shot_0017,shot_0019,shot_0045,shot_0047,shot_0072,shot_0083,shot_0112",OFF_BUILDUP;SAVE_OUR_GK;SHOT
-534.47,597.1,SHOT,99.255,us,highlights_filtered;highlights_shots;highlights_build,filtered def action=1.536 speed=73.1; shots_csv action=1.470 ball_speed=49.6 team_presence=0.037; shots_csv action=1.566 ball_speed=134.6 team_presence=0.043; shots_csv action=1.572 ball_speed=72.2 team_presence=0.042; build_csv action=1.582 ball_speed=73.3; shots_csv action=1.579 ball_speed=73.3 team_presence=0.042,"def_action_0151,off_buildup_0201,shot_0042,shot_0059,shot_0071,shot_0103",DEF_ACTION;OFF_BUILDUP;SHOT
-599.48,634.36,SHOT,96.893,us,highlights_shots;highlights_filtered,shots_csv action=1.574 ball_speed=86.1 team_presence=0.037; shots_csv action=1.575 ball_speed=83.8 team_presence=0.028; filtered def action=1.570 speed=83.8,"def_action_0128,shot_0053,shot_0055",DEF_ACTION;SHOT
-701.12,727.12,SHOT,98.776,us,highlights_shots,shots_csv action=1.564 ball_speed=125.3 team_presence=0.053; shots_csv action=0.892 ball_speed=92.5 team_presence=0.069,"shot_0073,shot_0121",SHOT
-770.64,797.89,SHOT,98.528,us,highlights_build;highlights_shots,build_csv action=1.601 ball_speed=93.3; shots_csv action=1.599 ball_speed=93.3 team_presence=0.045; shots_csv action=1.569 ball_speed=119.6 team_presence=0.055,"off_buildup_0181,shot_0021,shot_0063",OFF_BUILDUP;SHOT
-825.02,857.77,SHOT,98.194,mixed,highlights_shots;highlights_filtered,shots_csv action=1.566 ball_speed=85.5 team_presence=0.028; filtered def action=1.561 speed=85.5; shots_csv action=1.563 ball_speed=103.8 team_presence=0.017; filtered def action=1.560 speed=103.8; shots_csv action=1.568 ball_speed=113.1 team_presence=0.022; filtered def action=1.564 speed=113.1,"def_action_0132,def_action_0134,def_action_0135,shot_0067,shot_0070,shot_0077",DEF_ACTION;SHOT
-862.15,909.16,SHOT,95.673,us,highlights_shots,shots_csv action=1.243 ball_speed=30.1 team_presence=0.028; shots_csv action=1.575 ball_speed=52.6 team_presence=0.033; shots_csv action=1.434 ball_speed=84.0 team_presence=0.036; shots_csv action=0.872 ball_speed=45.4 team_presence=0.039,"shot_0050,shot_0105,shot_0113,shot_0122",SHOT
-938.92,984.04,SHOT,97.328,us,highlights_shots;highlights_build,shots_csv action=1.574 ball_speed=94.7 team_presence=0.037; build_csv action=1.585 ball_speed=84.9; shots_csv action=1.583 ball_speed=84.9 team_presence=0.042; shots_csv action=1.419 ball_speed=65.4 team_presence=0.050,"off_buildup_0197,shot_0036,shot_0054,shot_0108",OFF_BUILDUP;SHOT
-992.55,1026.93,GOAL,110.0,mixed,highlights_shots;highlights_filtered;goal_resets,shots_csv action=1.557 ball_speed=93.1 team_presence=0.025; filtered def action=1.552 speed=93.1; goal_resets score=0.978; goal_resets score=1.000; goal_resets score=1.000; shots_csv action=1.498 ball_speed=50.7 team_presence=0.033,"def_action_0142,goal_0001,shot_0088,shot_0100",DEF_ACTION;GOAL;SHOT
-1033.56,1053.56,SHOT,96.51,us,highlights_shots,shots_csv action=1.572 ball_speed=78.6 team_presence=0.047,shot_0058,SHOT
-1178.21,1221.59,SHOT,96.794,mixed,highlights_shots;highlights_filtered,shots_csv action=1.563 ball_speed=85.8 team_presence=0.044; shots_csv action=1.555 ball_speed=75.7 team_presence=0.023; filtered def action=1.551 speed=75.7; shots_csv action=1.425 ball_speed=66.5 team_presence=0.014; filtered def action=1.423 speed=66.5,"def_action_0143,def_action_0173,shot_0078,shot_0091,shot_0107",DEF_ACTION;SHOT
-1254.85,1275.35,SHOT,95.862,us,highlights_shots;highlights_filtered,shots_csv action=1.545 ball_speed=70.0 team_presence=0.030; filtered def action=1.540 speed=70.0,"def_action_0150,shot_0097",DEF_ACTION;SHOT
-1281.35,1344.11,SHOT,100.087,us,highlights_shots;highlights_filtered;highlights_build,shots_csv action=1.576 ball_speed=138.2 team_presence=0.028; filtered def action=1.571 speed=138.2; build_csv action=1.606 ball_speed=145.3; shots_csv action=1.603 ball_speed=145.3 team_presence=0.071; build_csv action=1.639 ball_speed=83.1; shots_csv action=1.634 ball_speed=83.1 team_presence=0.111; build_csv action=1.632 ball_speed=75.1; shots_csv action=1.626 ball_speed=75.1 team_presence=0.115; shots_csv action=1.564 ball_speed=59.6 team_presence=0.037,"def_action_0126,off_buildup_0175,off_buildup_0176,off_buildup_0179,shot_0015,shot_0016,shot_0018,shot_0048,shot_0074",DEF_ACTION;OFF_BUILDUP;SHOT
-1353.24,1416.99,SHOT,99.651,us,highlights_shots;highlights_build,shots_csv action=1.547 ball_speed=66.6 team_presence=0.037; shots_csv action=1.576 ball_speed=104.2 team_presence=0.053; shots_csv action=1.562 ball_speed=102.5 team_presence=0.045; build_csv action=1.599 ball_speed=137.9; shots_csv action=1.595 ball_speed=137.9 team_presence=0.092; shots_csv action=1.552 ball_speed=133.0 team_presence=0.110,"off_buildup_0182,shot_0023,shot_0049,shot_0081,shot_0092,shot_0095",OFF_BUILDUP;SHOT
-1469.26,1506.26,SHOT,98.269,us,highlights_shots,shots_csv action=1.578 ball_speed=113.0 team_presence=0.032; shots_csv action=1.563 ball_speed=80.5 team_presence=0.038; shots_csv action=1.405 ball_speed=123.7 team_presence=0.051,"shot_0046,shot_0080,shot_0109",SHOT
-1629.04,1681.54,SHOT,98.316,mixed,highlights_shots;highlights_filtered;highlights_build,shots_csv action=1.427 ball_speed=138.1 team_presence=0.014; filtered def action=1.424 speed=138.1; shots_csv action=1.568 ball_speed=82.9 team_presence=0.039; build_csv action=1.587 ball_speed=94.0; shots_csv action=1.585 ball_speed=94.0 team_presence=0.054,"def_action_0172,off_buildup_0192,shot_0031,shot_0066,shot_0106",DEF_ACTION;OFF_BUILDUP;SHOT
-1687.67,1754.55,GOAL,109.96,us,highlights_build;highlights_shots;goal_resets,build_csv action=1.588 ball_speed=132.4; shots_csv action=1.585 ball_speed=132.4 team_presence=0.064; build_csv action=1.585 ball_speed=103.3; shots_csv action=1.582 ball_speed=103.3 team_presence=0.058; goal_resets score=0.996; shots_csv action=0.956 ball_speed=113.9 team_presence=0.113; build_csv action=1.599 ball_speed=70.3; shots_csv action=1.595 ball_speed=70.3 team_presence=0.069,"goal_0002,off_buildup_0183,off_buildup_0191,off_buildup_0196,shot_0022,shot_0030,shot_0037,shot_0117",GOAL;OFF_BUILDUP;SHOT
-1755.06,1793.69,GOAL,109.69,us,highlights_shots;goal_resets;highlights_build,shots_csv action=1.507 ball_speed=118.1 team_presence=0.067; goal_resets score=0.969; build_csv action=1.591 ball_speed=134.1; shots_csv action=1.588 ball_speed=134.1 team_presence=0.048; shots_csv action=1.302 ball_speed=84.3 team_presence=0.067,"goal_0003,off_buildup_0187,shot_0027,shot_0099,shot_0111",GOAL;OFF_BUILDUP;SHOT
-1823.57,1863.66,GOAL,109.78,us,highlights_shots;goal_resets,shots_csv action=1.570 ball_speed=79.4 team_presence=0.057; shots_csv action=1.568 ball_speed=103.5 team_presence=0.049; goal_resets score=0.978,"goal_0004,shot_0061,shot_0068",GOAL;SHOT
-1892.96,1972.22,GOAL,110.0,mixed,highlights_build;highlights_shots;highlights_filtered;goal_resets,build_csv action=1.581 ball_speed=132.6; shots_csv action=1.580 ball_speed=132.6 team_presence=0.025; filtered def action=1.576 speed=132.6; shots_csv action=1.563 ball_speed=104.1 team_presence=0.022; filtered def action=1.560 speed=104.1; shots_csv action=1.566 ball_speed=124.5 team_presence=0.033; shots_csv action=1.550 ball_speed=133.7 team_presence=0.048; shots_csv action=1.448 ball_speed=80.8 team_presence=0.047; shots_csv action=1.231 ball_speed=72.1 team_presence=0.092; build_csv action=1.590 ball_speed=82.1; shots_csv action=1.586 ball_speed=82.1 team_presence=0.083; build_csv action=1.598 ball_speed=57.2; shots_csv action=1.592 ball_speed=57.2 team_presence=0.102; goal_resets score=1.000; goal_resets score=1.000,"def_action_0123,def_action_0136,goal_0005,off_buildup_0184,off_buildup_0188,off_buildup_0203,shot_0025,shot_0028,shot_0040,shot_0069,shot_0075,shot_0093,shot_0104,shot_0114",DEF_ACTION;GOAL;OFF_BUILDUP;SHOT
-1978.97,2044.6,SHOT,98.282,us,highlights_shots;highlights_build,shots_csv action=1.089 ball_speed=147.9 team_presence=0.094; shots_csv action=1.568 ball_speed=60.5 team_presence=0.061; build_csv action=1.606 ball_speed=109.3; shots_csv action=1.602 ball_speed=109.3 team_presence=0.084; build_csv action=1.585 ball_speed=96.0; shots_csv action=1.583 ball_speed=96.0 team_presence=0.053,"off_buildup_0180,off_buildup_0195,shot_0020,shot_0035,shot_0064,shot_0115",OFF_BUILDUP;SHOT
-2046.36,2103.99,SHOT,95.241,mixed,highlights_shots;highlights_filtered,shots_csv action=0.987 ball_speed=42.5 team_presence=0.079; shots_csv action=0.912 ball_speed=73.0 team_presence=0.078; filtered def action=1.525 speed=111.9; shots_csv action=1.319 ball_speed=93.8 team_presence=0.019,"def_action_0163,shot_0110,shot_0116,shot_0118",DEF_ACTION;SHOT
-2170.38,2182.38,GOAL,110.0,us,goal_resets,goal_resets score=1.000,goal_0006,GOAL
-2189.76,2210.76,SHOT,98.216,us,highlights_build;highlights_shots,build_csv action=1.589 ball_speed=110.8; shots_csv action=1.584 ball_speed=110.8 team_presence=0.090,"off_buildup_0189,shot_0033",OFF_BUILDUP;SHOT
-2217.01,2311.9,SHOT,102.196,mixed,highlights_shots;highlights_filtered;highlights_build,shots_csv action=1.487 ball_speed=105.7 team_presence=0.045; filtered save action=1.544 speed=129.9; shots_csv action=1.574 ball_speed=140.1 team_presence=0.023; filtered save action=1.570 speed=140.1; build_csv action=1.581 ball_speed=152.5; shots_csv action=1.579 ball_speed=152.5 team_presence=0.025; filtered def action=1.575 speed=152.5; build_csv action=1.592 ball_speed=189.6; shots_csv action=1.589 ball_speed=189.6 team_presence=0.065; build_csv action=1.587 ball_speed=159.4; shots_csv action=1.585 ball_speed=159.4 team_presence=0.056; build_csv action=1.582 ball_speed=82.0; shots_csv action=1.580 ball_speed=82.0 team_presence=0.037,"def_action_0124,off_buildup_0186,off_buildup_0193,off_buildup_0199,off_buildup_0204,save_our_gk_0129,save_our_gk_0147,shot_0026,shot_0032,shot_0039,shot_0043,shot_0056,shot_0101",DEF_ACTION;OFF_BUILDUP;SAVE_OUR_GK;SHOT
-2313.74,2352.53,GOAL,110.0,us,goal_resets;highlights_build;highlights_shots,goal_resets score=0.983; goal_resets score=1.000; build_csv action=1.587 ball_speed=117.2; shots_csv action=1.583 ball_speed=117.2 team_presence=0.071,"goal_0007,goal_0008,off_buildup_0194,shot_0034",GOAL;OFF_BUILDUP;SHOT
-2353.08,2397.75,GOAL,110.0,us,goal_resets;highlights_shots,goal_resets score=1.000; shots_csv action=1.484 ball_speed=77.6 team_presence=0.049; shots_csv action=0.903 ball_speed=50.1 team_presence=0.050; goal_resets score=1.000; goal_resets score=1.000,"goal_0009,goal_0010,shot_0102,shot_0120",GOAL;SHOT
-2405.42,2438.67,SHOT,98.672,us,highlights_build;highlights_shots,build_csv action=1.595 ball_speed=118.6; shots_csv action=1.593 ball_speed=118.6 team_presence=0.051; shots_csv action=1.573 ball_speed=48.7 team_presence=0.070,"off_buildup_0185,shot_0024,shot_0057",OFF_BUILDUP;SHOT
-2587.08,2611.79,GOAL,110.0,us,highlights_filtered;goal_resets,filtered def action=1.464 speed=73.9; goal_resets score=0.974; goal_resets score=1.000,"def_action_0170,goal_0011",DEF_ACTION;GOAL
-2621.13,2633.13,GOAL,109.85,us,goal_resets,goal_resets score=0.985,goal_0012,GOAL
-2644.96,2684.72,SHOT,99.389,us,highlights_shots;highlights_build,shots_csv action=1.514 ball_speed=108.2 team_presence=0.045; build_csv action=1.583 ball_speed=134.9; shots_csv action=1.581 ball_speed=134.9 team_presence=0.040,"off_buildup_0198,shot_0038,shot_0098",OFF_BUILDUP;SHOT
-2741.98,2761.98,SHOT,96.848,us,highlights_shots,shots_csv action=1.563 ball_speed=86.8 team_presence=0.043,shot_0076,SHOT
-2822.12,2855.75,SHOT,98.323,us,highlights_shots;highlights_filtered,shots_csv action=1.555 ball_speed=117.6 team_presence=0.028; filtered def action=1.551 speed=117.6; shots_csv action=1.575 ball_speed=79.0 team_presence=0.029; filtered def action=1.570 speed=79.0; shots_csv action=1.563 ball_speed=111.9 team_presence=0.029; filtered def action=1.558 speed=111.9,"def_action_0127,def_action_0137,def_action_0144,shot_0052,shot_0079,shot_0090",DEF_ACTION;SHOT
-2861.0,2908.0,SHOT,98.743,mixed,highlights_shots;highlights_filtered,shots_csv action=1.556 ball_speed=86.0 team_presence=0.023; filtered def action=1.553 speed=86.0; shots_csv action=1.547 ball_speed=76.4 team_presence=0.051; shots_csv action=1.568 ball_speed=123.9 team_presence=0.033,"def_action_0141,shot_0065,shot_0089,shot_0096",DEF_ACTION;SHOT
-2913.13,2933.63,SHOT,96.901,us,highlights_shots;highlights_filtered,shots_csv action=1.561 ball_speed=88.3 team_presence=0.026; filtered def action=1.557 speed=88.3,"def_action_0138,shot_0082",DEF_ACTION;SHOT
-2974.27,3124.88,GOAL,110.0,mixed,highlights_shots;highlights_filtered;highlights_build;goal_resets,shots_csv action=0.912 ball_speed=64.3 team_presence=0.118; shots_csv action=1.559 ball_speed=88.4 team_presence=0.029; filtered def action=1.554 speed=88.4; shots_csv action=1.559 ball_speed=105.2 team_presence=0.032; filtered save action=1.530 speed=149.4; shots_csv action=1.559 ball_speed=84.9 team_presence=0.033; build_csv action=1.582 ball_speed=104.9; shots_csv action=1.580 ball_speed=104.9 team_presence=0.044; shots_csv action=1.571 ball_speed=133.0 team_presence=0.023; filtered def action=1.567 speed=133.0; filtered def action=1.535 speed=87.6; goal_resets score=1.000; goal_resets score=0.994; goal_resets score=1.000; goal_resets score=1.000; build_csv action=1.581 ball_speed=105.4; shots_csv action=1.579 ball_speed=105.4 team_presence=0.038; build_csv action=1.588 ball_speed=165.8; shots_csv action=1.586 ball_speed=165.8 team_presence=0.052,"def_action_0130,def_action_0140,def_action_0152,goal_0013,goal_0014,off_buildup_0190,off_buildup_0200,off_buildup_0202,save_our_gk_0156,shot_0029,shot_0041,shot_0044,shot_0060,shot_0084,shot_0085,shot_0086,shot_0119",DEF_ACTION;GOAL;OFF_BUILDUP;SAVE_OUR_GK;SHOT
+"t0","t1","label"
+"151.15","171.65","SHOT"
+"182.91","202.91","SHOT"
+"213.41","258.92","SHOT"
+"262.8","289.3","SHOT"
+"296.93","378.81","SHOT"
+"534.47","597.1","SHOT"
+"599.48","634.36","SHOT"
+"701.12","727.12","SHOT"
+"770.64","797.89","SHOT"
+"825.02","857.77","SHOT"
+"862.15","909.16","SHOT"
+"938.92","984.04","SHOT"
+"992.55","1026.93","GOAL"
+"1033.56","1053.56","SHOT"
+"1178.21","1221.59","SHOT"
+"1254.85","1275.35","SHOT"
+"1281.35","1344.11","SHOT"
+"1353.24","1416.99","SHOT"
+"1469.26","1506.26","SHOT"
+"1629.04","1681.54","SHOT"
+"1687.67","1754.55","GOAL"
+"1755.06","1793.69","GOAL"
+"1823.57","1863.66","GOAL"
+"1892.96","1972.22","GOAL"
+"1978.97","2044.6","SHOT"
+"2046.36","2103.99","SHOT"
+"2170.38","2182.38","GOAL"
+"2189.76","2210.76","SHOT"
+"2217.01","2311.9","SHOT"
+"2313.74","2352.53","GOAL"
+"2353.08","2397.75","GOAL"
+"2405.42","2438.67","SHOT"
+"2587.08","2611.79","GOAL"
+"2621.13","2633.13","GOAL"
+"2644.96","2684.72","SHOT"
+"2741.98","2761.98","SHOT"
+"2822.12","2855.75","SHOT"
+"2861","2908","SHOT"
+"2913.13","2933.63","SHOT"
+"2974.27","3124.88","GOAL"
