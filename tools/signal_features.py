@@ -48,76 +48,75 @@ def _rolling(series: np.ndarray, window: int) -> np.ndarray:
     return np.convolve(padded, kernel, mode="valid")
 
 
-def compute_audio_features(video_path: Path, config: Optional[AudioFeatureConfig] = None) -> pd.DataFrame:
-    """Compute audio-derived features from ``video_path``.
+def _time_series(df: pd.DataFrame) -> Optional[pd.Series]:
+    if "time" in df:
+        return df["time"]
+    if "t" in df:
+        return df["t"]
+    return None
 
-    The function is intentionally resilient; if audio cannot be decoded it
-    returns an empty dataframe rather than raising.
+
+def compute_audio_features(video_path: Path, config: AudioFeatureConfig) -> pd.DataFrame:
+    """
+    Robust audio feature extraction that guarantees equal-length columns.
+    Returns a DataFrame with columns: ['t', 'rms', 'onset', 'flux', 'hf', 'zcr'].
     """
 
-    config = config or AudioFeatureConfig()
     if librosa is None:
         logging.warning("Audio features unavailable because librosa could not be imported.")
-        return pd.DataFrame(columns=[
-            "time",
-            "rms",
-            "rms_smooth",
-            "centroid",
-            "centroid_smooth",
-            "zcr",
-            "crowd_score",
-            "whistle_score",
-        ])
+        return pd.DataFrame(columns=["t", "rms", "onset", "flux", "hf", "zcr"])
 
     try:
+        # Load mono audio (librosa can read audio from mp4 via audioread/ffmpeg)
         signal, sr = librosa.load(str(video_path), sr=config.sr, mono=True)
-    except Exception as exc:  # pragma: no cover - dependent on environment codecs
-        logging.warning("Failed to decode audio from %s: %s", video_path, exc)
-        return pd.DataFrame(columns=[
-            "time",
-            "rms",
-            "rms_smooth",
-            "centroid",
-            "centroid_smooth",
-            "zcr",
-            "crowd_score",
-            "whistle_score",
-        ])
+    except Exception as e:
+        logging.warning("Audio load failed for %s: %s", video_path, e)
+        return pd.DataFrame(columns=["t", "rms", "onset", "flux", "hf", "zcr"])
 
-    hop = config.hop_length
-    frame = config.frame_length
-    rms = librosa.feature.rms(y=signal, frame_length=frame, hop_length=hop)[0]
-    centroid = librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=frame, hop_length=hop)[0]
-    zcr = librosa.feature.zero_crossing_rate(signal, frame_length=frame, hop_length=hop)[0]
-    times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
+    if signal is None or len(signal) == 0:
+        logging.warning("No audio samples in %s", video_path)
+        return pd.DataFrame(columns=["t", "rms", "onset", "flux", "hf", "zcr"])
 
-    smooth_window = max(1, int(config.smooth_window_seconds * sr / hop))
-    rms_smooth = _rolling(rms, smooth_window)
-    centroid_smooth = _rolling(centroid, smooth_window)
+    # Feature frames
+    frame_length = config.frame_length
+    hop_length = config.hop_length
 
-    # Crowd excitement proxy: combination of level and centroid slope.
-    centroid_diff = np.gradient(centroid_smooth)
-    crowd_score = np.clip(rms_smooth, 0, None) * np.clip(centroid_diff, 0, None)
+    # Core features (each returns shape (n_frames,) or (n_freq, n_frames))
+    rms = librosa.feature.rms(y=signal, frame_length=frame_length, hop_length=hop_length, center=True)[0]
+    onset = librosa.onset.onset_strength(y=signal, sr=sr, hop_length=hop_length)
+    # Spectral flux (difference of power spectra)
+    S = np.abs(librosa.stft(signal, n_fft=frame_length, hop_length=hop_length)) ** 2
+    flux = np.sqrt(np.sum(np.diff(S, axis=1, prepend=S[:, :1]) ** 2, axis=0))
+    # High-frequency energy ratio (above ~2 kHz)
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=frame_length)
+    hf_mask = freqs >= 2000.0
+    total_energy = np.sum(S, axis=0) + 1e-9
+    hf_energy = np.sum(S[hf_mask, :], axis=0)
+    hf_ratio = hf_energy / total_energy
+    # Zero-crossing rate
+    zcr = librosa.feature.zero_crossing_rate(signal, frame_length=frame_length, hop_length=hop_length, center=True)[0]
 
-    # Whistle proxy: narrow band energy around 3.5-4.5 kHz.
-    n_fft = 2_048
-    stft = librosa.stft(signal, n_fft=n_fft, hop_length=hop, window="hann")
-    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
-    band_mask = (freqs >= config.whistle_band[0]) & (freqs <= config.whistle_band[1])
-    whistle_energy = np.abs(stft[band_mask]) ** 2
-    whistle_score = whistle_energy.mean(axis=0) if whistle_energy.size else np.zeros_like(rms)
-    whistle_score = _rolling(whistle_score, max(1, smooth_window // 2))
+    # Make all vectors the SAME length
+    lengths = [len(rms), len(onset), len(flux), len(hf_ratio), len(zcr)]
+    n_frames = int(min(lengths))
+    rms = rms[:n_frames]
+    onset = onset[:n_frames]
+    flux = flux[:n_frames]
+    hf_ratio = hf_ratio[:n_frames]
+    zcr = zcr[:n_frames]
+
+    # Time vector from frame indices (avoids float drift)
+    frames = np.arange(n_frames)
+    times = librosa.frames_to_time(frames, sr=sr, hop_length=hop_length)
 
     df = pd.DataFrame(
         {
-            "time": times.astype(float),
-            "rms": rms.astype(float),
-            "rms_smooth": rms_smooth.astype(float),
-            "centroid": centroid.astype(float),
-            "centroid_smooth": centroid_smooth.astype(float),
-            "zcr": zcr.astype(float),
-            "crowd_score": crowd_score.astype(float),
-            "whistle_score": whistle_score.astype(float),
+            "t": times,
+            "rms": rms,
+            "onset": onset,
+            "flux": flux,
+            "hf": hf_ratio,
+            "zcr": zcr,
         }
     )
     return df
@@ -216,17 +215,21 @@ def derive_in_play_mask(
         return pd.DataFrame(columns=["start", "end"])
 
     if audio_df.empty:
-        base_times = motion_df["time"].to_numpy()
+        motion_times_series = _time_series(motion_df)
+        base_times = motion_times_series.to_numpy() if motion_times_series is not None else np.array([], dtype=float)
         rms = np.zeros_like(base_times)
         whistle = np.zeros_like(base_times)
-        motion_interp = motion_df["motion_smooth"].to_numpy()
+        motion_interp = motion_df.get("motion_smooth", pd.Series(0)).to_numpy()
     else:
-        base_times = audio_df["time"].to_numpy()
+        audio_times_series = _time_series(audio_df)
+        base_times = audio_times_series.to_numpy() if audio_times_series is not None else np.array([], dtype=float)
         rms = audio_df.get("rms_smooth", audio_df.get("rms", pd.Series(0))).to_numpy()
         whistle = audio_df.get("whistle_score", pd.Series(0)).to_numpy()
+        motion_times_series = _time_series(motion_df)
+        motion_times = motion_times_series.to_numpy() if motion_times_series is not None else np.array([], dtype=float)
         motion_interp = interpolate_to(
             base_times,
-            motion_df.get("time", pd.Series(dtype=float)).to_numpy(),
+            motion_times,
             motion_df.get("motion_smooth", pd.Series(0)).to_numpy(),
         )
 
@@ -269,7 +272,7 @@ if __name__ == "__main__":  # pragma: no cover - smoke test
     parser.add_argument("video", type=Path)
     args = parser.parse_args()
 
-    audio = compute_audio_features(args.video)
+    audio = compute_audio_features(args.video, AudioFeatureConfig())
     motion = compute_motion_features(args.video)
     print(audio.head())
     print(motion.head())

@@ -75,21 +75,37 @@ def _robust_z(values: np.ndarray) -> np.ndarray:
 
 
 def _combine_features(audio_df: pd.DataFrame, motion_df: pd.DataFrame) -> pd.DataFrame:
+    def _time_series(df: pd.DataFrame) -> Optional[pd.Series]:
+        if "time" in df:
+            return df["time"]
+        if "t" in df:
+            return df["t"]
+        return None
+
     if audio_df.empty and motion_df.empty:
         return pd.DataFrame(columns=["time"])
 
     if audio_df.empty:
-        base = motion_df[["time"]].copy()
+        motion_times = _time_series(motion_df)
+        if motion_times is None:
+            return pd.DataFrame(columns=["time"])
+        base = pd.DataFrame({"time": motion_times.to_numpy()})
     else:
-        base = audio_df[["time"]].copy()
+        audio_times = _time_series(audio_df)
+        if audio_times is None:
+            return pd.DataFrame(columns=["time"])
+        base = pd.DataFrame({"time": audio_times.to_numpy()})
 
     def _interp(column: str, source: pd.DataFrame) -> np.ndarray:
         times = base["time"].to_numpy()
         if column not in source:
             return np.zeros_like(times)
+        source_times = _time_series(source)
+        if source_times is None:
+            return np.zeros_like(times)
         return np.interp(
             times,
-            source["time"].to_numpy(),
+            source_times.to_numpy(),
             source[column].to_numpy(),
             left=float(source[column].iloc[0]),
             right=float(source[column].iloc[-1]),
