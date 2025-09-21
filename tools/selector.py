@@ -74,53 +74,72 @@ def _robust_z(values: np.ndarray) -> np.ndarray:
     return (values - median) / (1.4826 * mad)
 
 
+def _interp(base_time: np.ndarray, source: pd.DataFrame, column: str) -> np.ndarray:
+    """Interpolate source[column] onto base_time (both in seconds)."""
+    # If a list/tuple slipped in, take the first name
+    if isinstance(column, (list, tuple)):
+        column = column[0]
+
+    s = source[column]
+    # If duplicate names yielded a DataFrame, take the first column
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+
+    x = pd.to_numeric(source["time"], errors="coerce").to_numpy()
+    y = pd.to_numeric(s, errors="coerce").to_numpy()
+
+    m = np.isfinite(x) & np.isfinite(y)
+    if m.sum() < 2:
+        # Not enough points to interpolate – return NaNs
+        return np.full_like(base_time, np.nan, dtype=float)
+
+    # Let np.interp handle endpoints (no custom left/right scalars needed)
+    return np.interp(base_time, x[m], y[m])
+
+
 def _combine_features(audio_df: pd.DataFrame, motion_df: pd.DataFrame) -> pd.DataFrame:
-    def _time_series(df: pd.DataFrame) -> Optional[pd.Series]:
-        if "time" in df:
-            return df["time"]
-        if "t" in df:
-            return df["t"]
+    def _time_column(df: pd.DataFrame) -> Optional[str]:
+        for name in ("time", "t"):
+            if name in df.columns:
+                return name
         return None
 
-    if audio_df.empty and motion_df.empty:
-        return pd.DataFrame(columns=["time"])
-
-    if audio_df.empty:
-        motion_times = _time_series(motion_df)
-        if motion_times is None:
-            return pd.DataFrame(columns=["time"])
-        base = pd.DataFrame({"time": motion_times.to_numpy()})
+    audio_time_col = _time_column(audio_df) if not audio_df.empty else None
+    if audio_time_col is not None:
+        time_values = pd.to_numeric(audio_df[audio_time_col], errors="coerce").to_numpy()
     else:
-        audio_times = _time_series(audio_df)
-        if audio_times is None:
+        motion_time_col = _time_column(motion_df) if not motion_df.empty else None
+        if motion_time_col is None:
             return pd.DataFrame(columns=["time"])
-        base = pd.DataFrame({"time": audio_times.to_numpy()})
+        time_values = pd.to_numeric(motion_df[motion_time_col], errors="coerce").to_numpy()
 
-    def _interp(column: str, source: pd.DataFrame) -> np.ndarray:
-        times = base["time"].to_numpy()
-        if column not in source:
-            return np.zeros_like(times)
-        source_times = _time_series(source)
-        if source_times is None:
-            return np.zeros_like(times)
-        return np.interp(
-            times,
-            source_times.to_numpy(),
-            source[column].to_numpy(),
-            left=float(source[column].iloc[0]),
-            right=float(source[column].iloc[-1]),
-        )
+    base = pd.DataFrame({"time": time_values})
+    base_time = base["time"].to_numpy()
+
+    if audio_time_col is not None:
+        for col in audio_df.columns:
+            if col == audio_time_col:
+                continue
+            base[col] = pd.to_numeric(audio_df[col], errors="coerce")
 
     for column in ["rms", "rms_smooth", "centroid", "centroid_smooth", "zcr", "crowd_score", "whistle_score"]:
-        if not audio_df.empty:
-            base[column] = _interp(column, audio_df)
-        else:
+        if column not in base.columns:
             base[column] = 0.0
 
+    if not motion_df.empty:
+        motion_time_col = _time_column(motion_df)
+        if motion_time_col is not None:
+            if motion_time_col != "time":
+                motion_source = motion_df.rename(columns={motion_time_col: "time"})
+            else:
+                motion_source = motion_df
+            for col in motion_source.columns:
+                if col == "time":
+                    continue
+                base[col] = _interp(base_time, motion_source, col)
+
     for column in ["motion", "motion_smooth", "pan_score"]:
-        if not motion_df.empty:
-            base[column] = _interp(column, motion_df)
-        else:
+        if column not in base.columns:
             base[column] = 0.0
 
     base["audio_z"] = _robust_z(base.get("rms_smooth", base.get("rms", pd.Series(0))).to_numpy())
