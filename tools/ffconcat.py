@@ -1,4 +1,4 @@
-"""Helpers for building ``ffconcat`` playlists used by ``ffmpeg``."""
+﻿"""Helpers for building ``ffconcat`` playlists used by ``ffmpeg``."""
 from __future__ import annotations
 
 import dataclasses
@@ -120,3 +120,4 @@ if __name__ == "__main__":  # pragma: no cover - smoke test
     finally:
         if tmp.exists():
             tmp.unlink()
+

@@ -1,4 +1,4 @@
-"""Aggregate and normalise soccer event CSV files."""
+﻿"""Aggregate and normalise soccer event CSV files."""
 from __future__ import annotations
 
 import argparse
@@ -166,3 +166,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
     sys.exit(main())
+

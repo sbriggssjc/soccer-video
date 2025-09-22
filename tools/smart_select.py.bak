@@ -1,4 +1,4 @@
-﻿"""CLI entry point for the Smart Soccer Highlight Selector pipeline."""
+"""CLI entry point for the Smart Soccer Highlight Selector pipeline."""
 from __future__ import annotations
 
 import argparse
@@ -202,7 +202,12 @@ def run_pipeline(args: argparse.Namespace) -> None:
     combined_threshold = (
         selector.last_combined_threshold if selector.last_combined_threshold is not None else float("nan")
     )
-    logger.info("Selector thresholds: combined>=%.3f audio_z>=%.2f motion_z>=%.2f", combined_threshold, config.audio_peak_threshold, config.motion_peak_threshold)
+    logger.info(
+        "Selector thresholds: combined>=%.3f audio_z>=%.2f motion_z>=%.2f",
+        combined_threshold,
+        config.audio_peak_threshold,
+        config.motion_peak_threshold,
+    )
     logger.info(
         "Window ranges goal=%s/%s shot=%s/%s save=%s/%s buildup=%s/%s",
         config.goal_pre_range,
@@ -328,5 +333,3 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-
-

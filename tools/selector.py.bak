@@ -1,9 +1,8 @@
-﻿"""Event selection logic for Smart Soccer Highlight Selector."""
+"""Event selection logic for Smart Soccer Highlight Selector."""
 from __future__ import annotations
 
 import dataclasses
 import logging
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -19,8 +18,6 @@ TYPE_WEIGHT = {"GOAL": 100.0, "WOODWORK": 90.0, "SHOT": 80.0, "SAVE": 70.0, "BUI
 
 @dataclass
 class SelectorConfig:
-    audio_peak_threshold: float = 0.60
-    motion_peak_threshold: float = 0.60
     min_clip: float = 3.0
     max_clip: float = 16.0
     merge_gap: float = 0.8
@@ -35,8 +32,8 @@ class SelectorConfig:
     buildup_post_range: Tuple[float, float] = (3.0, 5.0)
     save_pre_range: Tuple[float, float] = (4.0, 6.0)
     save_post_range: Tuple[float, float] = (4.0, 6.0)
-    0.60
-    0.60
+    audio_peak_threshold: float = 1.0
+    motion_peak_threshold: float = 1.0
     combined_peak_percentile: float = 85.0
 
 
@@ -93,7 +90,7 @@ def _interp(base_time: np.ndarray, source: pd.DataFrame, column: str) -> np.ndar
 
     m = np.isfinite(x) & np.isfinite(y)
     if m.sum() < 2:
-        # Not enough points to interpolate â€“ return NaNs
+        # Not enough points to interpolate – return NaNs
         return np.full_like(base_time, np.nan, dtype=float)
 
     # Let np.interp handle endpoints (no custom left/right scalars needed)
@@ -177,13 +174,6 @@ def _range_from_strength(strength: float, base_range: Tuple[float, float]) -> fl
 
 
 class SmartSelector:
-    def __post_init__(self):
-        logger.info(
-            "Selector (instance) thresholds: audio_z>=%.2f motion_z>=%.2f combined>=%.3f",
-            getattr(self, 'audio_z_thr', self.config.audio_z_thr),
-            getattr(self, 'motion_z_thr', self.config.motion_z_thr),
-            getattr(self, 'combined_thr', float('nan'))
-        )
     def __init__(
         self,
         audio_df: pd.DataFrame,
@@ -216,7 +206,7 @@ class SmartSelector:
             max(threshold, self.config.audio_peak_threshold),
             min_spacing=4.0,
         )
-        self._last_combined_threshold = threshold
+        self._last_combined_threshold = max(threshold, self.config.audio_peak_threshold)
         candidates: List[Candidate] = []
         for idx in indices:
             candidates.append(
@@ -512,11 +502,3 @@ if __name__ == "__main__":  # pragma: no cover - smoke test
     selector = SmartSelector(audio, motion, [(0.0, 120.0)], SelectorConfig(), goal_resets=[60.0])
     result, spans, ratios = selector.run()
     print(result.head())
-
-
-
-
-
-
-
-

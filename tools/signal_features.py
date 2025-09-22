@@ -1,4 +1,4 @@
-"""Signal feature extraction for Smart Soccer Highlight Selector."""
+﻿"""Signal feature extraction for Smart Soccer Highlight Selector."""
 from __future__ import annotations
 
 import dataclasses
@@ -276,3 +276,4 @@ if __name__ == "__main__":  # pragma: no cover - smoke test
     motion = compute_motion_features(args.video)
     print(audio.head())
     print(motion.head())
+

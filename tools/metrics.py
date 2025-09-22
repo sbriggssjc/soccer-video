@@ -1,4 +1,4 @@
-"""Metrics utilities for Smart Soccer Highlight Selector."""
+﻿"""Metrics utilities for Smart Soccer Highlight Selector."""
 from __future__ import annotations
 
 import json
@@ -117,3 +117,4 @@ if __name__ == "__main__":  # pragma: no cover - smoke test
     metrics = compute_metrics(dummy, [40.0], {0: 0.92, 1: 0.96})
     write_reports(metrics, Path("/tmp/smart_metrics"))
     print(metrics)
+

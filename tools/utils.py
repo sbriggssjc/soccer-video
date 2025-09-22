@@ -1,4 +1,4 @@
-"""Utility helpers for soccer highlight tooling."""
+﻿"""Utility helpers for soccer highlight tooling."""
 from __future__ import annotations
 
 import math
@@ -143,3 +143,4 @@ def snap_to_rising_edge(
     if eligible.size == 0:
         return nominal_start
     return float(eligible[-1])
+

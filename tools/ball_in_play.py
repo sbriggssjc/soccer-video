@@ -1,4 +1,4 @@
-"""Estimate ball-in-play windows using lightweight audiovisual heuristics."""
+﻿"""Estimate ball-in-play windows using lightweight audiovisual heuristics."""
 from __future__ import annotations
 
 import argparse
@@ -187,3 +187,4 @@ def main(argv: Optional[list] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+
