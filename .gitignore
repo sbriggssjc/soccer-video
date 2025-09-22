@@ -12,3 +12,8 @@ livestream_logs/
 *.wav
 
 *.trf
+# outputs & media
+out/
+GameFilm/
+videos/
+*.zip
