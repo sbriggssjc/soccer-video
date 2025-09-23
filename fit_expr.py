@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import yaml
@@ -42,18 +42,55 @@ def load_zoom_bounds(config_path: Path, profile: str, roi: str) -> Tuple[float, 
     return z_min, z_max
 
 
-def read_track(csv_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def read_track(
+    csv_path: Path,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, str]]:
+    metadata: Dict[str, str] = {}
+    frames: List[int] = []
+    cx: List[float] = []
+    cy: List[float] = []
+    zoom: List[float] = []
+
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        frames: List[int] = []
-        cx: List[float] = []
-        cy: List[float] = []
-        zoom: List[float] = []
+        header_row: Optional[List[str]] = None
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("#"):
+                payload = stripped[1:].strip()
+                if payload:
+                    for part in payload.split(","):
+                        if "=" in part:
+                            key, value = part.split("=", 1)
+                            metadata[key.strip()] = value.strip()
+                continue
+            header_row = next(csv.reader([line]))
+            break
+
+        if header_row is None:
+            raise SystemExit(f"No header row found in {csv_path}")
+
+        reader = csv.DictReader(handle, fieldnames=header_row)
         for row in reader:
-            frames.append(int(float(row["frame"])))
-            cx.append(float(row["cx"]))
-            cy.append(float(row["cy"]))
-            zoom.append(float(row["z"]))
+            if row is None:
+                continue
+            frame_str = row.get("frame")
+            cx_str = row.get("cx")
+            cy_str = row.get("cy")
+            z_str = row.get("z")
+            if not frame_str or cx_str is None or cy_str is None or z_str is None:
+                continue
+            try:
+                frames.append(int(float(frame_str)))
+                cx.append(float(cx_str))
+                cy.append(float(cy_str))
+                zoom.append(float(z_str))
+            except ValueError:
+                continue
 
     if not frames:
         raise SystemExit(f"No rows found in {csv_path}")
@@ -63,7 +100,7 @@ def read_track(csv_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.n
     cx_arr = np.asarray(cx, dtype=np.float64)[order]
     cy_arr = np.asarray(cy, dtype=np.float64)[order]
     zoom_arr = np.asarray(zoom, dtype=np.float64)[order]
-    return frames_arr, cx_arr, cy_arr, zoom_arr
+    return frames_arr, cx_arr, cy_arr, zoom_arr, metadata
 
 
 def fit_poly(values: Sequence[float], degree: int) -> np.ndarray:
@@ -119,8 +156,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    frames, cx, cy, zoom = read_track(args.csv)
+    frames, cx, cy, zoom, metadata = read_track(args.csv)
     z_min, z_max = load_zoom_bounds(args.config, args.profile, args.roi)
+
+    if "zoom_min" in metadata:
+        try:
+            z_min = float(metadata["zoom_min"])
+        except ValueError:
+            pass
+    if "zoom_max" in metadata:
+        try:
+            z_max = float(metadata["zoom_max"])
+        except ValueError:
+            pass
+    if z_min > z_max:
+        z_min, z_max = z_max, z_min
 
     zoom = np.clip(zoom, z_min, z_max)
 
