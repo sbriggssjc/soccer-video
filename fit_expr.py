@@ -133,10 +133,28 @@ def build_expr(coeffs: Sequence[float]) -> str:
     return f"({joined})"
 
 
-def write_ps1vars(out_path: Path, cx_expr: str, cy_expr: str, z_expr: str) -> None:
+def format_run_flags(args: argparse.Namespace) -> str:
+    parts: List[str] = []
+    for key in sorted(vars(args)):
+        value = getattr(args, key)
+        if isinstance(value, Path):
+            value = str(value)
+        parts.append(f"{key}={value}")
+    return " ".join(parts)
+
+
+def write_ps1vars(
+    out_path: Path,
+    cx_expr: str,
+    cy_expr: str,
+    z_expr: str,
+    flag_lines: Sequence[str],
+) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as handle:
         handle.write("# Auto-generated polynomial expressions\n")
+        for line in flag_lines:
+            handle.write(f"# {line}\n")
         handle.write(f"$cxExpr = \"{cx_expr}\"\n")
         handle.write(f"$cyExpr = \"{cy_expr}\"\n")
         handle.write(f"$zExpr = \"{z_expr}\"\n")
@@ -189,7 +207,12 @@ def main() -> None:
             f"(clip({z_expr_core},{format_coeff(z_min)},{format_coeff(z_max)}))"
         )
 
-    write_ps1vars(args.out, cx_expr, cy_expr, z_expr)
+    flag_lines: List[str] = [f"fit: {format_run_flags(args)}"]
+    cli_flags = metadata.get("cli")
+    if cli_flags:
+        flag_lines.append(f"track: {cli_flags}")
+
+    write_ps1vars(args.out, cx_expr, cy_expr, z_expr, flag_lines)
 
     print(f"Frames: {len(frames)}  degree={args.degree}")
     print(f"cx: {cx_expr}")
