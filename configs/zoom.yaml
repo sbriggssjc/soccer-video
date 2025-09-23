@@ -1,0 +1,56 @@
+# Autoframe tuning parameters for motion-based crop/zoom estimation.
+defaults:
+  profile: portrait
+  ema_alpha: 0.25
+  deadband_pct: 0.012
+  max_center_step_pct: 0.045
+  fallback_bias_y: 0.56
+  flow:
+    pyr_scale: 0.5
+    levels: 3
+    winsize: 23
+    iterations: 3
+    poly_n: 5
+    poly_sigma: 1.2
+    flags: 0
+    blur_sigma: 3.5
+    saliency_percentile: 92.0
+    min_salient_pixels_pct: 0.004
+    topk_mean_floor: 0.35
+    fallback_mean_thresh: 0.12
+  zoom:
+    padding_pct: 0.08
+    dz_max: 0.03
+    min: 1.05
+    max: 2.4
+    base_roi_pct: 0.34
+    min_roi_pct: 0.28
+    max_roi_pct: 0.55
+    std_scale: 2.8
+    mean_scale: 2.2
+profiles:
+  portrait:
+    aspect_ratio: 0.5625   # 9:16 width:height
+    fallback_bias_y: 0.56
+    zoom:
+      min: 1.08
+      max: 2.4
+      base_roi_pct: 0.34
+  landscape:
+    aspect_ratio: 1.7777777778  # 16:9 width:height
+    fallback_bias_y: 0.5
+    zoom:
+      min: 1.0
+      max: 1.9
+      base_roi_pct: 0.45
+roi:
+  generic: {}
+  goal:
+    deadband_pct: 0.009
+    flow:
+      saliency_percentile: 90.0
+    zoom:
+      base_roi_pct: 0.3
+      min_roi_pct: 0.25
+      max_roi_pct: 0.48
+      std_scale: 3.1
