@@ -10,6 +10,54 @@ import numpy as np
 import yaml
 
 
+def savgol_smooth_series(series: Sequence[float], window: int, order: int = 3) -> np.ndarray:
+    arr = np.asarray(series, dtype=np.float64)
+    n = len(arr)
+    if n == 0 or window <= 2:
+        return arr.copy()
+    window = max(3, int(window))
+    if window % 2 == 0:
+        window += 1
+    window = min(window, n if n % 2 == 1 else n - 1 if n > 1 else n)
+    if window <= 2:
+        return arr.copy()
+    order = int(max(1, min(order, window - 1)))
+    half = window // 2
+    smoothed = np.empty_like(arr)
+    for idx in range(n):
+        start = max(0, idx - half)
+        end = min(n, start + window)
+        if end - start < window:
+            start = max(0, end - window)
+        segment = arr[start:end]
+        if segment.size <= order:
+            smoothed[idx] = arr[idx]
+            continue
+        x = np.arange(segment.size, dtype=np.float64)
+        try:
+            coeffs = np.polyfit(x, segment, order)
+        except np.linalg.LinAlgError:
+            smoothed[idx] = arr[idx]
+            continue
+        rel = idx - start
+        smoothed[idx] = float(np.polyval(coeffs, rel))
+    return smoothed
+
+
+def extract_cli_int(metadata: Dict[str, str], key: str) -> Optional[int]:
+    cli = metadata.get("cli")
+    if not cli:
+        return None
+    for token in cli.split():
+        if token.startswith(f"{key}="):
+            _, value = token.split("=", 1)
+            try:
+                return int(float(value))
+            except ValueError:
+                return None
+    return None
+
+
 def deep_update(base: Dict, override: Dict) -> Dict:
     result = dict(base)
     for key, value in override.items():
@@ -191,6 +239,17 @@ def main() -> None:
         z_min, z_max = z_max, z_min
 
     zoom = np.clip(zoom, z_min, z_max)
+
+    smooth_win = extract_cli_int(metadata, "smooth_win")
+    if smooth_win is not None:
+        if smooth_win < 0:
+            smooth_win = 0
+        if smooth_win and smooth_win % 2 == 0:
+            smooth_win += 1
+        if smooth_win and smooth_win > 2:
+            cx = savgol_smooth_series(cx, smooth_win)
+            cy = savgol_smooth_series(cy, smooth_win)
+            zoom = savgol_smooth_series(zoom, smooth_win)
 
     cx_coeffs = fit_poly(cx, args.degree)
     cy_coeffs = fit_poly(cy, args.degree)
