@@ -120,6 +120,14 @@ class Target:
 
 
 @dataclass
+class FlowSample:
+    """Sampled optical-flow vector for preview overlay."""
+
+    origin: Tuple[int, int]
+    vector: Tuple[float, float]
+
+
+@dataclass
 class DebugState:
     """Per-frame debug values used for overlay rendering."""
 
@@ -130,6 +138,10 @@ class DebugState:
     zoom_target: float
     spread: float
     has_targets: bool
+    confidence: float
+    speed: float
+    state: str
+    flow_samples: Sequence[FlowSample]
 
 
 def parse_vector(arg: str, count: int) -> Tuple[float, ...]:
@@ -137,6 +149,17 @@ def parse_vector(arg: str, count: int) -> Tuple[float, ...]:
     if len(parts) != count:
         raise argparse.ArgumentTypeError(f"expected {count} comma-separated values")
     return tuple(float(p) for p in parts)
+
+
+def lerp(a: float, b: float, t: float) -> float:
+    return float(a + (b - a) * np.clip(t, 0.0, 1.0))
+
+
+def smoothstep(x: float, edge0: float, edge1: float) -> float:
+    if edge0 == edge1:
+        return float(x >= edge1)
+    t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return float(t * t * (3.0 - 2.0 * t))
 
 
 def savgol_smooth_series(series: Sequence[float], window: int, order: int = 3) -> np.ndarray:
@@ -181,6 +204,13 @@ def apply_deadband(target: np.ndarray, current: np.ndarray, deadband: Sequence[f
         if abs(result[axis] - current[axis]) < deadband[axis]:
             result[axis] = current[axis]
     return result
+
+
+def clamp_vector(vec: np.ndarray, limit: float) -> np.ndarray:
+    norm = float(np.linalg.norm(vec))
+    if norm <= limit or norm <= 1e-6:
+        return vec
+    return vec * (limit / norm)
 
 
 def clamp_delta(delta: float, max_step: float) -> float:
@@ -228,6 +258,39 @@ def compute_crop_geometry(
     return w, h, x, y, np.array([cx, cy], dtype=np.float64)
 
 
+def remap(value: float, low: float, high: float, target: Tuple[float, float]) -> float:
+    if math.isclose(high, low):
+        return target[0]
+    t = np.clip((value - low) / (high - low), 0.0, 1.0)
+    return float(target[0] + (target[1] - target[0]) * t)
+
+
+def ray_intersects_box(origin: np.ndarray, direction: np.ndarray, box: GoalBox) -> bool:
+    if direction.shape != (2,):
+        return False
+    bounds = box.bounds
+    dir_x, dir_y = float(direction[0]), float(direction[1])
+    t_min = -float("inf")
+    t_max = float("inf")
+    for axis in range(2):
+        o = origin[axis]
+        d = dir_x if axis == 0 else dir_y
+        min_b = bounds[axis]
+        max_b = bounds[axis + 2]
+        if abs(d) < 1e-6:
+            if o < min_b or o > max_b:
+                return False
+            continue
+        t1 = (min_b - o) / d
+        t2 = (max_b - o) / d
+        t1, t2 = (t1, t2) if t1 <= t2 else (t2, t1)
+        t_min = max(t_min, t1)
+        t_max = min(t_max, t2)
+        if t_min > t_max:
+            return False
+    return t_max >= 0.0 and t_max >= t_min
+
+
 def compute_iou(box_a: Tuple[float, float, float, float], box_b: Tuple[float, float, float, float]) -> float:
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
@@ -244,6 +307,37 @@ def compute_iou(box_a: Tuple[float, float, float, float], box_b: Tuple[float, fl
     if union <= 1e-6:
         return 0.0
     return float(np.clip(inter / union, 0.0, 1.0))
+
+
+def default_goal_box(width: int, height: int, side: str) -> GoalBox:
+    goal_w = width * 0.18
+    goal_h = height * 0.42
+    y = max(0.0, height * 0.29 - goal_h * 0.25)
+    if side == "left":
+        x = 0.0
+    else:
+        x = width - goal_w
+    return GoalBox(x, y, goal_w, goal_h).clamp(width, height)
+
+
+def sample_flow_vectors(flow: Optional[np.ndarray], step: int = 32, scale: float = 6.0) -> List[FlowSample]:
+    if flow is None or flow.size == 0:
+        return []
+    height, width = flow.shape[:2]
+    samples: List[FlowSample] = []
+    for y in range(step // 2, height, step):
+        for x in range(step // 2, width, step):
+            vec = flow[y, x]
+            mag = float(np.linalg.norm(vec))
+            if mag < 0.6:
+                continue
+            samples.append(
+                FlowSample(
+                    origin=(x, y),
+                    vector=(float(vec[0] * scale), float(vec[1] * scale)),
+                )
+            )
+    return samples
 
 
 class YOLODetector:
@@ -358,6 +452,9 @@ class FlowResult:
     max_mag: float
     strength: float
     cut: bool
+    points: np.ndarray
+    vectors: np.ndarray
+    magnitudes: np.ndarray
 
 
 class FlowClusterer:
@@ -468,6 +565,9 @@ class FlowClusterer:
             max_mag=max_mag,
             strength=strength,
             cut=cut,
+            points=points,
+            vectors=vectors,
+            magnitudes=mags,
         )
 
 
@@ -671,14 +771,22 @@ def draw_preview(
     cv2.drawMarker(frame, smooth_pt, (0, 255, 255), cv2.MARKER_CROSS, 18, 2, cv2.LINE_AA)
     cv2.circle(frame, raw_pt, 6, (255, 128, 0), 2)
     cv2.circle(frame, lead_pt, 4, (255, 255, 0), 1)
-    arrow_scale = 6.0
+    arrow_scale = 0.2
     arrow_end = (
         int(round(debug.raw_center[0] + debug.velocity[0] * arrow_scale)),
         int(round(debug.raw_center[1] + debug.velocity[1] * arrow_scale)),
     )
     cv2.arrowedLine(frame, raw_pt, arrow_end, (0, 200, 255), 2, cv2.LINE_AA, tipLength=0.3)
 
-    hud_w, hud_h = 180, 60
+    for sample in debug.flow_samples:
+        start = (int(round(sample.origin[0])), int(round(sample.origin[1])))
+        end = (
+            int(round(sample.origin[0] + sample.vector[0])),
+            int(round(sample.origin[1] + sample.vector[1])),
+        )
+        cv2.arrowedLine(frame, start, end, (60, 200, 255), 1, cv2.LINE_AA, tipLength=0.25)
+
+    hud_w, hud_h = 220, 72
     hud_margin = 12
     hud_origin = (hud_margin, frame.shape[0] - hud_h - hud_margin)
     cv2.rectangle(
@@ -704,26 +812,23 @@ def draw_preview(
             points.append((px, py))
         for idx in range(1, len(points)):
             cv2.line(frame, points[idx - 1], points[idx], (120, 255, 120), 2, cv2.LINE_AA)
-    cv2.putText(
-        frame,
+    text_lines = [
+        f"state: {debug.state}",
+        f"conf={debug.confidence:.2f} |v|={debug.speed:.1f}",
         f"z={result.zoom:.2f} tgt={debug.zoom_target:.2f}",
-        (top_left[0] + 8, max(30, top_left[1] + 24)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        frame,
-        f"spread={debug.spread:.1f} wt={'Y' if debug.has_targets else 'N'}",
-        (top_left[0] + 8, max(30, top_left[1] + 54)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (200, 200, 200),
-        1,
-        cv2.LINE_AA,
-    )
+        f"spread={debug.spread:.1f} targets={'Y' if debug.has_targets else 'N'}",
+    ]
+    for idx, text in enumerate(text_lines):
+        cv2.putText(
+            frame,
+            text,
+            (hud_origin[0] + 10, hud_origin[1] + 22 + idx * 16),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (230, 230, 230),
+            1,
+            cv2.LINE_AA,
+        )
 
 
 def format_cli_args(args: argparse.Namespace) -> str:
@@ -865,7 +970,13 @@ def parse_args() -> argparse.Namespace:
         help="Output profile controls aspect ratio",
     )
     parser.add_argument("--config", type=Path, help="Reserved for compatibility; unused")
-    parser.add_argument("--lead", type=int, default=8, help="Frames to lead/predict center")
+    parser.add_argument("--lead", type=int, help="Legacy frames to lead/predict center")
+    parser.add_argument(
+        "--lead_frames",
+        type=int,
+        default=10,
+        help="Frames of velocity lead when predicting center",
+    )
     parser.add_argument("--deadband", type=float, default=10.0, help="Ignore small center deltas (px)")
     parser.add_argument(
         "--deadband_xy",
@@ -888,17 +999,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--zoom_max", type=float, default=2.40, help="Maximum zoom (tighter crop)"
     )
+    parser.add_argument("--zoom_k", type=float, default=9.0, help="Zoom spring stiffness")
     parser.add_argument(
-        "--zoom_k",
+        "--zoom_d",
         type=float,
-        default=0.85,
-        help="Crowding→zoom responsiveness gain",
-    )
-    parser.add_argument(
-        "--zoom_asym",
-        type=lambda s: parse_vector(s, 2),
-        default=(0.75, 0.35),
-        help="Asymmetric damping for zoom out/in",
+        default=6.0,
+        help="Zoom spring damping coefficient",
     )
     parser.add_argument(
         "--anchor_weight",
@@ -934,6 +1040,102 @@ def parse_args() -> argparse.Namespace:
         default=0.18,
         help="Motion mask threshold after normalization",
     )
+    parser.add_argument(
+        "--follow_k",
+        type=float,
+        default=140.0,
+        help="Critically damped spring stiffness for center follow",
+    )
+    parser.add_argument(
+        "--follow_d",
+        type=float,
+        default=24.0,
+        help="Critically damped spring damping term for center follow",
+    )
+    parser.add_argument(
+        "--max_xy_speed",
+        type=float,
+        default=48.0,
+        help="Maximum allowed tracking speed (px/s)",
+    )
+    parser.add_argument(
+        "--max_xy_accel",
+        type=float,
+        default=240.0,
+        help="Maximum allowed tracking acceleration (px/s^2)",
+    )
+    parser.add_argument(
+        "--zoom_vel_k",
+        type=float,
+        default=0.006,
+        help="Velocity contribution when computing zoom bias",
+    )
+    parser.add_argument(
+        "--zoom_ema",
+        type=float,
+        default=0.32,
+        help="EMA factor applied to zoom target",
+    )
+    parser.add_argument(
+        "--zoom_emergency",
+        type=float,
+        default=0.92,
+        help="Multiplier applied to zoom_max during emergency zoom out",
+    )
+    parser.add_argument(
+        "--edge_guard_x",
+        type=int,
+        default=120,
+        help="Horizontal guard band preventing over-cropping",
+    )
+    parser.add_argument(
+        "--edge_guard_y",
+        type=int,
+        default=90,
+        help="Vertical guard band preventing over-cropping",
+    )
+    parser.add_argument(
+        "--goal_bias_k",
+        type=float,
+        default=0.25,
+        help="Strength of goal alignment bias",
+    )
+    parser.add_argument(
+        "--goal_roi",
+        choices=["left", "right", "auto"],
+        default="auto",
+        help="Goal mouth selection for biasing",
+    )
+    parser.add_argument(
+        "--deadband_min",
+        type=float,
+        default=6.0,
+        help="Minimum follow deadband",
+    )
+    parser.add_argument(
+        "--deadband_max",
+        type=float,
+        default=18.0,
+        help="Maximum follow deadband",
+    )
+    parser.add_argument(
+        "--v_lo",
+        type=float,
+        default=40.0,
+        help="Velocity threshold where deadband begins shrinking",
+    )
+    parser.add_argument(
+        "--v_hi",
+        type=float,
+        default=220.0,
+        help="Velocity threshold where deadband is minimal",
+    )
+    parser.add_argument(
+        "--bary_k",
+        type=int,
+        default=400,
+        help="Top-K flow vectors to use for barycentric fallback",
+    )
     return parser.parse_args()
 
 
@@ -963,115 +1165,119 @@ def run_autoframe(
     if zoom_min > zoom_max:
         zoom_min, zoom_max = zoom_max, zoom_min
 
-    lead_frames = float(args.lead)
-    deadband_scalar = float(args.deadband)
-    deadband_xy = tuple(float(v) for v in args.deadband_xy)
-    deadband_vec = (
-        max(deadband_scalar, deadband_xy[0]),
-        max(deadband_scalar, deadband_xy[1]),
+    lead_frames = args.lead_frames
+    if args.lead is not None:
+        lead_frames = args.lead
+    lead_frames = max(float(lead_frames), 0.0)
+    dt = 1.0 / max(fps, 1e-6)
+    lead_time = lead_frames / max(fps, 1e-6)
+
+    deadband_scalar = max(0.0, float(args.deadband))
+    deadband_min = max(0.0, float(args.deadband_min))
+    deadband_max = max(deadband_min, float(args.deadband_max))
+    if deadband_scalar > 0.0:
+        deadband_min = max(deadband_min, deadband_scalar * 0.5)
+        deadband_max = max(deadband_max, deadband_scalar)
+    base_deadband_xy = np.array(
+        [
+            max(deadband_scalar, float(args.deadband_xy[0])),
+            max(deadband_scalar, float(args.deadband_xy[1])),
+        ],
+        dtype=np.float64,
     )
     slew_xy = tuple(float(v) for v in args.slew_xy)
     slew_z = float(args.slew_z)
-    zoom_k = float(args.zoom_k)
-    zoom_asym = tuple(float(v) for v in args.zoom_asym)
     alpha_pos = float(args.smooth_ema)
-    padx = max(0.0, float(args.padx))
-    pady = max(0.0, float(args.pady))
     smooth_win = int(args.smooth_win)
     if smooth_win < 0:
         smooth_win = 0
     if smooth_win and smooth_win % 2 == 0:
         smooth_win += 1
+    padx = max(0.0, float(args.padx))
+    pady = max(0.0, float(args.pady))
     hold_frames = max(0, int(args.hold_frames))
     conf_floor = float(args.conf_floor)
     flow_thresh = float(args.flow_thresh)
-    anchor_weight = float(args.anchor_weight)
-    anchor_iou_min = float(args.anchor_iou_min)
+    follow_k = float(args.follow_k)
+    follow_d = float(args.follow_d)
+    max_xy_speed = max(1e-6, float(args.max_xy_speed))
+    max_xy_accel = max(1e-6, float(args.max_xy_accel))
+    if slew_xy:
+        max_xy_speed = min(max_xy_speed, min(slew_xy) * fps)
+    max_zoom_speed = abs(slew_z) * fps
+    zoom_k = float(args.zoom_k)
+    zoom_d = float(args.zoom_d)
+    zoom_vel_k = float(args.zoom_vel_k)
+    zoom_ema_alpha = float(args.zoom_ema)
+    zoom_emergency = float(args.zoom_emergency)
+    edge_guard_x = max(0.0, float(args.edge_guard_x))
+    edge_guard_y = max(0.0, float(args.edge_guard_y))
+    goal_bias_k = float(args.goal_bias_k)
+    v_lo = float(args.v_lo)
+    v_hi = max(v_lo + 1e-6, float(args.v_hi))
+    bary_k = max(1, int(args.bary_k))
 
     detector = YOLODetector(conf_floor, frame_size)
     flow_clusterer = FlowClusterer(frame_size, flow_thresh)
+
+    goal_preference = args.goal_roi
+    if goal_preference == "auto" and args.goal_side in {"left", "right"}:
+        goal_preference = args.goal_side
     goal_tracker: Optional[GoalTracker]
     if args.roi == "goal":
-        goal_tracker = GoalTracker(width, height, fps, args.goal_side, expansion=0.07)
-        goal_tracker.observe(0, frame, None)
+        goal_tracker = GoalTracker(width, height, fps, goal_preference, expansion=0.07)
     else:
         goal_tracker = None
 
-    commanded_center = np.array([width / 2.0, height / 2.0], dtype=np.float64)
-    ema_center = commanded_center.copy()
-    prev_filtered_center = commanded_center.copy()
+    center_state = np.array([width / 2.0, height / 2.0], dtype=np.float64)
+    center_velocity = np.zeros(2, dtype=np.float64)
+    ema_measure = center_state.copy()
+    prev_filtered_center = center_state.copy()
     prev_spread = diagonal * 0.25
-    z_smooth = zoom_min
-    raw_x: List[float] = [commanded_center[0]]
-    raw_y: List[float] = [commanded_center[1]]
-    zoom_raw: List[float] = [z_smooth]
+    zoom_state = zoom_min
+    zoom_velocity = 0.0
+    zoom_target_ema = zoom_state
+    conf_smooth = 1.0
+    low_conf_counter = 0
+    emergency_timer = 0
+    spike_timer = 0
 
-    w0, h0, x0, y0, adjusted_center = compute_crop_geometry(
-        commanded_center, z_smooth, args.profile, frame_size, padx, pady
-    )
-    commanded_center = adjusted_center
-    ema_center = adjusted_center.copy()
+    raw_x: List[float] = [center_state[0]]
+    raw_y: List[float] = [center_state[1]]
 
-    initial_goal_box = goal_tracker.get_box() if goal_tracker else None
+    results: List[FrameResult] = []
+    debug_states: List[DebugState] = []
 
-    results: List[FrameResult] = [
-        FrameResult(
-            frame=0,
-            center=(commanded_center[0], commanded_center[1]),
-            zoom=z_smooth,
-            width=w0,
-            height=h0,
-            x=x0,
-            y=y0,
-            conf=0.0,
-            crowding=0.0,
-            flow_mag=0.0,
-            goal_box=initial_goal_box,
-            anchor_iou=0.0,
-        )
-    ]
-    debug_states: List[DebugState] = [
-        DebugState(
-            raw_center=(commanded_center[0], commanded_center[1]),
-            lead_center=(commanded_center[0], commanded_center[1]),
-            target_center=(commanded_center[0], commanded_center[1]),
-            velocity=(0.0, 0.0),
-            zoom_target=z_smooth,
-            spread=prev_spread,
-            has_targets=False,
-        )
-    ]
-
-    hold_counter = 0
-    frame_idx = 1
+    frame_idx = 0
+    current_frame = frame
     while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if frame_idx > 0:
+            ok, current_frame = cap.read()
+            if not ok:
+                break
+            gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+            flow_result = flow_clusterer.compute(prev_gray, gray)
+            prev_gray = gray
+        else:
+            flow_result = FlowResult(
+                flow=np.zeros((height, width, 2), dtype=np.float32),
+                targets=[],
+                median_mag=0.0,
+                mean_mag=0.0,
+                max_mag=0.0,
+                strength=0.0,
+                cut=False,
+                points=np.zeros((0, 2), dtype=np.float64),
+                vectors=np.zeros((0, 2), dtype=np.float64),
+                magnitudes=np.zeros((0,), dtype=np.float64),
+            )
 
-        flow_result = flow_clusterer.compute(prev_gray, gray)
-        prev_gray = gray
-
+        detections = detector.detect(current_frame)
         flow_targets = flow_result.targets
-        detections = detector.detect(frame)
         targets = detections + flow_targets
         has_targets = bool(targets)
 
-        if goal_tracker is not None:
-            motion_hint = None
-            if has_targets:
-                if detections:
-                    motion_hint = detections[0].position
-                elif flow_targets:
-                    motion_hint = flow_targets[0].position
-            goal_tracker.observe(frame_idx, frame, motion_hint)
-            goal_tracker.track(flow_result.flow)
-            goal_box = goal_tracker.get_box()
-        else:
-            goal_box = None
-
-        if targets:
+        if has_targets:
             positions = np.array([t.position for t in targets], dtype=np.float64)
             weights = np.array([max(t.weight, 1e-3) for t in targets], dtype=np.float64)
             weight_sum = float(weights.sum())
@@ -1083,15 +1289,18 @@ def run_autoframe(
             distances = np.linalg.norm(positions - raw_center, axis=1)
             spread_samples = distances + radii
             spread = float(np.percentile(spread_samples, 75)) if spread_samples.size else prev_spread
+            velocities = np.array([t.velocity for t in targets], dtype=np.float64)
+            flow_velocity = (weights[:, None] * velocities).sum(axis=0) / weight_sum
         else:
             raw_center = prev_filtered_center.copy()
-            spread = prev_spread * 1.05
+            spread = prev_spread * 1.03
             weight_sum = 0.0
+            flow_velocity = np.zeros(2, dtype=np.float64)
 
         spread = float(np.clip(spread, diagonal * 0.025, diagonal))
         raw_x.append(raw_center[0])
         raw_y.append(raw_center[1])
-        if smooth_win > 1 and len(raw_x) >= 3:
+        if smooth_win > 1 and len(raw_x) >= smooth_win:
             smooth_center = np.array(
                 [
                     savgol_smooth_series(raw_x, smooth_win)[-1],
@@ -1102,86 +1311,156 @@ def run_autoframe(
         else:
             smooth_center = raw_center.copy()
 
-        ema_prev = ema_center.copy()
-        ema_center = ema_center * (1.0 - alpha_pos) + smooth_center * alpha_pos
-        velocity = ema_center - ema_prev
-        lead_center = ema_center + velocity * lead_frames
+        ema_prev = ema_measure.copy()
+        ema_measure = ema_measure * (1.0 - alpha_pos) + smooth_center * alpha_pos
+        measured_center = ema_measure.copy()
+
+        bary_center: Optional[np.ndarray] = None
+        if flow_result.magnitudes.size:
+            order = np.argsort(flow_result.magnitudes)[::-1][:bary_k]
+            weights_bary = flow_result.magnitudes[order]
+            total_bary = float(weights_bary.sum())
+            if total_bary > 1e-6:
+                bary_center = (
+                    weights_bary[:, None] * flow_result.points[order]
+                ).sum(axis=0) / total_bary
+
+        confidence = float(
+            np.clip(
+                0.6 * (weight_sum / (diagonal + 1e-6)) + 0.4 * flow_result.strength,
+                0.0,
+                1.0,
+            )
+        )
+        crowding = float(np.clip(spread / (diagonal * 0.6 + 1e-6), 0.0, 1.0))
+        flow_mag = float(np.clip(flow_result.strength, 0.0, 1.0))
+
+        if confidence < conf_floor:
+            emergency_timer = hold_frames
+            low_conf_counter += 1
+        else:
+            emergency_timer = max(0, emergency_timer - 1)
+            low_conf_counter = 0
+
+        bary_active = low_conf_counter > hold_frames
+        state = "FOLLOW"
+        if bary_active and bary_center is not None:
+            measured_center = bary_center.copy()
+            flow_velocity = np.zeros(2, dtype=np.float64)
+            state = "BARYCENTER"
+        elif emergency_timer > 0:
+            state = "EMERGENCY"
+
+        if goal_tracker is not None:
+            motion_hint = measured_center if has_targets else None
+            goal_tracker.observe(frame_idx, current_frame, motion_hint)
+            goal_tracker.track(flow_result.flow)
+        goal_box = goal_tracker.get_box() if goal_tracker else None
+        if goal_box is None and goal_preference in {"left", "right"}:
+            goal_box = default_goal_box(width, height, goal_preference)
+
+        velocity_px_sec = flow_velocity * fps
+        if not has_targets and not bary_active:
+            velocity_px_sec = (ema_measure - ema_prev) / max(dt, 1e-6)
+        flow_speed = float(np.linalg.norm(velocity_px_sec))
+
+        if flow_result.cut or flow_speed > v_hi:
+            spike_timer = hold_frames
+        else:
+            spike_timer = max(0, spike_timer - 1)
+
+        deadband_value = lerp(
+            deadband_min,
+            deadband_max,
+            1.0 - smoothstep(flow_speed, v_lo, v_hi),
+        )
+        deadband_value = float(np.clip(deadband_value, deadband_min, deadband_max))
+        deadband_vec = np.maximum(
+            np.full(2, deadband_value, dtype=np.float64),
+            base_deadband_xy * (deadband_value / max(deadband_max, 1e-6)),
+        )
+
+        lead_center = measured_center + velocity_px_sec * lead_time
         lead_center = np.clip(lead_center, [0.0, 0.0], [width - 1.0, height - 1.0])
 
-        target_center = apply_deadband(lead_center, commanded_center, deadband_vec)
-        pre_anchor_center = target_center.copy()
+        target_point = apply_deadband(lead_center, center_state, deadband_vec)
+        pre_anchor_center = target_point.copy()
+
+        accel = follow_k * (target_point - center_state) - follow_d * center_velocity
+        accel = clamp_vector(accel, max_xy_accel)
+        center_velocity = clamp_vector(center_velocity + accel * dt, max_xy_speed)
+        new_center = center_state + center_velocity * dt
+
+        if goal_box is not None and flow_speed > 1e-3:
+            goal_hint = np.array(goal_box.center, dtype=np.float64)
+            goal_roi_box = goal_box.expanded(0.65, width, height)
+            if ray_intersects_box(measured_center, velocity_px_sec, goal_roi_box):
+                direction_norm = velocity_px_sec / flow_speed
+                to_goal = goal_hint - new_center
+                dist_goal = float(np.linalg.norm(to_goal))
+                if dist_goal > 1e-6:
+                    to_goal_norm = to_goal / dist_goal
+                    bias = float(np.clip(np.dot(direction_norm, to_goal_norm), 0.0, 1.0))
+                    if bias > 0.0:
+                        new_center = (
+                            new_center * (1.0 - bias * goal_bias_k)
+                            + goal_hint * (bias * goal_bias_k)
+                        )
+
+        guard_x = min(edge_guard_x, width / 2.0)
+        guard_y = min(edge_guard_y, height / 2.0)
+        min_x = guard_x
+        max_x = width - guard_x
+        min_y = guard_y
+        max_y = height - guard_y
+        if min_x > max_x:
+            min_x = max_x = width / 2.0
+        if min_y > max_y:
+            min_y = max_y = height / 2.0
+        new_center[0] = float(np.clip(new_center[0], min_x, max_x))
+        new_center[1] = float(np.clip(new_center[1], min_y, max_y))
+
+        conf_smooth = conf_smooth * (1.0 - zoom_ema_alpha) + confidence * zoom_ema_alpha
+        z_spread = remap(spread, 250.0, 1200.0, (2.2, 1.1))
+        z_vel = 1.0 / max(1.0 + zoom_vel_k * flow_speed, 1e-6)
+        z_conf = lerp(zoom_max, z_spread * z_vel, conf_smooth)
+        if emergency_timer > 0 or bary_active:
+            z_conf = max(z_conf, zoom_max * zoom_emergency)
+        if spike_timer > 0:
+            z_conf = max(z_conf, zoom_max * 0.96)
+        z_target = float(np.clip(z_conf, zoom_min, zoom_max))
+        zoom_target_ema = zoom_target_ema * (1.0 - zoom_ema_alpha) + z_target * zoom_ema_alpha
+        zoom_accel = zoom_k * (zoom_target_ema - zoom_state) - zoom_d * zoom_velocity
+        zoom_velocity += zoom_accel * dt
+        if max_zoom_speed > 0.0:
+            zoom_velocity = float(np.clip(zoom_velocity, -max_zoom_speed, max_zoom_speed))
+        zoom_state += zoom_velocity * dt
+        if zoom_state < zoom_min or zoom_state > zoom_max:
+            zoom_state = float(np.clip(zoom_state, zoom_min, zoom_max))
+            zoom_velocity = 0.0
+
+        w, h, x, y, adjusted_center = compute_crop_geometry(
+            new_center, zoom_state, args.profile, frame_size, padx, pady
+        )
+        center_prev = center_state.copy()
+        center_state = adjusted_center
+        center_velocity = clamp_vector((center_state - center_prev) / max(dt, 1e-6), max_xy_speed)
+
+        prev_filtered_center = measured_center
+        prev_spread = spread
 
         anchor_iou = 0.0
         if goal_box is not None:
-            temp_w, temp_h, _, _, _ = compute_crop_geometry(
-                target_center, max(z_smooth, 1.0), args.profile, frame_size, padx, pady
-            )
-            provisional = (
-                target_center[0] - temp_w / 2.0,
-                target_center[1] - temp_h / 2.0,
-                target_center[0] + temp_w / 2.0,
-                target_center[1] + temp_h / 2.0,
-            )
-            clamped = (
-                max(0.0, provisional[0]),
-                max(0.0, provisional[1]),
-                min(width, provisional[2]),
-                min(height, provisional[3]),
-            )
-            anchor_iou = compute_iou(clamped, goal_box.bounds)
-            weight = anchor_weight if anchor_iou >= anchor_iou_min else min(1.0, anchor_weight * 1.8)
-            goal_center = np.array(goal_box.center, dtype=np.float64)
-            target_center = (1.0 - weight) * target_center + weight * goal_center
+            crop_bounds = (x, y, x + w, y + h)
+            anchor_iou = compute_iou(crop_bounds, goal_box.bounds)
 
-        active_hold = hold_counter > 0
-        if active_hold:
-            hold_counter -= 1
-        if flow_result.cut or not has_targets:
-            active_hold = True
-            hold_counter = hold_frames
-        if active_hold:
-            target_center = commanded_center.copy()
-
-        pad_scalar = 1.0 + max(padx, pady)
-        spread_norm = (spread * pad_scalar) / (diagonal + 1e-6)
-        if has_targets:
-            z_target = float(np.clip(zoom_k / (spread_norm + 1e-6), zoom_min, zoom_max))
-        else:
-            z_target = zoom_min
-        zoom_raw.append(z_target)
-        if smooth_win > 1 and len(zoom_raw) >= 3:
-            z_filtered = savgol_smooth_series(zoom_raw, smooth_win)[-1]
-        else:
-            z_filtered = z_target
-        alpha_in, alpha_out = zoom_asym
-        zoom_alpha = alpha_in if z_filtered > z_smooth else alpha_out
-        z_blend = z_smooth * (1.0 - zoom_alpha) + z_filtered * zoom_alpha
-        dz = clamp_delta(z_blend - z_smooth, slew_z)
-        z_next = float(np.clip(z_smooth + dz, zoom_min, zoom_max))
-
-        delta_x = clamp_delta(target_center[0] - commanded_center[0], slew_xy[0])
-        delta_y = clamp_delta(target_center[1] - commanded_center[1], slew_xy[1])
-        next_center = commanded_center + np.array([delta_x, delta_y], dtype=np.float64)
-        w, h, x, y, adjusted_center = compute_crop_geometry(
-            next_center, z_next, args.profile, frame_size, padx, pady
-        )
-        commanded_center = adjusted_center
-        ema_center = ema_center * 0.5 + commanded_center * 0.5
-        z_smooth = z_next
-
-        prev_filtered_center = smooth_center
-        prev_spread = spread
-
-        weight_norm = weight_sum / (diagonal + 1e-6)
-        confidence = float(np.clip(0.6 * weight_norm + 0.4 * flow_result.strength, 0.0, 1.0))
-        crowding = float(np.clip(spread / (diagonal * 0.6 + 1e-6), 0.0, 1.0))
-        flow_mag = float(np.clip(flow_result.strength, 0.0, 1.0))
+        flow_samples = sample_flow_vectors(flow_result.flow)
 
         results.append(
             FrameResult(
                 frame=frame_idx,
-                center=(commanded_center[0], commanded_center[1]),
-                zoom=z_smooth,
+                center=(center_state[0], center_state[1]),
+                zoom=zoom_state,
                 width=w,
                 height=h,
                 x=x,
@@ -1195,13 +1474,17 @@ def run_autoframe(
         )
         debug_states.append(
             DebugState(
-                raw_center=(smooth_center[0], smooth_center[1]),
+                raw_center=(measured_center[0], measured_center[1]),
                 lead_center=(lead_center[0], lead_center[1]),
                 target_center=(pre_anchor_center[0], pre_anchor_center[1]),
-                velocity=(velocity[0], velocity[1]),
-                zoom_target=z_filtered,
+                velocity=(velocity_px_sec[0], velocity_px_sec[1]),
+                zoom_target=z_target,
                 spread=spread,
                 has_targets=has_targets,
+                confidence=confidence,
+                speed=flow_speed,
+                state=state,
+                flow_samples=flow_samples,
             )
         )
 
@@ -1209,7 +1492,6 @@ def run_autoframe(
 
     cap.release()
     return results, debug_states, fps, frame_size, zoom_min, zoom_max
-
 
 def main() -> None:
     args = parse_args()
