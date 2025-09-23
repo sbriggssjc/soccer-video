@@ -99,3 +99,14 @@ pytest -k pipeline
 ```
 
 This produces a short reel under `examples/out/reels/` as part of the test run.
+
+## Goal-aware Autoframe
+
+`autoframe.py` now includes goal anchoring and context-aware zoom to keep plays
+framed even when the camera drifts. Run it with `--roi goal` to auto-detect the
+goal mouth, predict the motion center with dense optical flow, and blend toward
+the net whenever the crop slips away. New flags like `--lead_ms`,
+`--deadband_xy`, `--goal_side`, and `--anchor_weight` make the behaviour easy to
+dial in, while `--preview` / `--compare` render debug overlays showing the crop
+box, crosshair, goal outline, and per-frame IoU. See `README_AUTOFAME.md` for a
+complete rundown of the tuning options.
