@@ -30,6 +30,80 @@ function SubN([string]$s, [int]$fps) { $s -replace '\bn\b', "(t*$fps)" }
 # Unescape any historical '\\,' so 'clip(v\\,a\\,b)' becomes 'clip(v,a,b)'
 function Unescape-Expr([string]$s) { $s -replace '\\,', ',' }
 
+# Split a string on commas at depth 0 (ignoring nested parens)
+function Split-TopLevel([string]$text) {
+  $parts   = @()
+  $current = [System.Text.StringBuilder]::new()
+  $depth   = 0
+
+  foreach ($ch in $text.ToCharArray()) {
+    switch ($ch) {
+      '(' { $depth++; [void]$current.Append($ch); continue }
+      ')' { if ($depth -gt 0) { $depth-- }; [void]$current.Append($ch); continue }
+      ',' {
+        if ($depth -eq 0) {
+          $parts += $current.ToString()
+          [void]$current.Clear()
+          continue
+        }
+      }
+    }
+    [void]$current.Append($ch)
+  }
+
+  $parts += $current.ToString()
+  return $parts
+}
+
+function Replace-ClipByScan([string]$text) {
+  if ([string]::IsNullOrWhiteSpace($text)) { return $text }
+
+  $builder = [System.Text.StringBuilder]::new()
+  $length  = $text.Length
+  $index   = 0
+
+  while ($index -lt $length) {
+    if ($index -le $length - 4) {
+      $segment = $text.Substring($index, 4)
+      if ($segment.Equals('clip', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $prevIndex = $index - 1
+        $prevValid = ($prevIndex -lt 0) -or -not ([char]::IsLetterOrDigit($text[$prevIndex]) -or $text[$prevIndex] -eq '_')
+        $probe = $index + 4
+        while ($probe -lt $length -and [char]::IsWhiteSpace($text[$probe])) { $probe++ }
+        if ($prevValid -and $probe -lt $length -and $text[$probe] -eq '(') {
+          $depth = 1
+          $pos   = $probe + 1
+          while ($pos -lt $length -and $depth -gt 0) {
+            $ch = $text[$pos]
+            if ($ch -eq '(') { $depth++ }
+            elseif ($ch -eq ')') { $depth-- }
+            $pos++
+          }
+
+          if ($depth -eq 0) {
+            $argsText = if ($pos -gt $probe + 1) { $text.Substring($probe + 1, $pos - $probe - 2) } else { '' }
+            $args = Split-TopLevel $argsText
+            if ($args.Count -eq 3) {
+              $valueExpr = Replace-ClipByScan ($args[0].Trim())
+              $minExpr   = Replace-ClipByScan ($args[1].Trim())
+              $maxExpr   = Replace-ClipByScan ($args[2].Trim())
+              $replacement = "min(max(($valueExpr),($minExpr)),($maxExpr))"
+              [void]$builder.Append($replacement)
+              $index = $pos
+              continue
+            }
+          }
+        }
+      }
+    }
+
+    [void]$builder.Append($text[$index])
+    $index++
+  }
+
+  return $builder.ToString()
+}
+
 # clip(v,a,b)  ->  min(max(v,a), b)   (supports nesting)
 function Expand-Clip([string]$s) {
   # Safe to assume commas are unescaped now
@@ -80,6 +154,7 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
 
   # assemble the final filter string (named args; each quoted)
   $filter = "[0:v]crop=w='$w':h='$h':x='$x':y='$y',scale=w=-2:h=1080:flags=lanczos,setsar=1,format=yuv420p"
+  $filter = Replace-ClipByScan $filter
 
   # fail-fast guard (after expansion there should be no 'clip(' left)
   if ($filter -match 'clip\(') { throw 'clip() still present after expansion' }
