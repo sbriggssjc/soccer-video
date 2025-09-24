@@ -133,11 +133,25 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   # map:  "...\X__NAME__tA-tB.mp4"  ->  "...\X__NAME__tA-tB_zoom.ps1vars"
   $stem     = [IO.Path]::GetFileNameWithoutExtension($_.Name)
   $varsPath = Join-Path $varsDir ($stem + "_zoom.ps1vars")
-  if (!(Test-Path $varsPath)) { Write-Warning "No vars for $($_.Name) -> $varsPath"; return }
+  # --- Load fit vars robustly ---
+  if (-not (Test-Path $varsPath)) {
+    Write-Warning "No vars for $($_.Name) -> $varsPath"
+    return
+  }
 
-  # --- Load per-clip fits ---
-  . $varsPath
-  if (-not $cxExpr -or -not $cyExpr -or -not $zExpr) { throw "Missing cx/cy/z in $varsPath" }
+  . $varsPath  # dot-source: defines $cxExpr,$cyExpr,$zExpr in the current scope
+
+  # Fallbacks in case your vars file uses $cx/$cy/$z names
+  if (-not (Test-Path variable:cxExpr) -and (Test-Path variable:cx)) { $cxExpr = $cx }
+  if (-not (Test-Path variable:cyExpr) -and (Test-Path variable:cy)) { $cyExpr = $cy }
+  if (-not (Test-Path variable:zExpr)  -and (Test-Path variable:z))  { $zExpr  = $z  }
+
+  # Assert they exist (don’t just test for empty strings)
+  if (-not (Test-Path variable:cxExpr) -or
+      -not (Test-Path variable:cyExpr) -or
+      -not (Test-Path variable:zExpr)) {
+    throw "Missing cx/cy/z in $varsPath"
+  }
 
   $fps = 24  # lock if your ingest is always 24
 
