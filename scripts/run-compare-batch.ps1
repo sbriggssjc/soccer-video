@@ -4,9 +4,10 @@
 # --- Stable roots/dirs ---
 $ErrorActionPreference = 'Stop'
 $Root    = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+Set-Location $Root
 $ffmpeg  = 'ffmpeg'
-$inDir   = Join-Path $Root 'out\atomic_clips'
-$varsDir = Join-Path $Root 'out\autoframe_work'
+$inDir   = (Resolve-Path (Join-Path $Root 'out\atomic_clips')).Path
+$varsDir = (Resolve-Path (Join-Path $Root 'out\autoframe_work')).Path
 $outDir  = Join-Path $Root 'out\reels\tiktok'
 New-Item -Force -ItemType Directory $outDir | Out-Null
 
@@ -21,16 +22,16 @@ function Get-Fps([string]$inPath) {
 
 # --- Helpers (once per script) ---
 function Convert-SciToDecimal([string]$s) {
-  $pat = '([+-]?(?:\d+(?:\.\d+)?|\.\d+))[eE]([+-]?\d+)'
-  [regex]::Replace($s, $pat, {
+  $p = '([+-]?(?:\d+(?:\.\d+)?|\.\d+))[eE]([+-]?\d+)'
+  [regex]::Replace($s,$p,{
     param($m)
-    $base = [double]::Parse($m.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+    $base = [double]::Parse($m.Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture)
     $exp  = [int]$m.Groups[2].Value
-    ($base * [math]::Pow(10,$exp)).ToString("0.############################", [Globalization.CultureInfo]::InvariantCulture)
+    ($base * [math]::Pow(10,$exp)).ToString("0.############################",[Globalization.CultureInfo]::InvariantCulture)
   })
 }
-function Sanitize([string]$s) { Convert-SciToDecimal (($s -replace '\s+','')) }
-function SubN([string]$s, [int]$fps) { $s -replace '\bn\b', "(t*$fps)" }
+function Sanitize([string]$s) { ($s -replace '\s+','')  | ForEach-Object { Convert-SciToDecimal $_ } }
+function SubN([string]$s, [int]$fps) { $s -replace '\bn\b',"(t*$fps)" }
 function Expand-Clip([string]$s) {
   $pat = 'clip\((?<v>(?>[^()]+|\((?<o>)|\)(?<-o>))*(?(o)(?!))),(?<a>(?>[^()]+|\((?<o2>)|\)(?<-o2>))*(?(o2)(?!))),(?<b>(?>[^()]+|\((?<o3>)|\)(?<-o3>))*(?(o3)(?!)))\)'
   while ($s -match $pat) {
@@ -42,15 +43,19 @@ function Expand-Clip([string]$s) {
   $s
 }
 function Escape-Commas-In-Parens([string]$s) {
-  $sb = New-Object System.Text.StringBuilder
-  $depth = 0
+  $sb = New-Object System.Text.StringBuilder; $d=0
   foreach ($ch in $s.ToCharArray()) {
-    if ($ch -eq '(') { $depth++; [void]$sb.Append($ch); continue }
-    if ($ch -eq ')') { $depth=[Math]::Max(0,$depth-1); [void]$sb.Append($ch); continue }
-    if ($ch -eq ',' -and $depth -gt 0) { [void]$sb.Append('\,'); continue }
-    [void]$sb.Append($ch)
+    if ($ch -eq '(') { $d++; $null=$sb.Append($ch); continue }
+    if ($ch -eq ')') { $d=[Math]::Max(0,$d-1); $null=$sb.Append($ch); continue }
+    if ($ch -eq ',' -and $d -gt 0) { $null=$sb.Append('\\,'); continue }
+    $null=$sb.Append($ch)
   }
   $sb.ToString()
+}
+
+function Unescape-BackslashCommas([string]$s) {
+  while ($s -match '\\,') { $s = $s -replace '\\,',',' }
+  $s
 }
 
 # -- loop all atomic clips
@@ -67,25 +72,25 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   Invoke-Expression (Get-Content -Raw -Encoding UTF8 $vars)
   if (-not $cxExpr -or -not $cyExpr -or -not $zExpr) { Write-Warning "Bad vars in $vars"; return }
 
-  # --- fps default ---
+  # default fps if not set
   if (-not $fps) { $fps = 24 }
 
-  # --- 0) Start from raw strings; remove legacy '\,' if present ---
-  $cxRaw = $cxExpr -replace '\\,', ','
-  $cyRaw = $cyExpr -replace '\\,', ','
-  $zRaw  = $zExpr  -replace '\\,', ','
+  # 0) Start from raw expr and remove ANY backslash-commas first
+  $cxRaw = Unescape-BackslashCommas $cxExpr
+  $cyRaw = Unescape-BackslashCommas $cyExpr
+  $zRaw  = Unescape-BackslashCommas $zExpr
 
-  # --- 1) Expand clip(v,a,b) -> min(max(v,a),b) (handles nesting) ---
+  # 1) Expand clip() BEFORE any escaping
   $cx1 = Expand-Clip $cxRaw
   $cy1 = Expand-Clip $cyRaw
   $z1  = Expand-Clip $zRaw
 
-  # --- 2) Sanitize numbers + replace n with t*fps ---
+  # 2) Sanitize numbers + replace n -> t*fps
   $cx2 = SubN (Sanitize $cx1) $fps
   $cy2 = SubN (Sanitize $cy1) $fps
   $z2  = SubN (Sanitize $z1)  $fps
 
-  # --- 3) Escape commas ONLY inside parentheses (so filter commas stay intact) ---
+  # 3) Escape commas only inside parentheses
   $cxN = Escape-Commas-In-Parens $cx2
   $cyN = Escape-Commas-In-Parens $cy2
   $zN  = Escape-Commas-In-Parens $z2
@@ -95,19 +100,19 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
     throw "clip() still present after expansion"
   }
 
-  # --- 4) Build portrait window using ih/iw (even sizes) ---
+  # 4) Build portrait crop window using ih/iw (even dims)
   $w = "floor((((ih*9/16)/($zN)))/2)*2"
   $h = "floor(((ih/($zN)))/2)*2"
   $x = "($cxN)-($w)/2"
   $y = "($cyN)-($h)/2"
 
-  # Final escape pass (min/max introduced commas)
+  # 5) Final escape pass (min/max may add commas)
   $w = Escape-Commas-In-Parens $w
   $h = Escape-Commas-In-Parens $h
   $x = Escape-Commas-In-Parens $x
   $y = Escape-Commas-In-Parens $y
 
-  # --- 5) Named crop + quotes; then scale/setsar/format ---
+  # 6) Build the filter (named args + quotes)
   $filter = "[0:v]crop=w='$w':h='$h':x='$x':y='$y',scale=w=-2:h=1080:flags=lanczos,setsar=1,format=yuv420p"
 
   # --- 6) IO paths ---
@@ -118,6 +123,7 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   Write-Host "`n>> Processing $($_.Name)  (fps=$fps)"
   Write-Host ">> filter: $filter"
 
+  # 7) Run ffmpeg (and *show* the filter you used)
   & $ffmpeg -hide_banner -y -nostdin -i $inPath -filter_complex $filter `
     -c:v libx264 -crf 20 -preset veryfast -movflags +faststart -an $outPath
   if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed on $($_.Name)" }
