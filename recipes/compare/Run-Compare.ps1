@@ -62,7 +62,11 @@ Write-Host $vfPath
 $vfText = Write-CompareVF -VfPath $vfPath -E $E
 
 Write-Host "--- VF file ---"
-Write-Host $vfText
+foreach ($line in ($vfText -split "`r?`n")) {
+  if ($line -ne '') {
+    Write-Host $line
+  }
+}
 
 Render-Compare -In $inPath -VfPath $vfPath -Out $outPath
 Write-Host "Done: $outPath"
