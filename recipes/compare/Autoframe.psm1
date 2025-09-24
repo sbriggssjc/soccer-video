@@ -1,3 +1,13 @@
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$helperModulePath = Join-Path (Join-Path $repoRoot 'tools') 'Autoframe.psm1'
+if (-not (Test-Path -LiteralPath $helperModulePath)) {
+  throw "Autoframe helper module not found: $helperModulePath"
+}
+Import-Module $helperModulePath -Force
+
+$script:FFmpegVersionLogged = $false
+$script:FFmpegSelfTested = $false
+
 function Assert-CommandAvailable {
   param(
     [Parameter(Mandatory = $true)]
@@ -13,6 +23,35 @@ function Ensure-AutoframeTools {
   foreach ($tool in 'ffprobe', 'ffmpeg') {
     Assert-CommandAvailable -Name $tool
   }
+
+  if (-not $script:FFmpegVersionLogged) {
+    $versionOutput = & ffmpeg -hide_banner -version 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $versionOutput) {
+      throw "Unable to query ffmpeg version"
+    }
+    $versionLine = ($versionOutput | Select-Object -First 1).Trim()
+    if (-not $versionLine) { $versionLine = 'unknown' }
+    Write-Host "[autoframe] ffmpeg version: $versionLine (watch for behavior changes after upgrades)"
+    $script:FFmpegVersionLogged = $true
+  }
+
+  if (-not $script:FFmpegSelfTested) {
+    Invoke-FFmpegSelfTest
+    $script:FFmpegSelfTested = $true
+  }
+}
+
+function Invoke-FFmpegSelfTest {
+  $testArgs = @(
+    '-hide_banner', '-loglevel', 'error', '-nostdin',
+    '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=1',
+    '-f', 'null', '-'
+  )
+  & ffmpeg @testArgs | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "ffmpeg self-test failed with exit code $LASTEXITCODE"
+  }
+  Write-Host '[autoframe] ffmpeg self-test: ok (1s synthetic input)'
 }
 
 function Get-Fps {
@@ -50,13 +89,16 @@ function Load-ExprVars {
 function Sanitize-Expr {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$Expression
+    [string]$Expression,
+    [Nullable[double]]$Fps
   )
 
-  # 1) 1.23e-05 → (1.23*pow(10,-5))   2) strip spaces
-  $sanitized = $Expression -replace '([0-9]+\.[0-9]+|[0-9]+)[eE]\+?(-?[0-9]+)', '($1*pow(10,$2))'
-  $sanitized = ($sanitized -replace '\s+', '')
-  return $sanitized
+  $expr = Convert-SciToDecimal -Expression $Expression
+  $expr = ($expr -replace '\s+', '')
+  if ($PSBoundParameters.ContainsKey('Fps') -and $null -ne $Fps) {
+    $expr = SubN -Expression $expr -Fps $Fps
+  }
+  return $expr
 }
 
 function Use-FFExprVars {
@@ -76,13 +118,11 @@ function Use-FFExprVars {
   $yE = "($($Vars.cy))-($hE)/2"
 
   $fps = Get-Fps -Path $InPath
-  $subN = { param($s,$fps) ($s -replace '\bn\b',"(t*$fps)") }
 
-  # sanitize + n→t*fps
   foreach ($name in 'wE','hE','xE','yE') {
-    $val = Get-Variable $name -ValueOnly
-    $val = Sanitize-Expr (& $subN $val $fps)
-    Set-Variable $name $val
+    $val = Get-Variable -Name $name -ValueOnly
+    $val = Sanitize-Expr -Expression $val -Fps $fps
+    Set-Variable -Name $name -Value $val
   }
 
   # return a clean record
@@ -99,12 +139,14 @@ function Write-CompareVF {
     $E
   )
 
-  # NO quotes around expressions, NO backslashes, NO comma-escaping.
-  $vf = @"
-[0:v]split=2[left][right];
-[right]crop=$($E.W):$($E.H):$($E.X):$($E.Y),scale=-2:1080:flags=lanczos,setsar=1[right_portrait];
-[left][right_portrait]hstack=inputs=2,format=yuv420p
-"@
+  $clipX = Expand-Clip -Expression $E.X -Min '0' -Max "iw-($($E.W))"
+  $clipY = Expand-Clip -Expression $E.Y -Min '0' -Max "ih-($($E.H))"
+  $vfLines = @(
+    '[0:v]split=2[left][right];',
+    "[right]crop=$($E.W):$($E.H):$clipX:$clipY,scale=-2:1080:flags=lanczos,setsar=1[right_portrait];",
+    '[left][right_portrait]hstack=inputs=2,format=yuv420p'
+  )
+  $vf = [string]::Join([Environment]::NewLine, $vfLines)
   $encoding = New-Object Text.UTF8Encoding($false)
   [IO.File]::WriteAllText($VfPath, $vf, $encoding)
   return $vf
