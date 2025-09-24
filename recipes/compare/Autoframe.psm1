@@ -86,21 +86,6 @@ function Load-ExprVars {
   [pscustomobject]@{ cx=$cxExpr; cy=$cyExpr; z=$zExpr }
 }
 
-function Sanitize-Expr {
-  param(
-    [Parameter(Mandatory = $true)]
-    [string]$Expression,
-    [Nullable[double]]$Fps
-  )
-
-  $expr = Convert-SciToDecimal -Expression $Expression
-  $expr = ($expr -replace '\s+', '')
-  if ($PSBoundParameters.ContainsKey('Fps') -and $null -ne $Fps) {
-    $expr = SubN -Expression $expr -Fps $Fps
-  }
-  return $expr
-}
-
 function Use-FFExprVars {
   param(
     [Parameter(Mandatory = $true)]
@@ -139,8 +124,10 @@ function Write-CompareVF {
     $E
   )
 
-  $clipX = Expand-Clip -Expression $E.X -Min '0' -Max "iw-($($E.W))"
-  $clipY = Expand-Clip -Expression $E.Y -Min '0' -Max "ih-($($E.H))"
+  $clipXExpr = Expand-Clip -Expression $E.X -Min '0' -Max "iw-($($E.W))"
+  $clipYExpr = Expand-Clip -Expression $E.Y -Min '0' -Max "ih-($($E.H))"
+  $clipX = Escape-Commas-In-Parens (Sanitize-Expr -Expression $clipXExpr)
+  $clipY = Escape-Commas-In-Parens (Sanitize-Expr -Expression $clipYExpr)
   $vfLines = @(
     '[0:v]split=2[left][right];',
     "[right]crop=$($E.W):$($E.H):$clipX:$clipY,scale=-2:1080:flags=lanczos,setsar=1[right_portrait];",
