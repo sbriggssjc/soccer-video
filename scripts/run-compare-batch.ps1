@@ -139,19 +139,23 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
     return
   }
 
-  . $varsPath  # dot-source: defines $cxExpr,$cyExpr,$zExpr in the current scope
+  # --- Clear any lingering vars from a previous file
+  Remove-Variable cxExpr,cyExpr,zExpr,cx,cy,z -ErrorAction SilentlyContinue
 
-  # Fallbacks in case your vars file uses $cx/$cy/$z names
+  # --- Load vars (dot-source so the variables land in this scope)
+  . $varsPath
+
+  # --- Map alternative names if the file uses $cx/$cy/$z
   if (-not (Test-Path variable:cxExpr) -and (Test-Path variable:cx)) { $cxExpr = $cx }
   if (-not (Test-Path variable:cyExpr) -and (Test-Path variable:cy)) { $cyExpr = $cy }
   if (-not (Test-Path variable:zExpr)  -and (Test-Path variable:z))  { $zExpr  = $z  }
 
-  # Assert they exist (don’t just test for empty strings)
-  if (-not (Test-Path variable:cxExpr) -or
-      -not (Test-Path variable:cyExpr) -or
-      -not (Test-Path variable:zExpr)) {
-    throw "Missing cx/cy/z in $varsPath"
+  # --- Verify existence (don’t test for non-empty strings)
+  $missing = @()
+  foreach ($n in 'cxExpr','cyExpr','zExpr') {
+    if (-not (Test-Path "variable:$n")) { $missing += $n }
   }
+  if ($missing.Count) { throw "Missing $($missing -join '/') in $varsPath" }
 
   $fps = 24  # lock if your ingest is always 24
 
