@@ -67,30 +67,50 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   Invoke-Expression (Get-Content -Raw -Encoding UTF8 $vars)
   if (-not $cxExpr -or -not $cyExpr -or -not $zExpr) { Write-Warning "Bad vars in $vars"; return }
 
-  # Assume you've set $fps (fallback to 24 if not present)
+  # --- fps default ---
   if (-not $fps) { $fps = 24 }
 
-  # Normalize cx, cy, z (expand clip -> sanitize -> replace n -> escape commas)
-  $cxN = Escape-Commas-In-Parens ( SubN ( Sanitize ( Expand-Clip $cxExpr ) ) $fps )
-  $cyN = Escape-Commas-In-Parens ( SubN ( Sanitize ( Expand-Clip $cyExpr ) ) $fps )
-  $zN  = Escape-Commas-In-Parens ( SubN ( Sanitize ( Expand-Clip $zExpr  ) ) $fps )
+  # --- 0) Start from raw strings; remove legacy '\,' if present ---
+  $cxRaw = $cxExpr -replace '\\,', ','
+  $cyRaw = $cyExpr -replace '\\,', ','
+  $zRaw  = $zExpr  -replace '\\,', ','
 
-  # Build portrait crop window (use ih/iw; even sizes)
+  # --- 1) Expand clip(v,a,b) -> min(max(v,a),b) (handles nesting) ---
+  $cx1 = Expand-Clip $cxRaw
+  $cy1 = Expand-Clip $cyRaw
+  $z1  = Expand-Clip $zRaw
+
+  # --- 2) Sanitize numbers + replace n with t*fps ---
+  $cx2 = SubN (Sanitize $cx1) $fps
+  $cy2 = SubN (Sanitize $cy1) $fps
+  $z2  = SubN (Sanitize $z1)  $fps
+
+  # --- 3) Escape commas ONLY inside parentheses (so filter commas stay intact) ---
+  $cxN = Escape-Commas-In-Parens $cx2
+  $cyN = Escape-Commas-In-Parens $cy2
+  $zN  = Escape-Commas-In-Parens $z2
+
+  # Safety: make sure clip() really disappeared
+  if ($cxN -match 'clip\(' -or $cyN -match 'clip\(' -or $zN -match 'clip\(') {
+    throw "clip() still present after expansion"
+  }
+
+  # --- 4) Build portrait window using ih/iw (even sizes) ---
   $w = "floor((((ih*9/16)/($zN)))/2)*2"
   $h = "floor(((ih/($zN)))/2)*2"
   $x = "($cxN)-($w)/2"
   $y = "($cyN)-($h)/2"
 
-  # Final escape (min/max can introduce commas)
+  # Final escape pass (min/max introduced commas)
   $w = Escape-Commas-In-Parens $w
   $h = Escape-Commas-In-Parens $h
   $x = Escape-Commas-In-Parens $x
   $y = Escape-Commas-In-Parens $y
 
-  # Named crop args + single quotes
+  # --- 5) Named crop + quotes; then scale/setsar/format ---
   $filter = "[0:v]crop=w='$w':h='$h':x='$x':y='$y',scale=w=-2:h=1080:flags=lanczos,setsar=1,format=yuv420p"
 
-  # Input/output paths
+  # --- 6) IO paths ---
   $inPath  = Join-Path $inDir  $_.Name
   $outPath = Join-Path $outDir ("COMPARE__" + $stem + ".mp4")
 
