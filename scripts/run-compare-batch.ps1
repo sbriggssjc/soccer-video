@@ -1,6 +1,11 @@
 param(
   [switch]$SkipMissingVars = $true,
-  [switch]$DefaultIfMissing = $true
+  [switch]$DefaultIfMissing = $true,
+  [int]$Fps = 24,
+  [double]$kSpeed = 0.004,
+  [int]$LeadFrames = 3,
+  [double]$zMin = 1.08,
+  [double]$zMax = 2.40
 )
 
 Write-Host "Options: SkipMissingVars=$($SkipMissingVars.IsPresent)  DefaultIfMissing=$($DefaultIfMissing.IsPresent)"
@@ -76,6 +81,15 @@ function Normalize([string]$s, [int]$fps) {
   $s = SubN $s $fps
   $s
 }
+function Get-CubicDeriv([string]$poly) {
+  if ($poly -notmatch '^\s*\(\((?<a0>[-\deE\.]+)\)\+\((?<a1>[-\deE\.]+)\)\*n\+\((?<a2>[-\deE\.]+)\)\*n\*n\+\((?<a3>[-\deE\.]+)\)\*n\*n\*n\)\s*$') {
+    return $null
+  }
+  $a1 = [double]$Matches.a1
+  $a2 = [double]$Matches.a2
+  $a3 = [double]$Matches.a3
+  return "(($a1)+({0})*n+({1})*n*n)" -f (2 * $a2), (3 * $a3)
+}
 function Get-VarLine([string]$text, [string]$name) {
   $pat = '(?m)^\s*\$?' + [regex]::Escape($name) + '\s*=\s*(.+?)\s*$'
   $m = [regex]::Match($text, $pat)
@@ -121,15 +135,27 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
 
   Write-Host "Loaded:`n cxExpr=$($vars.cxExpr)`n cyExpr=$($vars.cyExpr)`n zExpr=$($vars.zExpr)" -ForegroundColor DarkCyan
 
-  $fps = [int]24  # lock if your ingest is always 24
-  $zN  = Normalize $($vars.zExpr)  $fps
-  $cxN = Normalize $($vars.cxExpr) $fps
-  $cyN = Normalize $($vars.cyExpr) $fps
+  $fps = [int]$Fps
 
-  $w = "floor(((ih*9/16)/($zN))/2)*2"
-  $h = "floor((ih/($zN))/2)*2"
-  $x = "($cxN)-($w)/2"
-  $y = "($cyN)-($h)/2"
+  $cxd = Get-CubicDeriv $($vars.cxExpr)
+  $cyd = Get-CubicDeriv $($vars.cyExpr)
+
+  $zN   = Normalize $($vars.zExpr)  $fps
+  $cxN  = Normalize $($vars.cxExpr) $fps
+  $cyN  = Normalize $($vars.cyExpr) $fps
+  $cxpN = if ($cxd) { Normalize $cxd $fps } else { "0" }
+  $cypN = if ($cyd) { Normalize $cyd $fps } else { "0" }
+
+  $cxAgg = "($cxN)+($LeadFrames)*($cxpN)"
+  $cyAgg = "($cyN)+($LeadFrames)*($cypN)"
+
+  $speed = "sqrt(($cxpN)*($cxpN)+($cypN)*($cypN))"
+  $zAgg  = "min(max((($zN)-($kSpeed)*($speed)),$zMin),$zMax)"
+
+  $w = "floor(((ih*9/16)/($zAgg))/2)*2"
+  $h = "floor((ih/($zAgg))/2)*2"
+  $x = "($cxAgg)-($w)/2"
+  $y = "($cyAgg)-($h)/2"
 
   $filter = "[0:v]crop=w='$w':h='$h':x='$x':y='$y',scale=w=-2:h=1080:flags=lanczos,setsar=1,format=yuv420p"
   $filter = Replace-ClipByScan $filter   # remove any lingering clip()
