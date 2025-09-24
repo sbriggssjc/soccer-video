@@ -1,8 +1,18 @@
+param(
+  [switch]$SkipMissingVars = $true,
+  [switch]$DefaultIfMissing = $true
+)
+
+Write-Host "Options: SkipMissingVars=$($SkipMissingVars.IsPresent)  DefaultIfMissing=$($DefaultIfMissing.IsPresent)"
+
+$SkipMissingVars = $SkipMissingVars.IsPresent -or $SkipMissingVars
+$DefaultIfMissing = $DefaultIfMissing.IsPresent -or $DefaultIfMissing
+
 # ==== Run-Compare-Batch.ps1 ====
 # Requires: ffmpeg/ffprobe in PATH, your per-clip *.ps1vars files
 
 # --- Stable roots/dirs ---
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $Root    = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $Root
 $ffmpeg  = 'ffmpeg'
@@ -12,8 +22,9 @@ $outDir  = Join-Path $Root 'out\reels\tiktok'
 New-Item -Force -ItemType Directory $outDir | Out-Null
 
 # Behavior when a clip has no ps1vars
-$SkipMissingVars = $true      # skip and keep going
-$DefaultIfMissing = $false    # or set $true to use safe defaults below
+$Skipped = 0
+$Defaulted = 0
+$Failed = 0
 
 # --- helpers (self-contained, no session priming needed) ---
 function Unquote([string]$s) {
@@ -89,23 +100,22 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   $stem     = [IO.Path]::GetFileNameWithoutExtension($_.Name)
   $varsPath = Join-Path $varsDir ($stem + "_zoom.ps1vars")
   $vars = Load-ZoomVars $varsPath
+  $name = $_.Name
   if ($null -eq $vars) {
-    if ($SkipMissingVars -and -not $DefaultIfMissing) {
-      Write-Warning "No cxExpr/cyExpr/zExpr in $varsPath — skipping $($_.Name)"
+    if ($DefaultIfMissing) {
+      $vars = [pscustomobject]@{ cxExpr='iw/2'; cyExpr='ih/2'; zExpr='1.10' }
+      Write-Warning "No vars for $name — using defaults"
+      $Defaulted++
+    }
+    elseif ($SkipMissingVars) {
+      Write-Warning "No vars for $name — skipping"
+      $Skipped++
       return
     }
-
-    if ($DefaultIfMissing) {
-      # --- safe, sane defaults (centered frame, mild zoom) ---
-      # Use expressions so they still work per-frame; no 'n' needed.
-      $vars = [pscustomobject]@{
-        cxExpr = 'iw/2'   # center X in source pixel space
-        cyExpr = 'ih/2'   # center Y
-        zExpr  = '1.10'   # gentle 10% zoom; clamp is optional
-      }
-      Write-Warning "No vars for $($_.Name). Using defaults: cx=iw/2, cy=ih/2, z=1.10"
-    } else {
-      throw "Missing cxExpr/cyExpr/zExpr in $varsPath"
+    else {
+      Write-Error "Missing cxExpr/cyExpr/zExpr in $varsPath"
+      $Failed++
+      return
     }
   }
 
@@ -129,7 +139,7 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   $outPath = Join-Path $outDir ("COMPARE__" + $stem + ".mp4")
 
   if (-not (Test-Path $inPath)) { Write-Warning "Missing input: $inPath"; return }
-  Write-Host "`n>> Processing $($_.Name)  (fps=$fps)"
+  Write-Host "`n>> Processing $name  (fps=$fps)"
   Write-Host ">> filter: $filter"
 
   # run ffmpeg (inline filter avoids the script-file quoting mess)
@@ -142,4 +152,5 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed on $($_.Name)" }
 }
 
-Write-Host "`nAll done."
+Write-Host "`nSummary: Defaulted=$Defaulted  Skipped=$Skipped  Failed=$Failed"
+Write-Host "All done."
