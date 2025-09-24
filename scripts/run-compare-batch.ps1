@@ -139,23 +139,35 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
     return
   }
 
-  # --- Clear any lingering vars from a previous file
+  # --- Robust loader for cxExpr/cyExpr/zExpr from $varsPath
+  #     Accepts $cxExpr=..., cxExpr=..., $cx=..., cx=...
   Remove-Variable cxExpr,cyExpr,zExpr,cx,cy,z -ErrorAction SilentlyContinue
 
-  # --- Load vars (dot-source so the variables land in this scope)
-  . $varsPath
+  $raw = Get-Content -Raw -Encoding UTF8 $varsPath
+  # strip BOM/zero-width junk just in case
+  $raw = $raw -replace "^\uFEFF","" -replace "\u200B|\u200E|\u200F",""
 
-  # --- Map alternative names if the file uses $cx/$cy/$z
-  if (-not (Test-Path variable:cxExpr) -and (Test-Path variable:cx)) { $cxExpr = $cx }
-  if (-not (Test-Path variable:cyExpr) -and (Test-Path variable:cy)) { $cyExpr = $cy }
-  if (-not (Test-Path variable:zExpr)  -and (Test-Path variable:z))  { $zExpr  = $z  }
-
-  # --- Verify existence (don’t test for non-empty strings)
-  $missing = @()
-  foreach ($n in 'cxExpr','cyExpr','zExpr') {
-    if (-not (Test-Path "variable:$n")) { $missing += $n }
+  function Get-VarLine([string]$text, [string]$name) {
+    # match "$name=..." OR "name=..." capturing the full RHS to end of line
+    $m = [regex]::Match($text, "(?m)^\s*\$?$name\s*=\s*(.+?)\s*$")
+    if ($m.Success) { $m.Groups[1].Value } else { $null }
   }
-  if ($missing.Count) { throw "Missing $($missing -join '/') in $varsPath" }
+
+  $cxExpr = Get-VarLine $raw "cxExpr"
+  $cyExpr = Get-VarLine $raw "cyExpr"
+  $zExpr  = Get-VarLine $raw "zExpr"
+
+  # fallbacks to cx/cy/z
+  if (-not $cxExpr) { $cxExpr = Get-VarLine $raw "cx" }
+  if (-not $cyExpr) { $cyExpr = Get-VarLine $raw "cy" }
+  if (-not $zExpr)  { $zExpr  = Get-VarLine $raw "z"  }
+
+  # verify
+  $missing = @()
+  foreach ($n in "cxExpr","cyExpr","zExpr") { if (-not (Get-Variable $n -ValueOnly -ErrorAction SilentlyContinue)) { $missing += $n } }
+  if ($missing.Count) { throw "Missing $($missing -join '/')" + " in $varsPath" }
+
+  Write-Host "Loaded:`n cxExpr=$cxExpr`n cyExpr=$cyExpr`n zExpr=$zExpr" -ForegroundColor DarkCyan
 
   $fps = 24  # lock if your ingest is always 24
 
@@ -172,10 +184,6 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
 
   # assemble the final filter string (named args; each quoted)
   $filter = "[0:v]crop=w='$w':h='$h':x='$x':y='$y',scale=w=-2:h=1080:flags=lanczos,setsar=1,format=yuv420p"
-  $filter = Replace-ClipByScan $filter
-
-  # fail-fast guard (after expansion there should be no 'clip(' left)
-  if ($filter -match 'clip\(') { throw 'clip() still present after expansion' }
 
   # --- IO paths ---
   $inPath  = Join-Path $inDir  $_.Name
@@ -186,6 +194,8 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   Write-Host ">> filter: $filter"
 
   # run ffmpeg (inline filter avoids the script-file quoting mess)
+  $filter = Replace-ClipByScan $filter
+  if ($filter -match 'clip\(') { throw 'clip() still present after expansion' }
   & $ffmpeg -hide_banner -y -nostdin `
     -i $inPath `
     -filter_complex $filter `
