@@ -19,178 +19,160 @@ def clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 
-def lerp(a: float, b: float, t: float) -> float:
-    """Linear interpolate between *a* and *b* using factor *t*."""
-
-    return a + (b - a) * t
-
-
-def update_camera(
-    n: int,
-    flow: np.ndarray,
-    cand_pts: Optional[np.ndarray],
-    conf: float,
-    params: SimpleNamespace,
-    state: Dict[str, float],
+def compute_motion_spread(
+    flow: Optional[np.ndarray],
+    cx: float,
+    cy: float,
+    flow_thresh: float,
     frame_w: int,
     frame_h: int,
-) -> Tuple[float, float, float]:
-    """Compute the smoothed camera center and zoom for a single frame."""
+) -> float:
+    """Estimate how widely motion is distributed around the target point."""
 
-    lead_frames = params.lead_frames
-    follow_k = params.follow_k
-    follow_d = params.follow_d
-    vmax = params.max_xy_speed
-    amax = params.max_xy_accel
-    vmax_emg = getattr(params, "max_xy_speed_emergency", vmax * 1.6)
-    amax_emg = getattr(params, "max_xy_accel_emergency", amax * 1.6)
-    dead_min = params.deadband_min
-    dead_max = params.deadband_max
-    v_lo = params.v_lo
-    v_hi = params.v_hi
-    ex_guard_x = params.edge_guard_x
-    ex_guard_y = params.edge_guard_y
-
-    zoom_min = params.zoom_min
-    zoom_max = params.zoom_max
-    zoom_vel_k = params.zoom_vel_k
-    zoom_ema_k = params.zoom_ema
-    zoom_emerg = params.zoom_emergency
-
-    flow_thresh = params.flow_thresh
-    conf_floor = params.conf_floor
+    if flow is None or flow.size == 0:
+        return 0.5 * max(frame_w, frame_h)
 
     fx = flow[..., 0]
     fy = flow[..., 1]
     mag = np.hypot(fx, fy)
-    m90 = np.percentile(mag, 90.0) if mag.size else 0.0
-    hot = mag > max(flow_thresh, 0.25 * m90)
+    if mag.size == 0:
+        return 0.5 * max(frame_w, frame_h)
 
-    if cand_pts is None or len(cand_pts) == 0:
-        ys, xs = np.nonzero(hot)
-        if len(xs):
-            w = mag[ys, xs] ** 2.0
-            wsum = np.maximum(w.sum(), 1e-6)
-            cx_raw = float((xs * w).sum() / wsum)
-            cy_raw = float((ys * w).sum() / wsum)
-        else:
-            cx_raw = state.get("cam_x", frame_w / 2)
-            cy_raw = state.get("cam_y", frame_h / 2)
-    else:
-        pts = np.asarray(cand_pts, dtype=float)
-        px = np.clip(np.round(pts[:, 0]).astype(int), 0, frame_w - 1)
-        py = np.clip(np.round(pts[:, 1]).astype(int), 0, frame_h - 1)
-        base = mag[py, px] + 1e-3
-        w = np.power(base, 2.0)
-        wsum = np.maximum(w.sum(), 1e-6)
-        cx_raw = float((pts[:, 0] * w).sum() / wsum)
-        cy_raw = float((pts[:, 1] * w).sum() / wsum)
+    m90 = float(np.percentile(mag, 90.0)) if mag.size else 0.0
+    thresh = max(flow_thresh, 0.25 * m90)
+    ys, xs = np.nonzero(mag > thresh)
+    if len(xs) >= 12:
+        d = np.hypot(xs - cx, ys - cy)
+        if d.size:
+            return float(np.percentile(d, 85.0))
+    return 0.5 * max(frame_w, frame_h)
 
-    vx_tgt = cx_raw - state.get("cx_prev", cx_raw)
-    vy_tgt = cy_raw - state.get("cy_prev", cy_raw)
-    spd_tgt = float(np.hypot(vx_tgt, vy_tgt))
 
-    cx_pred = cx_raw + vx_tgt * lead_frames
-    cy_pred = cy_raw + vy_tgt * lead_frames
+def update_camera(
+    n: int,
+    target_cx: float,
+    target_cy: float,
+    flow: Optional[np.ndarray],
+    flow_strength: Optional[float],
+    conf: Optional[float],
+    params: SimpleNamespace,
+    state: Dict[str, float],
+    frame_w: int,
+    frame_h: int,
+) -> Tuple[float, float, float, float, bool]:
+    """Compute the camera center/zoom using velocity lead and emergency zoom-outs."""
 
-    t = clamp((spd_tgt - v_lo) / max(1.0, (v_hi - v_lo)), 0.0, 1.0)
-    deadband = lerp(dead_min, dead_max, t)
+    lead_frames = float(params.lead_frames)
+    follow_k = float(params.follow_k)
+    follow_d = float(np.clip(params.follow_d, 0.0, 1.0))
+    vmax = float(params.max_xy_speed)
+    amax = float(params.max_xy_accel)
+    zoom_min = float(params.zoom_min)
+    zoom_max = float(params.zoom_max)
+    zoom_base = float(params.zoom_base)
+    zoom_vel_k = float(params.zoom_vel_k)
+    zoom_edge_boost = float(params.zoom_edge_boost)
+    zoom_ema = float(np.clip(params.zoom_ema, 0.0, 1.0))
+    emergency_gain = float(params.emergency_gain)
+    flow_thresh = float(params.flow_thresh)
+    flow_spike = float(params.flow_spike)
+    conf_floor = float(params.conf_floor)
+    edge_guard_x = float(params.edge_guard_x)
+    edge_guard_y = float(params.edge_guard_y)
 
-    spike = (m90 > flow_thresh * 3.0) or (conf < conf_floor if conf is not None else False)
+    cx = float(target_cx)
+    cy = float(target_cy)
 
-    cam_x = state.get("cam_x", cx_raw)
-    cam_y = state.get("cam_y", cy_raw)
+    prev_cx = state.get("prev_target_cx", cx)
+    prev_cy = state.get("prev_target_cy", cy)
+    vx = cx - prev_cx
+    vy = cy - prev_cy
+    cx_pred = cx + vx * lead_frames
+    cy_pred = cy + vy * lead_frames
+
+    cam_cx = state.get("cam_x", cx)
+    cam_cy = state.get("cam_y", cy)
     cam_vx = state.get("cam_vx", 0.0)
     cam_vy = state.get("cam_vy", 0.0)
+    zoom = state.get("zoom", zoom_base)
 
-    dx = cx_pred - cam_x
-    dy = cy_pred - cam_y
-    if abs(dx) < deadband:
-        dx = 0.0
-    if abs(dy) < deadband:
-        dy = 0.0
+    ax = follow_k * (cx_pred - cam_cx) - (1.0 - follow_d) * cam_vx
+    ay = follow_k * (cy_pred - cam_cy) - (1.0 - follow_d) * cam_vy
 
-    ax = follow_k * dx + follow_d * (vx_tgt - cam_vx)
-    ay = follow_k * dy + follow_d * (vy_tgt - cam_vy)
-
-    if spike:
-        vmax_now, amax_now = vmax_emg, amax_emg
-        ax += 0.35 * (cx_pred - cam_x)
-        ay += 0.35 * (cy_pred - cam_y)
-    else:
-        vmax_now, amax_now = vmax, amax
-
-    a_norm = float(np.hypot(ax, ay))
-    if a_norm > amax_now:
-        scale = amax_now / (a_norm + 1e-6)
+    a_mag = math.hypot(ax, ay)
+    if a_mag > amax > 0.0:
+        scale = amax / (a_mag + 1e-9)
         ax *= scale
         ay *= scale
 
     cam_vx += ax
     cam_vy += ay
 
-    v_norm = float(np.hypot(cam_vx, cam_vy))
-    if v_norm > vmax_now:
-        scale = vmax_now / (v_norm + 1e-6)
+    v_mag = math.hypot(cam_vx, cam_vy)
+    if v_mag > vmax > 0.0:
+        scale = vmax / (v_mag + 1e-9)
         cam_vx *= scale
         cam_vy *= scale
 
-    cam_x += cam_vx
-    cam_y += cam_vy
+    cam_cx += cam_vx
+    cam_cy += cam_vy
+    cam_cx = float(np.clip(cam_cx, 0.0, frame_w))
+    cam_cy = float(np.clip(cam_cy, 0.0, frame_h))
 
-    if mag.size:
-        ys, xs = np.nonzero(hot)
-        if len(xs) >= 12:
-            d = np.hypot(xs - cx_raw, ys - cy_raw)
-            spread = float(np.percentile(d, 85))
-        else:
-            spread = 0.5 * max(frame_w, frame_h)
+    target_speed = math.hypot(vx, vy)
+    z_target = zoom_base + zoom_vel_k * target_speed
+
+    if edge_guard_x > 1e-6:
+        edge_x = max(0.0, edge_guard_x - min(cam_cx, frame_w - cam_cx)) / max(
+            edge_guard_x, 1e-6
+        )
     else:
-        spread = 0.5 * max(frame_w, frame_h)
+        edge_x = 0.0
+    if edge_guard_y > 1e-6:
+        edge_y = max(0.0, edge_guard_y - min(cam_cy, frame_h - cam_cy)) / max(
+            edge_guard_y, 1e-6
+        )
+    else:
+        edge_y = 0.0
+    z_target -= zoom_edge_boost * max(edge_x, edge_y)
+    z_target = clamp(z_target, zoom_min, zoom_max)
 
-    base = float(min(frame_w, frame_h))
-    desire = clamp(1.5 * (base / max(spread, 32.0)), zoom_min, zoom_max)
+    zoom = zoom_ema * z_target + (1.0 - zoom_ema) * zoom
 
-    desire += zoom_vel_k * spd_tgt
-
+    spike = False
+    if flow_strength is not None and flow_strength > flow_spike:
+        spike = True
+    if conf is not None and conf < conf_floor:
+        spike = True
     if spike:
-        desire = max(desire / zoom_emerg, zoom_min)
+        zoom = max(zoom_min, min(zoom_max, zoom * emergency_gain))
 
-    z_prev = state.get("z_ema", zoom_min)
-    z_ema = zoom_ema_k * desire + (1.0 - zoom_ema_k) * z_prev
-    z = clamp(z_ema, zoom_min, zoom_max)
-
-    half_w = (frame_h * 9 / 16) / z * 0.5
-    half_h = (frame_h) / z * 0.5
-    min_x = half_w + ex_guard_x
-    max_x = frame_w - half_w - ex_guard_x
-    min_y = half_h + ex_guard_y
-    max_y = frame_h - half_h - ex_guard_y
-    cam_x = clamp(cam_x, min_x, max_x)
-    cam_y = clamp(cam_y, min_y, max_y)
+    spread = compute_motion_spread(flow, cx, cy, flow_thresh, frame_w, frame_h)
 
     state.update(
         dict(
-            cam_x=float(cam_x),
-            cam_y=float(cam_y),
+            cam_x=float(cam_cx),
+            cam_y=float(cam_cy),
             cam_vx=float(cam_vx),
             cam_vy=float(cam_vy),
-            z_ema=float(z),
-            cx_prev=float(cx_raw),
-            cy_prev=float(cy_raw),
-            cx_raw=float(cx_raw),
-            cy_raw=float(cy_raw),
+            zoom=float(zoom),
+            z_ema=float(zoom),
+            prev_target_cx=float(cx),
+            prev_target_cy=float(cy),
+            cx_prev=float(cx),
+            cy_prev=float(cy),
+            cx_raw=float(cx),
+            cy_raw=float(cy),
             cx_pred=float(cx_pred),
             cy_pred=float(cy_pred),
             spread=float(spread),
-            spd_tgt=float(spd_tgt),
+            spd_tgt=float(target_speed),
             spike=bool(spike),
-            zoom_desire=float(desire),
-            deadband=float(deadband),
+            zoom_desire=float(z_target),
         )
     )
 
-    return float(cam_x), float(cam_y), float(z)
+    return float(cam_cx), float(cam_cy), float(zoom), float(spread), bool(spike)
 
 
 try:  # pragma: no cover - optional dependency
@@ -1127,7 +1109,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--lead_frames",
         type=int,
-        default=10,
+        default=12,
         help="Frames of velocity lead when predicting center",
     )
     parser.add_argument(
@@ -1162,7 +1144,19 @@ def parse_args() -> argparse.Namespace:
         "--zoom_min", type=float, default=1.08, help="Minimum zoom (crop scale denominator)"
     )
     parser.add_argument(
-        "--zoom_max", type=float, default=2.40, help="Maximum zoom (tighter crop)"
+        "--zoom_max", type=float, default=2.80, help="Maximum zoom (tighter crop)"
+    )
+    parser.add_argument(
+        "--zoom_base",
+        type=float,
+        default=1.20,
+        help="Baseline zoom level before motion/edge adjustments",
+    )
+    parser.add_argument(
+        "--zoom_edge_boost",
+        type=float,
+        default=0.20,
+        help="How strongly to zoom out when the camera nears field edges",
     )
     parser.add_argument(
         "--spread_lo",
@@ -1210,12 +1204,18 @@ def parse_args() -> argparse.Namespace:
         default=8,
         help="Hold last command this many frames after cut/lock loss",
     )
-    parser.add_argument("--conf_floor", type=float, default=0.15, help="Confidence floor")
+    parser.add_argument("--conf_floor", type=float, default=0.25, help="Confidence floor")
     parser.add_argument(
         "--flow_thresh",
         type=float,
         default=0.18,
         help="Motion mask threshold after normalization",
+    )
+    parser.add_argument(
+        "--flow_spike",
+        type=float,
+        default=0.18,
+        help="Flow magnitude threshold triggering emergency zoom-out",
     )
     parser.add_argument(
         "--flow_thresh_high",
@@ -1226,55 +1226,55 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--follow_k",
         type=float,
-        default=140.0,
-        help="Critically damped spring stiffness for center follow",
+        default=0.20,
+        help="How strongly the camera chases the target center",
     )
     parser.add_argument(
         "--follow_d",
         type=float,
-        default=24.0,
-        help="Critically damped spring damping term for center follow",
+        default=0.85,
+        help="Damping factor for the follow spring (0..1)",
     )
     parser.add_argument(
         "--max_xy_speed",
         type=float,
-        default=48.0,
-        help="Maximum allowed tracking speed (px/s)",
+        default=85.0,
+        help="Maximum allowed tracking speed (px/frame)",
     )
     parser.add_argument(
         "--max_xy_accel",
         type=float,
-        default=240.0,
-        help="Maximum allowed tracking acceleration (px/s^2)",
+        default=380.0,
+        help="Maximum allowed tracking acceleration (px/frame^2)",
     )
     parser.add_argument(
         "--zoom_vel_k",
         type=float,
-        default=0.006,
+        default=0.0025,
         help="Velocity contribution when computing zoom bias",
     )
     parser.add_argument(
         "--zoom_ema",
         type=float,
-        default=0.32,
+        default=0.22,
         help="EMA factor applied to zoom target",
     )
     parser.add_argument(
         "--zoom_emergency",
         type=float,
-        default=0.92,
-        help="Multiplier applied to zoom_max during emergency zoom out",
+        default=0.992,
+        help="Per-frame multiplier applied to zoom during emergencies",
     )
     parser.add_argument(
         "--edge_guard_x",
         type=int,
-        default=120,
+        default=150,
         help="Horizontal guard band preventing over-cropping",
     )
     parser.add_argument(
         "--edge_guard_y",
         type=int,
-        default=90,
+        default=120,
         help="Vertical guard band preventing over-cropping",
     )
     parser.add_argument(
@@ -1294,6 +1294,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.25,
         help="Strength of goal alignment bias",
+    )
+    parser.add_argument(
+        "--goal_blend",
+        type=float,
+        default=0.35,
+        help="Blend factor nudging the camera toward the goal mouth",
     )
     parser.add_argument(
         "--goal_roi",
@@ -1371,15 +1377,20 @@ def run_autoframe(
     flow_thresh = float(args.flow_thresh)
     follow_k = float(args.follow_k)
     follow_d = float(args.follow_d)
-    fps_safe = max(fps, 1e-6)
-    max_xy_speed = max(1e-6, float(args.max_xy_speed)) / fps_safe
-    max_xy_accel = max(1e-6, float(args.max_xy_accel)) / fps_safe
+    max_xy_speed = max(1e-6, float(args.max_xy_speed))
+    max_xy_accel = max(1e-6, float(args.max_xy_accel))
     zoom_vel_k = float(args.zoom_vel_k)
     zoom_ema_alpha = float(args.zoom_ema)
     zoom_emergency = float(args.zoom_emergency)
+    zoom_base = clamp(float(args.zoom_base), zoom_min, zoom_max)
+    zoom_edge_boost = float(args.zoom_edge_boost)
     edge_guard_x = float(args.edge_guard_x)
     edge_guard_y = float(args.edge_guard_y)
     goal_bias_k = float(args.goal_bias_k)
+    goal_blend = float(args.goal_blend)
+    flow_spike = float(args.flow_spike)
+    if args.flow_thresh_high is not None:
+        flow_spike = float(args.flow_thresh_high)
     ball_window_x = int(args.ball_window_x) if args.ball_window_x is not None else 240
     ball_window_y = int(args.ball_window_y) if args.ball_window_y is not None else 180
     spread_hi = float(args.spread_hi) if args.spread_hi is not None else 420.0
@@ -1390,22 +1401,18 @@ def run_autoframe(
         follow_d=follow_d,
         max_xy_speed=max_xy_speed,
         max_xy_accel=max_xy_accel,
-        deadband_min=float(args.deadband_min),
-        deadband_max=float(args.deadband_max),
-        v_lo=float(args.v_lo),
-        v_hi=float(args.v_hi),
         edge_guard_x=edge_guard_x,
         edge_guard_y=edge_guard_y,
         zoom_min=zoom_min,
         zoom_max=zoom_max,
+        zoom_base=zoom_base,
         zoom_vel_k=zoom_vel_k,
+        zoom_edge_boost=zoom_edge_boost,
         zoom_ema=zoom_ema_alpha,
-        zoom_emergency=zoom_emergency,
-        padx=padx,
-        pady=pady,
+        emergency_gain=zoom_emergency,
         flow_thresh=flow_thresh,
+        flow_spike=flow_spike,
         conf_floor=conf_floor,
-        bary_k=float(args.bary_k),
     )
 
     detector = YOLODetector(conf_floor, frame_size)
@@ -1423,14 +1430,18 @@ def run_autoframe(
     def clamp_value(value: float, low: float, high: float) -> float:
         return float(np.clip(value, low, high))
 
+    initial_zoom = clamp(zoom_base, zoom_min, zoom_max)
     state: Dict[str, float] = {
         "cam_x": width / 2.0,
         "cam_y": height / 2.0,
         "cam_vx": 0.0,
         "cam_vy": 0.0,
-        "z_ema": zoom_min,
+        "zoom": initial_zoom,
+        "z_ema": initial_zoom,
         "cx_prev": width / 2.0,
         "cy_prev": height / 2.0,
+        "prev_target_cx": width / 2.0,
+        "prev_target_cy": height / 2.0,
     }
     prev_cam_cx = width / 2.0
     prev_cam_cy = height / 2.0
@@ -1531,25 +1542,33 @@ def run_autoframe(
             goal_box = default_goal_box(width, height, goal_preference)
         goal_x = goal_box.center[0] if goal_box is not None else None
 
-        if use_points:
-            cand_pts = np.asarray([(x, y) for (x, y, _) in use_points], dtype=np.float64)
-        elif points:
-            cand_pts = np.asarray([(x, y) for (x, y, _) in points], dtype=np.float64)
-        else:
-            cand_pts = None
         conf_value = conf_raw if points else 1.0
 
-        cam_cx, cam_cy, z = update_camera(
+        target_cx = cx_hint
+        target_cy = cy_hint
+        if goal_box is not None and goal_blend > 1e-6:
+            goal_cx, goal_cy = goal_box.center
+            dist = math.hypot(target_cx - goal_cx, target_cy - goal_cy)
+            field_norm = max(math.hypot(width, height) * 0.35, 1e-6)
+            proximity = 1.0 - float(np.clip(dist / field_norm, 0.0, 1.0))
+            confidence_boost = float(np.clip(conf_raw, 0.0, 1.0))
+            alpha = goal_blend * proximity * max(confidence_boost, 0.25)
+            alpha = clamp(alpha, 0.0, 0.75)
+            target_cx = (1.0 - alpha) * target_cx + alpha * goal_cx
+            target_cy = (1.0 - alpha) * target_cy + alpha * goal_cy
+
+        cam_cx, cam_cy, z, spread_est, spike = update_camera(
             frame_idx,
+            target_cx,
+            target_cy,
             flow_result.flow,
-            cand_pts,
+            flow_mag,
             conf_value,
             camera_params,
             state,
             width,
             height,
         )
-        spike = bool(state.get("spike", False))
 
         if goal_bias_k and goal_x is not None:
             dist_to_goal = abs(cam_cx - goal_x)
@@ -1561,6 +1580,7 @@ def run_autoframe(
             if z_goal != z:
                 z = clamp_value(z_goal, zoom_min, zoom_max)
                 state["z_ema"] = z
+                state["zoom"] = z
 
         crop_center = np.array([cam_cx, cam_cy], dtype=np.float64)
         w, h, x, y, adjusted_center = compute_crop_geometry(
@@ -1574,7 +1594,7 @@ def run_autoframe(
         prev_cam_cy = cam_cy
 
         confidence = float(np.clip(conf_raw, 0.0, 1.0))
-        spread_val = float(state.get("spread", 0.0))
+        spread_val = float(spread_est)
         crowding = float(np.clip(spread_val / max(spread_hi, 1e-6), 0.0, 1.0))
         flow_mag = float(np.clip(flow_mag, 0.0, 1.0))
         anchor_iou = 0.0
