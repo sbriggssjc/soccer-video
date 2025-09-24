@@ -5,6 +5,7 @@ frames/
 clips/
 livestream_logs/
 *.mp4
+!recipes/compare/samples/clip.mp4
 *.mkv
 *.mov
 *.png
