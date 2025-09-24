@@ -140,31 +140,26 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   }
 
   # --- Robust loader for cxExpr/cyExpr/zExpr from $varsPath
-  #     Accepts $cxExpr=..., cxExpr=..., $cx=..., cx=...
   Remove-Variable cxExpr,cyExpr,zExpr,cx,cy,z -ErrorAction SilentlyContinue
 
   $raw = Get-Content -Raw -Encoding UTF8 $varsPath
-  # strip BOM/zero-width junk just in case
   $raw = $raw -replace "^\uFEFF","" -replace "\u200B|\u200E|\u200F",""
 
   function Get-VarLine([string]$text, [string]$name) {
-    # match "$name=..." OR "name=..." capturing the full RHS to end of line
-    $m = [regex]::Match($text, "(?m)^\s*\$?$name\s*=\s*(.+?)\s*$")
+    # Build regex without letting PowerShell expand $?
+    $pat = '(?m)^\s*\$?' + [regex]::Escape($name) + '\s*=\s*(.+?)\s*$'
+    $m = [regex]::Match($text, $pat)
     if ($m.Success) { $m.Groups[1].Value } else { $null }
   }
 
-  $cxExpr = Get-VarLine $raw "cxExpr"
-  $cyExpr = Get-VarLine $raw "cyExpr"
-  $zExpr  = Get-VarLine $raw "zExpr"
+  $cxExpr = Get-VarLine $raw 'cxExpr'; if (-not $cxExpr) { $cxExpr = Get-VarLine $raw 'cx' }
+  $cyExpr = Get-VarLine $raw 'cyExpr'; if (-not $cyExpr) { $cyExpr = Get-VarLine $raw 'cy' }
+  $zExpr  = Get-VarLine $raw 'zExpr' ; if (-not $zExpr ) { $zExpr  = Get-VarLine $raw 'z'  }
 
-  # fallbacks to cx/cy/z
-  if (-not $cxExpr) { $cxExpr = Get-VarLine $raw "cx" }
-  if (-not $cyExpr) { $cyExpr = Get-VarLine $raw "cy" }
-  if (-not $zExpr)  { $zExpr  = Get-VarLine $raw "z"  }
-
-  # verify
   $missing = @()
-  foreach ($n in "cxExpr","cyExpr","zExpr") { if (-not (Get-Variable $n -ValueOnly -ErrorAction SilentlyContinue)) { $missing += $n } }
+  foreach ($n in 'cxExpr','cyExpr','zExpr') {
+    if (-not (Get-Variable $n -ValueOnly -ErrorAction SilentlyContinue)) { $missing += $n }
+  }
   if ($missing.Count) { throw "Missing $($missing -join '/')" + " in $varsPath" }
 
   Write-Host "Loaded:`n cxExpr=$cxExpr`n cyExpr=$cyExpr`n zExpr=$zExpr" -ForegroundColor DarkCyan
