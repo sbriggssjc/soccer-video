@@ -13,6 +13,186 @@ import cv2
 import numpy as np
 
 
+def clamp(x: float, lo: float, hi: float) -> float:
+    """Clamp *x* to the inclusive range ``[lo, hi]``."""
+
+    return lo if x < lo else hi if x > hi else x
+
+
+def lerp(a: float, b: float, t: float) -> float:
+    """Linear interpolate between *a* and *b* using factor *t*."""
+
+    return a + (b - a) * t
+
+
+def update_camera(
+    n: int,
+    flow: np.ndarray,
+    cand_pts: Optional[np.ndarray],
+    conf: float,
+    params: SimpleNamespace,
+    state: Dict[str, float],
+    frame_w: int,
+    frame_h: int,
+) -> Tuple[float, float, float]:
+    """Compute the smoothed camera center and zoom for a single frame."""
+
+    lead_frames = params.lead_frames
+    follow_k = params.follow_k
+    follow_d = params.follow_d
+    vmax = params.max_xy_speed
+    amax = params.max_xy_accel
+    vmax_emg = getattr(params, "max_xy_speed_emergency", vmax * 1.6)
+    amax_emg = getattr(params, "max_xy_accel_emergency", amax * 1.6)
+    dead_min = params.deadband_min
+    dead_max = params.deadband_max
+    v_lo = params.v_lo
+    v_hi = params.v_hi
+    ex_guard_x = params.edge_guard_x
+    ex_guard_y = params.edge_guard_y
+
+    zoom_min = params.zoom_min
+    zoom_max = params.zoom_max
+    zoom_vel_k = params.zoom_vel_k
+    zoom_ema_k = params.zoom_ema
+    zoom_emerg = params.zoom_emergency
+
+    flow_thresh = params.flow_thresh
+    conf_floor = params.conf_floor
+
+    fx = flow[..., 0]
+    fy = flow[..., 1]
+    mag = np.hypot(fx, fy)
+    m90 = np.percentile(mag, 90.0) if mag.size else 0.0
+    hot = mag > max(flow_thresh, 0.25 * m90)
+
+    if cand_pts is None or len(cand_pts) == 0:
+        ys, xs = np.nonzero(hot)
+        if len(xs):
+            w = mag[ys, xs] ** 2.0
+            wsum = np.maximum(w.sum(), 1e-6)
+            cx_raw = float((xs * w).sum() / wsum)
+            cy_raw = float((ys * w).sum() / wsum)
+        else:
+            cx_raw = state.get("cam_x", frame_w / 2)
+            cy_raw = state.get("cam_y", frame_h / 2)
+    else:
+        pts = np.asarray(cand_pts, dtype=float)
+        px = np.clip(np.round(pts[:, 0]).astype(int), 0, frame_w - 1)
+        py = np.clip(np.round(pts[:, 1]).astype(int), 0, frame_h - 1)
+        base = mag[py, px] + 1e-3
+        w = np.power(base, 2.0)
+        wsum = np.maximum(w.sum(), 1e-6)
+        cx_raw = float((pts[:, 0] * w).sum() / wsum)
+        cy_raw = float((pts[:, 1] * w).sum() / wsum)
+
+    vx_tgt = cx_raw - state.get("cx_prev", cx_raw)
+    vy_tgt = cy_raw - state.get("cy_prev", cy_raw)
+    spd_tgt = float(np.hypot(vx_tgt, vy_tgt))
+
+    cx_pred = cx_raw + vx_tgt * lead_frames
+    cy_pred = cy_raw + vy_tgt * lead_frames
+
+    t = clamp((spd_tgt - v_lo) / max(1.0, (v_hi - v_lo)), 0.0, 1.0)
+    deadband = lerp(dead_min, dead_max, t)
+
+    spike = (m90 > flow_thresh * 3.0) or (conf < conf_floor if conf is not None else False)
+
+    cam_x = state.get("cam_x", cx_raw)
+    cam_y = state.get("cam_y", cy_raw)
+    cam_vx = state.get("cam_vx", 0.0)
+    cam_vy = state.get("cam_vy", 0.0)
+
+    dx = cx_pred - cam_x
+    dy = cy_pred - cam_y
+    if abs(dx) < deadband:
+        dx = 0.0
+    if abs(dy) < deadband:
+        dy = 0.0
+
+    ax = follow_k * dx + follow_d * (vx_tgt - cam_vx)
+    ay = follow_k * dy + follow_d * (vy_tgt - cam_vy)
+
+    if spike:
+        vmax_now, amax_now = vmax_emg, amax_emg
+        ax += 0.35 * (cx_pred - cam_x)
+        ay += 0.35 * (cy_pred - cam_y)
+    else:
+        vmax_now, amax_now = vmax, amax
+
+    a_norm = float(np.hypot(ax, ay))
+    if a_norm > amax_now:
+        scale = amax_now / (a_norm + 1e-6)
+        ax *= scale
+        ay *= scale
+
+    cam_vx += ax
+    cam_vy += ay
+
+    v_norm = float(np.hypot(cam_vx, cam_vy))
+    if v_norm > vmax_now:
+        scale = vmax_now / (v_norm + 1e-6)
+        cam_vx *= scale
+        cam_vy *= scale
+
+    cam_x += cam_vx
+    cam_y += cam_vy
+
+    if mag.size:
+        ys, xs = np.nonzero(hot)
+        if len(xs) >= 12:
+            d = np.hypot(xs - cx_raw, ys - cy_raw)
+            spread = float(np.percentile(d, 85))
+        else:
+            spread = 0.5 * max(frame_w, frame_h)
+    else:
+        spread = 0.5 * max(frame_w, frame_h)
+
+    base = float(min(frame_w, frame_h))
+    desire = clamp(1.5 * (base / max(spread, 32.0)), zoom_min, zoom_max)
+
+    desire += zoom_vel_k * spd_tgt
+
+    if spike:
+        desire = max(desire / zoom_emerg, zoom_min)
+
+    z_prev = state.get("z_ema", zoom_min)
+    z_ema = zoom_ema_k * desire + (1.0 - zoom_ema_k) * z_prev
+    z = clamp(z_ema, zoom_min, zoom_max)
+
+    half_w = (frame_h * 9 / 16) / z * 0.5
+    half_h = (frame_h) / z * 0.5
+    min_x = half_w + ex_guard_x
+    max_x = frame_w - half_w - ex_guard_x
+    min_y = half_h + ex_guard_y
+    max_y = frame_h - half_h - ex_guard_y
+    cam_x = clamp(cam_x, min_x, max_x)
+    cam_y = clamp(cam_y, min_y, max_y)
+
+    state.update(
+        dict(
+            cam_x=float(cam_x),
+            cam_y=float(cam_y),
+            cam_vx=float(cam_vx),
+            cam_vy=float(cam_vy),
+            z_ema=float(z),
+            cx_prev=float(cx_raw),
+            cy_prev=float(cy_raw),
+            cx_raw=float(cx_raw),
+            cy_raw=float(cy_raw),
+            cx_pred=float(cx_pred),
+            cy_pred=float(cy_pred),
+            spread=float(spread),
+            spd_tgt=float(spd_tgt),
+            spike=bool(spike),
+            zoom_desire=float(desire),
+            deadband=float(deadband),
+        )
+    )
+
+    return float(cam_x), float(cam_y), float(z)
+
+
 try:  # pragma: no cover - optional dependency
     from ultralytics import YOLO  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -1184,7 +1364,6 @@ def run_autoframe(
         lead_frames = args.lead
     lead_frames = max(float(lead_frames), 0.0)
     args.lead_frames = lead_frames
-    lead_frames_int = int(round(lead_frames))
 
     padx = max(0.0, float(args.padx))
     pady = max(0.0, float(args.pady))
@@ -1201,19 +1380,33 @@ def run_autoframe(
     edge_guard_x = float(args.edge_guard_x)
     edge_guard_y = float(args.edge_guard_y)
     goal_bias_k = float(args.goal_bias_k)
-    flow_thresh_high = (
-        float(args.flow_thresh_high) if args.flow_thresh_high is not None else 0.28
-    )
     ball_window_x = int(args.ball_window_x) if args.ball_window_x is not None else 240
     ball_window_y = int(args.ball_window_y) if args.ball_window_y is not None else 180
-    keep_box_x_factor = (
-        float(args.keep_box_x) if args.keep_box_x is not None else 0.23
-    )
-    keep_box_y_factor = (
-        float(args.keep_box_y) if args.keep_box_y is not None else 0.30
-    )
-    spread_lo = float(args.spread_lo) if args.spread_lo is not None else 110.0
     spread_hi = float(args.spread_hi) if args.spread_hi is not None else 420.0
+
+    camera_params = SimpleNamespace(
+        lead_frames=lead_frames,
+        follow_k=follow_k,
+        follow_d=follow_d,
+        max_xy_speed=max_xy_speed,
+        max_xy_accel=max_xy_accel,
+        deadband_min=float(args.deadband_min),
+        deadband_max=float(args.deadband_max),
+        v_lo=float(args.v_lo),
+        v_hi=float(args.v_hi),
+        edge_guard_x=edge_guard_x,
+        edge_guard_y=edge_guard_y,
+        zoom_min=zoom_min,
+        zoom_max=zoom_max,
+        zoom_vel_k=zoom_vel_k,
+        zoom_ema=zoom_ema_alpha,
+        zoom_emergency=zoom_emergency,
+        padx=padx,
+        pady=pady,
+        flow_thresh=flow_thresh,
+        conf_floor=conf_floor,
+        bary_k=float(args.bary_k),
+    )
 
     detector = YOLODetector(conf_floor, frame_size)
     flow_clusterer = FlowClusterer(frame_size, flow_thresh)
@@ -1230,10 +1423,17 @@ def run_autoframe(
     def clamp_value(value: float, low: float, high: float) -> float:
         return float(np.clip(value, low, high))
 
-    state = SimpleNamespace(vx_cam=0.0, vy_cam=0.0)
+    state: Dict[str, float] = {
+        "cam_x": width / 2.0,
+        "cam_y": height / 2.0,
+        "cam_vx": 0.0,
+        "cam_vy": 0.0,
+        "z_ema": zoom_min,
+        "cx_prev": width / 2.0,
+        "cy_prev": height / 2.0,
+    }
     prev_cam_cx = width / 2.0
     prev_cam_cy = height / 2.0
-    prev_z = zoom_min
 
     results: List[FrameResult] = []
     debug_states: List[DebugState] = []
@@ -1299,7 +1499,7 @@ def run_autoframe(
         conf_raw = 0.0
         use_points: List[Tuple[float, float, float]] = []
         if not points:
-            cx_raw, cy_raw = prev_cam_cx, prev_cam_cy
+            cx_hint, cy_hint = prev_cam_cx, prev_cam_cy
         else:
             bx = sum(p[0] for p in points) / len(points)
             by = sum(p[1] for p in points) / len(points)
@@ -1313,23 +1513,16 @@ def run_autoframe(
             use_points = loc if len(loc) >= threshold else points
             wsum = sum(max(c, conf_floor) for (*_, c) in use_points)
             if wsum == 0:
-                cx_raw, cy_raw = bx, by
+                cx_hint, cy_hint = bx, by
             else:
-                cx_raw = sum(x * max(c, conf_floor) for (x, _, c) in use_points) / wsum
-                cy_raw = sum(y * max(c, conf_floor) for (_, y, c) in use_points) / wsum
+                cx_hint = sum(x * max(c, conf_floor) for (x, _, c) in use_points) / wsum
+                cy_hint = sum(y * max(c, conf_floor) for (_, y, c) in use_points) / wsum
                 conf_raw = min(1.0, wsum / max(len(use_points), 1))
         flow_mag = motion_mag
-        spike = (flow_mag > flow_thresh_high) or (conf_raw < conf_floor)
-        lead = lead_frames_int
-        if spike and lead > 0:
-            cx_pred = cx_raw + vx * lead
-            cy_pred = cy_raw + vy * lead
-        else:
-            cx_pred, cy_pred = cx_raw, cy_raw
 
         if goal_tracker is not None:
             motion_hint = (
-                np.array([cx_raw, cy_raw], dtype=np.float64) if points else None
+                np.array([cx_hint, cy_hint], dtype=np.float64) if points else None
             )
             goal_tracker.observe(frame_idx, current_frame, motion_hint)
             goal_tracker.track(flow_result.flow)
@@ -1338,96 +1531,51 @@ def run_autoframe(
             goal_box = default_goal_box(width, height, goal_preference)
         goal_x = goal_box.center[0] if goal_box is not None else None
 
-        ex = cx_pred - prev_cam_cx
-        ey = cy_pred - prev_cam_cy
-        prev_vx_cam = float(getattr(state, "vx_cam", 0.0))
-        prev_vy_cam = float(getattr(state, "vy_cam", 0.0))
-        vx_cam = prev_vx_cam + follow_k * ex - follow_d * prev_vx_cam
-        vy_cam = prev_vy_cam + follow_k * ey - follow_d * prev_vy_cam
-
-        box_x = keep_box_x_factor * (W / max(prev_z, 1e-6))
-        box_y = keep_box_y_factor * (H / max(prev_z, 1e-6))
-        if abs(ex) > box_x:
-            vx_cam += (ex - (box_x if ex > 0 else -box_x)) * 0.35
-        if abs(ey) > box_y:
-            vy_cam += (ey - (box_y if ey > 0 else -box_y)) * 0.35
-
-        max_v = max_xy_speed
-        max_a = max_xy_accel
-        if spike:
-            max_v *= 1.35
-            max_a *= 1.6
-
-        vx_cam = clamp_value(vx_cam, -max_v, max_v)
-        vy_cam = clamp_value(vy_cam, -max_v, max_v)
-
-        cam_cx = prev_cam_cx + clamp_value(vx_cam, -max_a, max_a)
-        cam_cy = prev_cam_cy + clamp_value(vy_cam, -max_a, max_a)
-
-        guard_x = clamp_value(edge_guard_x, 0.0, W / 2.0)
-        guard_y = clamp_value(edge_guard_y, 0.0, H / 2.0)
-        cam_cx = clamp_value(cam_cx, guard_x, W - guard_x)
-        cam_cy = clamp_value(cam_cy, guard_y, H - guard_y)
-
-        xs = [abs(x - cam_cx) for (x, _, _) in use_points] or [0.0]
-        ys = [abs(y - cam_cy) for (_, y, _) in use_points] or [0.0]
-        xs.sort()
-        ys.sort()
-
-        def pctl(arr: List[float], p: float) -> float:
-            if not arr:
-                return 0.0
-            idx = (len(arr) - 1) * p
-            i = int(idx)
-            j = min(len(arr) - 1, i + 1)
-            t = idx - i
-            return arr[i] * (1.0 - t) + arr[j] * t
-
-        spread = max(pctl(xs, 0.80), pctl(ys, 0.80))
-        if not np.isfinite(spread):
-            spread = 0.0
-        if spread_hi <= spread_lo:
-            t = 0.0
+        if use_points:
+            cand_pts = np.asarray([(x, y) for (x, y, _) in use_points], dtype=np.float64)
+        elif points:
+            cand_pts = np.asarray([(x, y) for (x, y, _) in points], dtype=np.float64)
         else:
-            t = (spread - spread_lo) / (spread_hi - spread_lo)
-        t = clamp_value(t, 0.0, 1.0)
-        z_target = zoom_min * (1.0 - t) + zoom_max * t
+            cand_pts = None
+        conf_value = conf_raw if points else 1.0
+
+        cam_cx, cam_cy, z = update_camera(
+            frame_idx,
+            flow_result.flow,
+            cand_pts,
+            conf_value,
+            camera_params,
+            state,
+            width,
+            height,
+        )
+        spike = bool(state.get("spike", False))
 
         if goal_bias_k and goal_x is not None:
             dist_to_goal = abs(cam_cx - goal_x)
             bias = 1.0 - clamp_value(dist_to_goal / (W * 0.5), 0.0, 1.0)
-            z_target = max(
-                z_target,
+            z_goal = max(
+                z,
                 zoom_min + bias * (zoom_max - zoom_min) * goal_bias_k,
             )
-
-        if spike:
-            emergency_base = prev_z if prev_z else zoom_min
-            z_target = max(z_target, emergency_base * zoom_emergency)
-        z_target = clamp_value(z_target, zoom_min, zoom_max)
-
-        z = prev_z if prev_z else zoom_min
-        delta = (z_target - z) * zoom_vel_k
-        max_delta = (zoom_max - zoom_min) * 0.06
-        delta = clamp_value(delta, -max_delta, max_delta)
-        z = z + delta
-        z = (1.0 - zoom_ema_alpha) * z + zoom_ema_alpha * z_target
-        z = clamp_value(z, zoom_min, zoom_max)
+            if z_goal != z:
+                z = clamp_value(z_goal, zoom_min, zoom_max)
+                state["z_ema"] = z
 
         crop_center = np.array([cam_cx, cam_cy], dtype=np.float64)
         w, h, x, y, adjusted_center = compute_crop_geometry(
             crop_center, z, args.profile, frame_size, padx, pady
         )
         cam_cx, cam_cy = float(adjusted_center[0]), float(adjusted_center[1])
+        state["cam_x"] = cam_cx
+        state["cam_y"] = cam_cy
 
-        state.vx_cam = vx_cam
-        state.vy_cam = vy_cam
         prev_cam_cx = cam_cx
         prev_cam_cy = cam_cy
-        prev_z = z
 
         confidence = float(np.clip(conf_raw, 0.0, 1.0))
-        crowding = float(np.clip(spread / max(spread_hi, 1e-6), 0.0, 1.0))
+        spread_val = float(state.get("spread", 0.0))
+        crowding = float(np.clip(spread_val / max(spread_hi, 1e-6), 0.0, 1.0))
         flow_mag = float(np.clip(flow_mag, 0.0, 1.0))
         anchor_iou = 0.0
         if goal_box is not None:
@@ -1454,12 +1602,21 @@ def run_autoframe(
         )
         debug_states.append(
             DebugState(
-                raw_center=(cx_raw, cy_raw),
-                lead_center=(cx_pred, cy_pred),
+                raw_center=(
+                    float(state.get("cx_raw", cam_cx)),
+                    float(state.get("cy_raw", cam_cy)),
+                ),
+                lead_center=(
+                    float(state.get("cx_pred", cam_cx)),
+                    float(state.get("cy_pred", cam_cy)),
+                ),
                 target_center=(cam_cx, cam_cy),
-                velocity=(vx_cam, vy_cam),
-                zoom_target=z_target,
-                spread=spread,
+                velocity=(
+                    float(state.get("cam_vx", 0.0)),
+                    float(state.get("cam_vy", 0.0)),
+                ),
+                zoom_target=float(state.get("zoom_desire", z)),
+                spread=spread_val,
                 has_targets=bool(points),
                 confidence=confidence,
                 speed=math.hypot(vx, vy),
