@@ -11,6 +11,10 @@ $varsDir = (Resolve-Path (Join-Path $Root 'out\autoframe_work')).Path
 $outDir  = Join-Path $Root 'out\reels\tiktok'
 New-Item -Force -ItemType Directory $outDir | Out-Null
 
+# Behavior when a clip has no ps1vars
+$SkipMissingVars = $true      # skip and keep going
+$DefaultIfMissing = $false    # or set $true to use safe defaults below
+
 # --- helpers (self-contained, no session priming needed) ---
 function Unquote([string]$s) {
   if ($null -eq $s) { return $s }
@@ -85,7 +89,25 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   $stem     = [IO.Path]::GetFileNameWithoutExtension($_.Name)
   $varsPath = Join-Path $varsDir ($stem + "_zoom.ps1vars")
   $vars = Load-ZoomVars $varsPath
-  if ($null -eq $vars) { throw "Missing cxExpr/cyExpr/zExpr in $varsPath" }
+  if ($null -eq $vars) {
+    if ($SkipMissingVars -and -not $DefaultIfMissing) {
+      Write-Warning "No cxExpr/cyExpr/zExpr in $varsPath — skipping $($_.Name)"
+      return
+    }
+
+    if ($DefaultIfMissing) {
+      # --- safe, sane defaults (centered frame, mild zoom) ---
+      # Use expressions so they still work per-frame; no 'n' needed.
+      $vars = [pscustomobject]@{
+        cxExpr = 'iw/2'   # center X in source pixel space
+        cyExpr = 'ih/2'   # center Y
+        zExpr  = '1.10'   # gentle 10% zoom; clamp is optional
+      }
+      Write-Warning "No vars for $($_.Name). Using defaults: cx=iw/2, cy=ih/2, z=1.10"
+    } else {
+      throw "Missing cxExpr/cyExpr/zExpr in $varsPath"
+    }
+  }
 
   Write-Host "Loaded:`n cxExpr=$($vars.cxExpr)`n cyExpr=$($vars.cyExpr)`n zExpr=$($vars.zExpr)" -ForegroundColor DarkCyan
 
