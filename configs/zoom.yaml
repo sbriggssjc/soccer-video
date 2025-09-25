@@ -45,16 +45,16 @@ profiles:
       v_bottom_margin: 60
       v_deadzone: 8
       v_gain: 0.70
-      goal_bias: 0.30
-      conf_th: 0.35
+      goal_bias: 0.40
+      conf_th: 0.55
       snap_hold_ms: 160
     v_enabled: true
     v_gain: 0.70
     v_deadzone: 8.0
     v_top_margin: 60
     v_bottom_margin: 60
-    goal_bias: 0.30
-    conf_th: 0.35
+    goal_bias: 0.40
+    conf_th: 0.55
     snap_hold_ms: 160
     zoom:
       min: 1.0
