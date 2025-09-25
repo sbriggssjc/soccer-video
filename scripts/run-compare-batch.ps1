@@ -1,6 +1,6 @@
 param(
   [switch]$SkipMissingVars = $true,
-  [switch]$DefaultIfMissing = $true,
+  [switch]$DefaultIfMissing = $false,
   [int]$Fps = 24,
   [double]$kSpeed = 0.02,
   [int]$LeadFrames = 6,
@@ -175,7 +175,6 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   Write-Host ">> filter: $filter"
 
   # run ffmpeg (inline filter avoids the script-file quoting mess)
-  if ($filter -match 'clip\(') { throw 'clip() still present after expansion' }
   & $ffmpeg -hide_banner -y -nostdin `
     -i $inPath `
     -filter_complex $filter `
