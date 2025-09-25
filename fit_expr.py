@@ -470,7 +470,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-clip", action="store_true", help="Skip wrapping z polynomial in clip()")
     parser.add_argument("--lead-ms", type=int, default=120, help="Frame lead in milliseconds")
     parser.add_argument("--alpha-slow", type=float, default=0.08, help="EMA alpha when play is slow")
-    parser.add_argument("--alpha-fast", type=float, default=0.40, help="EMA alpha when play is fast")
+    parser.add_argument("--alpha-fast", type=float, default=0.32, help="EMA alpha when play is fast")
     parser.add_argument("--z-tight", type=float, default=2.2, help="Tight zoom factor")
     parser.add_argument("--z-wide", type=float, default=1.18, help="Wide zoom factor")
     parser.add_argument(
@@ -500,7 +500,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--boot-wide-ms",
         type=int,
-        default=1600,
+        default=2200,
         help="Keep wide at start until lock or time passes",
     )
     parser.add_argument(
@@ -537,7 +537,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--conf-th",
         type=float,
-        default=0.35,
+        default=0.55,
         help="Confidence threshold for trusting ball detections",
     )
     parser.add_argument("--v-enabled", action="store_true", help="Enable vertical steering adjustments")
@@ -568,13 +568,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--snap-hold-ms",
         type=int,
-        default=120,
+        default=160,
         help="Duration to hold snap zoom and reduced lead after trigger",
     )
     parser.add_argument(
         "--goal-bias",
         type=float,
-        default=0.0,
+        default=0.40,
         help="Additional framing bias toward goal mouth on shot snaps",
     )
     config_defaults: Dict[str, Any] = {}
