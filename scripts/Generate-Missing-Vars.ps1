@@ -65,37 +65,21 @@ function Test-VarsFile {
   param([string]$Path)
   if (-not (Test-Path -LiteralPath $Path)) { return $false }
   $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-  foreach ($token in 'cxExpr', 'cyExpr', 'zExpr') {
-    if ($content -notmatch "(?im)^\s*\$$token\s*=") {
-      return $false
-    }
-  }
-  return $true
+  $hasPs  = ($content -match '(?im)^\s*\$(cxExpr|cyExpr|zExpr)\s*=')
+  $hasRaw = ($content -match '(?im)^\s*(cx|cy|z)\s*:')
+  return ($hasPs -or $hasRaw)
 }
 
 function Normalize-VarsFile {
-  param([Parameter(Mandatory)][string]$Path)
-
+  param([Parameter(Mandatory=$true)][string]$Path)
   if (-not (Test-Path -LiteralPath $Path)) { return $false }
-  $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-
-  # Already OK?
-  if ($content -match '(?im)^\s*\$cxExpr\s*=') { return $true }
-
-  # Try to extract cx/cy/z in many shapes: cx:, cx =, cxExpr =, with/without "$"
-  $cx = ($content | Select-String -Pattern '^\s*(\$?\s*cx(?:Expr)?\s*[:=])\s*(.+)$' -AllMatches).Matches |
-        Select-Object -First 1 | ForEach-Object { $_.Groups[2].Value }
-  $cy = ($content | Select-String -Pattern '^\s*(\$?\s*cy(?:Expr)?\s*[:=])\s*(.+)$' -AllMatches).Matches |
-        Select-Object -First 1 | ForEach-Object { $_.Groups[2].Value }
-  $z  = ($content | Select-String -Pattern '^\s*(\$?\s*z(?:Expr)?\s*[:=])\s*(.+)$'  -AllMatches).Matches |
-        Select-Object -First 1 | ForEach-Object { $_.Groups[2].Value }
-
-  if ($cx -and $cy -and $z) {
-@"
-`$cxExpr = $cx
-`$cyExpr = $cy
-`$zExpr  = $z
-"@ | Set-Content -LiteralPath $Path -Encoding UTF8
+  $txt  = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+  $orig = $txt
+  $txt = $txt -replace '(?im)^\s*cx:\s*\((.+?)\)\s*$', '$cxExpr=(($1))'
+  $txt = $txt -replace '(?im)^\s*cy:\s*\((.+?)\)\s*$', '$cyExpr=(($1))'
+  $txt = $txt -replace '(?im)^\s*z:\s*\((.+?)\)\s*$',  '$zExpr=($1)'
+  if ($txt -ne $orig) {
+    Set-Content -LiteralPath $Path -Value $txt -Encoding UTF8
     return $true
   }
   return $false
@@ -243,14 +227,10 @@ foreach ($target in $Targets) {
     }
   }
 
-  # If the strict check fails, try to normalize once
+  Normalize-VarsFile -Path $varsPath | Out-Null
+
   if (-not (Test-VarsFile -Path $varsPath)) {
-    if ( (Normalize-VarsFile -Path $varsPath) -and (Test-VarsFile -Path $varsPath) ) {
-      Write-Host "Normalized vars format for $target" -ForegroundColor Yellow
-    }
-    else {
-      throw "Generated vars missing cx/cy/z expressions for $target (generator: $generatorDescription)"
-    }
+    throw "Generated vars missing cx/cy/z expressions for $target (generator: $generatorDescription)"
   }
 
   $results += [pscustomobject]@{
