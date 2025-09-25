@@ -186,7 +186,11 @@ function Find-Unreferenced {
   $unref = @()
 
   # Use array membership to avoid Contains() weirdness in some PS environments
-  $refArr = $Refs.ToArray()
+  # Robust conversion to a string[] even if $Refs is null or (accidentally) a string
+  [string[]]$refArr = @()
+  if ($null -ne $Refs -and $Refs -isnot [string]) {
+    $refArr = @($Refs | ForEach-Object { $_ })
+  }
 
   foreach ($f in $Files) {
     $rel = $f.FullName.Replace($rootFull,'').TrimStart('\','/')
