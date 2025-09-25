@@ -84,15 +84,16 @@ function Remove-IfInvalidVars {
 
 function Find-PowerShellGenerator {
   param([string]$RootPath)
-  $candidates = Get-ChildItem -Path $RootPath -Recurse -File -Filter '*.ps1' |
+
+  Get-ChildItem -Path $RootPath -Recurse -File -Filter '*.ps1' |
     Where-Object {
-      (Select-String -LiteralPath $_.FullName -Pattern 'cxExpr' -Quiet) -and
-      (Select-String -LiteralPath $_.FullName -Pattern 'VarsOut' -Quiet)
-    }
-  if ($candidates) {
-    return ($candidates | Sort-Object FullName | Select-Object -First 1)
-  }
-  return $null
+      $_.FullName -ne $PSCommandPath -and
+      $_.Name -notmatch '^run-compare-batch\.ps1$' -and
+      (Select-String -LiteralPath $_.FullName -Pattern '(?im)^\s*param\(' -Quiet) -and
+      (Select-String -LiteralPath $_.FullName -Pattern '(?i)\b-?Input\b' -Quiet) -and
+      (Select-String -LiteralPath $_.FullName -Pattern '(?i)\bVarsOut\b' -Quiet)
+    } |
+    Select-Object -First 1
 }
 
 function Find-PythonTracker {
@@ -125,6 +126,11 @@ function Find-PythonFitter {
 }
 
 $psGenerator = Find-PowerShellGenerator -RootPath $Root
+
+# ⬇️ Prevent self-selection
+if ($psGenerator -and ($psGenerator.FullName -eq $PSCommandPath)) {
+  $psGenerator = $null
+}
 $pythonTracker = $null
 $pythonFitter = $null
 $generatorMode = $null
