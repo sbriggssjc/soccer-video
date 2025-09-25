@@ -10,6 +10,19 @@ import numpy as np
 import yaml
 
 
+def _resolve_config_path(config: Path) -> Path:
+    cfg_path = Path(config)
+    if not cfg_path.is_file():
+        script_dir = Path(__file__).resolve().parent
+        alt = script_dir / "configs" / cfg_path.name
+        if alt.is_file():
+            return alt
+        alt = script_dir / cfg_path
+        if alt.is_file():
+            return alt
+    return cfg_path
+
+
 def _finite_mask(*arrs: np.ndarray) -> np.ndarray:
     m = np.ones_like(arrs[0], dtype=bool)
     for a in arrs:
@@ -444,6 +457,7 @@ def parse_args() -> argparse.Namespace:
     config_parser.add_argument("--roi", choices=["generic", "goal"], default="generic")
 
     config_args, _ = config_parser.parse_known_args()
+    config_args.config = _resolve_config_path(config_args.config)
     profile_cfg = load_profile_config(config_args.config, config_args.profile, config_args.roi)
 
     parser = argparse.ArgumentParser(
@@ -574,7 +588,9 @@ def parse_args() -> argparse.Namespace:
             config_defaults[key] = value
     if config_defaults:
         parser.set_defaults(**config_defaults)
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.config = _resolve_config_path(args.config)
+    return args
 
 
 def main() -> None:
