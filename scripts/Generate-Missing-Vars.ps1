@@ -245,7 +245,7 @@ foreach ($target in $Targets) {
 
   # If the strict check fails, try to normalize once
   if (-not (Test-VarsFile -Path $varsPath)) {
-    if (Normalize-VarsFile -Path $varsPath -and (Test-VarsFile -Path $varsPath)) {
+    if ( (Normalize-VarsFile -Path $varsPath) -and (Test-VarsFile -Path $varsPath) ) {
       Write-Host "Normalized vars format for $target" -ForegroundColor Yellow
     }
     else {
