@@ -39,6 +39,11 @@ profiles:
   landscape:
     aspect_ratio: 1.7777777778  # 16:9 width:height
     fallback_bias_y: 0.5
+    v_enabled: true
+    v_gain: 0.85
+    v_deadzone: 6.0
+    v_top_margin: 40
+    v_bottom_margin: 40
     zoom:
       min: 1.0
       max: 1.9
