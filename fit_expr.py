@@ -266,13 +266,17 @@ def limit_speed(x: np.ndarray, max_delta: float) -> np.ndarray:
     return y
 
 
-def apply_zoom_hysteresis(z: np.ndarray, max_delta: float) -> np.ndarray:
-    if max_delta <= 0:
+def apply_zoom_hysteresis_asym(
+    z: np.ndarray, tighten_rate: float, widen_rate: float
+) -> np.ndarray:
+    if tighten_rate <= 0 and widen_rate <= 0:
         return z.copy()
     out = z.copy()
     for i in range(1, len(out)):
         delta = float(out[i] - out[i - 1])
-        delta = np.clip(delta, -max_delta, max_delta)
+        limit = widen_rate if delta > 0 else tighten_rate
+        if limit > 0:
+            delta = np.clip(delta, -limit, limit)
         out[i] = out[i - 1] + delta
     return out
 
@@ -427,6 +431,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--z-tight", type=float, default=2.2, help="Tight zoom factor")
     parser.add_argument("--z-wide", type=float, default=1.18, help="Wide zoom factor")
     parser.add_argument(
+        "--celebration-ms",
+        type=int,
+        default=1400,
+        help="Window after a detected shot to tighten on scorer",
+    )
+    parser.add_argument(
+        "--celebration-tight",
+        type=float,
+        default=2.35,
+        help="Zoom level during celebration lock-in",
+    )
+    parser.add_argument(
+        "--zoom-tighten-rate",
+        type=float,
+        default=0.015,
+        help="Max per-frame tighten step",
+    )
+    parser.add_argument(
+        "--zoom-widen-rate",
+        type=float,
+        default=0.035,
+        help="Max per-frame widen step (faster than tighten)",
+    )
+    parser.add_argument(
+        "--boot-wide-ms",
+        type=int,
+        default=1600,
+        help="Keep wide at start until lock or time passes",
+    )
+    parser.add_argument(
         "--snap-accel-th",
         type=float,
         default=0.75,
@@ -515,15 +549,18 @@ def main() -> None:
 
     cy_out = 0.85 * cy_s + 0.15 * cy_lead
 
-    BOOT_WIDE_MS = 1200.0
+    BOOT_WIDE_MS = float(args.boot_wide_ms)
     LOCK_CONF = 0.60
     LOCK_STREAK = 6
-    PLAYER_RADIUS_PX = 80.0
+    PLAYER_RADIUS_PX = 95.0
     PAN_CAP = 55.0
     TOWARD_GOAL_CO = 0.55
     GOAL_BIAS_MAX = 0.35
     FINAL_MS = 1600.0
     BASE_LEAD_ALPHA = 0.35
+    SHOT_TOWARD_CO = 0.65
+    SHOT_SPEED_Q = 88.0
+    SHOT_WIDEN = 0.20
 
     time_ms = (frames - frames[0]).astype(np.float64) * (1000.0 / fps)
     remaining_ms = (frames[-1] - frames).astype(np.float64) * (1000.0 / fps)
@@ -614,6 +651,56 @@ def main() -> None:
     if np.isnan(field_center_y):
         field_center_y = 0.0
 
+    shot_speed_q = (
+        float(np.nanpercentile(ball_speed, SHOT_SPEED_Q))
+        if np.any(ball_speed > 0)
+        else 0.0
+    )
+
+    shot_like = np.zeros_like(ball_speed, dtype=np.float64)
+    if goal_center_x is not None:
+        gx = goal_center_x.astype(np.float64, copy=True)
+        gx = np.where(np.isnan(gx), field_center_x, gx)
+        if goal_center_y is not None:
+            gy = goal_center_y.astype(np.float64, copy=True)
+            gy = np.where(np.isnan(gy), field_center_y, gy)
+        else:
+            gy = np.full_like(cy_s, field_center_y, dtype=np.float64)
+        goal_vec_bulk = np.stack(
+            [
+                gx - _fill_nan_linear(ball_x),
+                gy - _fill_nan_linear(ball_y),
+            ],
+            axis=1,
+        )
+        toward_bulk = toward_goal(ball_vel, goal_vec_bulk)
+        fast_enough = (ball_speed > max(shot_speed_q, 1e-6)).astype(np.float64)
+        aligned = smoothstep(SHOT_TOWARD_CO, 1.0, toward_bulk)
+        shot_like = np.clip(fast_enough * aligned, 0.0, 1.0)
+    else:
+        shot_like[:] = 0.0
+
+    spike = (a_n > args.snap_accel_th).astype(float)
+    tau = int(round(args.snap_decay_ms * fps / 1000.0))
+    if tau <= 0:
+        tau = 1
+    kernel = np.exp(-np.arange(0, 3 * tau) / max(tau, 1))
+    snap = np.convolve(spike, kernel, mode="same")
+    if snap.max() > 0:
+        snap = np.clip(snap / snap.max(), 0.0, 1.0)
+
+    combo = 0.6 * shot_like + 0.4 * (
+        snap if snap.size == shot_like.size else np.zeros_like(shot_like)
+    )
+    shot_idx = int(np.argmax(combo)) if combo.size else None
+
+    celebration_mask = np.zeros_like(cx_s, dtype=bool)
+    if shot_idx is not None and combo[shot_idx] > 0.35:
+        shot_t = time_ms[shot_idx]
+        celebration_mask = (time_ms >= shot_t) & (
+            time_ms <= shot_t + float(args.celebration_ms)
+        )
+
     def goal_target_for_frame(idx: int) -> Tuple[float, float]:
         gx = field_center_x
         gy = field_center_y
@@ -634,7 +721,12 @@ def main() -> None:
         pan_target = float(cx_s[idx])
         z_guard_wide = False
         if boot_phase[idx] and not locked[idx]:
-            pan_target = field_center_x
+            if frame_size is not None and not np.isnan(ball_x[idx]):
+                pan_target = float(
+                    np.clip(ball_x[idx], frame_size[0] * 0.18, frame_size[0] * 0.82)
+                )
+            else:
+                pan_target = field_center_x
             z_guard_wide = True
 
         bx = float(ball_x[idx]) if not np.isnan(ball_x[idx]) else None
@@ -660,9 +752,41 @@ def main() -> None:
                     and best_dist < PLAYER_RADIUS_PX
                     and conf >= 0.3
                 ):
-                    pan_target = mix_scalar(pan_prev_target, nearest_pos[0], 0.25)
+                    pan_target = mix_scalar(pan_prev_target, nearest_pos[0], 0.15)
                 else:
                     pan_target = pan_prev_target
+
+        if celebration_mask[idx]:
+            ref_bx = (
+                float(ball_x[shot_idx])
+                if (
+                    shot_idx is not None
+                    and 0 <= shot_idx < ball_x.shape[0]
+                    and not np.isnan(ball_x[shot_idx])
+                )
+                else pan_target
+            )
+            ref_by = (
+                float(ball_y[shot_idx])
+                if (
+                    shot_idx is not None
+                    and 0 <= shot_idx < ball_y.shape[0]
+                    and not np.isnan(ball_y[shot_idx])
+                )
+                else field_center_y
+            )
+            best_px = None
+            best_d = float("inf")
+            for track in player_tracks:
+                px, py = track[idx]
+                if np.isnan(px) or np.isnan(py):
+                    continue
+                d = euclidean_distance(px, py, ref_bx, ref_by)
+                if d < best_d:
+                    best_d = d
+                    best_px = float(px)
+            if best_px is not None:
+                pan_target = 0.8 * pan_target + 0.2 * best_px
 
         goal_xy = goal_target_for_frame(idx)
         goal_vec = np.array(
@@ -709,21 +833,17 @@ def main() -> None:
     k = np.clip(1.0 - s_n, 0.0, 1.0)
     z_base = args.z_wide + (args.z_tight - args.z_wide) * k
 
-    spike = (a_n > args.snap_accel_th).astype(float)
-    tau = int(round(args.snap_decay_ms * fps / 1000.0))
-    if tau <= 0:
-        tau = 1
-    kernel = np.exp(-np.arange(0, 3 * tau) / max(tau, 1))
-    snap = np.convolve(spike, kernel, mode="same")
-    if snap.max() > 0:
-        snap = np.clip(snap / snap.max(), 0.0, 1.0)
     z_bonus_widen = args.snap_widen * snap
+    z_bonus_widen += SHOT_WIDEN * shot_like
     z = np.clip(z_base - z_bonus_widen, 1.10, 2.60)
 
     if keep_wide_mask.any():
         z[keep_wide_mask] = np.minimum(z[keep_wide_mask], args.z_wide)
 
-    z = apply_zoom_hysteresis(z, 0.02)
+    if celebration_mask.any():
+        z[celebration_mask] = np.maximum(z[celebration_mask], args.celebration_tight)
+
+    z = apply_zoom_hysteresis_asym(z, args.zoom_tighten_rate, args.zoom_widen_rate)
 
     cx_out, cy_out = apply_boundary_cushion(cx_out, cy_out, z, frame_size)
 
