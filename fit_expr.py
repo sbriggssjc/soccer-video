@@ -92,12 +92,20 @@ def load_zoom_bounds(config_path: Path, profile: str, roi: str) -> Tuple[float, 
 
 def read_track(
     csv_path: Path,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, str]]:
+) -> Tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    Dict[str, str],
+    Dict[str, np.ndarray],
+]:
     metadata: Dict[str, str] = {}
     frames: List[int] = []
     cx: List[float] = []
     cy: List[float] = []
     zoom: List[float] = []
+    extras_lists: Dict[str, List[float]] = {}
 
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         header_row: Optional[List[str]] = None
@@ -123,6 +131,9 @@ def read_track(
             raise SystemExit(f"No header row found in {csv_path}")
 
         reader = csv.DictReader(handle, fieldnames=header_row)
+        base_fields = {"frame", "cx", "cy", "z"}
+        extras_fields = [key for key in header_row if key not in base_fields]
+        extras_lists = {key: [] for key in extras_fields}
         for row in reader:
             if row is None:
                 continue
@@ -133,12 +144,25 @@ def read_track(
             if not frame_str or cx_str is None or cy_str is None or z_str is None:
                 continue
             try:
-                frames.append(int(float(frame_str)))
-                cx.append(float(cx_str))
-                cy.append(float(cy_str))
-                zoom.append(float(z_str))
+                frame_val = int(float(frame_str))
+                cx_val = float(cx_str)
+                cy_val = float(cy_str)
+                z_val = float(z_str)
             except ValueError:
                 continue
+            frames.append(frame_val)
+            cx.append(cx_val)
+            cy.append(cy_val)
+            zoom.append(z_val)
+            for key in extras_fields:
+                value = row.get(key)
+                if value is None or value == "":
+                    extras_lists[key].append(float("nan"))
+                    continue
+                try:
+                    extras_lists[key].append(float(value))
+                except ValueError:
+                    extras_lists[key].append(float("nan"))
 
     if not frames:
         raise SystemExit(f"No rows found in {csv_path}")
@@ -148,7 +172,12 @@ def read_track(
     cx_arr = np.asarray(cx, dtype=np.float64)[order]
     cy_arr = np.asarray(cy, dtype=np.float64)[order]
     zoom_arr = np.asarray(zoom, dtype=np.float64)[order]
-    return frames_arr, cx_arr, cy_arr, zoom_arr, metadata
+    extras = {
+        key: np.asarray(values, dtype=np.float64)[order]
+        for key, values in extras_lists.items()
+        if values
+    }
+    return frames_arr, cx_arr, cy_arr, zoom_arr, metadata, extras
 
 
 def fit_poly(values: Sequence[float], degree: int) -> np.ndarray:
@@ -190,6 +219,28 @@ def lead_signal(x: np.ndarray, frames: int) -> np.ndarray:
     return lead
 
 
+def smoothstep(edge0: float, edge1: float, value: np.ndarray) -> np.ndarray:
+    arr = np.asarray(value, dtype=np.float64)
+    if edge0 == edge1:
+        return np.clip((arr >= edge1).astype(float), 0.0, 1.0)
+    t = np.clip((arr - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def rolling_min_streak(mask: np.ndarray, streak: int) -> np.ndarray:
+    if streak <= 1:
+        return mask.astype(bool)
+    out = np.zeros(mask.shape, dtype=bool)
+    counter = 0
+    for idx, flag in enumerate(mask.astype(bool)):
+        if flag:
+            counter += 1
+        else:
+            counter = 0
+        out[idx] = counter >= streak
+    return out
+
+
 def apply_deadzone(x: np.ndarray, dead: float) -> np.ndarray:
     if dead <= 0:
         return x.copy()
@@ -224,6 +275,62 @@ def apply_zoom_hysteresis(z: np.ndarray, max_delta: float) -> np.ndarray:
         delta = np.clip(delta, -max_delta, max_delta)
         out[i] = out[i - 1] + delta
     return out
+
+
+def _fill_nan_linear(values: np.ndarray) -> np.ndarray:
+    arr = values.astype(float, copy=True)
+    if arr.size == 0:
+        return arr
+    mask = ~np.isnan(arr)
+    if mask.all():
+        return arr
+    idx = np.flatnonzero(mask)
+    if idx.size == 0:
+        return arr
+    first, last = idx[0], idx[-1]
+    arr[:first] = arr[first]
+    arr[last + 1 :] = arr[last]
+    missing = np.isnan(arr)
+    if missing.any():
+        arr[missing] = np.interp(np.flatnonzero(missing), idx, arr[idx])
+    return arr
+
+
+def compute_ball_velocity(ball_x: np.ndarray, ball_y: np.ndarray, dt: float) -> np.ndarray:
+    if ball_x.size == 0:
+        return np.empty((0, 2), dtype=np.float64)
+    bx = _fill_nan_linear(ball_x)
+    by = _fill_nan_linear(ball_y)
+    vx = np.gradient(bx, dt)
+    vy = np.gradient(by, dt)
+    vel = np.stack([vx, vy], axis=1)
+    invalid = np.isnan(ball_x) | np.isnan(ball_y)
+    vel[invalid] = 0.0
+    return vel
+
+
+def clamp_scalar(value: float, maximum: float) -> float:
+    if maximum <= 0:
+        return 0.0
+    return float(np.clip(value, -maximum, maximum))
+
+
+def mix_scalar(a: float, b: float, weight: float) -> float:
+    w = float(np.clip(weight, 0.0, 1.0))
+    return (1.0 - w) * float(a) + w * float(b)
+
+
+def euclidean_distance(ax: float, ay: float, bx: float, by: float) -> float:
+    return float(np.hypot(ax - bx, ay - by))
+
+
+def toward_goal(ball_vel: np.ndarray, goal_vec: np.ndarray) -> np.ndarray:
+    speed = np.linalg.norm(ball_vel, axis=1)
+    goal_mag = np.linalg.norm(goal_vec, axis=1)
+    denom = speed * goal_mag
+    denom[denom == 0.0] = 1.0
+    dots = np.sum(ball_vel * goal_vec, axis=1)
+    return np.clip(dots / denom, -1.0, 1.0)
 
 
 def apply_boundary_cushion(
@@ -343,7 +450,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    frames, cx, cy, zoom, metadata = read_track(args.csv)
+    (
+        frames,
+        cx,
+        cy,
+        zoom,
+        metadata,
+        extras,
+    ) = read_track(args.csv)
     z_min, z_max = load_zoom_bounds(args.config, args.profile, args.roi)
 
     if "zoom_min" in metadata:
@@ -399,10 +513,193 @@ def main() -> None:
     cx_lead = lead_signal(cx_s, lead_frames)
     cy_lead = lead_signal(cy_s, lead_frames)
 
-    cx_out = 0.8 * cx_s + 0.2 * cx_lead
     cy_out = 0.85 * cy_s + 0.15 * cy_lead
 
-    pan_speed_cap = 42.0
+    BOOT_WIDE_MS = 1200.0
+    LOCK_CONF = 0.60
+    LOCK_STREAK = 6
+    PLAYER_RADIUS_PX = 80.0
+    PAN_CAP = 55.0
+    TOWARD_GOAL_CO = 0.55
+    GOAL_BIAS_MAX = 0.35
+    FINAL_MS = 1600.0
+    BASE_LEAD_ALPHA = 0.35
+
+    time_ms = (frames - frames[0]).astype(np.float64) * (1000.0 / fps)
+    remaining_ms = (frames[-1] - frames).astype(np.float64) * (1000.0 / fps)
+
+    def extract_series(names: Sequence[str]) -> Optional[np.ndarray]:
+        for name in names:
+            series = extras.get(name)
+            if series is not None and series.shape[0] == frames.shape[0]:
+                return series.astype(np.float64, copy=True)
+        return None
+
+    ball_conf = extract_series(["ball_conf", "ball_confidence"])
+    if ball_conf is None or np.isnan(ball_conf).all():
+        ball_conf = np.ones_like(cx_s)
+    else:
+        np.nan_to_num(ball_conf, copy=False, nan=0.0, posinf=1.0, neginf=0.0)
+        np.clip(ball_conf, 0.0, 1.0, out=ball_conf)
+
+    ball_x = extract_series(["ball_x", "ball_cx", "ball_px"])
+    ball_y = extract_series(["ball_y", "ball_cy", "ball_py"])
+    if ball_x is None or ball_y is None:
+        ball_x = np.full_like(cx_s, np.nan)
+        ball_y = np.full_like(cy_s, np.nan)
+
+    goal_x = extract_series(["goal_x", "goal_cx"])
+    goal_y = extract_series(["goal_y", "goal_cy"])
+    goal_w = extract_series(["goal_w", "goal_width"])
+    goal_h = extract_series(["goal_h", "goal_height"])
+
+    goal_center_x = None
+    goal_center_y = None
+    if goal_x is not None and goal_w is not None:
+        goal_center_x = goal_x + goal_w * 0.5
+    elif goal_x is not None:
+        goal_center_x = goal_x
+    if goal_y is not None and goal_h is not None:
+        goal_center_y = goal_y + goal_h * 0.5
+    elif goal_y is not None:
+        goal_center_y = goal_y
+
+    def collect_player_tracks(prefixes: Sequence[str]) -> List[np.ndarray]:
+        tracks: List[np.ndarray] = []
+        for name, values in extras.items():
+            if not name.endswith("_x"):
+                continue
+            base = name[:-2]
+            if not any(base.startswith(prefix) for prefix in prefixes):
+                continue
+            y_key = f"{base}_y"
+            y_values = extras.get(y_key)
+            if y_values is None or y_values.shape[0] != values.shape[0]:
+                continue
+            tracks.append(
+                np.stack([values.astype(np.float64), y_values.astype(np.float64)], axis=1)
+            )
+        return tracks
+
+    player_tracks = collect_player_tracks(["player", "runner", "attacker", "defender"])
+
+    boot_phase = time_ms < BOOT_WIDE_MS
+    locked = rolling_min_streak(ball_conf > LOCK_CONF, LOCK_STREAK)
+
+    ball_vel = compute_ball_velocity(ball_x, ball_y, dt)
+    ball_speed = np.linalg.norm(ball_vel, axis=1)
+    if np.all(ball_speed == 0.0):
+        shot_speed_threshold = 0.0
+    else:
+        shot_speed_threshold = float(np.nanpercentile(ball_speed, 85))
+
+    field_center_x: Optional[float] = None
+    field_center_y: Optional[float] = None
+    frame_size: Optional[Tuple[int, int]] = None
+    try:
+        width = int(float(metadata.get("width", 0)))
+        height = int(float(metadata.get("height", 0)))
+        if width > 0 and height > 0:
+            frame_size = (width, height)
+            field_center_x = width * 0.5
+            field_center_y = height * 0.5
+    except (TypeError, ValueError):
+        frame_size = None
+    if field_center_x is None:
+        field_center_x = float(np.nanmean(cx))
+    if field_center_y is None:
+        field_center_y = float(np.nanmean(cy))
+    if np.isnan(field_center_x):
+        field_center_x = 0.0
+    if np.isnan(field_center_y):
+        field_center_y = 0.0
+
+    def goal_target_for_frame(idx: int) -> Tuple[float, float]:
+        gx = field_center_x
+        gy = field_center_y
+        if goal_center_x is not None and not np.isnan(goal_center_x[idx]):
+            gx = float(goal_center_x[idx])
+        else:
+            if not np.isnan(ball_x[idx]) and frame_size is not None:
+                gx = frame_size[0] * (0.12 if ball_x[idx] <= field_center_x else 0.88)
+        if goal_center_y is not None and not np.isnan(goal_center_y[idx]):
+            gy = float(goal_center_y[idx])
+        return gx, gy
+
+    cx_out = np.empty_like(cx_s)
+    pan_prev = float(cx_s[0])
+    pan_prev_target = float(cx_s[0])
+    keep_wide_mask = np.zeros(cx_s.shape, dtype=bool)
+    for idx in range(len(cx_s)):
+        pan_target = float(cx_s[idx])
+        z_guard_wide = False
+        if boot_phase[idx] and not locked[idx]:
+            pan_target = field_center_x
+            z_guard_wide = True
+
+        bx = float(ball_x[idx]) if not np.isnan(ball_x[idx]) else None
+        by = float(ball_y[idx]) if not np.isnan(ball_y[idx]) else None
+        conf = float(ball_conf[idx])
+        if bx is not None and by is not None:
+            if conf >= 0.5:
+                pan_target = bx
+            else:
+                nearest_pos: Optional[Tuple[float, float]] = None
+                if player_tracks:
+                    best_dist = float("inf")
+                    for track in player_tracks:
+                        px, py = track[idx]
+                        if np.isnan(px) or np.isnan(py):
+                            continue
+                        d = euclidean_distance(px, py, bx, by)
+                        if d < best_dist:
+                            best_dist = d
+                            nearest_pos = (float(px), float(py))
+                if (
+                    nearest_pos is not None
+                    and best_dist < PLAYER_RADIUS_PX
+                    and conf >= 0.3
+                ):
+                    pan_target = mix_scalar(pan_prev_target, nearest_pos[0], 0.25)
+                else:
+                    pan_target = pan_prev_target
+
+        goal_xy = goal_target_for_frame(idx)
+        goal_vec = np.array(
+            [[goal_xy[0] - (bx if bx is not None else pan_target), goal_xy[1] - (by if by is not None else field_center_y)]]
+        )
+        shot_indicator = remaining_ms[idx] < FINAL_MS
+        if (
+            bx is not None
+            and by is not None
+            and conf >= 0.2
+            and not np.isnan(ball_speed[idx])
+        ):
+            toward = toward_goal(ball_vel[[idx]], goal_vec)
+            speed_ok = (
+                ball_speed[idx] > shot_speed_threshold
+                if shot_speed_threshold > 0.0
+                else ball_speed[idx] > 0.0
+            )
+            shot_indicator = shot_indicator or (
+                speed_ok and toward[0] > TOWARD_GOAL_CO
+            )
+        gamma = float(smoothstep(0.0, 1.0, 1.0 if shot_indicator else 0.0)) * GOAL_BIAS_MAX
+        pan_target = (1.0 - gamma) * pan_target + gamma * goal_xy[0]
+
+        delta = clamp_scalar(pan_target - pan_prev, PAN_CAP)
+        pan_target = pan_prev + delta
+
+        lead_alpha = BASE_LEAD_ALPHA if locked[idx] else 0.25
+        pan_target = (1.0 - lead_alpha) * pan_target + lead_alpha * float(cx_lead[idx])
+
+        cx_out[idx] = pan_target
+        pan_prev = pan_target
+        pan_prev_target = pan_target
+        if z_guard_wide:
+            keep_wide_mask[idx] = True
+
+    pan_speed_cap = PAN_CAP
     cx_out = limit_speed(cx_out, pan_speed_cap)
     cy_out = limit_speed(cy_out, pan_speed_cap)
 
@@ -423,16 +720,10 @@ def main() -> None:
     z_bonus_widen = args.snap_widen * snap
     z = np.clip(z_base - z_bonus_widen, 1.10, 2.60)
 
-    z = apply_zoom_hysteresis(z, 0.02)
+    if keep_wide_mask.any():
+        z[keep_wide_mask] = np.minimum(z[keep_wide_mask], args.z_wide)
 
-    frame_size: Optional[Tuple[int, int]] = None
-    try:
-        width = int(float(metadata.get("width", 0)))
-        height = int(float(metadata.get("height", 0)))
-        if width > 0 and height > 0:
-            frame_size = (width, height)
-    except (TypeError, ValueError):
-        frame_size = None
+    z = apply_zoom_hysteresis(z, 0.02)
 
     cx_out, cy_out = apply_boundary_cushion(cx_out, cy_out, z, frame_size)
 
