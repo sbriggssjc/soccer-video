@@ -212,7 +212,16 @@ foreach ($target in $Targets) {
       Invoke-ExternalCommand -FilePath $psGenerator.FullName -Arguments $args -DisplayName $psGenerator.FullName
     }
     'PythonPipeline' {
-      $trackerArgs = @($pythonTracker.FullName, '--in', $inputPath, '--csv', $csvPath, '--profile', 'portrait', '--roi', 'goal', '--goal_side', 'auto')
+      $deadbandXY = '0.06,0.04'
+      $trackerArgs = @(
+        $pythonTracker.FullName,
+        '--in', $inputPath,
+        '--csv', $csvPath,
+        '--profile', 'portrait',
+        '--roi', 'goal',
+        '--goal_side', 'auto',
+        '--deadband_xy', $deadbandXY
+      )
       Invoke-ExternalCommand -FilePath $pythonExe -Arguments $trackerArgs -DisplayName "$pythonExe $([IO.Path]::GetFileName($pythonTracker.FullName))"
 
       if (-not (Test-Path -LiteralPath $csvPath)) {
