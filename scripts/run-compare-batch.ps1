@@ -1,6 +1,6 @@
 param(
-  [switch]$SkipMissingVars = $true,
-  [switch]$DefaultIfMissing = $false,
+  [switch]$SkipMissingVars,
+  [switch]$DefaultIfMissing,
   [int]$Fps = 24,
   [double]$kSpeed = 0.02,
   [int]$LeadFrames = 6,
@@ -9,10 +9,8 @@ param(
   [double]$zBias = 0.25
 )
 
-Write-Host "Options: SkipMissingVars=$($SkipMissingVars.IsPresent)  DefaultIfMissing=$($DefaultIfMissing.IsPresent)"
-
-$SkipMissingVars = $SkipMissingVars.IsPresent -or $SkipMissingVars
-$DefaultIfMissing = $DefaultIfMissing.IsPresent -or $DefaultIfMissing
+Write-Host ("Options: SkipMissingVars={0}  DefaultIfMissing={1}" -f `
+  $SkipMissingVars.IsPresent, $DefaultIfMissing.IsPresent)
 
 # ==== Run-Compare-Batch.ps1 ====
 # Requires: ffmpeg/ffprobe in PATH, your per-clip *.ps1vars files
