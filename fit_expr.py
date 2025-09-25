@@ -496,6 +496,61 @@ def parse_args() -> argparse.Namespace:
         help="Decay window for acceleration-triggered zoom snaps",
     )
     parser.add_argument("--deadzone", type=float, default=6.0, help="Deadzone in pixels for pan stability")
+    parser.add_argument(
+        "--boot-anchor",
+        choices=["first", "mean", "median"],
+        default="median",
+        help="Statistic used to anchor boot centering",
+    )
+    parser.add_argument(
+        "--boot-anchor-frames",
+        type=int,
+        default=24,
+        help="Frames considered when establishing boot anchor",
+    )
+    parser.add_argument(
+        "--conf-th",
+        type=float,
+        default=0.35,
+        help="Confidence threshold for trusting ball detections",
+    )
+    parser.add_argument("--v-enabled", action="store_true", help="Enable vertical steering adjustments")
+    parser.add_argument(
+        "--v-gain",
+        type=float,
+        default=0.85,
+        help="Gain applied to vertical corrections when steering",
+    )
+    parser.add_argument(
+        "--v-deadzone",
+        type=float,
+        default=6.0,
+        help="Deadzone for vertical steering to avoid jitter",
+    )
+    parser.add_argument(
+        "--v-top-margin",
+        type=int,
+        default=40,
+        help="Minimum top margin maintained during vertical steering",
+    )
+    parser.add_argument(
+        "--v-bottom-margin",
+        type=int,
+        default=40,
+        help="Minimum bottom margin maintained during vertical steering",
+    )
+    parser.add_argument(
+        "--snap-hold-ms",
+        type=int,
+        default=120,
+        help="Duration to hold snap zoom and reduced lead after trigger",
+    )
+    parser.add_argument(
+        "--goal-bias",
+        type=float,
+        default=0.0,
+        help="Additional framing bias toward goal mouth on shot snaps",
+    )
     return parser.parse_args()
 
 
@@ -561,6 +616,9 @@ def main() -> None:
     cy_s = ema_adaptive(cy, alpha)
 
     lead_frames = int(round(fps * args.lead_ms / 1000.0))
+    snap_hold_frames = int(round(fps * max(args.snap_hold_ms, 0) / 1000.0))
+    snap_lead_ms = max(args.lead_ms - 20, 0)
+    snap_lead_frames = int(round(fps * snap_lead_ms / 1000.0))
 
     BOOT_WIDE_MS = float(args.boot_wide_ms)
     LOCK_CONF = 0.60
@@ -624,6 +682,33 @@ def main() -> None:
     ball_x = _fit_len(ball_x, N, field_center_x)
     ball_y = _fit_len(ball_y, N, field_center_y)
 
+    def compute_boot_anchor(series: np.ndarray, fallback: float) -> float:
+        frames_limit = max(int(args.boot_anchor_frames), 1)
+        if series.size == 0:
+            return fallback
+        count = min(series.size, frames_limit)
+        conf_slice = ball_conf[:count]
+        values = series[:count]
+        finite = np.isfinite(values)
+        mask = finite & (conf_slice >= args.conf_th)
+        if mask.any():
+            candidates = values[mask]
+        else:
+            candidates = values[finite]
+        if candidates.size == 0:
+            return fallback
+        if args.boot_anchor == "median":
+            return float(np.median(candidates))
+        if args.boot_anchor == "mean":
+            return float(np.mean(candidates))
+        idxs = np.where(mask if mask.any() else finite)[0]
+        if idxs.size:
+            return float(values[idxs[0]])
+        return fallback
+
+    boot_seed_x = compute_boot_anchor(ball_x, float(field_center_x))
+    boot_seed_y = compute_boot_anchor(ball_y, float(field_center_y))
+
     goal_x = extract_series(["goal_x", "goal_cx"])
     goal_y = extract_series(["goal_y", "goal_cy"])
     goal_w = extract_series(["goal_w", "goal_width"])
@@ -680,7 +765,10 @@ def main() -> None:
     cy_s = _nan_to(cy_s, field_center_y)
     cx_lead = lead_signal(cx_s, lead_frames)
     cy_lead = lead_signal(cy_s, lead_frames)
-    cy_out = 0.85 * cy_s + 0.15 * cy_lead
+    cx_lead_snap = lead_signal(cx_s, snap_lead_frames)
+    cy_lead_snap = lead_signal(cy_s, snap_lead_frames)
+    cy_base = 0.85 * cy_s + 0.15 * cy_lead
+    cy_base_snap = 0.85 * cy_s + 0.15 * cy_lead_snap
 
     gx = (
         _nan_to(goal_center_x, field_center_x)
@@ -719,6 +807,22 @@ def main() -> None:
     if snap.max() > 0:
         snap = np.clip(snap / snap.max(), 0.0, 1.0)
 
+    snap_arr = _fit_len(snap, N, 0.0)
+    spike_arr = _fit_len(spike, N, 0.0)
+    snap_hold_mask = np.zeros(N, dtype=bool)
+    snap_envelope = snap_arr.copy()
+    if snap_hold_frames > 0:
+        for trigger_idx in np.where(spike_arr > 0.0)[0]:
+            end = min(N, trigger_idx + snap_hold_frames + 1)
+            snap_hold_mask[trigger_idx:end] = True
+            base_level = float(snap_arr[trigger_idx]) if trigger_idx < snap_arr.size else 0.0
+            level = max(base_level, 1.0)
+            snap_envelope[trigger_idx:end] = np.maximum(snap_envelope[trigger_idx:end], level)
+    else:
+        snap_hold_mask = spike_arr > 0.0
+        snap_envelope = np.maximum(snap_arr, snap_hold_mask.astype(np.float64))
+    np.clip(snap_envelope, 0.0, 1.0, out=snap_envelope)
+
     combo = 0.6 * shot_like + 0.4 * (
         snap if snap.size == shot_like.size else np.zeros_like(shot_like)
     )
@@ -744,31 +848,51 @@ def main() -> None:
         return gx, gy
 
     cx_out = np.empty_like(cx_s)
-    pan_prev = float(cx_s[0])
-    pan_prev_target = float(cx_s[0])
+    cy_out = np.empty_like(cy_s)
+    initial_pan = boot_seed_x if np.isfinite(boot_seed_x) else float(cx_s[0])
+    pan_prev = float(initial_pan)
+    pan_prev_target = float(initial_pan)
+    tilt_prev = float(
+        boot_seed_y
+        if args.v_enabled and np.isfinite(boot_seed_y)
+        else (cy_base_snap[0] if snap_hold_mask[0] else cy_base[0])
+    )
+    if args.v_enabled and not np.isfinite(tilt_prev):
+        tilt_prev = float(field_center_y)
     keep_wide_mask = np.zeros(cx_s.shape, dtype=bool)
+    conf_primary = max(args.conf_th, 0.5)
     for idx in range(len(cx_s)):
         pan_target = float(cx_s[idx])
+        cy_base_val = float(cy_base_snap[idx] if snap_hold_mask[idx] else cy_base[idx])
+        if not np.isfinite(cy_base_val):
+            cy_base_val = float(field_center_y)
+        tilt_target = cy_base_val
         z_guard_wide = False
-        if boot_phase[idx] and not locked[idx]:
-            if frame_size is not None and not np.isnan(ball_x[idx]):
-                pan_target = float(
-                    np.clip(ball_x[idx], frame_size[0] * 0.18, frame_size[0] * 0.82)
-                )
-            else:
-                pan_target = field_center_x
+        boot_active = bool(boot_phase[idx] and not locked[idx])
+        if boot_active:
+            pan_target = float(boot_seed_x)
+            if not np.isfinite(pan_target):
+                pan_target = float(field_center_x)
+            if frame_size is not None:
+                min_x = frame_size[0] * 0.18
+                max_x = frame_size[0] * 0.82
+                pan_target = float(np.clip(pan_target, min_x, max_x))
+            if args.v_enabled:
+                tilt_target = float(boot_seed_y)
+                if not np.isfinite(tilt_target):
+                    tilt_target = float(field_center_y)
             z_guard_wide = True
 
         bx = float(ball_x[idx]) if not np.isnan(ball_x[idx]) else None
         by = float(ball_y[idx]) if not np.isnan(ball_y[idx]) else None
         conf = float(ball_conf[idx])
         if bx is not None and by is not None:
-            if conf >= 0.5:
+            if conf >= conf_primary:
                 pan_target = bx
             else:
                 nearest_pos: Optional[Tuple[float, float]] = None
                 if player_tracks:
-                    best_dist = float("inf")
+                    best_dist = float('inf')
                     for track in player_tracks:
                         px, py = track[idx]
                         if np.isnan(px) or np.isnan(py):
@@ -780,11 +904,13 @@ def main() -> None:
                 if (
                     nearest_pos is not None
                     and best_dist < PLAYER_RADIUS_PX
-                    and conf >= 0.3
+                    and conf >= max(args.conf_th, 0.3)
                 ):
                     pan_target = mix_scalar(pan_prev_target, nearest_pos[0], 0.15)
                 else:
                     pan_target = pan_prev_target
+            if args.v_enabled and conf >= args.conf_th:
+                tilt_target = by
 
         if celebration_mask[idx]:
             ref_bx = (
@@ -806,7 +932,7 @@ def main() -> None:
                 else field_center_y
             )
             best_px = None
-            best_d = float("inf")
+            best_d = float('inf')
             for track in player_tracks:
                 px, py = track[idx]
                 if np.isnan(px) or np.isnan(py):
@@ -817,6 +943,21 @@ def main() -> None:
                     best_px = float(px)
             if best_px is not None:
                 pan_target = 0.8 * pan_target + 0.2 * best_px
+
+        snap_triggered = bool(spike_arr[idx] > 0.0)
+        if snap_triggered and args.goal_bias > 0.0 and frame_size is not None:
+            iw, ih = frame_size
+            left = max(0, idx - 12)
+            recent = ball_x[left : idx + 1]
+            finite_recent = recent[np.isfinite(recent)] if recent.size else np.array([], dtype=np.float64)
+            if finite_recent.size >= 2:
+                dir_right = np.median(np.diff(finite_recent[-12:])) > 0.0
+            else:
+                dir_right = pan_target >= field_center_x
+            goal_bias_x = iw * (0.90 if dir_right else 0.10)
+            goal_bias_y = ih * 0.50
+            pan_target = (1.0 - args.goal_bias) * pan_target + args.goal_bias * goal_bias_x
+            tilt_target = (1.0 - args.goal_bias) * tilt_target + args.goal_bias * goal_bias_y
 
         goal_xy = goal_target_for_frame(idx)
         goal_vec = np.array(
@@ -845,9 +986,23 @@ def main() -> None:
         pan_target = pan_prev + delta
 
         lead_alpha = BASE_LEAD_ALPHA if locked[idx] else 0.25
-        pan_target = (1.0 - lead_alpha) * pan_target + lead_alpha * float(cx_lead[idx])
+        lead_ref = float(cx_lead_snap[idx] if snap_hold_mask[idx] else cx_lead[idx])
+        pan_target = (1.0 - lead_alpha) * pan_target + lead_alpha * lead_ref
 
         cx_out[idx] = pan_target
+        if args.v_enabled:
+            if not np.isfinite(tilt_target):
+                tilt_target = float(field_center_y)
+            dy = tilt_target - tilt_prev
+            if abs(dy) < args.v_deadzone:
+                tilt_target = tilt_prev
+            else:
+                tilt_target = tilt_prev + args.v_gain * dy
+            tilt_prev = tilt_target
+            cy_out[idx] = tilt_target
+        else:
+            cy_out[idx] = cy_base_val
+
         pan_prev = pan_target
         pan_prev_target = pan_target
         if z_guard_wide:
@@ -869,7 +1024,7 @@ def main() -> None:
     k = np.clip(1.0 - s_n, 0.0, 1.0)
     z_base = args.z_wide + (args.z_tight - args.z_wide) * k
 
-    z_bonus_widen = args.snap_widen * snap
+    z_bonus_widen = args.snap_widen * snap_envelope
     z_bonus_widen += SHOT_WIDEN * shot_like
     z = np.clip(z_base - z_bonus_widen, 1.10, 2.60)
 
@@ -883,6 +1038,44 @@ def main() -> None:
 
     z = _nan_to(z, 1.60)
     z = np.clip(z, 1.08, 2.80)
+
+    if frame_size is not None:
+        iw, ih = frame_size
+        top_margin = max(args.v_top_margin, 0)
+        bottom_margin = max(args.v_bottom_margin, 0)
+        cx_safe = np.empty_like(cx_out)
+        cy_safe = np.empty_like(cy_out)
+        for idx in range(N):
+            z_current = float(max(z[idx], 1e-6))
+            if args.profile == "portrait":
+                crop_h = ih / z_current
+                crop_w = crop_h * 9.0 / 16.0
+            else:
+                crop_w = iw / z_current
+                crop_h = crop_w * 9.0 / 16.0
+            crop_w = min(crop_w, iw)
+            crop_h = min(crop_h, ih)
+            center_x = cx_out[idx]
+            if not np.isfinite(center_x):
+                center_x = float(field_center_x)
+            x = float(np.clip(center_x - crop_w * 0.5, 0.0, iw - crop_w))
+            if args.v_enabled:
+                y_min = float(top_margin)
+                y_max = float(ih - crop_h - bottom_margin)
+                if y_min > y_max:
+                    mid = max(0.0, (ih - crop_h) * 0.5)
+                    y_min = y_max = mid
+            else:
+                y_min = 0.0
+                y_max = float(ih - crop_h)
+            center_y = cy_out[idx]
+            if not np.isfinite(center_y):
+                center_y = float(field_center_y)
+            y = float(np.clip(center_y - crop_h * 0.5, y_min, y_max))
+            cx_safe[idx] = x + crop_w * 0.5
+            cy_safe[idx] = y + crop_h * 0.5
+        cx_out = cx_safe
+        cy_out = cy_safe
 
     cx_out, cy_out = apply_boundary_cushion(cx_out, cy_out, z, frame_size)
 
