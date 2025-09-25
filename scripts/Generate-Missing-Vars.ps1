@@ -73,6 +73,34 @@ function Test-VarsFile {
   return $true
 }
 
+function Normalize-VarsFile {
+  param([Parameter(Mandatory)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path)) { return $false }
+  $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+
+  # Already OK?
+  if ($content -match '(?im)^\s*\$cxExpr\s*=') { return $true }
+
+  # Try to extract cx/cy/z in many shapes: cx:, cx =, cxExpr =, with/without "$"
+  $cx = ($content | Select-String -Pattern '^\s*(\$?\s*cx(?:Expr)?\s*[:=])\s*(.+)$' -AllMatches).Matches |
+        Select-Object -First 1 | ForEach-Object { $_.Groups[2].Value }
+  $cy = ($content | Select-String -Pattern '^\s*(\$?\s*cy(?:Expr)?\s*[:=])\s*(.+)$' -AllMatches).Matches |
+        Select-Object -First 1 | ForEach-Object { $_.Groups[2].Value }
+  $z  = ($content | Select-String -Pattern '^\s*(\$?\s*z(?:Expr)?\s*[:=])\s*(.+)$'  -AllMatches).Matches |
+        Select-Object -First 1 | ForEach-Object { $_.Groups[2].Value }
+
+  if ($cx -and $cy -and $z) {
+@"
+`$cxExpr = $cx
+`$cyExpr = $cy
+`$zExpr  = $z
+"@ | Set-Content -LiteralPath $Path -Encoding UTF8
+    return $true
+  }
+  return $false
+}
+
 function Remove-IfInvalidVars {
   param([string]$Path)
   if (-not (Test-Path -LiteralPath $Path)) { return }
@@ -215,8 +243,14 @@ foreach ($target in $Targets) {
     }
   }
 
+  # If the strict check fails, try to normalize once
   if (-not (Test-VarsFile -Path $varsPath)) {
-    throw "Generated vars missing cx/cy/z expressions for $target (generator: $generatorDescription)"
+    if (Normalize-VarsFile -Path $varsPath -and (Test-VarsFile -Path $varsPath)) {
+      Write-Host "Normalized vars format for $target" -ForegroundColor Yellow
+    }
+    else {
+      throw "Generated vars missing cx/cy/z expressions for $target (generator: $generatorDescription)"
+    }
   }
 
   $results += [pscustomobject]@{
