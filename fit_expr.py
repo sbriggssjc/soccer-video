@@ -1007,6 +1007,13 @@ def main() -> None:
         pan_prev_target = pan_target
         if z_guard_wide:
             keep_wide_mask[idx] = True
+
+    widen_guard_mask = (time_ms < max(float(args.boot_wide_ms), 2500.0)) & (
+        ball_conf < 0.35
+    )
+    if widen_guard_mask.any():
+        np.logical_or(keep_wide_mask, widen_guard_mask, out=keep_wide_mask)
+
     pan_speed_cap = PAN_CAP
     cx_out = limit_speed(cx_out, pan_speed_cap)
     cy_out = limit_speed(cy_out, pan_speed_cap)
@@ -1074,19 +1081,75 @@ def main() -> None:
 
     z = np.clip(z, z_min, z_max)
 
+    if frame_size is not None:
+        iw, ih = frame_size
+        safe_z = np.maximum(z, 1e-6)
+        crop_h = ih / safe_z
+        crop_w = (ih * 9.0 / 16.0) / safe_z
+        half_w = 0.5 * crop_w
+        half_h = 0.5 * crop_h
+        max_x = np.maximum(iw - crop_w, 0.0)
+        max_y = np.maximum(ih - crop_h, 0.0)
+        cx_out = np.clip(cx_out - half_w, 0.0, max_x) + half_w
+        cy_out = np.clip(cy_out - half_h, 0.0, max_y) + half_h
+
     cx_out = _nan_to(cx_out, field_center_x)
     cy_out = _nan_to(cy_out, field_center_y)
 
-    x_idx = np.arange(N, dtype=np.float64)
-    cx_coef, cx_deg = safe_polyfit(x_idx, cx_out, args.degree)
-    cy_coef, cy_deg = safe_polyfit(x_idx, cy_out, args.degree)
-    z_coef, z_deg = safe_polyfit(x_idx, z, args.degree)
+    n = np.arange(N, dtype=np.float64)
+    conf = np.asarray(ball_conf, dtype=np.float64)
+    x_raw = np.asarray(cx_out, dtype=np.float64)
+    y_raw = np.asarray(cy_out, dtype=np.float64)
+    deg = int(args.degree)
+
+    mask = conf >= 0.35
+    min_pts = max(6, deg + 2)
+    if mask.sum() < min_pts:
+        mask = conf >= 0.20
+    if mask.sum() < max(2, deg + 1):
+        mask = np.ones_like(conf, dtype=bool)
+
+    nx = n[mask]
+    x = x_raw[mask]
+    y = y_raw[mask]
+
+    nmu = float(nx.mean()) if nx.size else 0.0
+    ns = nx - nmu
+
+    def guarded_polyfit(t: np.ndarray, v: np.ndarray, d: int) -> Tuple[np.ndarray, int]:
+        if t.size == 0:
+            avg = float(np.nanmean(v)) if v.size else 0.0
+            return np.array([avg], dtype=np.float64), 0
+        d_eff = int(min(d, max(1, t.size - 1)))
+        if t.size <= d_eff:
+            d_eff = max(0, t.size - 1)
+        if d_eff <= 0:
+            avg = float(np.nanmean(v)) if v.size else 0.0
+            return np.array([avg], dtype=np.float64), 0
+        coef = np.polyfit(t, v, d_eff)
+        return coef, d_eff
+
+    cx_coef, cx_deg = guarded_polyfit(ns, x, deg)
+    cy_coef, cy_deg = guarded_polyfit(ns, y, deg)
+
+    def shift_poly(coef: np.ndarray, center: float) -> np.ndarray:
+        q = np.poly1d([1.0, -center])
+        composed = np.poly1d([0.0])
+        for power, coeff in enumerate(coef[::-1]):
+            composed += float(coeff) * q**power
+        return composed.c
+
+    cx_shifted = shift_poly(cx_coef, nmu)
+    cy_shifted = shift_poly(cy_coef, nmu)
+
+    cx_coeffs = list(reversed(cx_shifted))
+    cy_coeffs = list(reversed(cy_shifted))
+
+    z_coef, z_deg = safe_polyfit(n, z, args.degree)
 
     if cx_deg < args.degree or cy_deg < args.degree or z_deg < args.degree:
         print(f"[warn] lowered poly degree: cx={cx_deg}, cy={cy_deg}, z={z_deg}")
 
-    cx_coeffs = list(reversed(cx_coef))
-    cy_coeffs = list(reversed(cy_coef))
     z_coeffs = list(reversed(z_coef))
 
     if not _all_finite(cx_coeffs, cy_coeffs, z_coeffs):
