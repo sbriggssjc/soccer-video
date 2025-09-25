@@ -2,10 +2,10 @@ param(
   [switch]$SkipMissingVars = $true,
   [switch]$DefaultIfMissing = $true,
   [int]$Fps = 24,
-  [double]$kSpeed = 0.012,
+  [double]$kSpeed = 0.02,
   [int]$LeadFrames = 6,
-  [double]$zMin = 1.25,
-  [double]$zMax = 3.0,
+  [double]$zMin = 1.20,
+  [double]$zMax = 2.8,
   [double]$zBias = 0.25
 )
 
@@ -118,8 +118,12 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   $name = $_.Name
   if ($null -eq $vars) {
     if ($DefaultIfMissing) {
-      $vars = [pscustomobject]@{ cxExpr='iw/2'; cyExpr='ih/2'; zExpr='1.10' }
-      Write-Warning "No vars for $name - using defaults"
+      $vars = [pscustomobject]@{
+        cxExpr = 'iw/2'
+        cyExpr = 'ih/2'
+        zExpr  = '1.35'
+      }
+      Write-Warning ("No vars for {0} - using defaults" -f $name)
       $Defaulted++
     }
     elseif ($SkipMissingVars) {
@@ -152,12 +156,12 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
 
   $speed = "sqrt(($cxpN)*($cxpN)+($cypN)*($cypN))"
   $zBase = "(min(max(($zN),$zMin),$zMax))"
-  $zAgg  = "min(max((($zBase)+($zBias))-($kSpeed)*($speed),$zMin),$zMax)"
+  $zAgg  = "min(max((($zBase)+($zBias))+($kSpeed)*($speed),$zMin),$zMax)"
 
   $w = "floor(((ih*9/16)/($zAgg))/2)*2"
   $h = "floor((ih/($zAgg))/2)*2"
-  $x = "($cxAgg)-($w)/2"
-  $y = "($cyAgg)-($h)/2"
+  $x = "clip((($cxAgg)-($w)/2),0,iw-($w))"
+  $y = "clip((($cyAgg)-($h)/2),0,ih-($h))"
 
   $filter = "[0:v]crop=w='$w':h='$h':x='$x':y='$y',scale=w=-2:h=1080:flags=lanczos,setsar=1,format=yuv420p"
   $filter = Replace-ClipByScan $filter   # remove any lingering clip()
