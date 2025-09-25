@@ -96,31 +96,30 @@ function Build-ReferenceIndex {
   $refs = New-Object 'System.Collections.Generic.HashSet[string]'
 
   foreach ($tf in $TextFiles) {
+    $content = $null
     try {
       $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $tf.FullName
     } catch {
-      # Try default encoding if UTF8 fails
-      try { $content = Get-Content -Raw -LiteralPath $tf.FullName } catch { continue }
+      try { $content = Get-Content -Raw -LiteralPath $tf.FullName } catch { $content = $null }
     }
 
-    # Add any substring that looks like filename or path pieces (simple heuristics)
-    # 1) full relative paths found in repo
-    # 2) bare basenames (clip names etc.)
-    # We don't get fancy: we’ll just add every token with a dot/extension-ish pattern
-    $tokens = [System.Text.RegularExpressions.Regex]::Matches($content, '(?:[A-Za-z0-9_\-\\/\. ]+\.(?:mp4|mov|mkv|avi|wav|mp3|flac|aac|jpg|jpeg|png|webp|gif|zip|7z|tar|gz|csv|json|ps1vars))', 'IgnoreCase')
+    if ([string]::IsNullOrEmpty($content)) { continue }
+
+    $tokens = [System.Text.RegularExpressions.Regex]::Matches(
+      $content,
+      '(?:[A-Za-z0-9_\-\\/\. ]+\.(?:mp4|mov|mkv|avi|wav|mp3|flac|aac|jpg|jpeg|png|webp|gif|zip|7z|tar|gz|csv|json|ps1vars))',
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+
     foreach ($m in $tokens) {
-      $val = $m.Value.Trim()
+      $val = ($m.Value).Trim()
       if (![string]::IsNullOrWhiteSpace($val)) { [void]$refs.Add($val) }
-      # also add just the basename variant
       try {
         $bn = [System.IO.Path]::GetFileName($val)
         if ($bn) { [void]$refs.Add($bn) }
       } catch {}
     }
   }
-
-  # Also include file names that appear as plain words like "clip001.mp4" without any path separator
-  # (covered by the regex above already)
 
   return $refs
 }
@@ -186,23 +185,26 @@ function Find-Unreferenced {
   $rootFull = (Resolve-Path $Root).Path
   $unref = @()
 
+  # Use array membership to avoid Contains() weirdness in some PS environments
+  $refArr = $Refs.ToArray()
+
   foreach ($f in $Files) {
     $rel = $f.FullName.Replace($rootFull,'').TrimStart('\','/')
     $bn  = $f.Name
 
     $isReferenced =
-      $Refs.Contains($bn) -or
-      $Refs.Contains($rel) -or
-      $Refs.Contains($rel -replace '\\','/') -or
-      $Refs.Contains($rel -replace '/','\')
+      ($refArr -contains $bn) -or
+      ($refArr -contains $rel) -or
+      ($refArr -contains ($rel -replace '\\','/')) -or
+      ($refArr -contains ($rel -replace '/','\\'))
 
     if (-not $isReferenced) {
       $unref += [PSCustomObject]@{
-        FullName = $f.FullName
-        Relative = $rel
-        SizeBytes = $f.Length
-        LastWriteTime = $f.LastWriteTime
-        InLikelyArtifactDir = ($rel -split '[\\/]' | Where-Object { $_ -in $LikelyArtifactDirs }).Count -gt 0
+        FullName           = $f.FullName
+        Relative           = $rel
+        SizeBytes          = $f.Length
+        LastWriteTime      = $f.LastWriteTime
+        InLikelyArtifactDir= ($rel -split '[\\/]' | Where-Object { $_ -in $LikelyArtifactDirs }).Count -gt 0
       }
     }
   }
