@@ -118,11 +118,11 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   if ($null -eq $vars) {
     if ($DefaultIfMissing) {
       $vars = [pscustomobject]@{ cxExpr='iw/2'; cyExpr='ih/2'; zExpr='1.10' }
-      Write-Warning "No vars for $name — using defaults"
+      Write-Warning "No vars for $name - using defaults"
       $Defaulted++
     }
     elseif ($SkipMissingVars) {
-      Write-Warning "No vars for $name — skipping"
+      Write-Warning "No vars for $name - skipping"
       $Skipped++
       return
     }
@@ -150,7 +150,7 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   $cyAgg = "($cyN)+($LeadFrames)*($cypN)"
 
   $speed = "sqrt(($cxpN)*($cxpN)+($cypN)*($cypN))"
-  $zAgg  = "min(max((($zN)-($kSpeed)*($speed)),$zMin),$zMax)"
+  $zAgg  = "min(max((($zN)+($kSpeed)*($speed)),$zMin),$zMax)"
 
   $w = "floor(((ih*9/16)/($zAgg))/2)*2"
   $h = "floor((ih/($zAgg))/2)*2"
