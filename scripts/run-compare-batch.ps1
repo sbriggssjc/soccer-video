@@ -2,10 +2,11 @@ param(
   [switch]$SkipMissingVars = $true,
   [switch]$DefaultIfMissing = $true,
   [int]$Fps = 24,
-  [double]$kSpeed = 0.004,
-  [int]$LeadFrames = 3,
-  [double]$zMin = 1.08,
-  [double]$zMax = 2.40
+  [double]$kSpeed = 0.012,
+  [int]$LeadFrames = 6,
+  [double]$zMin = 1.25,
+  [double]$zMax = 3.0,
+  [double]$zBias = 0.25
 )
 
 Write-Host "Options: SkipMissingVars=$($SkipMissingVars.IsPresent)  DefaultIfMissing=$($DefaultIfMissing.IsPresent)"
@@ -150,7 +151,8 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
   $cyAgg = "($cyN)+($LeadFrames)*($cypN)"
 
   $speed = "sqrt(($cxpN)*($cxpN)+($cypN)*($cypN))"
-  $zAgg  = "min(max((($zN)+($kSpeed)*($speed)),$zMin),$zMax)"
+  $zBase = "(min(max(($zN),$zMin),$zMax))"
+  $zAgg  = "min(max((($zBase)+($zBias))-($kSpeed)*($speed),$zMin),$zMax)"
 
   $w = "floor(((ih*9/16)/($zAgg))/2)*2"
   $h = "floor((ih/($zAgg))/2)*2"
