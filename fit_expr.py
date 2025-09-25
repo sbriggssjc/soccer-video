@@ -10,6 +10,49 @@ import numpy as np
 import yaml
 
 
+def _finite_mask(*arrs: np.ndarray) -> np.ndarray:
+    m = np.ones_like(arrs[0], dtype=bool)
+    for a in arrs:
+        m &= np.isfinite(a)
+    return m
+
+
+def _nan_to(val, fallback):
+    v = np.asarray(val, dtype=np.float64)
+    bad = ~np.isfinite(v)
+    if np.isscalar(fallback):
+        v[bad] = float(fallback)
+    else:
+        fb = np.asarray(fallback, dtype=np.float64)
+        v[bad] = fb[bad]
+    return v
+
+
+def safe_norm(v, eps: float = 1e-9) -> np.ndarray:
+    v = np.asarray(v, dtype=np.float64)
+    n = np.linalg.norm(v, axis=-1)
+    return np.maximum(n, eps)
+
+
+def safe_smoothstep(e0: float, e1: float, x) -> np.ndarray:
+    x = np.clip((x - e0) / max(e1 - e0, 1e-9), 0.0, 1.0)
+    return x * x * (3 - 2 * x)
+
+
+def safe_polyfit(x, y, deg: int, min_pts: Optional[int] = None):
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    m = _finite_mask(x, y)
+    x2, y2 = x[m], y[m]
+    need = (deg + 1) if min_pts is None else max(min_pts, deg + 1)
+    if x2.size < need:
+        for d in range(min(deg, 5), -1, -1):
+            if x2.size >= d + 1:
+                return np.polyfit(x2, y2, d).tolist(), d
+        return [float(np.nanmean(y2)) if y2.size else 0.0], 0
+    return np.polyfit(x2, y2, deg).tolist(), deg
+
+
 def savgol_smooth_series(series: Sequence[float], window: int, order: int = 3) -> np.ndarray:
     arr = np.asarray(series, dtype=np.float64)
     n = len(arr)
@@ -178,26 +221,6 @@ def read_track(
         if values
     }
     return frames_arr, cx_arr, cy_arr, zoom_arr, metadata, extras
-
-
-def fit_poly(values: Sequence[float], degree: int) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64)
-    if arr.ndim != 1:
-        raise ValueError("values must be 1-D")
-    if arr.size < 2:
-        raise ValueError("need at least two samples to fit polynomial")
-    n = np.arange(len(arr), dtype=np.float64)
-    max_degree = min(max(int(degree), 1), arr.size - 1)
-    for deg in range(max_degree, 0, -1):
-        try:
-            coeffs = np.polyfit(n, arr, deg)
-        except np.linalg.LinAlgError:
-            continue
-        else:
-            return coeffs[::-1]  # convert to [a0, a1, ...]
-    return np.array([float(arr.mean())])
-
-
 def ema_adaptive(x: np.ndarray, alpha: np.ndarray) -> np.ndarray:
     y = np.empty_like(x)
     y[0] = x[0]
@@ -279,37 +302,16 @@ def apply_zoom_hysteresis_asym(
             delta = np.clip(delta, -limit, limit)
         out[i] = out[i - 1] + delta
     return out
-
-
-def _fill_nan_linear(values: np.ndarray) -> np.ndarray:
-    arr = values.astype(float, copy=True)
-    if arr.size == 0:
-        return arr
-    mask = ~np.isnan(arr)
-    if mask.all():
-        return arr
-    idx = np.flatnonzero(mask)
-    if idx.size == 0:
-        return arr
-    first, last = idx[0], idx[-1]
-    arr[:first] = arr[first]
-    arr[last + 1 :] = arr[last]
-    missing = np.isnan(arr)
-    if missing.any():
-        arr[missing] = np.interp(np.flatnonzero(missing), idx, arr[idx])
-    return arr
-
-
-def compute_ball_velocity(ball_x: np.ndarray, ball_y: np.ndarray, dt: float) -> np.ndarray:
-    if ball_x.size == 0:
+def compute_ball_velocity(
+    ball_x: np.ndarray, ball_y: np.ndarray, time_s: np.ndarray
+) -> np.ndarray:
+    if ball_x.size == 0 or time_s.size == 0:
         return np.empty((0, 2), dtype=np.float64)
-    bx = _fill_nan_linear(ball_x)
-    by = _fill_nan_linear(ball_y)
-    vx = np.gradient(bx, dt)
-    vy = np.gradient(by, dt)
+    bx = _nan_to(ball_x, 0.0)
+    by = _nan_to(ball_y, 0.0)
+    vx = _nan_to(np.gradient(bx, time_s), 0.0)
+    vy = _nan_to(np.gradient(by, time_s), 0.0)
     vel = np.stack([vx, vy], axis=1)
-    invalid = np.isnan(ball_x) | np.isnan(ball_y)
-    vel[invalid] = 0.0
     return vel
 
 
@@ -329,12 +331,12 @@ def euclidean_distance(ax: float, ay: float, bx: float, by: float) -> float:
 
 
 def toward_goal(ball_vel: np.ndarray, goal_vec: np.ndarray) -> np.ndarray:
-    speed = np.linalg.norm(ball_vel, axis=1)
-    goal_mag = np.linalg.norm(goal_vec, axis=1)
+    speed = safe_norm(ball_vel)
+    goal_mag = safe_norm(goal_vec)
     denom = speed * goal_mag
-    denom[denom == 0.0] = 1.0
     dots = np.sum(ball_vel * goal_vec, axis=1)
-    return np.clip(dots / denom, -1.0, 1.0)
+    cos = np.divide(dots, denom, out=np.zeros_like(dots), where=denom > 0)
+    return np.clip(cos, -1.0, 1.0)
 
 
 def apply_boundary_cushion(
@@ -368,6 +370,21 @@ def apply_boundary_cushion(
         cx_out[i] = float(np.clip(cx_out[i], min_cx, max_cx))
         cy_out[i] = float(np.clip(cy_out[i], min_cy, max_cy))
     return cx_out, cy_out
+
+
+def _fit_len(a, N: int, fill: float = 0.0) -> np.ndarray:
+    a = np.asarray(a, dtype=np.float64).ravel()
+    if a.size == N:
+        return a
+    if a.size > N:
+        return a[:N]
+    out = np.full((N,), fill, dtype=np.float64)
+    out[: a.size] = a
+    return out
+
+
+def _all_finite(*coefs) -> bool:
+    return all(np.all(np.isfinite(np.asarray(c))) for c in coefs)
 
 
 def format_coeff(value: float) -> str:
@@ -544,10 +561,6 @@ def main() -> None:
     cy_s = ema_adaptive(cy, alpha)
 
     lead_frames = int(round(fps * args.lead_ms / 1000.0))
-    cx_lead = lead_signal(cx_s, lead_frames)
-    cy_lead = lead_signal(cy_s, lead_frames)
-
-    cy_out = 0.85 * cy_s + 0.15 * cy_lead
 
     BOOT_WIDE_MS = float(args.boot_wide_ms)
     LOCK_CONF = 0.60
@@ -563,7 +576,30 @@ def main() -> None:
     SHOT_WIDEN = 0.20
 
     time_ms = (frames - frames[0]).astype(np.float64) * (1000.0 / fps)
+    time_s = time_ms / 1000.0
     remaining_ms = (frames[-1] - frames).astype(np.float64) * (1000.0 / fps)
+    N = int(frames.shape[0])
+
+    field_center_x: Optional[float] = None
+    field_center_y: Optional[float] = None
+    frame_size: Optional[Tuple[int, int]] = None
+    try:
+        width = int(float(metadata.get("width", 0)))
+        height = int(float(metadata.get("height", 0)))
+        if width > 0 and height > 0:
+            frame_size = (width, height)
+            field_center_x = width * 0.5
+            field_center_y = height * 0.5
+    except (TypeError, ValueError):
+        frame_size = None
+    if field_center_x is None:
+        field_center_x = float(np.nanmean(cx))
+    if field_center_y is None:
+        field_center_y = float(np.nanmean(cy))
+    if np.isnan(field_center_x):
+        field_center_x = 0.0
+    if np.isnan(field_center_y):
+        field_center_y = 0.0
 
     def extract_series(names: Sequence[str]) -> Optional[np.ndarray]:
         for name in names:
@@ -578,12 +614,15 @@ def main() -> None:
     else:
         np.nan_to_num(ball_conf, copy=False, nan=0.0, posinf=1.0, neginf=0.0)
         np.clip(ball_conf, 0.0, 1.0, out=ball_conf)
+    ball_conf = _fit_len(ball_conf, N, 0.0)
 
     ball_x = extract_series(["ball_x", "ball_cx", "ball_px"])
     ball_y = extract_series(["ball_y", "ball_cy", "ball_py"])
     if ball_x is None or ball_y is None:
-        ball_x = np.full_like(cx_s, np.nan)
-        ball_y = np.full_like(cy_s, np.nan)
+        ball_x = np.full((N,), np.nan, dtype=np.float64)
+        ball_y = np.full((N,), np.nan, dtype=np.float64)
+    ball_x = _fit_len(ball_x, N, field_center_x)
+    ball_y = _fit_len(ball_y, N, field_center_y)
 
     goal_x = extract_series(["goal_x", "goal_cx"])
     goal_y = extract_series(["goal_y", "goal_cy"])
@@ -623,62 +662,53 @@ def main() -> None:
     boot_phase = time_ms < BOOT_WIDE_MS
     locked = rolling_min_streak(ball_conf > LOCK_CONF, LOCK_STREAK)
 
-    ball_vel = compute_ball_velocity(ball_x, ball_y, dt)
-    ball_speed = np.linalg.norm(ball_vel, axis=1)
-    if np.all(ball_speed == 0.0):
-        shot_speed_threshold = 0.0
-    else:
-        shot_speed_threshold = float(np.nanpercentile(ball_speed, 85))
-
-    field_center_x: Optional[float] = None
-    field_center_y: Optional[float] = None
-    frame_size: Optional[Tuple[int, int]] = None
-    try:
-        width = int(float(metadata.get("width", 0)))
-        height = int(float(metadata.get("height", 0)))
-        if width > 0 and height > 0:
-            frame_size = (width, height)
-            field_center_x = width * 0.5
-            field_center_y = height * 0.5
-    except (TypeError, ValueError):
-        frame_size = None
-    if field_center_x is None:
-        field_center_x = float(np.nanmean(cx))
-    if field_center_y is None:
-        field_center_y = float(np.nanmean(cy))
-    if np.isnan(field_center_x):
-        field_center_x = 0.0
-    if np.isnan(field_center_y):
-        field_center_y = 0.0
-
+    ball_vel = compute_ball_velocity(ball_x, ball_y, time_s)
+    ball_speed = safe_norm(ball_vel)
     shot_speed_q = (
-        float(np.nanpercentile(ball_speed, SHOT_SPEED_Q))
+        float(np.nanpercentile(ball_speed[ball_speed > 0], SHOT_SPEED_Q))
         if np.any(ball_speed > 0)
         else 0.0
     )
+    shot_speed_threshold = max(shot_speed_q, 1e-6)
 
-    shot_like = np.zeros_like(ball_speed, dtype=np.float64)
     if goal_center_x is not None:
-        gx = goal_center_x.astype(np.float64, copy=True)
-        gx = np.where(np.isnan(gx), field_center_x, gx)
-        if goal_center_y is not None:
-            gy = goal_center_y.astype(np.float64, copy=True)
-            gy = np.where(np.isnan(gy), field_center_y, gy)
-        else:
-            gy = np.full_like(cy_s, field_center_y, dtype=np.float64)
-        goal_vec_bulk = np.stack(
-            [
-                gx - _fill_nan_linear(ball_x),
-                gy - _fill_nan_linear(ball_y),
-            ],
-            axis=1,
-        )
-        toward_bulk = toward_goal(ball_vel, goal_vec_bulk)
-        fast_enough = (ball_speed > max(shot_speed_q, 1e-6)).astype(np.float64)
-        aligned = smoothstep(SHOT_TOWARD_CO, 1.0, toward_bulk)
-        shot_like = np.clip(fast_enough * aligned, 0.0, 1.0)
-    else:
-        shot_like[:] = 0.0
+        goal_center_x = _fit_len(goal_center_x, N, field_center_x)
+    if goal_center_y is not None:
+        goal_center_y = _fit_len(goal_center_y, N, field_center_y)
+
+    cx_s = _nan_to(cx_s, field_center_x)
+    cy_s = _nan_to(cy_s, field_center_y)
+    cx_lead = lead_signal(cx_s, lead_frames)
+    cy_lead = lead_signal(cy_s, lead_frames)
+    cy_out = 0.85 * cy_s + 0.15 * cy_lead
+
+    gx = (
+        _nan_to(goal_center_x, field_center_x)
+        if goal_center_x is not None
+        else np.full((N,), field_center_x, dtype=np.float64)
+    )
+    gy = (
+        _nan_to(goal_center_y, field_center_y)
+        if goal_center_y is not None
+        else np.full((N,), field_center_y, dtype=np.float64)
+    )
+    goal_vec = np.stack(
+        [
+            gx - _nan_to(ball_x, field_center_x),
+            gy - _nan_to(ball_y, field_center_y),
+        ],
+        axis=1,
+    )
+    cos_toward = np.sum(ball_vel * goal_vec, axis=1) / (
+        safe_norm(ball_vel) * safe_norm(goal_vec)
+    )
+    cos_toward = np.clip(cos_toward, -1.0, 1.0)
+
+    aligned = safe_smoothstep(0.65, 1.0, cos_toward)
+    fast_enough = (ball_speed > shot_speed_threshold).astype(np.float64)
+    shot_like = np.clip(aligned * fast_enough, 0.0, 1.0)
+    shot_like[~np.isfinite(shot_like)] = 0.0
+    shot_like = _fit_len(shot_like, N, 0.0)
 
     spike = (a_n > args.snap_accel_th).astype(float)
     tau = int(round(args.snap_decay_ms * fps / 1000.0))
@@ -845,15 +875,33 @@ def main() -> None:
 
     z = apply_zoom_hysteresis_asym(z, args.zoom_tighten_rate, args.zoom_widen_rate)
 
+    z = _nan_to(z, 1.60)
+    z = np.clip(z, 1.08, 2.80)
+
     cx_out, cy_out = apply_boundary_cushion(cx_out, cy_out, z, frame_size)
 
     z = np.clip(z, z_min, z_max)
 
-    deg_xy = max(args.degree, 5)
-    deg_z = max(4, min(args.degree, 6))
-    cx_coeffs = fit_poly(cx_out, deg_xy)
-    cy_coeffs = fit_poly(cy_out, deg_xy)
-    z_coeffs = fit_poly(z, deg_z)
+    cx_out = _nan_to(cx_out, field_center_x)
+    cy_out = _nan_to(cy_out, field_center_y)
+
+    x_idx = np.arange(N, dtype=np.float64)
+    cx_coef, cx_deg = safe_polyfit(x_idx, cx_out, args.degree)
+    cy_coef, cy_deg = safe_polyfit(x_idx, cy_out, args.degree)
+    z_coef, z_deg = safe_polyfit(x_idx, z, args.degree)
+
+    if cx_deg < args.degree or cy_deg < args.degree or z_deg < args.degree:
+        print(f"[warn] lowered poly degree: cx={cx_deg}, cy={cy_deg}, z={z_deg}")
+
+    cx_coeffs = list(reversed(cx_coef))
+    cy_coeffs = list(reversed(cy_coef))
+    z_coeffs = list(reversed(z_coef))
+
+    if not _all_finite(cx_coeffs, cy_coeffs, z_coeffs):
+        print("[warn] non-finite coefficients after fit; writing conservative default.")
+        cx_coeffs = [960.0, 0.0, 0.0, 0.0]
+        cy_coeffs = [540.0, 0.0, 0.0, 0.0]
+        z_coeffs = [1.60, 0.0, 0.0, 0.0]
 
     cx_expr = build_expr(cx_coeffs)
     cy_expr = build_expr(cy_coeffs)
