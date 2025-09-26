@@ -43,6 +43,11 @@ function Try-Run([string]$CmdLine, [int]$TimeoutSec=25) {
   }
 }
 
+function MDCode([string]$s) {
+  $bt = [char]96   # backtick `
+  return "$bt$s$bt"
+}
+
 # --- discover top-level CLI(s) in this project ---
 # Heuristics: pyproject console_scripts, soccerhl package, and direct scripts with argparse/click/typer
 $consoleScripts = @()
@@ -72,6 +77,7 @@ foreach ($cmd in $consoleScripts) {
   $helpMap[$cmd] = $h
   # extract lines under a 'Commands:' or similar section
   $subs = @()
+  $seen = $false
   foreach ($line in ($h -split "`n")) {
     if ($line -match '^\s{0,4}Commands?:\s*$') { $seen = $true; continue }
     if ($seen) {
@@ -142,21 +148,37 @@ $null = $sb.AppendLine("**Files:** $($files.Count)  •  **Size:** ${sizeGB} GB"
 $null = $sb.AppendLine()
 $null = $sb.AppendLine("## Key Files")
 $null = $sb.AppendLine()
+
 if ($readmes) {
-  $null = $sb.AppendLine("**READMEs**")
-  foreach ($r in $readmes) { $null = $sb.AppendLine("- `$(Resolve-Path $r.FullName -Relative)`") }
+  $null = $sb.AppendLine("READMEs")
+  foreach ($r in $readmes) {
+    $rel = Resolve-Path $r.FullName -Relative
+    $null = $sb.AppendLine("- $(MDCode($rel))")
+  }
   $null = $sb.AppendLine()
 }
+
 if ($yaml) {
-  $null = $sb.AppendLine("**YAML / config**")
-  foreach ($y in ($yaml | Sort-Object FullName)) { $null = $sb.AppendLine("- `$(Resolve-Path $y.FullName -Relative)`") }
+  $null = $sb.AppendLine("YAML / config")
+  foreach ($y in ($yaml | Sort-Object FullName)) {
+    $rel = Resolve-Path $y.FullName -Relative
+    $null = $sb.AppendLine("- $(MDCode($rel))")
+  }
   $null = $sb.AppendLine()
 }
-$null = $sb.AppendLine("**PowerShell scripts**")
-foreach ($f in $ps) { $null = $sb.AppendLine("- `$(Resolve-Path $f.FullName -Relative)`") }
+
+$null = $sb.AppendLine("PowerShell scripts")
+foreach ($f in $ps) {
+  $rel = Resolve-Path $f.FullName -Relative
+  $null = $sb.AppendLine("- $(MDCode($rel))")
+}
 $null = $sb.AppendLine()
-$null = $sb.AppendLine("**Python files with CLI hints (argparse/click/typer or __main__)**")
-foreach ($e in $entryRows) { $null = $sb.AppendLine("- `$(Resolve-Path $e.path -Relative)`  (argparse=$($e.argparse), click=$($e.click), typer=$($e.typer), main=$($e.main))") }
+
+$null = $sb.AppendLine("Python files with CLI hints (argparse/click/typer or __main__)")
+foreach ($e in $entryRows) {
+  $rel = Resolve-Path $e.path -Relative
+  $null = $sb.AppendLine("- $(MDCode($rel))  (argparse=$($e.argparse), click=$($e.click), typer=$($e.typer), main=$($e.main))")
+}
 $null = $sb.AppendLine()
 
 $null = $sb.AppendLine("## Discovered Console Scripts")
