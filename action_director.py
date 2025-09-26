@@ -263,7 +263,8 @@ crop=w={cele_crop_w}:h={cele_crop_h}:x={cele_x:.3f}:y={cele_y:.3f},format=yuv420
 [v0o][v1o]xfade=transition=fade:duration={fade:.3f}:offset={offset_first:.3f}[v01];
 [a0o][a1o]acrossfade=d={fade:.3f}:o={offset_first:.3f}[a01];
 [v01][v2o]xfade=transition=fade:duration={fade:.3f}:offset={offset_second:.3f}[v];
-[a01][a2o]acrossfade=d={fade:.3f}:o={offset_second:.3f}[a]
+[a01][a2o]acrossfade=d={fade:.3f}:o={offset_second:.3f}[a];
+[v]format=yuv420p[vf]
 """
 
     return "".join(line.strip() for line in filter_graph.strip().splitlines())

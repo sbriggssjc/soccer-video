@@ -235,7 +235,7 @@ foreach ($s in $final) {
   $labelsV.Add("[$sv]"); $labelsA.Add("[$sa]")
 }
 $concatLine = ($labelsV + $labelsA) -join ''
-$concatLine += "concat=n=$i:v=1:a=1[v][a]"
+$concatLine += "concat=n=$i:v=1:a=1[vf][a]"
 $filter = ($parts + $concatLine) -join ";"
 
 $filterPath = Join-Path $OutDir 'filter_complex.txt'
@@ -246,7 +246,7 @@ $outPath = Join-Path $OutDir "top_highlights_goals_first.mp4"
 
 # single encode -> smooth, no DTS issues
 ffmpeg -y -hide_banner -loglevel error -stats -i $Video `
-  -filter_complex_script $filterPath -map "[v]" -map "[a]" `
+  -filter_complex_script $filterPath -map "[vf]" -map "[a]" `
   -c:v libx264 -preset veryfast -crf 20 -g 48 -sc_threshold 0 -pix_fmt yuv420p `
   -c:a aac -b:a 160k -movflags +faststart `
   $outPath
