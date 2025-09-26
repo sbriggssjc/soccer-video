@@ -7,78 +7,91 @@ for c in ["t","ball_x","ball_y"]:
 
 t0, t1 = float(df["t"].min()), float(df["t"].max())
 
-# --- knobs you can tweak ---
 goal_left, goal_right = 840.0, 1080.0
-goal_cx = (goal_left + goal_right) / 2.0
-later_frac = 0.65        # only search in the last 35% of the clip
-lane_margin = 120.0      # allow a bit wider than the posts
-speed_quant = 0.85       # keep peaks above this quantile (robust to noise)
-pre_roll   = 7.0         # longer to catch throw/pass/dribble
-postB      = 1.6         # keep strike + first beat
-postC_tail = 5.0         # follow celebration
-# ---------------------------
+goal_mid = 0.5 * (goal_left + goal_right)
+
+pre_roll   = 6.2
+postB      = 1.2
+postC_tail = 4.5
 
 # ball kinematics
 vx = np.gradient(df["ball_x"].values, df["t"].values, edge_order=2)
 vy = np.gradient(df["ball_y"].values, df["t"].values, edge_order=2)
 speed = np.hypot(vx, vy)
 
-# focus late segment
-cut = t0 + later_frac*(t1 - t0)
-m = df["t"].values >= cut
+# bias the shot detection toward the goal channel, but keep a robust fallback
+late_cut = t0 + 0.40 * (t1 - t0)
+near_goal = df["ball_x"].between(goal_left - 80, goal_right + 80)
+late = df["t"] >= late_cut
+finite_speed = np.isfinite(speed)
 
-# keep samples inside a widened goal lane
-lane_lo, lane_hi = goal_left - lane_margin, goal_right + lane_margin
-lane = (df["ball_x"].values >= lane_lo) & (df["ball_x"].values <= lane_hi)
+cand = np.where(late & near_goal & finite_speed, speed, -1)
+i_peak = int(np.nanargmax(cand))
+if cand[i_peak] < 0:
+    i_peak = int(np.nanargmax(np.where(late & finite_speed, speed, -1)))
 
-cand = m & lane & np.isfinite(speed)
-
-if not np.any(cand):
-    # fallback: late segment only
-    cand = m & np.isfinite(speed)
-
-# rank by (1) speed (2) closeness to goal center (tie-break)
-dist = np.abs(df["ball_x"].values - goal_cx)
-rank_speed = (speed - np.nanmin(speed[cand])) / (np.nanmax(speed[cand]) - np.nanmin(speed[cand]) + 1e-9)
-rank_dist  = 1.0 - (dist - np.nanmin(dist[cand])) / (np.nanmax(dist[cand]) - np.nanmin(dist[cand]) + 1e-9)
-score = 0.7*rank_speed + 0.3*rank_dist
-
-# only consider "high" speeds to avoid soft passes
-th = np.nanquantile(rank_speed[cand], speed_quant)
-strong = cand & (rank_speed >= th)
-
-if not np.any(strong):
-    strong = cand
-
-# pick the latest best candidate
-idxs = np.where(strong)[0]
-best = idxs[np.argmax(score[idxs])]
-t_shot = float(df.loc[best, "t"])
+t_shot = float(df.loc[i_peak, "t"])
 
 # phase boundaries
-A_end = max(0.0, t_shot - pre_roll)
-B_end = min(t1 - 0.05, t_shot + postB)
-C_end = min(t1, B_end + postC_tail)
+tA_end = max(0.0, t_shot - pre_roll)
+tB_end = min(t1 - 0.05, t_shot + postB)
+tC_end = min(t1, tB_end + postC_tail)
 
-# centers
-def med_x(lo, hi, fallback=goal_cx):
-    s = df[(df["t"]>=lo) & (df["t"]<=hi)]
-    return float(np.median(s["ball_x"])) if len(s) else fallback
 
-midxA = med_x(max(t0, A_end-2.5), A_end, goal_cx)
-midxB = med_x(max(t0, t_shot-0.5), t_shot+0.8, goal_cx)
-midxC = med_x(t_shot+0.6, min(t1, t_shot+3.0), midxB)
-midxD = med_x(min(t1, C_end), min(t1, C_end+2.0), midxC)
+def robust_center(x, lo=400, hi=1520):
+    x = np.asarray(x, float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return np.nan
+    q10, q90 = np.percentile(x, [10, 90])
+    x = np.clip(x, q10, q90)
+    return float(np.median(x))
 
-clip = lambda x: float(np.clip(x, 320, 1600))
+
+def phase_center(df, t_lo, t_hi, fallback=960.0):
+    s = df[(df["t"] >= t_lo) & (df["t"] <= t_hi)]
+    m = robust_center(s["ball_x"]) if len(s) else np.nan
+    if not np.isfinite(m):
+        m = fallback
+    return float(np.clip(m, 400, 1520))
+
+
+def limit_jump(curr, prev, max_jump=220):
+    return float(prev + np.clip(curr - prev, -max_jump, max_jump))
+
+
+mA = phase_center(df, max(t0, tA_end - 2.5), tA_end, fallback=goal_mid)
+
+mB_raw = phase_center(df, max(t0, t_shot - 0.6), t_shot + 0.9, fallback=goal_mid)
+window = df.loc[(df["t"] >= t_shot - 0.6) & (df["t"] <= t_shot + 0.9), "ball_x"]
+valid = np.isfinite(window)
+valid_frac = float(valid.mean()) if len(window) else np.nan
+if not np.isfinite(valid_frac) or valid_frac < 0.40:
+    mB = goal_mid
+else:
+    mB = mB_raw
+mB = limit_jump(mB, mA, 220)
+
+mC_raw = phase_center(df, t_shot + 0.4, min(t1, t_shot + 2.2), fallback=mB)
+mC = limit_jump(mC_raw, mB, 220)
+
+mD_raw = phase_center(df, min(t1, tC_end), min(t1, tC_end + 2.0), fallback=mC)
+mD = limit_jump(mD_raw, mC, 300)
+
+clip_range = lambda x: float(np.clip(x, 400, 1520))
+
 out = dict(
-    t1 = round(A_end,3),
-    t2 = round(B_end,3),
-    t3 = round(C_end,3),
-    midxA = round(clip(midxA),1),
-    midxB = round(clip(midxB),1),
-    midxC = round(clip(midxC),1),
-    midxD = round(clip(midxD),1),
-    t_shot = round(t_shot,3)
+    t1=round(tA_end, 3),
+    t2=round(tB_end, 3),
+    t3=round(tC_end, 3),
+    midxA=round(clip_range(mA), 1),
+    midxB=round(clip_range(mB), 1),
+    midxC=round(clip_range(mC), 1),
+    midxD=round(clip_range(mD), 1),
+    zA=1.00,
+    zB=1.06,
+    zC=1.04,
+    zD=1.00,
+    t_shot=round(t_shot, 3),
 )
 print(json.dumps(out))
