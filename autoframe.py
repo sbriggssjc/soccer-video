@@ -978,6 +978,120 @@ def format_cli_args(args: argparse.Namespace) -> str:
     return " ".join(parts)
 
 
+def format_coeff(value: float) -> str:
+    if abs(value) < 1e-9:
+        value = 0.0
+    return f"{value:.8g}"
+
+
+def build_poly_expr(coeffs: Sequence[float]) -> str:
+    terms: List[str] = []
+    for power, coeff in enumerate(coeffs):
+        coeff_str = format_coeff(float(coeff))
+        if power == 0:
+            terms.append(f"({coeff_str})")
+        else:
+            factors = "*".join(["n"] * power)
+            terms.append(f"({coeff_str})*{factors}")
+    joined = "+".join(terms)
+    return f"({joined})"
+
+
+def write_ps1vars(
+    out_path: Path,
+    cx_expr: str,
+    cy_expr: str,
+    z_expr: str,
+    comments: Sequence[str],
+) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8") as handle:
+        handle.write("# Auto-generated polynomial expressions\n")
+        for line in comments:
+            handle.write(f"# {line}\n")
+        handle.write(f"$cxExpr = \"{cx_expr}\"\n")
+        handle.write(f"$cyExpr = \"{cy_expr}\"\n")
+        handle.write(f"$zExpr = \"{z_expr}\"\n")
+
+
+def quick_polyfit(frames: np.ndarray, values: np.ndarray, degree: int) -> np.ndarray:
+    frames = np.asarray(frames, dtype=np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    mask = np.isfinite(frames) & np.isfinite(values)
+    frames = frames[mask]
+    values = values[mask]
+    if frames.size == 0:
+        avg = float(np.nanmean(values)) if values.size else 0.0
+        return np.array([avg], dtype=np.float64)
+    deg = int(max(0, min(degree, frames.size - 1)))
+    if deg <= 0:
+        avg = float(np.nanmean(values)) if values.size else 0.0
+        return np.array([avg], dtype=np.float64)
+    center = float(frames.mean())
+    shifted = frames - center
+    for current_deg in range(deg, 0, -1):
+        try:
+            coef = np.polyfit(shifted, values, current_deg)
+        except np.linalg.LinAlgError:
+            continue
+        poly = np.poly1d(coef)
+        expanded = poly(np.poly1d([1.0, -center]))
+        coeffs = np.asarray(expanded.c[::-1], dtype=np.float64)
+        return coeffs
+    avg = float(np.nanmean(values)) if values.size else 0.0
+    return np.array([avg], dtype=np.float64)
+
+
+def write_quick_polyvars(
+    out_path: Path,
+    results: Sequence[FrameResult],
+    degree: int,
+    zoom_bounds: Tuple[float, float],
+    frame_size: Tuple[int, int],
+    cli_args: argparse.Namespace,
+) -> None:
+    if not results:
+        width, height = frame_size
+        cx_expr = f"({format_coeff(width / 2.0)})"
+        cy_expr = f"({format_coeff(height / 2.0)})"
+        z_min, z_max = zoom_bounds
+        z_expr = (
+            f"(clip(({format_coeff((z_min + z_max) * 0.5)}),"
+            f"{format_coeff(z_min)},{format_coeff(z_max)}))"
+        )
+        write_ps1vars(
+            out_path,
+            cx_expr,
+            cy_expr,
+            z_expr,
+            [f"autoframe: {format_cli_args(cli_args)}", f"poly_degree={degree}"],
+        )
+        return
+
+    frames = np.array([res.frame for res in results], dtype=np.float64)
+    centers = np.array([res.center for res in results], dtype=np.float64)
+    zooms = np.array([res.zoom for res in results], dtype=np.float64)
+
+    cx_coeffs = quick_polyfit(frames, centers[:, 0], degree)
+    cy_coeffs = quick_polyfit(frames, centers[:, 1], degree)
+    z_coeffs = quick_polyfit(frames, zooms, degree)
+
+    cx_expr = build_poly_expr(cx_coeffs)
+    cy_expr = build_poly_expr(cy_coeffs)
+    z_expr_core = build_poly_expr(z_coeffs)
+    z_min, z_max = zoom_bounds
+    z_expr = f"(clip({z_expr_core},{format_coeff(z_min)},{format_coeff(z_max)}))"
+
+    comments = [
+        f"autoframe: {format_cli_args(cli_args)}",
+        f"poly_degree={degree}",
+    ]
+    write_ps1vars(out_path, cx_expr, cy_expr, z_expr, comments)
+    print(f"cx poly: {cx_expr}")
+    print(f"cy poly: {cy_expr}")
+    print(f"z  poly: {z_expr}")
+
+
 def write_csv(
     csv_path: Path,
     results: Iterable[FrameResult],
@@ -1085,6 +1199,18 @@ def parse_args() -> argparse.Namespace:
         dest="compare_path",
         type=Path,
         help="Optional side-by-side debug MP4",
+    )
+    parser.add_argument(
+        "--poly_out",
+        dest="poly_out_path",
+        type=Path,
+        help="Optional path to write quick polynomial .ps1vars",
+    )
+    parser.add_argument(
+        "--poly_degree",
+        type=int,
+        default=3,
+        help="Polynomial degree when generating --poly_out",
     )
     parser.add_argument(
         "--roi",
@@ -1711,6 +1837,16 @@ def main() -> None:
             frame_size,
             (zoom_min, zoom_max),
         )
+    if args.poly_out_path is not None:
+        write_quick_polyvars(
+            args.poly_out_path,
+            results,
+            int(max(0, args.poly_degree)),
+            (zoom_min, zoom_max),
+            frame_size,
+            args,
+        )
+        print(f"Poly vars: {args.poly_out_path}")
     print(f"Wrote {len(results)} motion samples to {args.csv_path}")
     if args.preview_path:
         print(f"Preview: {args.preview_path}")

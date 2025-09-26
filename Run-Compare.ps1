@@ -3,64 +3,84 @@ param(
   [Parameter(Mandatory=$true)] [string]$Vars,
   [Parameter(Mandatory=$true)] [string]$Out,
   [string]$VF = ".\out\autoframe_work\compare_autoframe.vf",
-  [int]$FPS = 24  # freeze unless you want to auto-detect
+  [int]$FPS = 24,
+  [double]$GoalLeft,
+  [double]$GoalRight,
+  [double]$PadPx,
+  [double]$StartRampSec,
+  [double]$TGoalSec,
+  [double]$CeleSec,
+  [double]$CeleTight,
+  [double]$YMin,
+  [double]$YMax,
+  [switch]$ScaleFirst
 )
 
-Import-Module (Join-Path $PSScriptRoot 'tools/Autoframe.psm1') -Force
+$modulePath = "$PSScriptRoot\..\tools\Autoframe.psm1"
+if (-not (Test-Path $modulePath)) {
+  $modulePath = Join-Path $PSScriptRoot 'tools/Autoframe.psm1'
+}
+Import-Module $modulePath -Force
 
-# 0) Load fits
-Invoke-Expression (Get-Content -Raw -Encoding UTF8 $Vars)
-if (-not $cxExpr -or -not $cyExpr -or -not $zExpr) {
-  throw "Missing cx/cy/z in $Vars"
+if (-not (Test-Path $In)) {
+  throw "Input file not found: $In"
 }
 
-# 1) Pre-normalize base exprs (order is important!)
-$cxN = Escape-Commas-In-Parens ( SubN ( Sanitize-Expr ( Expand-Clip $cxExpr ) ) $FPS )
-$cyN = Escape-Commas-In-Parens ( SubN ( Sanitize-Expr ( Expand-Clip $cyExpr ) ) $FPS )
-$zN  = Escape-Commas-In-Parens ( SubN ( Sanitize-Expr ( Expand-Clip $zExpr  ) ) $FPS )
+if (-not (Test-Path $Vars)) {
+  throw "Vars file not found: $Vars"
+}
 
-# 2) Build derived exprs (use ih)
-$cwExpr = "((ih*9/16)/($zN))"
-$chExpr = "(ih/($zN))"
-$wExpr  = "floor(($cwExpr)/2)*2"
-$hExpr  = "floor(($chExpr)/2)*2"
-$xCore  = "($cxN)-($wExpr)/2"
-$yCore  = "($cyN)-($hExpr)/2"
+if ([string]::IsNullOrWhiteSpace($Out)) {
+  throw 'Output path cannot be empty.'
+}
 
-# 3) Expand nested $ once
-$expand = { param($s) $ExecutionContext.InvokeCommand.ExpandString($s) }
-$wE = & $expand $wExpr
-$hE = & $expand $hExpr
-$xE = & $expand $xCore
-$yE = & $expand $yCore
+$vfArgs = @{
+  VarsPath = $Vars
+  fps = $FPS
+}
 
-# 4) Final safety: escape commas inside parens
-$wE = Escape-Commas-In-Parens $wE
-$hE = Escape-Commas-In-Parens $hE
-$xE = Escape-Commas-In-Parens $xE
-$yE = Escape-Commas-In-Parens $yE
+if ($PSBoundParameters.ContainsKey('GoalLeft')) { $vfArgs.goalLeft = $GoalLeft }
+if ($PSBoundParameters.ContainsKey('GoalRight')) { $vfArgs.goalRight = $GoalRight }
+if ($PSBoundParameters.ContainsKey('PadPx')) { $vfArgs.padPx = $PadPx }
+if ($PSBoundParameters.ContainsKey('StartRampSec')) { $vfArgs.startRampSec = $StartRampSec }
+if ($PSBoundParameters.ContainsKey('TGoalSec')) { $vfArgs.tGoalSec = $TGoalSec }
+if ($PSBoundParameters.ContainsKey('CeleSec')) { $vfArgs.celeSec = $CeleSec }
+if ($PSBoundParameters.ContainsKey('CeleTight')) { $vfArgs.celeTight = $CeleTight }
+if ($PSBoundParameters.ContainsKey('YMin')) { $vfArgs.yMin = $YMin }
+if ($PSBoundParameters.ContainsKey('YMax')) { $vfArgs.yMax = $YMax }
+if ($ScaleFirst.IsPresent) { $vfArgs.ScaleFirst = $true }
 
-# 5) Write filtergraph (positional crop + ${} so PS doesn’t treat : as drive)
-$vfText = @"
-[0:v]split=2[left][right];
-[right]crop=${wE}:${hE}:${xE}:${yE},scale=-2:1080:flags=lanczos,setsar=1[right_portrait];
-[left][right_portrait]hstack=inputs=2,format=yuv420p
-"@
-[IO.File]::WriteAllText($VF, $vfText, (New-Object Text.UTF8Encoding($false)))
+$vfChain = New-VFChain @vfArgs
 
-# 6) Log for reproducibility
-"`n--- DEBUG ---" | Write-Host
-"FPS=$FPS" | Write-Host
-"W=$wE" | Write-Host
-"H=$hE" | Write-Host
-"X=$xE" | Write-Host
-"Y=$yE" | Write-Host
-"`n--- VF ($VF) ---" | Write-Host
-(Get-Content $VF) | Write-Host
+$filter = "[0:v]split=2[left][right];[right]$vfChain[right_portrait];[left][right_portrait]hstack=inputs=2,format=yuv420p"
 
-# 7) Render (keep using -filter_complex_script; deprecation msg is cosmetic)
-ffmpeg -hide_banner -y -nostdin `
-  -i $In `
-  -filter_complex_script $VF `
-  -c:v libx264 -crf 20 -preset veryfast -movflags +faststart -an `
+$vfDir = Split-Path -Path $VF -Parent
+if ($vfDir -and -not (Test-Path $vfDir)) {
+  New-Item -ItemType Directory -Force -Path $vfDir | Out-Null
+}
+
+[IO.File]::WriteAllText($VF, $filter, [System.Text.UTF8Encoding]::new($false))
+
+Write-Host "`n--- VF Chain ---"
+Write-Host $vfChain
+Write-Host "`n--- Filter Script ($VF) ---"
+Write-Host $filter
+
+$ffmpegArgs = @(
+  '-hide_banner',
+  '-y',
+  '-nostdin',
+  '-i', $In,
+  '-filter_complex_script', $VF,
+  '-c:v', 'libx264',
+  '-crf', '20',
+  '-preset', 'veryfast',
+  '-movflags', '+faststart',
+  '-an',
   $Out
+)
+
+& ffmpeg @ffmpegArgs
+if ($LASTEXITCODE -ne 0) {
+  throw "ffmpeg failed with exit code $LASTEXITCODE"
+}

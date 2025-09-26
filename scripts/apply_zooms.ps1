@@ -37,6 +37,10 @@ if ($ScaleFirst.IsPresent) { $vfArgs.ScaleFirst = $true }
 
 $vf = New-VFChain @vfArgs
 
+if ([string]::IsNullOrWhiteSpace($Out)) {
+    throw 'Output path cannot be empty.'
+}
+
 $ffmpegArgs = @(
     '-y',
     '-i', $In,
