@@ -13,78 +13,14 @@ function Convert-ToFrameExpr {
 }
 
 function Remove-ClipCalls {
-    param(
-        [string]$expr
-    )
-
-    if ([string]::IsNullOrWhiteSpace($expr)) {
-        return $expr
+    param([Parameter(Mandatory)][string]$expr)
+    # strip clip(<anything_without_commas_in_top_level>, lo, hi) -> <that_first_arg>
+    # since we control the poly formatting (no commas), this is safe.
+    $res = $expr
+    while ($res -match 'clip\(\s*([^,]+?)\s*,\s*[-+0-9.eE]+\s*,\s*[-+0-9.eE]+\s*\)') {
+        $res = $res -replace 'clip\(\s*([^,]+?)\s*,\s*[-+0-9.eE]+\s*,\s*[-+0-9.eE]+\s*\)', '$1'
     }
-
-    $result = $expr
-    while ($true) {
-        $idx = $result.IndexOf('clip(', [System.StringComparison]::OrdinalIgnoreCase)
-        if ($idx -lt 0) {
-            break
-        }
-
-        $startParen = $result.IndexOf('(', $idx)
-        if ($startParen -lt 0) {
-            break
-        }
-
-        $depth = 0
-        $endParen = -1
-        for ($i = $startParen; $i -lt $result.Length; $i++) {
-            $ch = $result[$i]
-            if ($ch -eq '(') {
-                $depth++
-            } elseif ($ch -eq ')') {
-                $depth--
-                if ($depth -eq 0) {
-                    $endParen = $i
-                    break
-                }
-            }
-        }
-
-        if ($endParen -lt 0) {
-            break
-        }
-
-        $inner = $result.Substring($startParen + 1, $endParen - $startParen - 1)
-        $args = @()
-        $current = ''
-        $depth = 0
-        for ($j = 0; $j -lt $inner.Length; $j++) {
-            $c = $inner[$j]
-            if ($c -eq '(') {
-                $depth++
-            } elseif ($c -eq ')') {
-                if ($depth -gt 0) {
-                    $depth--
-                }
-            }
-
-            if ($c -eq ',' -and $depth -eq 0) {
-                $args += ,$current
-                $current = ''
-                continue
-            }
-
-            $current += $c
-        }
-
-        $args += ,$current
-        if ($args.Count -lt 1) {
-            break
-        }
-
-        $replacement = ($args[0]).Trim()
-        $result = $result.Substring(0, $idx) + $replacement + $result.Substring($endParen + 1)
-    }
-
-    return $result
+    return $res
 }
 
 function Get-SafeZoomExpr {
@@ -110,9 +46,11 @@ function Get-EvenWindowExprs {
         [string]$zz
     )
 
+    $w = "max(16, floor(((ih*9/16)/($zz))/2)*2)"
+    $h = "max(16, floor((ih/($zz))/2)*2)"
     return @{
-        w = "max(16, floor(((ih*9/16)/($zz))/2)*2)"
-        h = "max(16, floor((ih/($zz))/2)*2)"
+        w = $w
+        h = $h
     }
 }
 
