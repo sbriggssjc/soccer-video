@@ -1104,6 +1104,24 @@ def parse_args() -> argparse.Namespace:
         default="portrait",
         help="Output profile controls aspect ratio",
     )
+    parser.add_argument(
+        "--corridor",
+        type=lambda s: parse_vector(s, 3),
+        default=None,
+        help="Goal corridor as left,right,pad_px in source px",
+    )
+    parser.add_argument(
+        "--y_band",
+        type=lambda s: parse_vector(s, 2),
+        default=None,
+        help="Allowed vertical band as y_min,y_max",
+    )
+    parser.add_argument(
+        "--cele_lock",
+        type=lambda s: parse_vector(s, 3),
+        default=None,
+        help="Goal lock as t_goal_sec,cele_sec,cele_tight_zoom",
+    )
     parser.add_argument("--config", type=Path, help="Reserved for compatibility; unused")
     parser.add_argument("--lead", type=int, help="Legacy frames to lead/predict center")
     parser.add_argument(
@@ -1581,6 +1599,34 @@ def run_autoframe(
                 z = clamp_value(z_goal, zoom_min, zoom_max)
                 state["z_ema"] = z
                 state["zoom"] = z
+
+        if args.corridor is not None:
+            left, right, pad = args.corridor
+            if args.profile == "portrait":
+                base_h = height / max(z, 1e-6)
+                base_w = base_h * (9.0 / 16.0)
+            else:
+                base_w = width / max(z, 1e-6)
+            min_cx = (left + pad) + base_w * 0.5
+            max_cx = (right - pad) - base_w * 0.5
+            cam_cx = float(np.clip(cam_cx, min_cx, max_cx))
+
+        if args.y_band is not None:
+            y_min, y_max = args.y_band
+            if args.profile == "portrait":
+                base_h = height / max(z, 1e-6)
+            else:
+                base_w = width / max(z, 1e-6)
+                base_h = base_w * (9.0 / 16.0)
+            half_h = base_h * 0.5
+            cam_cy = float(np.clip(cam_cy, y_min + half_h, y_max - half_h))
+
+        if args.cele_lock is not None and goal_box is not None:
+            t_goal, t_cele, z_tight = args.cele_lock
+            t = frame_idx / max(fps, 1e-6)
+            if t_goal <= t <= (t_goal + t_cele):
+                cam_cx = goal_box.center[0]
+                z = min(z, float(z_tight))
 
         crop_center = np.array([cam_cx, cam_cy], dtype=np.float64)
         w, h, x, y, adjusted_center = compute_crop_geometry(

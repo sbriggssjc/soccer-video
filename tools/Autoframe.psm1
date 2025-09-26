@@ -65,37 +65,59 @@ function Build-GoalCorridorChain {
         [string]$cyExpr,
         [string]$zExpr,
         [int]$fps = 24,
-        [int]$goalLeft,
-        [int]$goalRight,
-        [int]$padPx = 40,
-        [double]$startRampSec = 3.0,
-        [double]$tGoalSec = 10.0,
-        [double]$celeSec = 2.0,
-        [double]$celeTight = 1.80,
-        [double]$yMin = 384,
-        [double]$yMax = 768,
+        [double]$goalLeft,
+        [double]$goalRight,
+        [double]$padPx = 40,
+        [double]$startRampSec = 0.0,
+        [double]$tGoalSec,
+        [double]$celeSec,
+        [double]$celeTight,
+        [double]$yMin,
+        [double]$yMax,
         [switch]$ScaleFirst
     )
 
-    $cx = Convert-ToFrameExpr -poly $cxExpr -fps $fps
-    $cy = Convert-ToFrameExpr -poly $cyExpr -fps $fps
-    $zz = Get-SafeZoomExpr -zExpr $zExpr -fps $fps
-    $win = Get-EvenWindowExprs -zz $zz
+    $cxBase = Convert-ToFrameExpr -poly $cxExpr -fps $fps
+    $cyBase = Convert-ToFrameExpr -poly $cyExpr -fps $fps
+    $zzBase = Get-SafeZoomExpr -zExpr $zExpr -fps $fps
+    $win = Get-EvenWindowExprs -zz $zzBase
     $w = $win.w
     $h = $win.h
 
-    $midX  = "(($goalLeft+$goalRight)/2)"
-    $minXc = "(($goalLeft+$padPx)+($w)/2)"
-    $maxXc = "(($goalRight-$padPx)-($w)/2)"
-    $cxSoft = "min(max(($cx), $minXc), $maxXc)"
-    $rampR  = "min( (t/$startRampSec), 1 )"
-    $cxRamp = "( ($midX)*(1-($rampR)) + ($cxSoft)*($rampR) )"
-    $inCele = "between(t,$tGoalSec,($tGoalSec+$celeSec))"
-    $cxFinal = "if($inCele, $midX, $cxRamp)"
-    $zzFinal = "if($inCele, min($zz,$celeTight), $zz)"
-    $yMinC   = "($yMin+($h)/2)"
-    $yMaxC   = "($yMax-($h)/2)"
-    $cyClamp = "min(max(($cy), $yMinC), $yMaxC)"
+    $cxCorr = $cxBase
+    if ($PSBoundParameters.ContainsKey('goalLeft') -and $PSBoundParameters.ContainsKey('goalRight')) {
+        $pad = if ($PSBoundParameters.ContainsKey('padPx')) { $padPx } else { 0 }
+        $minXc = "(($goalLeft+$pad)+($w)/2)"
+        $maxXc = "(($goalRight-$pad)-($w)/2)"
+        $cxCorr = "min(max(($cxCorr), $minXc), $maxXc)"
+        if ($startRampSec -gt 0) {
+            $ramp = "min((t/$startRampSec),1)"
+            $cxCorr = "(($cxBase)*(1-($ramp)) + ($cxCorr)*($ramp))"
+        }
+    }
+
+    $cyClamp = $cyBase
+    if ($PSBoundParameters.ContainsKey('yMin') -and $PSBoundParameters.ContainsKey('yMax')) {
+        $yMinC = "($yMin+($h)/2)"
+        $yMaxC = "($yMax-($h)/2)"
+        $cyClamp = "min(max(($cyClamp), $yMinC), $yMaxC)"
+    }
+
+    $cxFinal = $cxCorr
+    $zzFinal = $zzBase
+    if (
+        $PSBoundParameters.ContainsKey('tGoalSec') -and
+        $PSBoundParameters.ContainsKey('celeSec') -and
+        $PSBoundParameters.ContainsKey('celeTight') -and
+        $PSBoundParameters.ContainsKey('goalLeft') -and
+        $PSBoundParameters.ContainsKey('goalRight')
+    ) {
+        $midX = "(($goalLeft+$goalRight)/2)"
+        $inCele = "between(t,$tGoalSec,($tGoalSec+$celeSec))"
+        $cxFinal = "if($inCele, $midX, $cxFinal)"
+        $zzFinal = "if($inCele, min($zzFinal,$celeTight), $zzFinal)"
+    }
+
     $x = "min(max((($cxFinal)-($w)/2),0), iw-($w))"
     $y = "min(max((($cyClamp)-($h)/2),0), ih-($h))"
 
@@ -110,15 +132,15 @@ function New-VFChain {
     param(
         [Parameter(Mandatory=$true)][Alias('Vars')][string]$VarsPath,
         [int]$fps = 24,
-        [int]$goalLeft,
-        [int]$goalRight,
-        [int]$padPx = 40,
-        [double]$startRampSec = 3.0,
-        [double]$tGoalSec = 10.0,
-        [double]$celeSec = 2.0,
-        [double]$celeTight = 1.80,
-        [double]$yMin = 360,
-        [double]$yMax = 780,
+        [double]$goalLeft,
+        [double]$goalRight,
+        [double]$padPx,
+        [double]$startRampSec,
+        [double]$tGoalSec,
+        [double]$celeSec,
+        [double]$celeTight,
+        [double]$yMin,
+        [double]$yMax,
         [switch]$ScaleFirst
     )
 
@@ -140,7 +162,25 @@ function New-VFChain {
         throw "Expected `$zExpr to be defined in vars file."
     }
 
-    return Build-GoalCorridorChain -cxExpr $cxExpr -cyExpr $cyExpr -zExpr $zExpr -fps $fps -goalLeft $goalLeft -goalRight $goalRight -padPx $padPx -startRampSec $startRampSec -tGoalSec $tGoalSec -celeSec $celeSec -celeTight $celeTight -yMin $yMin -yMax $yMax -ScaleFirst:$ScaleFirst
+    $callArgs = @{
+        cxExpr = $cxExpr
+        cyExpr = $cyExpr
+        zExpr = $zExpr
+        fps = $fps
+    }
+
+    if ($PSBoundParameters.ContainsKey('goalLeft')) { $callArgs.goalLeft = $goalLeft }
+    if ($PSBoundParameters.ContainsKey('goalRight')) { $callArgs.goalRight = $goalRight }
+    if ($PSBoundParameters.ContainsKey('padPx')) { $callArgs.padPx = $padPx }
+    if ($PSBoundParameters.ContainsKey('startRampSec')) { $callArgs.startRampSec = $startRampSec }
+    if ($PSBoundParameters.ContainsKey('tGoalSec')) { $callArgs.tGoalSec = $tGoalSec }
+    if ($PSBoundParameters.ContainsKey('celeSec')) { $callArgs.celeSec = $celeSec }
+    if ($PSBoundParameters.ContainsKey('celeTight')) { $callArgs.celeTight = $celeTight }
+    if ($PSBoundParameters.ContainsKey('yMin')) { $callArgs.yMin = $yMin }
+    if ($PSBoundParameters.ContainsKey('yMax')) { $callArgs.yMax = $yMax }
+    if ($ScaleFirst.IsPresent) { $callArgs.ScaleFirst = $true }
+
+    return Build-GoalCorridorChain @callArgs
 }
 
 Export-ModuleMember -Function Convert-ToFrameExpr,Remove-ClipCalls,Get-SafeZoomExpr,Get-EvenWindowExprs,Build-GoalCorridorChain,New-VFChain
