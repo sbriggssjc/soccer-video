@@ -286,7 +286,13 @@ def main() -> None:
     parser.add_argument("--out_ffmpeg", required=True)
     args = parser.parse_args()
 
-    df = pd.read_csv(args.csv)
+    df = pd.read_csv(
+        args.csv,
+        comment="#",
+        sep=None,
+        engine="python",
+        on_bad_lines="skip",
+    )
     df = derive_vel(df, args.fps)
 
     midx = (args.goal_left + args.goal_right) / 2.0
