@@ -197,6 +197,7 @@ def build_ffmpeg_phase_filter(
     y_min: float,
     y_max: float,
     fade_duration: float,
+    use_fades: bool,
 ) -> str:
     """Construct an ffmpeg filter graph for the action phases."""
 
@@ -246,25 +247,41 @@ def build_ffmpeg_phase_filter(
         offset_first = max(0.0, pre_len - fade)
         offset_second = max(0.0, pre_len + mid_len - 2 * fade)
 
-    filter_graph = f"""
+    final_scale_w = 608
+
+    common_prefix = f"""
 [0:v]split=3[v0][v1][v2];[0:a]asplit=3[a0][a1][a2];
 [v0]trim=start=0:end={t_phase_begin:.3f},setpts=PTS-STARTPTS,
 scale=w=-2:h=1080:flags=lanczos,setsar=1,
-crop=w={w_forced}:h=1080:x={pre_x:.3f}:y='(ih-1080)/2',format=yuv420p[v0o];
+crop=w={w_forced}:h=1080:x={pre_x:.3f}:y='(ih-1080)/2',
+scale=w={final_scale_w}:h=1080:flags=lanczos,setsar=1,format=yuv420p[v0o];
 [a0]atrim=start=0:end={t_phase_begin:.3f},asetpts=PTS-STARTPTS[a0o];
 [v1]trim=start={t_phase_begin:.3f}:end={t_phase_end:.3f},setpts=PTS-STARTPTS,
 scale=w=-2:h=1080:flags=lanczos,setsar=1,
-crop=w={shot_crop_w}:h={shot_crop_h}:x={shot_x:.3f}:y={shot_y:.3f},format=yuv420p[v1o];
+crop=w={shot_crop_w}:h={shot_crop_h}:x={shot_x:.3f}:y={shot_y:.3f},
+scale=w={final_scale_w}:h=1080:flags=lanczos,setsar=1,format=yuv420p[v1o];
 [a1]atrim=start={t_phase_begin:.3f}:end={t_phase_end:.3f},asetpts=PTS-STARTPTS[a1o];
 [v2]trim=start={t_phase_end:.3f},setpts=PTS-STARTPTS,
 scale=w=-2:h=1080:flags=lanczos,setsar=1,
-crop=w={cele_crop_w}:h={cele_crop_h}:x={cele_x:.3f}:y={cele_y:.3f},format=yuv420p[v2o];
+crop=w={cele_crop_w}:h={cele_crop_h}:x={cele_x:.3f}:y={cele_y:.3f},
+scale=w={final_scale_w}:h=1080:flags=lanczos,setsar=1,format=yuv420p[v2o];
 [a2]atrim=start={t_phase_end:.3f},asetpts=PTS-STARTPTS[a2o];
+"""
+
+    if use_fades and fade > 0:
+        filter_graph = f"""
+{common_prefix}
 [v0o][v1o]xfade=transition=fade:duration={fade:.3f}:offset={offset_first:.3f}[v01];
 [a0o][a1o]acrossfade=d={fade:.3f}:o={offset_first:.3f}[a01];
 [v01][v2o]xfade=transition=fade:duration={fade:.3f}:offset={offset_second:.3f}[v];
 [a01][a2o]acrossfade=d={fade:.3f}:o={offset_second:.3f}[a];
 [v]format=yuv420p[vf]
+"""
+    else:
+        filter_graph = f"""
+{common_prefix}
+[v0o][a0o][v1o][a1o][v2o][a2o]concat=n=3:v=1:a=1[vtmp][a];
+[vtmp]format=yuv420p[vf]
 """
 
     return "".join(line.strip() for line in filter_graph.strip().splitlines())
@@ -285,6 +302,19 @@ def main() -> None:
     parser.add_argument("--action", choices=sorted(PRESETS.keys()), default="goal")
     parser.add_argument("--out_recipe", required=True)
     parser.add_argument("--out_ffmpeg", required=True)
+    parser.add_argument(
+        "--fades",
+        dest="use_fades",
+        action="store_true",
+        help="Enable cross-fade transitions between phases.",
+    )
+    parser.add_argument(
+        "--no-fades",
+        dest="use_fades",
+        action="store_false",
+        help="Disable cross-fade transitions (default).",
+    )
+    parser.set_defaults(use_fades=False)
     args = parser.parse_args()
 
     df = pd.read_csv(
@@ -378,6 +408,7 @@ def main() -> None:
         y_min=y_min,
         y_max=y_max,
         fade_duration=fade_duration,
+        use_fades=args.use_fades,
     )
     Path(args.out_ffmpeg).write_text(ffmpeg_filter)
 
