@@ -21,10 +21,67 @@ function Remove-ClipCalls {
         return $expr
     }
 
-    $pattern = 'clip\(([^,]+),\s*[-+0-9\.]+\s*,\s*[-+0-9\.]+\)'
     $result = $expr
-    while ([System.Text.RegularExpressions.Regex]::IsMatch($result, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
-        $result = [System.Text.RegularExpressions.Regex]::Replace($result, $pattern, '$1', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    while ($true) {
+        $idx = $result.IndexOf('clip(', [System.StringComparison]::OrdinalIgnoreCase)
+        if ($idx -lt 0) {
+            break
+        }
+
+        $startParen = $result.IndexOf('(', $idx)
+        if ($startParen -lt 0) {
+            break
+        }
+
+        $depth = 0
+        $endParen = -1
+        for ($i = $startParen; $i -lt $result.Length; $i++) {
+            $ch = $result[$i]
+            if ($ch -eq '(') {
+                $depth++
+            } elseif ($ch -eq ')') {
+                $depth--
+                if ($depth -eq 0) {
+                    $endParen = $i
+                    break
+                }
+            }
+        }
+
+        if ($endParen -lt 0) {
+            break
+        }
+
+        $inner = $result.Substring($startParen + 1, $endParen - $startParen - 1)
+        $args = @()
+        $current = ''
+        $depth = 0
+        for ($j = 0; $j -lt $inner.Length; $j++) {
+            $c = $inner[$j]
+            if ($c -eq '(') {
+                $depth++
+            } elseif ($c -eq ')') {
+                if ($depth -gt 0) {
+                    $depth--
+                }
+            }
+
+            if ($c -eq ',' -and $depth -eq 0) {
+                $args += ,$current
+                $current = ''
+                continue
+            }
+
+            $current += $c
+        }
+
+        $args += ,$current
+        if ($args.Count -lt 1) {
+            break
+        }
+
+        $replacement = ($args[0]).Trim()
+        $result = $result.Substring(0, $idx) + $replacement + $result.Substring($endParen + 1)
     }
 
     return $result
@@ -38,8 +95,8 @@ function Get-SafeZoomExpr {
         [double]$maxZ = 2.40
     )
 
-    $inner = Convert-ToFrameExpr -poly $zExpr -fps $fps
-    $inner = Remove-ClipCalls -expr $inner
+    $clean = Remove-ClipCalls -expr $zExpr
+    $inner = Convert-ToFrameExpr -poly $clean -fps $fps
 
     if ([string]::IsNullOrWhiteSpace($inner)) {
         $inner = "1.0"
@@ -54,7 +111,7 @@ function Get-EvenWindowExprs {
     )
 
     return @{
-        w = "max(16, floor(((ih*9/16)/($zz))/2)*2)",
+        w = "max(16, floor(((ih*9/16)/($zz))/2)*2)"
         h = "max(16, floor((ih/($zz))/2)*2)"
     }
 }

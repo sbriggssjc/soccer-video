@@ -30,5 +30,12 @@ $vf = New-VFChain `
     -yMax $YMax `
     -ScaleFirst:$ScaleFirst
 
+if ([string]::IsNullOrWhiteSpace($Out)) {
+    throw 'Output path cannot be empty.'
+}
+
 Write-Host "VF: $vf"
-ffmpeg -y -i $In -vf $vf -c:v libx264 -crf 19 -preset veryfast $Out
+& ffmpeg -y -i $In -vf $vf -c:v libx264 -crf 19 -preset veryfast $Out
+if ($LASTEXITCODE -ne 0) {
+    throw "ffmpeg failed with exit code $LASTEXITCODE"
+}
