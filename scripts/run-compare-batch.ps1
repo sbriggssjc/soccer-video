@@ -111,8 +111,24 @@ Get-ChildItem $inDir -File -Filter "*.mp4" | ForEach-Object {
 
   # map:  "...\X__NAME__tA-tB.mp4"  ->  "...\X__NAME__tA-tB_zoom.ps1vars"
   $stem     = [IO.Path]::GetFileNameWithoutExtension($_.Name)
-  $varsPath = Join-Path $varsDir ($stem + "_zoom.ps1vars")
-  $vars = Load-ZoomVars $varsPath
+  $varsPath = $null
+  $vars = $null
+  $candidatePaths = @(
+    Join-Path $varsDir ($stem + "_motion.ps1vars"),
+    Join-Path $varsDir ($stem + "_zoom.ps1vars")
+  )
+  foreach ($candidate in $candidatePaths) {
+    if (-not $candidate) { continue }
+    $loaded = Load-ZoomVars $candidate
+    if ($null -ne $loaded) {
+      $varsPath = $candidate
+      $vars = $loaded
+      break
+    }
+  }
+  if (-not $varsPath) {
+    $varsPath = $candidatePaths[-1]
+  }
   $name = $_.Name
   if ($null -eq $vars) {
     if ($DefaultIfMissing) {

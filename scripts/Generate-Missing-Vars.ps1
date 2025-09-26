@@ -228,7 +228,21 @@ foreach ($target in $Targets) {
         throw "Tracker did not produce CSV: $csvPath"
       }
 
-      $fitterArgs = @($pythonFitter.FullName, '--csv', $csvPath, '--out', $varsPath, '--profile', 'portrait')
+      $fitterArgs = @(
+        $pythonFitter.FullName,
+        '--csv', $csvPath,
+        '--out', $varsPath,
+        '--profile', 'portrait',
+        '--roi', 'goal',
+        '--degree', '3',
+        '--lead-ms', '12',
+        '--alpha-slow', '0.06',
+        '--alpha-fast', '0.60',
+        '--z-wide', '1.02',
+        '--z-tight', '1.60',
+        '--zoom-tighten-rate', '0.010',
+        '--zoom-widen-rate', '0.200'
+      )
       Invoke-ExternalCommand -FilePath $pythonExe -Arguments $fitterArgs -DisplayName "$pythonExe $([IO.Path]::GetFileName($pythonFitter.FullName))"
     }
     default {
