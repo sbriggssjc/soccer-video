@@ -27,52 +27,47 @@ if cand[i_peak] < 0:
 
 t_shot = float(df.loc[i_peak, "t"])
 
-# --- windows (push A earlier to catch throw-in/pass/dribble) ---
-pre_roll = 7.2    # longer to include throw + first/second pass
-postB      = 1.0    # keep strike + beat
-postC_tail = 4.5    # follow early celebration
+# --- knobs ---
+pre_roll   = 8.6     # longer buildup (throw-in/second pass/dribble)
+postB      = 1.8     # cover strike + first beat
+postC_tail = 6.0     # cross + celebration follow
 
-tA_end = max(0.0, t_shot - pre_roll)
+tA_end = max(t0, t_shot - pre_roll)
 tB_end = min(t1 - 0.05, t_shot + postB)
 tC_end = min(t1, tB_end + postC_tail)
 
-# --- robust centers with winsorized median + continuity limits ---
-def robust_center(a):
-    a = np.asarray(a, float)
-    a = a[np.isfinite(a)]
-    if a.size == 0: return np.nan
-    q10, q90 = np.percentile(a, [10, 90])
-    a = np.clip(a, q10, q90)
-    return float(np.median(a))
+# --- cross detection (lateral pivot) ---
+vx = np.gradient(df["ball_x"].values, df["t"].values, edge_order=2)
+ax = np.gradient(vx, df["t"].values, edge_order=2)
 
-def phase_center(df, lo, hi, fallback):
+win_lo = max(t0, t_shot - 1.0)
+win_hi = min(t1, t_shot + 0.8)
+w = (df["t"].values >= win_lo) & (df["t"].values <= win_hi)
+if w.any():
+    i_cross = int(np.nanargmax(np.abs(ax * w)))
+    t_cross = float(df.loc[i_cross, "t"])
+else:
+    t_cross = t_shot
+
+def med_x(lo, hi, fallback=960.0):
     s = df[(df["t"]>=lo) & (df["t"]<=hi)]
-    m = robust_center(s["ball_x"]) if len(s) else np.nan
-    if not np.isfinite(m): m = fallback
-    return float(np.clip(m, 400, 1520))
+    return float(np.median(s["ball_x"])) if len(s) else fallback
 
-def limit_jump(curr, prev, max_jump):
-    return float(prev + np.clip(curr - prev, -max_jump, max_jump))
+midxA  = med_x(max(t0, tA_end-2.5), tA_end)
+midxB  = med_x(max(t0, t_shot-0.5), t_shot+0.8)
+midxC1 = med_x(tB_end, max(tB_end, t_cross), midxB)
+midxC2 = med_x(min(t1, t_cross), min(t1, t_cross+2.0), midxB)
+midxD  = med_x(min(t1, tC_end), min(t1, tC_end+2.0), midxC2)
 
-mA = phase_center(df, max(t0, tA_end-2.5), tA_end, fallback=goal_mid)
-
-# Around-shot center; fallback to goal if data is sparse
-seg = df[(df["t"]>=t_shot-0.6)&(df["t"]<=t_shot+0.9)]
-valid_frac = np.isfinite(seg["ball_x"]).mean() if len(seg) else 0.0
-mB_raw = phase_center(df, t_shot-0.6, t_shot+0.9, fallback=goal_mid)
-mB = goal_mid if valid_frac < 0.40 else mB_raw
-mB = limit_jump(mB, mA, 220)
-
-mC_raw = phase_center(df, t_shot+0.4, min(t1, t_shot+2.2), fallback=mB)
-mC = limit_jump(mC_raw, mB, 220)
-
-mD_raw = phase_center(df, min(t1, tC_end), min(t1, tC_end+2.0), fallback=mC)
-mD = limit_jump(mD_raw, mC, 300)
-
-print(json.dumps(dict(
+clip = lambda x: float(np.clip(x, 320, 1600))
+out = dict(
     t1=round(tA_end,3), t2=round(tB_end,3), t3=round(tC_end,3),
-    midxA=round(mA,1), midxB=round(mB,1), midxC=round(mC,1), midxD=round(mD,1),
+    t_cross=round(t_cross,3),
+    midxA=round(clip(midxA),1), midxB=round(clip(midxB),1),
+    midxC1=round(clip(midxC1),1), midxC2=round(clip(midxC2),1),
+    midxD=round(clip(midxD),1),
     zA=1.00, zB=1.06, zC=1.04, zD=1.00,
     t_shot=round(t_shot,3)
-)))
+)
+print(json.dumps(out))
 
