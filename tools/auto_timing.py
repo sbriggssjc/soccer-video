@@ -28,7 +28,7 @@ if cand[i_peak] < 0:
 t_shot = float(df.loc[i_peak, "t"])
 
 # --- windows (push A earlier to catch throw-in/pass/dribble) ---
-pre_roll   = 6.8    # longer to include throw + first/second pass
+pre_roll = 7.2    # longer to include throw + first/second pass
 postB      = 1.0    # keep strike + beat
 postC_tail = 4.5    # follow early celebration
 
@@ -75,3 +75,4 @@ print(json.dumps(dict(
     zA=1.00, zB=1.06, zC=1.04, zD=1.00,
     t_shot=round(t_shot,3)
 )))
+
