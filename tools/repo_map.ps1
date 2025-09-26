@@ -184,12 +184,15 @@ $null = $sb.AppendLine()
 $null = $sb.AppendLine("## Discovered Console Scripts")
 foreach ($cmd in $consoleScripts) {
   $null = $sb.AppendLine()
-  $null = $sb.AppendLine($"### { $cmd }")
+  $null = $sb.AppendLine("### " + $cmd)
   $null = $sb.AppendLine()
-  $h = $helpMap[$cmd] -replace '``','`'   # tame backticks
-  $null = $sb.AppendLine("````")
-  $null = $sb.AppendLine($h.Trim())
-  $null = $sb.AppendLine("````")
+
+  $h = $helpMap[$cmd]
+  if ($h) {
+    $null = $sb.AppendLine("~~~~")
+    $null = $sb.AppendLine($h.Trim())
+    $null = $sb.AppendLine("~~~~")
+  }
 
   # subcommands
   $subs = $cmdRows | Where-Object { $_.command -eq $cmd }
@@ -198,23 +201,33 @@ foreach ($cmd in $consoleScripts) {
     $null = $sb.AppendLine("#### Subcommands")
     foreach ($s in $subs) {
       $null = $sb.AppendLine()
-      $null = $sb.AppendLine($"**{ $s.subcommand }** — { $s.description }")
-      $sh = $helpMap["$cmd $($s.subcommand)"] -replace '``','`'
-      $null = $sb.AppendLine()
-      $null = $sb.AppendLine("````")
-      $null = $sb.AppendLine($sh.Trim())
-      $null = $sb.AppendLine("````")
+      $desc = if ($s.description) { $s.description } else { "" }
+      $null = $sb.AppendLine("**" + $s.subcommand + "** — " + $desc)
+
+      $subKey = $cmd + " " + $s.subcommand
+      $sh = $helpMap[$subKey]
+      if ($sh) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine("~~~~")
+        $null = $sb.AppendLine($sh.Trim())
+        $null = $sb.AppendLine("~~~~")
+      }
     }
   }
 }
 
-# recent files
+# --- Recently Modified ---
 $null = $sb.AppendLine()
 $null = $sb.AppendLine("## Recently Modified (last 7 days)")
-$recent = $files | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) } | Sort-Object LastWriteTime -Descending | Select-Object -First 40
+$recent = $files |
+  Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) } |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 40
+
 foreach ($f in $recent) {
-  $rel = (Resolve-Path $f.FullName -Relative)
-  $null = $sb.AppendLine("- $($f.LastWriteTime.ToString('yyyy-MM-dd HH:mm'))  `$rel`  ($([math]::Round($f.Length/1KB,1)) KB)")
+  $rel = Resolve-Path $f.FullName -Relative
+  $kb  = [math]::Round($f.Length/1KB, 1)
+  $null = $sb.AppendLine("- " + $f.LastWriteTime.ToString('yyyy-MM-dd HH:mm') + "  " + $rel + "  (" + $kb + " KB)")
 }
 
 # write it
