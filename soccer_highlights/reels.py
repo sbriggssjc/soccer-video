@@ -108,6 +108,10 @@ def render_reel(config: AppConfig, list_path: Path, output_path: Path, title: st
         if cf < 1e-3:
             cf = 1e-3
         offset = max(timeline - cf, 0.0)
+        # Subtract a tiny epsilon so rounding the formatted value never nudges the
+        # offset past the trimmed duration, which would trigger frame drops in
+        # ffmpeg's xfade/acrossfade filters.
+        offset = max(offset - 1e-3, 0.0)
         filters.append(
             f"[{current_v}][{src_v}]xfade=transition=fade:duration={cf:.3f}:offset={offset:.3f}[{out_v}]"
         )
@@ -136,6 +140,8 @@ def render_reel(config: AppConfig, list_path: Path, output_path: Path, title: st
         config.clips.preset,
         "-crf",
         str(config.clips.crf),
+        "-pix_fmt",
+        "yuv420p",
         "-c:a",
         "aac",
         "-b:a",
