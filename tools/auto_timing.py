@@ -17,7 +17,7 @@ i_peak = int(np.nanargmax(np.where(mask, speed, -1)))
 t_shot = float(df.loc[i_peak, "t"])
 
 # --- timing knobs (longer A + longer tail) ---
-pre_roll   = 8.6     # brings in 2nd-pass + early dribble
+pre_roll = 18.0     # brings in 2nd-pass + early dribble
 postB      = 1.8     # shot + first beat
 postC_tail = 6.0     # cross + celebration
 
@@ -55,3 +55,28 @@ out = dict(
     midxD=round(clip(midxD),1),
 )
 print(json.dumps(out))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
