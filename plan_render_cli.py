@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import argparse, os, math, subprocess, re
+import argparse, os, math, subprocess
 import numpy as np
 import pandas as pd
 import cv2
@@ -343,185 +343,122 @@ def main():
     df = pd.read_csv(args.track_csv)
     cx = pd.to_numeric(df["cx"], errors="coerce").to_numpy(dtype=float)
     cy = pd.to_numeric(df["cy"], errors="coerce").to_numpy(dtype=float)
-    px = pd.to_numeric(df.get("px", pd.Series(index=df.index)), errors="coerce").to_numpy(dtype=float)
-    py = pd.to_numeric(df.get("py", pd.Series(index=df.index)), errors="coerce").to_numpy(dtype=float)
+    px = pd.to_numeric(df.get("px"), errors="coerce").to_numpy(dtype=float) if "px" in df else np.full_like(cx, np.nan)
+    py = pd.to_numeric(df.get("py"), errors="coerce").to_numpy(dtype=float) if "py" in df else np.full_like(cy, np.nan)
+    conf = pd.to_numeric(df.get("conf"), errors="coerce").to_numpy(dtype=float) if "conf" in df else np.ones_like(cx)
 
-    fill_track(cx, float(W) / 2.0)
-    fill_track(cy, float(H) / 2.0)
-    fill_track(px, cx)
-    fill_track(py, cy)
+    for a in (cx, cy, px, py, conf):
+        if a is None:
+            continue
+        isn = np.isnan(a)
+        if isn.any():
+            idx = np.where(~isn)[0]
+            if len(idx) > 0:
+                a[isn] = np.interp(np.where(isn)[0], idx, a[idx])
 
-    ppl_series = [parse_ppl(s) for s in df.get("ppl", [])]
-
-    # time array
-    times = (df["frame"].to_numpy(dtype=float) / (fps if fps>0 else 24.0))
-    if len(times) == 0:
+    N = len(cx)
+    if N == 0:
         raise SystemExit("Empty track CSV.")
 
-    # tags from filename
-    tags = label_from_filename(args.clip)
+    zoom_des = np.clip(args.zoom_max - 0.6 * conf * (args.zoom_max - args.zoom_min), args.zoom_min, args.zoom_max)
 
-    # -------- plan keyframes (intent) --------
-    KF = plan_keyframes(times, cx, cy, ppl_series, W, H, aspect, tags,
-                        left_frac=args.left_frac,
-                        ctx_radius=args.ctx_radius, k_near=args.k_near, ctx_pad=args.ctx_pad,
-                        zoom_min=args.zoom_min, zoom_max=args.zoom_max,
-                        speed_tight=args.speed_tight, speed_wide=args.speed_wide, hyst=args.hyst)
+    fps_use = fps if fps and fps > 0 else 24.0
+    vx = np.gradient(cx) * fps_use
+    vy = np.gradient(cy) * fps_use
 
-    # derive desired zoom curve from keyframes
-    N = len(cx)
-    zoom_des = np.ones(N, dtype=float)
-    if len(KF) >= 1 and N:
-        zoom_des.fill(float(KF[0][4]))
-    if len(KF) >= 2 and N:
-        t_base = times[0]
-        for seg in range(len(KF) - 1):
-            t0, _, _, _, Z0 = KF[seg]
-            t1, _, _, _, Z1 = KF[seg + 1]
-            i0 = int(np.floor((t0 - t_base) * fps_safe))
-            i1 = int(np.floor((t1 - t_base) * fps_safe))
-            if seg == len(KF) - 2:
-                i1 = N
-            i0 = max(0, min(i0, N - 1))
-            i1 = max(i0 + 1, min(i1, N))
-            fill_segment(zoom_des, i0, i1, Z0, Z1, eased=True)
-    zoom_des[np.isnan(zoom_des)] = float(args.zoom_min)
-
-    # -------- projected, slew-limited camera path --------
-    zoom = np.clip(np.copy(zoom_des), float(args.zoom_min), float(args.zoom_max))
-    zoom[np.isnan(zoom)] = float(args.zoom_min)
-
-    zr = float(args.zoom_rate)
-    za = float(args.zoom_accel)
-    vz = 0.0
-    dt = 1.0 / fps_safe if fps_safe else 1.0 / 24.0
-    for i in range(1, N):
-        zt = zoom[i]
-        dz = np.clip(zt - zoom[i - 1], -zr * dt, zr * dt)
-        dv = np.clip(dz - vz, -za * dt, za * dt)
-        vz = clamp(vz + dv, -zr, zr)
-        zoom[i] = zoom[i - 1] + vz
-
-    zoom = np.clip(zoom, float(args.zoom_min), float(args.zoom_max))
-    zoom[~np.isfinite(zoom)] = float(args.zoom_min)
-
-    vx = np.gradient(cx) * fps_safe if N else np.zeros(N, dtype=float)
-    vy = np.gradient(cy) * fps_safe if N else np.zeros(N, dtype=float)
-    speed = np.hypot(vx, vy)
+    lead_t = 0.18
+    cx_ahead = cx + vx * lead_t
+    cy_ahead = cy + vy * lead_t
 
     qx = np.copy(px)
     qy = np.copy(py)
-    fast = speed > 240.0
-    for i in range(N):
-        if not np.isfinite(cx[i]) or not np.isfinite(cy[i]):
-            continue
-        if not np.isfinite(qx[i]) or not np.isfinite(qy[i]):
-            qx[i], qy[i] = cx[i], cy[i]
-        if fast[i] and np.isfinite(px[i]) and np.isfinite(py[i]):
-            look = 0.20
-            rx = cx[i] + vx[i] * look
-            ry = cy[i] + vy[i] * look
-            axp = 0.6 * rx + 0.4 * qx[i]
-            ayp = 0.6 * ry + 0.4 * qy[i]
-            qx[i], qy[i] = axp, ayp
+    nanp = np.isnan(qx) | np.isnan(qy)
+    qx[nanp] = cx_ahead[nanp]
+    qy[nanp] = cy_ahead[nanp]
 
-    margin_x = 18.0
-    margin_y = 24.0
-    center_kx = float(args.left_frac)
-    center_ky = 0.50
+    left = np.zeros(N)
+    top = np.zeros(N)
+    eff_w = np.zeros(N)
+    eff_h = np.zeros(N)
 
-    left = np.zeros(N, float)
-    top = np.zeros(N, float)
-    eff_w = np.zeros(N, float)
-    eff_h = np.zeros(N, float)
-    vxpan = 0.0
-    vypan = 0.0
-    slew = float(args.slew)
-    accel = float(args.accel)
-    vslew = 0.7 * slew
-    vacc = 0.7 * accel
+    margin_x, margin_y = 16.0, 24.0
+    center_kx, center_ky = args.left_frac, 0.50
 
     for i in range(N):
-        zoom_cur = max(zoom[i], 1e-6)
-        scale = min(1.0, 1.0 / zoom_cur)
-        okx = False
-        oky = False
-        ax = 0.0
-        bx = max(0.0, W - base_w * scale)
-        ay = 0.0
-        by = max(0.0, H - base_h * scale)
+        w = base_w / max(zoom_des[i], 1e-6)
+        h = base_h / max(zoom_des[i], 1e-6)
+        w = float(np.floor(max(16.0, w) / 2) * 2)
+        h = float(np.floor(max(16.0, h) / 2) * 2)
 
         for _ in range(6):
-            w = base_w * scale
-            h = base_h * scale
             ax1, bx1 = interval_for_point(cx[i], w, W, margin_x)
             ax2, bx2 = interval_for_point(qx[i], w, W, margin_x)
-            ax, bx, okx = intersect_intervals(ax1, bx1, ax2, bx2)
+            ax = max(ax1, ax2)
+            bx = min(bx1, bx2)
 
             ay1, by1 = interval_for_point(cy[i], h, H, margin_y)
             ay2, by2 = interval_for_point(qy[i], h, H, margin_y)
-            ay, by, oky = intersect_intervals(ay1, by1, ay2, by2)
+            ay = max(ay1, ay2)
+            by = min(by1, by2)
 
-            if okx and oky:
+            if ax <= bx and ay <= by:
                 break
-            scale = min(1.0, scale * 1.12)
+            w = min(base_w, float(np.floor((w * 1.15) / 2) * 2))
+            h = min(base_h, float(np.floor((h * 1.15) / 2) * 2))
 
-        w = base_w * scale
-        h = base_h * scale
+        cxp = 0.6 * cx[i] + 0.4 * cx_ahead[i]
+        cyp = 0.7 * cy[i] + 0.3 * cy_ahead[i]
+        left[i] = clamp(cxp - center_kx * w, ax, bx)
+        top[i] = clamp(cyp - center_ky * h, ay, by)
+        eff_w[i], eff_h[i] = w, h
 
-        if not okx:
-            ax, bx = interval_for_point(cx[i], w, W, margin_x)
-        if not oky:
-            ay, by = interval_for_point(cy[i], h, H, margin_y)
+    def smooth_path(pos, slew, accel, fps_val):
+        v = 0.0
+        dt_local = 1.0 / fps_val
+        out = np.zeros_like(pos)
+        out[0] = pos[0]
+        for i in range(1, len(pos)):
+            err = pos[i] - out[i - 1]
+            v_des = np.clip(err / dt_local, -slew, slew)
+            dv = np.clip(v_des - v, -accel * dt_local, accel * dt_local)
+            v = np.clip(v + dv, -slew, slew)
+            out[i] = out[i - 1] + v * dt_local
+        return out
 
-        if ax > bx:
-            ax, bx = 0.0, max(0.0, W - w)
-        if ay > by:
-            ay, by = 0.0, max(0.0, H - h)
+    lx_f = smooth_path(left, float(args.slew), float(args.accel), fps_use)
+    ly_f = smooth_path(top, 0.7 * float(args.slew), 0.7 * float(args.accel), fps_use)
+    lx_b = smooth_path(left[::-1], float(args.slew), float(args.accel), fps_use)[::-1]
+    ly_b = smooth_path(top[::-1], 0.7 * float(args.slew), 0.7 * float(args.accel), fps_use)[::-1]
 
-        cx_pref = cx[i]
-        cy_pref = cy[i]
-        if fast[i] and np.isfinite(vx[i]) and np.isfinite(vy[i]):
-            lead_t = 0.18
-            ball_ahead_x = cx[i] + vx[i] * lead_t
-            ball_ahead_y = cy[i] + vy[i] * lead_t
-            if np.isfinite(ball_ahead_x) and np.isfinite(ball_ahead_y):
-                cx_pref = 0.6 * cx[i] + 0.4 * ball_ahead_x
-                cy_pref = 0.7 * cy[i] + 0.3 * ball_ahead_y
+    left_s = 0.5 * (lx_f + lx_b)
+    top_s = 0.5 * (ly_f + ly_b)
 
-        left_pref = cx_pref - center_kx * w
-        top_pref = cy_pref - center_ky * h
+    def smooth_zoom(z, rate, accel, fps_val):
+        v = 0.0
+        dt_local = 1.0 / fps_val
+        out = np.zeros_like(z)
+        out[0] = z[0]
+        for i in range(1, len(z)):
+            err = z[i] - out[i - 1]
+            v_des = np.clip(err / dt_local, -rate, rate)
+            dv = np.clip(v_des - v, -accel * dt_local, accel * dt_local)
+            v = np.clip(v + dv, -rate, rate)
+            out[i] = out[i - 1] + v * dt_local
+        return out
 
-        if i == 0:
-            left[i] = clamp(left_pref, ax, bx)
-            top[i] = clamp(top_pref, ay, by)
-        else:
-            errx = left_pref - left[i - 1]
-            vdx = np.clip(errx / dt, -slew, slew)
-            dvx = np.clip(vdx - vxpan, -accel * dt, accel * dt)
-            vxpan = np.clip(vxpan + dvx, -slew, slew)
-            nx = clamp(left[i - 1] + vxpan * dt, ax, bx)
-            if (nx == ax and vxpan < 0) or (nx == bx and vxpan > 0):
-                vxpan = 0.0
-            left[i] = nx
+    zoom1 = smooth_zoom(zoom_des, args.zoom_rate, args.zoom_accel, fps_use)
+    zoom2 = smooth_zoom(zoom1[::-1], args.zoom_rate, args.zoom_accel, fps_use)[::-1]
+    zoom_s = 0.5 * (zoom1 + zoom2)
 
-            erry = top_pref - top[i - 1]
-            vdy = np.clip(erry / dt, -vslew, vslew)
-            dvy = np.clip(vdy - vypan, -vacc * dt, vacc * dt)
-            vypan = np.clip(vypan + dvy, -vslew, vslew)
-            ny = clamp(top[i - 1] + vypan * dt, ay, by)
-            if (ny == ay and vypan < 0) or (ny == by and vypan > 0):
-                vypan = 0.0
-            top[i] = ny
+    eff_w = (np.floor((base_w / np.clip(zoom_s, 1e-6, None)) / 2) * 2).clip(16, base_w)
+    eff_h = (np.floor((base_h / np.clip(zoom_s, 1e-6, None)) / 2) * 2).clip(16, base_h)
+    left_s = np.clip(left_s, 0, np.maximum(0.0, W - eff_w))
+    top_s = np.clip(top_s, 0, np.maximum(0.0, H - eff_h))
 
-        w_final = max(16.0, np.floor(w / 2.0) * 2.0)
-        h_final = max(16.0, np.floor(h / 2.0) * 2.0)
-        w_final = min(float(W), w_final)
-        h_final = min(float(H), h_final)
-
-        eff_w[i] = w_final
-        eff_h[i] = h_final
-        zoom[i] = base_w / max(w_final, 1e-6)
+    x = left_s.astype(int)
+    y = top_s.astype(int)
+    w_arr = eff_w.astype(int)
+    h_arr = eff_h.astype(int)
 
     # -------- render --------
     tmp_dir = os.path.join(os.path.dirname(args.out_mp4) or ".", "_temp_frames")
@@ -531,26 +468,20 @@ def main():
     i = 0
     while True:
         ok, frame = cap.read()
-        if not ok: break
+        if not ok:
+            break
 
-        if len(eff_w):
-            w = int(round(eff_w[i] if i < len(eff_w) else eff_w[-1]))
-        else:
-            w = int(round(base_w))
-        if len(eff_h):
-            h = int(round(eff_h[i] if i < len(eff_h) else eff_h[-1]))
-        else:
-            h = int(round(base_h))
-        w = max(2, min(W, w))
-        h = max(2, min(H, h))
+        w = w_arr[i] if i < len(w_arr) else (w_arr[-1] if len(w_arr) else int(base_w))
+        h = h_arr[i] if i < len(h_arr) else (h_arr[-1] if len(h_arr) else int(base_h))
+        w = max(2, min(W, int(w)))
+        h = max(2, min(H, int(h)))
 
-        left_val = left[i] if i < len(left) else (left[-1] if len(left) else 0.0)
-        top_val = top[i] if i < len(top) else (top[-1] if len(top) else 0.0)
+        xi = x[i] if i < len(x) else (x[-1] if len(x) else 0)
+        yi = y[i] if i < len(y) else (y[-1] if len(y) else 0)
+        xi = int(np.clip(xi, 0, max(0, W - w)))
+        yi = int(np.clip(yi, 0, max(0, H - h)))
 
-        x = int(round(clamp(left_val, 0.0, max(0.0, W - w))))
-        y = int(round(clamp(top_val, 0.0, max(0.0, H - h))))
-
-        crop = frame[y:y+h, x:x+w]
+        crop = frame[yi:yi+h, xi:xi+w]
         if crop.shape[0] != h or crop.shape[1] != w:
             crop = cv2.copyMakeBorder(crop,
                                       0, max(0, h - crop.shape[0]),
@@ -563,12 +494,15 @@ def main():
 
     cap.release()
     os.makedirs(os.path.dirname(args.out_mp4) or ".", exist_ok=True)
+    fps_arg = f"{fps_use:.6f}"
     subprocess.run([
         "ffmpeg","-y",
-        "-framerate", str(int(round(fps))),
+        "-framerate", fps_arg,
         "-i", os.path.join(tmp_dir, "f_%06d.jpg"),
         "-i", args.clip,
         "-map","0:v","-map","1:a:0?",
+        "-r", fps_arg,
+        "-vsync","cfr",
         "-c:v","libx264","-preset","veryfast","-crf","19",
         "-x264-params","keyint=120:min-keyint=120:scenecut=0",
         "-pix_fmt","yuv420p","-profile:v","high","-level","4.0",
