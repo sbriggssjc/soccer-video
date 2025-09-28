@@ -1,190 +1,169 @@
-#!/usr/bin/env python3
 import argparse, os, math, json
-import numpy as np
-import cv2
+import cv2, numpy as np
 from ultralytics import YOLO
 
-# ------------------------- utils -------------------------
-def hsv_orange_mask(bgr):
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    # two orange-ish bands; tune as needed
-    m1 = cv2.inRange(hsv, (5, 120, 90), (20, 255, 255))
-    m2 = cv2.inRange(hsv, (0, 120, 90), (5, 255, 255))
-    mask = cv2.bitwise_or(m1, m2)
-    mask = cv2.medianBlur(mask, 5)
-    return mask
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--inp', required=True, help='input clip (.mp4)')
+    ap.add_argument('--out_csv', required=True, help='output CSV path')
+    ap.add_argument('--yolo_conf', type=float, default=0.12, help='YOLO confidence')
+    ap.add_argument('--roi_pad', type=int, default=220, help='base ROI pad around last position')
+    ap.add_argument('--roi_pad_max', type=int, default=560, help='max ROI pad while missing')
+    ap.add_argument('--max_miss', type=int, default=45, help='#frames allowed missing before reset')
+    ap.add_argument('--model', default='yolov8s.pt', help='YOLO model file')
+    return ap.parse_args()
 
-def find_orange_centroid(bgr):
-    mask = hsv_orange_mask(bgr)
-    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best = None; best_score = 1e9
-    for c in cnts:
-        area = cv2.contourArea(c)
-        if area < 20 or area > 7000:  # tune for your footage
-            continue
-        (x,y), r = cv2.minEnclosingCircle(c)
-        if r < 2: 
-            continue
-        circ = (cv2.contourArea(c) / (math.pi*r*r + 1e-6))
-        score = abs(1.0 - circ) + 0.0001*area
-        if score < best_score:
-            best_score = score
-            best = (float(x), float(y))
-    return best
-
-# ------------------------- Kalman (2D const-vel) -------------------------
-class Kalman2D:
-    def __init__(self, dt, q=5.0, r=8.0):
-        # state: [x, vx, y, vy]
+# simple constant-velocity Kalman filter on (x,y)
+class CVKalman:
+    def __init__(self, x, y, dt=1/24, q=5.0, r=9.0):
+        self.x = np.array([x, y, 0.0, 0.0], dtype=float)  # [x,y,vx,vy]
         self.dt = dt
-        self.x = np.zeros((4,1), dtype=np.float32)
-        self.P = np.eye(4, dtype=np.float32) * 1e3
-
-        self.F = np.array([[1, dt, 0,  0],
-                           [0,  1, 0,  0],
-                           [0,  0, 1, dt],
-                           [0,  0, 0,  1]], dtype=np.float32)
-
-        self.H = np.array([[1, 0, 0, 0],
-                           [0, 0, 1, 0]], dtype=np.float32)
-
-        self.Q = np.array([[dt**4/4, dt**3/2,      0,       0],
-                           [dt**3/2,    dt**2,      0,       0],
-                           [0,              0, dt**4/4, dt**3/2],
-                           [0,              0, dt**3/2,    dt**2]], dtype=np.float32) * q
-
-        self.R = np.eye(2, dtype=np.float32) * r
-
-    def init(self, px, py):
-        self.x[:] = np.array([[px],[0],[py],[0]], dtype=np.float32)
-        self.P[:] = np.eye(4, dtype=np.float32) * 5.0
+        self.P = np.eye(4)*50
+        self.Q = np.eye(4)*q
+        self.R = np.eye(2)*r
+        self.H = np.array([[1,0,0,0],[0,1,0,0]], float)
 
     def predict(self):
-        self.x = self.F @ self.x
-        self.P = self.F @ self.P @ self.F.T + self.Q
-        return float(self.x[0,0]), float(self.x[2,0])
+        dt = self.dt
+        F = np.array([[1,0,dt,0],[0,1,0,dt],[0,0,1,0],[0,0,0,1]], float)
+        self.x = F @ self.x
+        self.P = F @ self.P @ F.T + self.Q
+        return self.x[:2]
 
     def update(self, z):
-        z = np.array(z, dtype=np.float32).reshape(2,1)
+        z = np.asarray(z, float)
         y = z - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + self.R
         K = self.P @ self.H.T @ np.linalg.inv(S)
         self.x = self.x + K @ y
-        I = np.eye(4, dtype=np.float32)
+        I = np.eye(4)
         self.P = (I - K @ self.H) @ self.P
 
-# ------------------------- main -------------------------
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--inp",      required=True, help="input clip (.mp4)")
-    ap.add_argument("--out_csv",  required=True, help="output CSV path")
-    ap.add_argument("--yolo_conf", type=float, default=0.15, help="YOLO confidence")
-    ap.add_argument("--roi_pad",   type=int,   default=160,  help="base ROI pad around last position")
-    ap.add_argument("--roi_pad_max", type=int, default=480,  help="max ROI pad while missing")
-    ap.add_argument("--max_miss",  type=int,   default=36,   help="#frames allowed missing before hard reset")
-    args = ap.parse_args()
-
+    args = parse_args()
     cap = cv2.VideoCapture(args.inp)
-    if not cap.isOpened():
-        raise SystemExit(f"Cannot open input: {args.inp}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24
     W   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    model = YOLO("yolov8n.pt")
-    dt = 1.0/float(fps)
-    kf = Kalman2D(dt, q=12.0, r=9.0)
+    model = YOLO(args.model)
+
+    # LK flow params
+    lk_win = (15,15)
+    lk_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03)
 
     rows = []
     frame = 0
-    have_init = False
-    miss_count = 0
     last_xy = None
+    last_gray = None
+    kf = None
+    miss = 0
+
+    # speed sanity (px/s)
+    vmax_ok = 1800.0
+
+    def pick_ball_xy(res):
+        if not res or len(res[0].boxes)==0: return None
+        boxes = res[0].boxes.xyxy.cpu().numpy()
+        cls   = res[0].boxes.cls.cpu().numpy()
+        conf  = res[0].boxes.conf.cpu().numpy()
+        m = cls==32
+        if not np.any(m): return None
+        boxes = boxes[m]; conf = conf[m]
+        # Prefer smallish boxes with good conf (balls are small)
+        areas = (boxes[:,2]-boxes[:,0])*(boxes[:,3]-boxes[:,1])
+        score = areas*0.002 - conf  # lower is better
+        i = int(np.argmin(score))
+        x1,y1,x2,y2 = boxes[i]
+        return float((x1+x2)/2), float((y1+y2)/2)
 
     while True:
         ok, bgr = cap.read()
-        if not ok:
-            break
+        if not ok: break
         t = frame / fps
 
-        # ROI selection
-        pad = args.roi_pad if miss_count == 0 else min(args.roi_pad + miss_count*12, args.roi_pad_max)
+        # ROI around last
         if last_xy is None:
-            x1, y1, x2, y2 = 0, 0, W, H
-            roi_bgr = bgr
-            roi_off = (0,0)
+            roi = (0,0,W,H)
         else:
+            pad = min(args.roi_pad * (1.5**max(0,miss-1)), args.roi_pad_max)
             cx, cy = last_xy
-            x1 = max(0, int(cx - pad)); y1 = max(0, int(cy - pad))
-            x2 = min(W, int(cx + pad)); y2 = min(H, int(cy + pad))
-            roi_bgr = bgr[y1:y2, x1:x2]
-            roi_off = (x1, y1)
+            x1 = int(max(0, cx - pad)); x2 = int(min(W, cx + pad))
+            y1 = int(max(0, cy - pad)); y2 = int(min(H, cy + pad))
+            roi = (x1,y1,x2,y2)
 
-        det_cx, det_cy = None, None
+        rx1,ry1,rx2,ry2 = roi
+        crop = bgr[ry1:ry2, rx1:rx2]
+        # YOLO in ROI (if big enough)
+        yolo_xy = None
+        if crop.size>0:
+            res = model.predict(crop, verbose=False, conf=args.yolo_conf, iou=0.4, classes=[32])
+            if res: 
+                cxy = pick_ball_xy(res)
+                if cxy is not None:
+                    yolo_xy = (cxy[0]+rx1, cxy[1]+ry1)
 
-        # YOLO detect in ROI (faster, more precise)
-        try:
-            res = model.predict(roi_bgr, verbose=False, conf=args.yolo_conf, classes=[32])
-            if res and len(res[0].boxes):
-                boxes = res[0].boxes.xyxy.cpu().numpy()
-                confs = res[0].boxes.conf.cpu().numpy()
-                # pick smallest likely "ball" box, bias by size & conf
-                areas = (boxes[:,2]-boxes[:,0])*(boxes[:,3]-boxes[:,1])
-                rank  = areas + (1.0-confs)*1e4  # prefer small + confident
-                i = int(np.argmin(rank))
-                x1b,y1b,x2b,y2b = boxes[i]
-                det_cx = float((x1b+x2b)/2.0) + roi_off[0]
-                det_cy = float((y1b+y2b)/2.0) + roi_off[1]
-        except Exception:
-            pass
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
-        # Fallback: HSV orange in ROI if YOLO missed
-        if det_cx is None:
-            c = find_orange_centroid(roi_bgr)
-            if c is not None:
-                det_cx = float(c[0]) + roi_off[0]
-                det_cy = float(c[1]) + roi_off[1]
+        # Optical flow fallback from last_xy
+        flow_xy = None
+        if last_xy is not None and last_gray is not None:
+            p0 = np.array([[last_xy]], dtype=np.float32)
+            p1, st, err = cv2.calcOpticalFlowPyrLK(last_gray, gray, p0, None, winSize=lk_win, maxLevel=3,
+                                                   criteria=lk_crit)
+            if st is not None and st[0,0]==1:
+                flow_xy = (float(p1[0,0,0]), float(p1[0,0,1]))
 
-        # Kalman + bookkeeping
-        if det_cx is not None and det_cy is not None:
-            if not have_init:
-                kf.init(det_cx, det_cy)
-                have_init = True
-            else:
-                kf.predict()
-                kf.update((det_cx, det_cy))
-            est_x, est_y = det_cx, det_cy
-            last_xy = (est_x, est_y)
-            miss_count = 0
+        # Fuse: prefer YOLO, else flow
+        meas = yolo_xy if yolo_xy is not None else flow_xy
+
+        # Initialize KF if needed
+        if kf is None:
+            if meas is None:
+                rows.append((frame, t, '', ''))
+                last_gray = gray
+                frame += 1
+                continue
+            kf = CVKalman(meas[0], meas[1], dt=1.0/fps, q=8.0, r=9.0)
+
+        # Predict
+        pred = kf.predict()
+        use = None
+
+        if meas is not None:
+            # sanity check velocity
+            if last_xy is not None:
+                vx = (meas[0]-last_xy[0]) * fps
+                vy = (meas[1]-last_xy[1]) * fps
+                if abs(vx)>vmax_ok or abs(vy)>vmax_ok:
+                    # suspicious single-frame jump → only accept if still missing
+                    if miss==0:
+                        meas = None
+
+        if meas is not None:
+            kf.update(meas)
+            use = (kf.x[0], kf.x[1])
+            last_xy = (use[0], use[1])
+            miss = 0
         else:
-            # no detection: predict forward if initialized
-            if have_init:
-                est_x, est_y = kf.predict()
-                last_xy = (est_x, est_y)
-                miss_count += 1
-                if miss_count > args.max_miss:
-                    # hard reset: forget ROI for a bit
-                    have_init = False
-                    last_xy = None
-                    miss_count = 0
-            else:
-                est_x, est_y = (np.nan, np.nan)
+            # no measurement → use prediction but count miss
+            use = (pred[0], pred[1])
+            miss += 1
+            if miss > args.max_miss:
+                kf = None
+                last_xy = None
 
-        rows.append((frame, t, est_x, est_y))
+        rows.append((frame, t, use[0], use[1]))
+        last_gray = gray
         frame += 1
 
     cap.release()
 
-    # Save CSV with short-gap interpolation
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
-    import pandas as pd
-    df = pd.DataFrame(rows, columns=["frame","time","cx","cy"])
-    for col in ["cx","cy"]:
-        s = pd.to_numeric(df[col], errors="coerce")
-        s = s.ffill(limit=10).bfill(limit=10)
-        df[col] = s
-    df.to_csv(args.out_csv, index=False)
+    with open(args.out_csv, 'w', newline='') as f:
+        f.write('frame,time,cx,cy\n')
+        for r in rows: f.write(','.join(map(str,r))+'\n')
     print(f"Saved {args.out_csv}")
 
-if __name__ == "__main__":
+if __name__=='__main__':
     main()
