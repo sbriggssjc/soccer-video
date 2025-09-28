@@ -5,6 +5,48 @@ import pandas as pd
 import cv2
 
 
+def clamp(v, a, b):
+    return max(a, min(b, v))
+
+
+def ball_interval(ball_x, eff_w, W, margin):
+    # feasible left positions that keep the ball inside with margin
+    left_min = ball_x - (eff_w - margin)
+    left_max = ball_x - margin
+    # intersect with image bounds
+    a = max(0.0, left_min)
+    b = min(W - eff_w, left_max)
+    return a, b  # may be a > b -> infeasible for this eff_w
+
+
+def ensure_feasible_zoom(ball_x, eff_w, W, margin, zoom_min_w):
+    # If infeasible, widen (increase eff_w) until feasible or we hit zoom_min_w
+    for _ in range(6):
+        a, b = ball_interval(ball_x, eff_w, W, margin)
+        if a <= b:
+            return eff_w
+        eff_w = min(zoom_min_w, eff_w * 1.15)  # zoom out 15% steps
+    return min(zoom_min_w, eff_w)
+
+
+def ease(N):
+    if N <= 1:
+        return np.ones(N, float)
+    t = np.linspace(0, 1, N)
+    return t * t * (3 - 2 * t)  # smoothstep
+
+
+def fill_segment(arr, i0, i1, v0, v1, eased=False):
+    i0 = int(max(0, i0))
+    i1 = int(min(len(arr), i1))
+    if i1 <= i0:
+        return
+    N = i1 - i0
+    w = ease(N) if eased else np.linspace(0, 1, N)
+    seg = v0 + (v1 - v0) * w
+    arr[i0:i1] = seg
+
+
 # helper interpolation utilities
 def _fill_segment(arr, i0, i1, v0, v1):
     """Write a linear segment v0->v1 into arr[i0:i1] with exact length."""
@@ -38,8 +80,6 @@ def _fill_segment_ease(arr, i0, i1, v0, v1, fps, vmax, amax):
 # ----------------------
 # utils
 # ----------------------
-def clamp(v, lo, hi): return lo if v < lo else hi if v > hi else v
-
 def parse_ppl(s):
     if not isinstance(s, str) or not s:
         return []
@@ -265,6 +305,8 @@ def main():
     Nf  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
 
+    fps_safe = fps if fps and fps > 0 else 24.0
+
     # base crop width to preserve aspect (before resize)
     aspect   = args.W_out / args.H_out
     crop_w_base = int(np.floor(H * aspect / 2) * 2)
@@ -300,46 +342,107 @@ def main():
                         zoom_min=args.zoom_min, zoom_max=args.zoom_max,
                         speed_tight=args.speed_tight, speed_wide=args.speed_wide, hyst=args.hyst)
 
-    # -------- rasterize planned path with jerk-limited easing --------
-    # build arrays for left, top, width, zoom across frames
-    t_cam = times
-    left_path  = np.zeros_like(t_cam)
-    top_path   = np.zeros_like(t_cam)
-    width_path = np.zeros_like(t_cam)
-    zoom_path  = np.zeros_like(t_cam)
+    # derive desired zoom curve from keyframes
+    N = len(cx)
+    zoom_des = np.ones(N, dtype=float)
+    if len(KF) >= 1 and N:
+        zoom_des.fill(float(KF[0][4]))
+    if len(KF) >= 2 and N:
+        t_base = times[0]
+        for seg in range(len(KF) - 1):
+            t0, _, _, _, Z0 = KF[seg]
+            t1, _, _, _, Z1 = KF[seg + 1]
+            i0 = int(np.floor((t0 - t_base) * fps_safe))
+            i1 = int(np.floor((t1 - t_base) * fps_safe))
+            if seg == len(KF) - 2:
+                i1 = N
+            i0 = max(0, min(i0, N - 1))
+            i1 = max(i0 + 1, min(i1, N))
+            fill_segment(zoom_des, i0, i1, Z0, Z1, eased=True)
+    zoom_des[np.isnan(zoom_des)] = float(args.zoom_min)
 
-    # per segment easing
-    fps_safe = fps if fps and fps > 0 else 24.0
-    t_base = t_cam[0] if len(t_cam) else 0.0
-    for seg in range(len(KF)-1):
-        t0,L0,T0,W0,Z0 = KF[seg]
-        t1,L1,T1,W1,Z1 = KF[seg+1]
-        i0 = int(np.floor((t0 - t_base) * fps_safe))
-        i1 = int(np.floor((t1 - t_base) * fps_safe))
-        if seg == len(KF) - 2:
-            i1 = len(t_cam)
-        i0 = max(0, min(i0, len(t_cam)-1))
-        i1 = max(i0+1, min(i1, len(t_cam)))
+    # -------- projected, slew-limited camera path --------
+    zoom = np.clip(np.copy(zoom_des), float(args.zoom_min), float(args.zoom_max))
+    zoom[np.isnan(zoom)] = float(args.zoom_min)
 
-        _fill_segment_ease(left_path,  i0, i1, L0, L1, fps_safe, args.slew, args.accel)
-        _fill_segment_ease(top_path,   i0, i1, T0, T1, fps_safe, args.slew, args.accel)
-        _fill_segment_ease(width_path, i0, i1, W0, W1, fps_safe, args.slew, args.accel)
-        _fill_segment_ease(zoom_path,  i0, i1, Z0, Z1, fps_safe, args.zoom_rate, args.zoom_accel)
+    zr = float(args.zoom_rate)
+    za = float(args.zoom_accel)
+    vz = 0.0
+    for i in range(1, N):
+        zt = zoom[i]
+        dz = np.clip(zt - zoom[i - 1], -zr / fps_safe, zr / fps_safe)
+        dv = np.clip(dz - vz, -za / (fps_safe ** 2), za / (fps_safe ** 2))
+        vz += dv
+        zoom[i] = zoom[i - 1] + vz
 
-    # hold final values
-    last_idx = len(left_path)
-    _fill_segment(left_path,  last_idx-1, last_idx, KF[-1][1], KF[-1][1])
-    _fill_segment(top_path,   last_idx-1, last_idx, KF[-1][2], KF[-1][2])
-    _fill_segment(width_path, last_idx-1, last_idx, KF[-1][3], KF[-1][3])
-    _fill_segment(zoom_path,  last_idx-1, last_idx, KF[-1][4], KF[-1][4])
+    zoom = np.minimum(zoom, float(args.zoom_max))
+    zoom[~np.isfinite(zoom)] = float(args.zoom_min)
 
-    # small post-smooth to remove discretization ripple
-    left_path  = smooth_1d(left_path,  fps, secs=0.20)
-    top_path   = smooth_1d(top_path,   fps, secs=0.20)
-    zoom_path  = smooth_1d(zoom_path,  fps, secs=0.20)
+    left = np.zeros(N, float)
+    v = 0.0  # px/s
+    margin = 16.0
+    center_k = float(args.left_frac)
 
-    zoom_path = np.clip(zoom_path, args.zoom_min, args.zoom_max)
-    zoom_path[~np.isfinite(zoom_path)] = args.zoom_min
+    zoom_min_w = H * (args.W_out / args.H_out)
+    zoom_min_w = float(zoom_min_w)
+
+    if N:
+        eff_w = zoom_min_w / max(zoom[0], 1e-6)
+        eff_w = ensure_feasible_zoom(cx[0], eff_w, W, margin, zoom_min_w)
+        zoom[0] = min(zoom[0], zoom_min_w / max(eff_w, 1e-6))
+        eff_w = zoom_min_w / max(zoom[0], 1e-6)
+        left0_pref = cx[0] - center_k * eff_w
+        a, b = ball_interval(cx[0], eff_w, W, margin)
+        if a > b:
+            a, b = 0.0, max(0.0, W - eff_w)
+        left[0] = clamp(left0_pref, a, b)
+
+    slew = float(args.slew)
+    accel = float(args.accel)
+    dt = 1.0 / fps_safe
+    for i in range(1, N):
+        eff_w = zoom_min_w / max(zoom[i], 1e-6)
+        eff_w = ensure_feasible_zoom(cx[i], eff_w, W, margin, zoom_min_w)
+        zoom[i] = min(zoom[i], zoom_min_w / max(eff_w, 1e-6))
+        eff_w = zoom_min_w / max(zoom[i], 1e-6)
+
+        left_pref = cx[i] - center_k * eff_w
+
+        a, b = ball_interval(cx[i], eff_w, W, margin)
+        if a > b:
+            a, b = 0.0, max(0.0, W - eff_w)
+
+        err = left_pref - left[i - 1]
+        v_des = np.clip(err / dt, -slew, slew)
+        dv = np.clip(v_des - v, -accel * dt, accel * dt)
+        v += dv
+        v = np.clip(v, -slew, slew)
+
+        x_next = left[i - 1] + v * dt
+        x_next = clamp(x_next, a, b)
+
+        if x_next == a and v < 0:
+            v = 0.0
+        if x_next == b and v > 0:
+            v = 0.0
+
+        left[i] = x_next
+
+    for _ in range(1):
+        left_s = left.copy()
+        k = 0.12
+        for i in range(1, N - 1):
+            left_s[i] = (1 - k) * left[i] + k * 0.5 * (left[i - 1] + left[i + 1])
+
+        for i in range(N):
+            eff_w = zoom_min_w / max(zoom[i], 1e-6)
+            eff_w = ensure_feasible_zoom(cx[i], eff_w, W, margin, zoom_min_w)
+            a, b = ball_interval(cx[i], eff_w, W, margin)
+            if a > b:
+                a, b = 0.0, max(0.0, W - eff_w)
+            left_s[i] = clamp(left_s[i], a, b)
+
+        left = left_s
 
     # -------- render --------
     tmp_dir = os.path.join(os.path.dirname(args.out_mp4) or ".", "_temp_frames")
@@ -351,21 +454,26 @@ def main():
         ok, frame = cap.read()
         if not ok: break
 
-        # derive crop from planned left/top/zoom
-        Z   = clamp(zoom_path[i] if i < len(zoom_path) else KF[-1][4], args.zoom_min, args.zoom_max)
-        eff_w = max(2, int(np.floor(crop_w_base / max(1e-6, Z) / 2) * 2))
-        eff_h = int(np.floor((eff_w / aspect) / 2) * 2)
+        # derive crop from projected left/zoom
+        if len(zoom):
+            Z = zoom[i] if i < len(zoom) else zoom[-1]
+        else:
+            Z = float(args.zoom_min)
+        Z = min(Z, float(args.zoom_max))
 
-        # ensure planned left/top respect image bounds with current eff size
-        L = clamp(left_path[i] if i < len(left_path) else KF[-1][1], 0, W - eff_w)
-        T = clamp(top_path[i]  if i < len(top_path)  else KF[-1][2], 0, H - eff_h)
+        eff_w = int(np.floor((H * (args.W_out / args.H_out)) / max(Z, 1e-6) / 2) * 2)
+        eff_w = max(2, min(W - (W % 2), eff_w))
 
-        xi, yi = int(round(L)), int(round(T))
-        crop = frame[yi:yi+eff_h, xi:xi+eff_w]
-        if crop.shape[0] != eff_h or crop.shape[1] != eff_w:
-            pad_h = max(0, eff_h - crop.shape[0])
+        if len(left):
+            left_val = left[i] if i < len(left) else left[-1]
+        else:
+            left_val = 0.0
+        xi = int(round(clamp(left_val, 0.0, max(0.0, W - eff_w))))
+
+        crop = frame[:, xi:xi+eff_w]
+        if crop.shape[1] != eff_w:
             pad_w = max(0, eff_w - crop.shape[1])
-            crop = cv2.copyMakeBorder(crop, 0, pad_h, 0, pad_w, cv2.BORDER_REPLICATE)
+            crop = cv2.copyMakeBorder(crop, 0, 0, 0, pad_w, cv2.BORDER_REPLICATE)
 
         crop = cv2.resize(crop, (args.W_out, args.H_out), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(os.path.join(tmp_dir, f"f_{i:06d}.jpg"), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
