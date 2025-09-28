@@ -5,28 +5,27 @@ import pandas as pd
 import cv2
 
 
-def clamp(v, a, b):
-    return max(a, min(b, v))
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
 
 
-def ball_interval(ball_x, eff_w, W, margin):
-    # feasible left positions that keep the ball inside with margin
-    left_min = ball_x - (eff_w - margin)
-    left_max = ball_x - margin
-    # intersect with image bounds
-    a = max(0.0, left_min)
-    b = min(W - eff_w, left_max)
-    return a, b  # may be a > b -> infeasible for this eff_w
+def interval_for_point(p, win, bound, margin=0):
+    # feasible left/top for a window 'win' to include 'p' with 'margin' inside bounds [0, bound]
+    a = p - (win - margin)
+    b = p - margin
+    return max(0.0, a), min(bound - win, b)  # (may be infeasible if a>b)
 
 
-def ensure_feasible_zoom(ball_x, eff_w, W, margin, zoom_min_w):
-    # If infeasible, widen (increase eff_w) until feasible or we hit zoom_min_w
-    for _ in range(6):
-        a, b = ball_interval(ball_x, eff_w, W, margin)
-        if a <= b:
-            return eff_w
-        eff_w = min(zoom_min_w, eff_w * 1.15)  # zoom out 15% steps
-    return min(zoom_min_w, eff_w)
+def intersect_intervals(ax, bx, ay, by):
+    a = max(ax, ay)
+    b = min(bx, by)
+    return a, b, (a <= b)
+
+
+def smoothstep_vec(N):
+    if N <= 1: return np.ones(N, dtype=float)
+    t = np.linspace(0,1,N)
+    return t*t*(3-2*t)
 
 
 def ease(N):
@@ -34,6 +33,22 @@ def ease(N):
         return np.ones(N, float)
     t = np.linspace(0, 1, N)
     return t * t * (3 - 2 * t)  # smoothstep
+
+
+def fill_track(arr, default):
+    if arr.size == 0:
+        return arr
+    default_arr = np.full_like(arr, float(default), dtype=float) if np.isscalar(default) else np.asarray(default, dtype=float)
+    mask = np.isfinite(arr)
+    if mask.sum() >= 2:
+        idx = np.where(mask)[0]
+        arr[:] = np.interp(np.arange(len(arr), dtype=float), idx.astype(float), arr[idx].astype(float))
+    elif mask.sum() == 1:
+        arr[:] = float(arr[mask][0])
+    else:
+        arr[:] = default_arr
+    arr[~np.isfinite(arr)] = default_arr[~np.isfinite(arr)]
+    return arr
 
 
 def fill_segment(arr, i0, i1, v0, v1, eased=False):
@@ -307,24 +322,35 @@ def main():
 
     fps_safe = fps if fps and fps > 0 else 24.0
 
-    # base crop width to preserve aspect (before resize)
-    aspect   = args.W_out / args.H_out
-    crop_w_base = int(np.floor(H * aspect / 2) * 2)
-    crop_w_base = min(crop_w_base, W - (W % 2))
-    crop_h_base = int(crop_w_base / aspect)
+    W_out, H_out = int(args.W_out), int(args.H_out)
+    aspect = (W_out / H_out) if H_out else 1.0
+
+    base_h = float(H)
+    base_w = float(np.floor((base_h * aspect) / 2.0) * 2.0)
+    if base_w > W:
+        base_w = float(np.floor(W / 2.0) * 2.0)
+        if base_w <= 0.0:
+            base_w = float(max(2, W))
+        base_h = base_w / aspect if aspect > 0 else float(H)
+        base_h = float(np.floor(base_h / 2.0) * 2.0)
+        if base_h <= 0.0 or base_h > float(H):
+            base_h = float(H)
+
+    base_w = max(16.0, min(float(W), base_w))
+    base_h = max(16.0, min(float(H), base_h))
 
     # load tracking
     df = pd.read_csv(args.track_csv)
-    cx = pd.to_numeric(df["cx"], errors="coerce").to_numpy()
-    cy = pd.to_numeric(df["cy"], errors="coerce").to_numpy()
-    # fill any remaining NaNs
-    for a, default in ((cx, W/2), (cy, H/2)):
-        if np.isnan(a).any():
-            idx = np.where(~np.isnan(a))[0]
-            if len(idx) >= 2:
-                a[:] = np.interp(np.arange(len(a)), idx, a[idx])
-            else:
-                a[:] = np.nan_to_num(a, nan=default)
+    cx = pd.to_numeric(df["cx"], errors="coerce").to_numpy(dtype=float)
+    cy = pd.to_numeric(df["cy"], errors="coerce").to_numpy(dtype=float)
+    px = pd.to_numeric(df.get("px", pd.Series(index=df.index)), errors="coerce").to_numpy(dtype=float)
+    py = pd.to_numeric(df.get("py", pd.Series(index=df.index)), errors="coerce").to_numpy(dtype=float)
+
+    fill_track(cx, float(W) / 2.0)
+    fill_track(cy, float(H) / 2.0)
+    fill_track(px, cx)
+    fill_track(py, cy)
+
     ppl_series = [parse_ppl(s) for s in df.get("ppl", [])]
 
     # time array
@@ -368,81 +394,124 @@ def main():
     zr = float(args.zoom_rate)
     za = float(args.zoom_accel)
     vz = 0.0
+    dt = 1.0 / fps_safe if fps_safe else 1.0 / 24.0
     for i in range(1, N):
         zt = zoom[i]
-        dz = np.clip(zt - zoom[i - 1], -zr / fps_safe, zr / fps_safe)
-        dv = np.clip(dz - vz, -za / (fps_safe ** 2), za / (fps_safe ** 2))
-        vz += dv
+        dz = np.clip(zt - zoom[i - 1], -zr * dt, zr * dt)
+        dv = np.clip(dz - vz, -za * dt, za * dt)
+        vz = clamp(vz + dv, -zr, zr)
         zoom[i] = zoom[i - 1] + vz
 
-    zoom = np.minimum(zoom, float(args.zoom_max))
+    zoom = np.clip(zoom, float(args.zoom_min), float(args.zoom_max))
     zoom[~np.isfinite(zoom)] = float(args.zoom_min)
 
+    vx = np.gradient(cx) * fps_safe if N else np.zeros(N, dtype=float)
+    vy = np.gradient(cy) * fps_safe if N else np.zeros(N, dtype=float)
+    speed = np.hypot(vx, vy)
+
+    qx = np.copy(px)
+    qy = np.copy(py)
+    fast = speed > 240.0
+    for i in range(N):
+        if not np.isfinite(cx[i]) or not np.isfinite(cy[i]):
+            continue
+        if not np.isfinite(qx[i]) or not np.isfinite(qy[i]):
+            qx[i], qy[i] = cx[i], cy[i]
+        if fast[i] and np.isfinite(px[i]) and np.isfinite(py[i]):
+            look = 0.20
+            rx = cx[i] + vx[i] * look
+            ry = cy[i] + vy[i] * look
+            axp = 0.6 * rx + 0.4 * qx[i]
+            ayp = 0.6 * ry + 0.4 * qy[i]
+            qx[i], qy[i] = axp, ayp
+
+    margin_x = 18.0
+    margin_y = 24.0
+    center_kx = float(args.left_frac)
+    center_ky = 0.50
+
     left = np.zeros(N, float)
-    v = 0.0  # px/s
-    margin = 16.0
-    center_k = float(args.left_frac)
-
-    zoom_min_w = H * (args.W_out / args.H_out)
-    zoom_min_w = float(zoom_min_w)
-
-    if N:
-        eff_w = zoom_min_w / max(zoom[0], 1e-6)
-        eff_w = ensure_feasible_zoom(cx[0], eff_w, W, margin, zoom_min_w)
-        zoom[0] = min(zoom[0], zoom_min_w / max(eff_w, 1e-6))
-        eff_w = zoom_min_w / max(zoom[0], 1e-6)
-        left0_pref = cx[0] - center_k * eff_w
-        a, b = ball_interval(cx[0], eff_w, W, margin)
-        if a > b:
-            a, b = 0.0, max(0.0, W - eff_w)
-        left[0] = clamp(left0_pref, a, b)
-
+    top = np.zeros(N, float)
+    eff_w = np.zeros(N, float)
+    eff_h = np.zeros(N, float)
+    vxpan = 0.0
+    vypan = 0.0
     slew = float(args.slew)
     accel = float(args.accel)
-    dt = 1.0 / fps_safe
-    for i in range(1, N):
-        eff_w = zoom_min_w / max(zoom[i], 1e-6)
-        eff_w = ensure_feasible_zoom(cx[i], eff_w, W, margin, zoom_min_w)
-        zoom[i] = min(zoom[i], zoom_min_w / max(eff_w, 1e-6))
-        eff_w = zoom_min_w / max(zoom[i], 1e-6)
+    vslew = 0.7 * slew
+    vacc = 0.7 * accel
 
-        left_pref = cx[i] - center_k * eff_w
+    for i in range(N):
+        zoom_cur = max(zoom[i], 1e-6)
+        scale = min(1.0, 1.0 / zoom_cur)
+        okx = False
+        oky = False
+        ax = 0.0
+        bx = max(0.0, W - base_w * scale)
+        ay = 0.0
+        by = max(0.0, H - base_h * scale)
 
-        a, b = ball_interval(cx[i], eff_w, W, margin)
-        if a > b:
-            a, b = 0.0, max(0.0, W - eff_w)
+        for _ in range(6):
+            w = base_w * scale
+            h = base_h * scale
+            ax1, bx1 = interval_for_point(cx[i], w, W, margin_x)
+            ax2, bx2 = interval_for_point(qx[i], w, W, margin_x)
+            ax, bx, okx = intersect_intervals(ax1, bx1, ax2, bx2)
 
-        err = left_pref - left[i - 1]
-        v_des = np.clip(err / dt, -slew, slew)
-        dv = np.clip(v_des - v, -accel * dt, accel * dt)
-        v += dv
-        v = np.clip(v, -slew, slew)
+            ay1, by1 = interval_for_point(cy[i], h, H, margin_y)
+            ay2, by2 = interval_for_point(qy[i], h, H, margin_y)
+            ay, by, oky = intersect_intervals(ay1, by1, ay2, by2)
 
-        x_next = left[i - 1] + v * dt
-        x_next = clamp(x_next, a, b)
+            if okx and oky:
+                break
+            scale = min(1.0, scale * 1.12)
 
-        if x_next == a and v < 0:
-            v = 0.0
-        if x_next == b and v > 0:
-            v = 0.0
+        w = base_w * scale
+        h = base_h * scale
 
-        left[i] = x_next
+        if not okx:
+            ax, bx = interval_for_point(cx[i], w, W, margin_x)
+        if not oky:
+            ay, by = interval_for_point(cy[i], h, H, margin_y)
 
-    for _ in range(1):
-        left_s = left.copy()
-        k = 0.12
-        for i in range(1, N - 1):
-            left_s[i] = (1 - k) * left[i] + k * 0.5 * (left[i - 1] + left[i + 1])
+        if ax > bx:
+            ax, bx = 0.0, max(0.0, W - w)
+        if ay > by:
+            ay, by = 0.0, max(0.0, H - h)
 
-        for i in range(N):
-            eff_w = zoom_min_w / max(zoom[i], 1e-6)
-            eff_w = ensure_feasible_zoom(cx[i], eff_w, W, margin, zoom_min_w)
-            a, b = ball_interval(cx[i], eff_w, W, margin)
-            if a > b:
-                a, b = 0.0, max(0.0, W - eff_w)
-            left_s[i] = clamp(left_s[i], a, b)
+        left_pref = cx[i] - center_kx * w
+        top_pref = cy[i] - center_ky * h
 
-        left = left_s
+        if i == 0:
+            left[i] = clamp(left_pref, ax, bx)
+            top[i] = clamp(top_pref, ay, by)
+        else:
+            errx = left_pref - left[i - 1]
+            vdx = np.clip(errx / dt, -slew, slew)
+            dvx = np.clip(vdx - vxpan, -accel * dt, accel * dt)
+            vxpan = np.clip(vxpan + dvx, -slew, slew)
+            nx = clamp(left[i - 1] + vxpan * dt, ax, bx)
+            if (nx == ax and vxpan < 0) or (nx == bx and vxpan > 0):
+                vxpan = 0.0
+            left[i] = nx
+
+            erry = top_pref - top[i - 1]
+            vdy = np.clip(erry / dt, -vslew, vslew)
+            dvy = np.clip(vdy - vypan, -vacc * dt, vacc * dt)
+            vypan = np.clip(vypan + dvy, -vslew, vslew)
+            ny = clamp(top[i - 1] + vypan * dt, ay, by)
+            if (ny == ay and vypan < 0) or (ny == by and vypan > 0):
+                vypan = 0.0
+            top[i] = ny
+
+        w_final = max(16.0, np.floor(w / 2.0) * 2.0)
+        h_final = max(16.0, np.floor(h / 2.0) * 2.0)
+        w_final = min(float(W), w_final)
+        h_final = min(float(H), h_final)
+
+        eff_w[i] = w_final
+        eff_h[i] = h_final
+        zoom[i] = base_w / max(w_final, 1e-6)
 
     # -------- render --------
     tmp_dir = os.path.join(os.path.dirname(args.out_mp4) or ".", "_temp_frames")
@@ -454,28 +523,31 @@ def main():
         ok, frame = cap.read()
         if not ok: break
 
-        # derive crop from projected left/zoom
-        if len(zoom):
-            Z = zoom[i] if i < len(zoom) else zoom[-1]
+        if len(eff_w):
+            w = int(round(eff_w[i] if i < len(eff_w) else eff_w[-1]))
         else:
-            Z = float(args.zoom_min)
-        Z = min(Z, float(args.zoom_max))
-
-        eff_w = int(np.floor((H * (args.W_out / args.H_out)) / max(Z, 1e-6) / 2) * 2)
-        eff_w = max(2, min(W - (W % 2), eff_w))
-
-        if len(left):
-            left_val = left[i] if i < len(left) else left[-1]
+            w = int(round(base_w))
+        if len(eff_h):
+            h = int(round(eff_h[i] if i < len(eff_h) else eff_h[-1]))
         else:
-            left_val = 0.0
-        xi = int(round(clamp(left_val, 0.0, max(0.0, W - eff_w))))
+            h = int(round(base_h))
+        w = max(2, min(W, w))
+        h = max(2, min(H, h))
 
-        crop = frame[:, xi:xi+eff_w]
-        if crop.shape[1] != eff_w:
-            pad_w = max(0, eff_w - crop.shape[1])
-            crop = cv2.copyMakeBorder(crop, 0, 0, 0, pad_w, cv2.BORDER_REPLICATE)
+        left_val = left[i] if i < len(left) else (left[-1] if len(left) else 0.0)
+        top_val = top[i] if i < len(top) else (top[-1] if len(top) else 0.0)
 
-        crop = cv2.resize(crop, (args.W_out, args.H_out), interpolation=cv2.INTER_LANCZOS4)
+        x = int(round(clamp(left_val, 0.0, max(0.0, W - w))))
+        y = int(round(clamp(top_val, 0.0, max(0.0, H - h))))
+
+        crop = frame[y:y+h, x:x+w]
+        if crop.shape[0] != h or crop.shape[1] != w:
+            crop = cv2.copyMakeBorder(crop,
+                                      0, max(0, h - crop.shape[0]),
+                                      0, max(0, w - crop.shape[1]),
+                                      cv2.BORDER_REPLICATE)
+
+        crop = cv2.resize(crop, (W_out, H_out), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(os.path.join(tmp_dir, f"f_{i:06d}.jpg"), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
         i += 1
 
