@@ -152,10 +152,33 @@ def main():
         z = max(zoom[i], 1e-6)
         eff_w = int(round(crop_w_base / z))
         eff_w = max(16, min(eff_w, crop_w_base))  # clamp
-        half_eff = eff_w//2
-        xi_center = int(round(x[i] + half))
-        x1 = max(0, min(W-eff_w, xi_center - half_eff))
-        crop = bgr[:, x1:x1+eff_w]
+
+        # compute matched-height crop to preserve aspect before resizing
+        xi_base = x[i] if i < len(x) else x[-1]
+        xi_center = int(round(xi_base + half))
+        eff_w_i = int(eff_w)
+        eff_h_i = int(np.floor((eff_w_i * args.H_out / args.W_out) / 2) * 2)
+
+        # clamp height to source
+        eff_h_i = min(eff_h_i, H - (H % 2))  # keep even and ≤ H
+
+        # vertical framing: center (or later, follow df['cy'] if you like)
+        yi_center = H // 2
+        yi = int(np.clip(yi_center - eff_h_i // 2, 0, H - eff_h_i))
+
+        # clamp x as well
+        xi = int(np.clip(xi_center - eff_w_i // 2, 0, W - eff_w_i))
+
+        # final crop with correct aspect
+        crop = bgr[yi:yi+eff_h_i, xi:xi+eff_w_i]
+
+        # safety pad if edge rounding ever bites
+        if crop.shape[0] != eff_h_i or crop.shape[1] != eff_w_i:
+            pad_h = max(0, eff_h_i - crop.shape[0])
+            pad_w = max(0, eff_w_i - crop.shape[1])
+            crop = cv2.copyMakeBorder(crop, 0, pad_h, 0, pad_w, cv2.BORDER_REPLICATE)
+
+        # now resize — no warp since crop already matches 608:1080
         crop = cv2.resize(crop, (args.W_out, args.H_out), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(os.path.join(dbg_dir, f'f_{i:06d}.jpg'), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
         i += 1
