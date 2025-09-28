@@ -20,8 +20,9 @@ min_scale      = 0.60   # smaller = tighter zoom-in allowed (e.g., 0.60 ≈ 1.67
 # Speed that counts as “fast” play (px/s). Faster => zoom out
 speed_fast_px  = 900.0
 # Zoom responsiveness (scale change per second, and its accel)
-slew_max_zoom  = 1.5    # scale units / s
-accel_max_zoom = 5.0    # scale units / s^2
+max_zoom_rate   = 1.5    # scale units / s
+max_zoom_accel  = 5.0    # scale units / s^2
+zoom_hysteresis = 0.035  # scale units; must exceed this to change target
 # Ball placement inside the crop (fractions of crop size)
 ball_left_frac = 0.45   # a little look-ahead to the right
 ball_top_frac  = 0.55   # a tad below center so we see space ahead
@@ -78,23 +79,25 @@ vy = np.gradient(cy) * fps
 lead_x = cx + tau*vx
 lead_y = cy + (tau*0.5)*vy
 
-# ---- Zoom target from speed ----
-speed = np.hypot(vx, vy)                      # overall motion
-speed_norm = np.clip(speed / max(1e-6, speed_fast_px), 0.0, 1.0)
+# ---- Zoom target from speed (with hysteresis) ----
+speed = np.hypot(vx, vy)
+speed_smooth = smooth_series(speed, fps)
+speed_norm = np.clip(speed_smooth / max(1e-6, speed_fast_px), 0.0, 1.0)
 # scale_target: 1.0 = max view (zoomed out), min_scale = tight zoom-in
-scale_target = 1.0 - (1.0 - min_scale)*(1.0 - speed_norm)  # slow->min_scale, fast->1.0
-scale_target = smooth_series(scale_target, fps)
+scale_raw = min_scale + (1.0 - min_scale) * speed_norm
+scale_raw = np.clip(scale_raw, min_scale, 1.0)
 
-# ---- Convert scale target into crop w/h target per frame ----
-w_t = scale_target * max_w
-h_t = scale_target * max_h
-
-# Desired left/top so that ball sits at the chosen fractions
-x_t = lead_x - ball_left_frac * w_t
-y_t = lead_y - ball_top_frac  * h_t
-# Clamp inside the frame
-x_t = np.clip(x_t, 0, W - w_t)
-y_t = np.clip(y_t, 0, H - h_t)
+scale_target = np.zeros_like(scale_raw)
+scale_target[0] = float(scale_raw[0])
+for i in range(1, len(scale_raw)):
+    prev = scale_target[i-1]
+    raw  = scale_raw[i]
+    if raw > prev + zoom_hysteresis:
+        scale_target[i] = raw
+    elif raw < prev - zoom_hysteresis:
+        scale_target[i] = raw
+    else:
+        scale_target[i] = prev
 
 # ---- Apply slew/accel limits to x, y, and scale ----
 N  = len(cx)
@@ -106,16 +109,18 @@ vx_c = vy_c = vs = 0.0
 # initialize at first targets
 s[0] = float(scale_target[0])
 w0, h0 = s[0]*max_w, s[0]*max_h
-x[0] = float(np.clip(x_t[0], 0, W - w0))
-y[0] = float(np.clip(y_t[0], 0, H - h0))
+x_des0 = np.clip(lead_x[0] - ball_left_frac*w0, 0, W - w0)
+y_des0 = np.clip(lead_y[0] - ball_top_frac*h0, 0, H - h0)
+x[0] = float(x_des0)
+y[0] = float(y_des0)
 
 for i in range(1, N):
     # --- scale (zoom) dynamics in scale-units ---
     err_s   = scale_target[i] - s[i-1]
-    v_des_s = np.clip(err_s/dt, -slew_max_zoom, slew_max_zoom)
-    dv_s    = np.clip(v_des_s - vs, -accel_max_zoom*dt, accel_max_zoom*dt)
+    v_des_s = np.clip(err_s/dt, -max_zoom_rate, max_zoom_rate)
+    dv_s    = np.clip(v_des_s - vs, -max_zoom_accel*dt, max_zoom_accel*dt)
     vs     += dv_s
-    vs      = np.clip(vs, -slew_max_zoom, slew_max_zoom)
+    vs      = np.clip(vs, -max_zoom_rate, max_zoom_rate)
     s[i]    = s[i-1] + vs*dt
     s[i]    = float(np.clip(s[i], min_scale, 1.0))
 
@@ -123,7 +128,8 @@ for i in range(1, N):
     wi, hi = s[i]*max_w, s[i]*max_h
 
     # --- x pan ---
-    err_x   = (lead_x[i] - ball_left_frac*wi) - x[i-1]
+    desired_left = np.clip(lead_x[i] - ball_left_frac*wi, 0, W - wi)
+    err_x   = desired_left - x[i-1]
     v_des_x = np.clip(err_x/dt, -slew_max_pan, slew_max_pan)
     dv_x    = np.clip(v_des_x - vx_c, -accel_max_pan*dt, accel_max_pan*dt)
     vx_c   += dv_x
@@ -132,7 +138,8 @@ for i in range(1, N):
     x[i]    = float(np.clip(x[i], 0, W - wi))
 
     # --- y pan ---
-    err_y   = (lead_y[i] - ball_top_frac*hi) - y[i-1]
+    desired_top  = np.clip(lead_y[i] - ball_top_frac*hi, 0, H - hi)
+    err_y   = desired_top - y[i-1]
     v_des_y = np.clip(err_y/dt, -slew_max_pan, slew_max_pan)
     dv_y    = np.clip(v_des_y - vy_c, -accel_max_pan*dt, accel_max_pan*dt)
     vy_c   += dv_y
@@ -146,6 +153,7 @@ os.makedirs(dbg_dir, exist_ok=True)
 pd.DataFrame({
     'frame': df['frame'], 't': df['time'],
     'cx': cx, 'cy': cy, 'vx': vx, 'vy': vy,
+    'scale_target': scale_target,
     'scale': s, 'x': x, 'y': y
 }).to_csv(os.path.join(dbg_dir, 'virtual_cam_autoz_real.csv'), index=False)
 
