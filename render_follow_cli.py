@@ -1,21 +1,8 @@
-import argparse, os, subprocess, math
-import numpy as np, pandas as pd, cv2
+import argparse, os, subprocess
+import cv2, numpy as np, pandas as pd
 from scipy.signal import savgol_filter
 
-def smooth_series(arr, fps):
-    n = len(arr)
-    if n < 5:
-        return arr
-    win = max(5, int(round(fps * 0.5)))  # ~0.5s window
-    if win % 2 == 0: win += 1
-    if win > n: win = (n if n % 2 == 1 else n-1)
-    if win < 5: return arr
-    return savgol_filter(arr, window_length=win, polyorder=2)
-
-def lerp(a,b,t): return a + (b-a)*t
-def clamp(x,a,b): return a if x < a else b if x > b else x
-
-def main():
+def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument('--clip', required=True)
     ap.add_argument('--track_csv', required=True)
@@ -26,129 +13,159 @@ def main():
     ap.add_argument('--left_frac', type=float, default=0.44)
     ap.add_argument('--W_out', type=int, default=608)
     ap.add_argument('--H_out', type=int, default=1080)
-    # zoom params
-    ap.add_argument('--zoom_min', type=float, default=1.00)  # wide
-    ap.add_argument('--zoom_max', type=float, default=1.85)  # tight
-    ap.add_argument('--zoom_rate', type=float, default=0.45) # EMA rate (per second)
-    ap.add_argument('--zoom_accel', type=float, default=1.2) # max zoom change per second
-    ap.add_argument('--speed_tight', type=float, default=60) # px/s -> prefer tight at/below
-    ap.add_argument('--speed_wide',  type=float, default=260) # px/s -> prefer wide at/above
-    ap.add_argument('--hyst', type=float, default=35)        # px/s hysteresis
-    args = ap.parse_args()
+    # zoom
+    ap.add_argument('--zoom_min', type=float, default=1.0)
+    ap.add_argument('--zoom_max', type=float, default=1.85)
+    ap.add_argument('--zoom_rate', type=float, default=0.35)
+    ap.add_argument('--zoom_accel', type=float, default=0.90)
+    ap.add_argument('--speed_tight', type=float, default=50.0)
+    ap.add_argument('--speed_wide', type=float, default=280.0)
+    ap.add_argument('--hyst', type=float, default=35.0)
+    # new stability knobs
+    ap.add_argument('--deadband', type=float, default=18.0, help='px error ignored for pan')
+    ap.add_argument('--dir_hold', type=int, default=6, help='frames before accepting direction reversal')
+    ap.add_argument('--jerk', type=float, default=2500.0, help='px/s^3 max change of acceleration')
+    ap.add_argument('--zoom_dwell', type=float, default=0.7, help='seconds min dwell between zoom state changes')
+    return ap.parse_args()
 
-    # Probe input
+def smooth_series(arr, fps):
+    n = len(arr)
+    if n < 5: return arr
+    win = max(5, int(round(fps*0.5)))
+    if win % 2 == 0: win += 1
+    win = min(win, n if n%2==1 else n-1)
+    if win < 5: return arr
+    return savgol_filter(arr, window_length=win, polyorder=2)
+
+def main():
+    args = parse_args()
     cap = cv2.VideoCapture(args.clip)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24
     W   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
 
-    # Base crop width to preserve 608x1080 aspect (even number)
-    crop_w_base = int(np.floor(H * args.W_out / args.H_out / 2) * 2)
-    crop_w_base = max(16, min(crop_w_base, W))
+    crop_w_base = int(np.floor(H*args.W_out/args.H_out/2)*2)
+    crop_w_base = min(crop_w_base, W)
+    half = crop_w_base/2
 
-    # Load tracking
     df = pd.read_csv(args.track_csv)
     cx = pd.to_numeric(df['cx'], errors='coerce').to_numpy()
-    # fraction of valid samples
-    valid_mask = ~np.isnan(cx)
-    valid_frac = float(valid_mask.mean())
-
-    # If tracking is mostly missing, fall back to steady wide center render
-    if valid_frac < 0.2:
-        render_fallback(args.clip, args.out_mp4, fps, W, H, args.W_out, args.H_out, crop_w_base, args.left_frac)
-        print('Wrote', args.out_mp4, '(fallback: low track coverage)')
-        return
-
-    # Interp short gaps only: up to 10 frames either side
-    idx = np.where(valid_mask)[0]
-    cx = np.interp(np.arange(len(cx)), idx, cx[idx])
-    # Smooth and velocity
-    cx_sm = smooth_series(cx, fps)
-    vx = np.gradient(cx_sm) * fps
+    # fill short gaps (<=10)
+    s = pd.Series(cx).ffill(limit=10).bfill(limit=10).to_numpy()
+    # if any NaNs remain, interp globally
+    if np.isnan(s).any():
+        idx = np.where(~np.isnan(s))[0]
+        s = np.interp(np.arange(len(s)), idx, s[idx])
+    cx = smooth_series(s, fps)
 
     # lead with velocity
-    lead = cx_sm + args.tau * vx
+    vx = np.gradient(cx) * fps
+    lead_cx = cx + args.tau * vx
+    target = np.clip(lead_cx - args.left_frac*crop_w_base, 0, W - crop_w_base)
 
-    # camera pan (damped)
-    target_left = np.clip(lead - args.left_frac * crop_w_base, 0, W - crop_w_base)
-    x = np.zeros_like(target_left, dtype=float)
-    v = 0.0
-    x[0] = target_left[0]
-    dt = 1.0 / fps
-    slew = abs(args.slew)
-    acc  = abs(args.accel)
+    # pan controller with deadband + direction hysteresis + jerk limit
+    dt = 1.0/fps
+    x   = np.zeros_like(target)
+    v   = 0.0
+    a   = 0.0
+    x[0] = target[0]
+    slew = args.slew
+    accel = args.accel
+    jerk = args.jerk
+    dead = args.deadband
+    dir_hold = args.dir_hold
+    hold_cnt = 0
+    last_sign = 0
 
-    for i in range(1, len(target_left)):
-        err   = target_left[i] - x[i-1]
-        v_des = clamp(err / dt, -slew, slew)
-        dv    = clamp(v_des - v, -acc * dt, acc * dt)
-        v     = clamp(v + dv, -slew, slew)
-        x[i]  = clamp(x[i-1] + v * dt, 0, W - crop_w_base)
+    for i in range(1, len(target)):
+        err = target[i] - x[i-1]
+        # deadband
+        if abs(err) < dead: err = 0.0
+        sign = 0 if err==0 else (1 if err>0 else -1)
+        # direction-change hysteresis
+        if sign != 0 and sign != last_sign and last_sign != 0:
+            if hold_cnt < dir_hold:
+                # pretend error is zero until we believe the reversal
+                err = 0.0
+                sign = last_sign
+                hold_cnt += 1
+            else:
+                last_sign = sign
+                hold_cnt = 0
+        else:
+            if sign != 0: last_sign = sign
+            hold_cnt = 0
 
-    # speed-based zoom request: slow => tighter, fast => wider
-    speed = np.abs(vx)  # px/s of ball
-    tight_thr = max(1.0, args.speed_tight)
-    wide_thr  = max(tight_thr + 1.0, args.speed_wide)
+        v_des = np.clip(err/dt, -slew, slew)
+        a_des = np.clip((v_des - v)/dt, -accel, accel)
+        # jerk clamp
+        j = (a_des - a)/dt
+        if j >  jerk: a_des = a + jerk*dt
+        if j < -jerk: a_des = a - jerk*dt
+        a = a_des
+        v = np.clip(v + a*dt, -slew, slew)
+        x[i] = float(np.clip(x[i-1] + v*dt, 0, W - crop_w_base))
 
-    # two thresholds with hysteresis band
-    band_lo = max(1.0, tight_thr - args.hyst*0.5)
-    band_hi = wide_thr + args.hyst*0.5
+    # zoom controller (calm)
+    speed = np.abs(vx)
+    desir_zoom = np.where(speed < args.speed_tight, args.zoom_max,
+                    np.where(speed > args.speed_wide, args.zoom_min,
+                             # linear map between thresholds
+                             args.zoom_max - (speed-args.speed_tight)*
+                             (args.zoom_max-args.zoom_min)/max(1.0, (args.speed_wide-args.speed_tight))))
+    # hysteresis around thresholds
+    desir_zoom = smooth_series(desir_zoom, fps)
+    zoom = np.zeros_like(desir_zoom, dtype=float)
+    zoom[0] = np.clip(desir_zoom[0], args.zoom_min, args.zoom_max)
+    vz = 0.0
+    az = 0.0
+    z_last_switch = 0.0
+    min_dwell_frames = int(round(args.zoom_dwell*fps))
 
-    # map speed -> [0..1] where 1 = tight, 0 = wide
-    s_norm = np.clip((band_hi - speed) / max(1e-6, (band_hi - band_lo)), 0.0, 1.0)
-    zoom_req = lerp(args.zoom_min, args.zoom_max, s_norm)  # slow->zoom_max, fast->zoom_min
+    for i in range(1, len(desir_zoom)):
+        # dwell guard
+        if i - z_last_switch < min_dwell_frames:
+            z_target = zoom[i-1]  # hold
+        else:
+            z_target = desir_zoom[i]
+            if (z_target > zoom[i-1] and desir_zoom[i-1] <= zoom[i-1]) or \
+               (z_target < zoom[i-1] and desir_zoom[i-1] >= zoom[i-1]):
+                z_last_switch = i
 
-    # smooth zoom with EMA and accel clamp
-    alpha = 1.0 - math.exp(-abs(args.zoom_rate) * dt)   # stable [0..1)
-    zoom = max(args.zoom_min, min(args.zoom_max, args.zoom_min))  # init safely at zoom_min
+        # smooth S-curve to z_target
+        errz = z_target - zoom[i-1]
+        vz_des = np.clip(errz/dt, -args.zoom_rate, args.zoom_rate)
+        az_des = np.clip((vz_des - vz)/dt, -args.zoom_accel, args.zoom_accel)
+        vz = np.clip(vz + az_des*dt, -args.zoom_rate, args.zoom_rate)
+        zoom[i] = float(np.clip(zoom[i-1] + vz*dt, args.zoom_min, args.zoom_max))
 
-    zoom_series = np.zeros_like(zoom_req, dtype=float)
-    for i in range(len(zoom_req)):
-        z_des = clamp(float(zoom_req[i]), args.zoom_min, args.zoom_max)
-        # accel limit in zoom-units/sec
-        dz_max = abs(args.zoom_accel) * dt
-        z_step = clamp(z_des - zoom, -dz_max, dz_max)
-        zoom   = clamp(zoom + alpha * z_step, args.zoom_min, args.zoom_max)
-        # belt-and-suspenders: never zero
-        if zoom < 1e-6: zoom = args.zoom_min
-        zoom_series[i] = zoom
-
-    # Render frames
-    tmp_dir = os.path.join(os.path.dirname(args.out_mp4), '_temp_frames')
-    os.makedirs(tmp_dir, exist_ok=True)
+    # render frames
+    dbg_dir = os.path.join(os.path.dirname(args.out_mp4), '_temp_frames')
+    os.makedirs(dbg_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(args.clip)
     i = 0
     while True:
         ok, bgr = cap.read()
         if not ok: break
-
-        z = float(zoom_series[i] if i < len(zoom_series) else zoom_series[-1])
-        if z < 1e-6: z = args.zoom_min
+        z = max(zoom[i], 1e-6)
         eff_w = int(round(crop_w_base / z))
-        eff_w = int(np.clip(eff_w, 16, W))        # bounds & even
-        if eff_w % 2 == 1: eff_w -= 1
-        # recalc left edge for current zoom target
-        xi = int(round(cx_sm[i] - args.left_frac * eff_w))
-        xi = int(np.clip(xi, 0, W - eff_w))
-
-        crop = bgr[:, xi:xi+eff_w]
-        if crop.shape[1] != eff_w:
-            pad = eff_w - crop.shape[1]
-            crop = cv2.copyMakeBorder(crop, 0, 0, 0, pad, cv2.BORDER_REPLICATE)
-
+        eff_w = max(16, min(eff_w, crop_w_base))  # clamp
+        half_eff = eff_w//2
+        xi_center = int(round(x[i] + half))
+        x1 = max(0, min(W-eff_w, xi_center - half_eff))
+        crop = bgr[:, x1:x1+eff_w]
         crop = cv2.resize(crop, (args.W_out, args.H_out), interpolation=cv2.INTER_LANCZOS4)
-        cv2.imwrite(os.path.join(tmp_dir, f'f_{i:06d}.jpg'), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
+        cv2.imwrite(os.path.join(dbg_dir, f'f_{i:06d}.jpg'), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
         i += 1
     cap.release()
 
-    # Encode with source audio if present
-    os.makedirs(os.path.dirname(args.out_mp4), exist_ok=True)
+    # encode
     subprocess.run([
         'ffmpeg','-y',
         '-framerate', str(int(round(fps))),
-        '-i', os.path.join(tmp_dir, 'f_%06d.jpg'),
+        '-i', os.path.join(dbg_dir, 'f_%06d.jpg'),
         '-i', args.clip,
         '-map','0:v','-map','1:a:0?',
         '-c:v','libx264','-preset','veryfast','-crf','19',
@@ -159,38 +176,7 @@ def main():
         '-c:a','aac','-b:a','128k',
         args.out_mp4
     ], check=True)
-
     print('Wrote', args.out_mp4)
 
-def render_fallback(clip, out_mp4, fps, W, H, W_out, H_out, crop_w_base, left_frac):
-    tmp_dir = os.path.join(os.path.dirname(out_mp4), '_temp_frames')
-    os.makedirs(tmp_dir, exist_ok=True)
-    cap = cv2.VideoCapture(clip)
-    xi = int(round((W - crop_w_base) * (left_frac)))  # center-ish with same left_frac
-    xi = int(np.clip(xi, 0, W - crop_w_base))
-    i = 0
-    while True:
-        ok, bgr = cap.read()
-        if not ok: break
-        crop = bgr[:, xi:xi+crop_w_base]
-        crop = cv2.resize(crop, (W_out, H_out), interpolation=cv2.INTER_LANCZOS4)
-        cv2.imwrite(os.path.join(tmp_dir, f'f_{i:06d}.jpg'), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
-        i += 1
-    cap.release()
-    subprocess.run([
-        'ffmpeg','-y',
-        '-framerate', str(int(round(fps))),
-        '-i', os.path.join(tmp_dir, 'f_%06d.jpg'),
-        '-i', clip,
-        '-map','0:v','-map','1:a:0?',
-        '-c:v','libx264','-preset','veryfast','-crf','19',
-        '-x264-params','keyint=120:min-keyint=120:scenecut=0',
-        '-pix_fmt','yuv420p','-profile:v','high','-level','4.0',
-        '-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-        '-shortest','-movflags','+faststart',
-        '-c:a','aac','-b:a','128k',
-        out_mp4
-    ], check=True)
-
-if __name__ == '__main__':
+if __name__=='__main__':
     main()
