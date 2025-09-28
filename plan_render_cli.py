@@ -4,6 +4,37 @@ import numpy as np
 import pandas as pd
 import cv2
 
+
+# helper interpolation utilities
+def _fill_segment(arr, i0, i1, v0, v1):
+    """Write a linear segment v0->v1 into arr[i0:i1] with exact length."""
+    i0 = int(max(0, i0))
+    i1 = int(min(len(arr), i1))
+    if i1 <= i0:
+        return
+    N = i1 - i0
+    seg = np.linspace(float(v0), float(v1), N, endpoint=True, dtype=float)
+    arr[i0:i1] = seg
+
+
+def _fill_segment_ease(arr, i0, i1, v0, v1, fps, vmax, amax):
+    """Fill arr[i0:i1] using jerk-limited easing between v0 and v1."""
+    i0 = int(max(0, i0))
+    i1 = int(min(len(arr), i1))
+    if i1 <= i0:
+        return
+    n = i1 - i0
+    fps = float(fps) if fps and fps > 0 else 24.0
+    T = max(float(n) / fps, 1.0 / fps)
+    seg = ease_path(v0, v1, T, fps, vmax=vmax, amax=amax)
+    if len(seg) != n:
+        if len(seg) <= 1:
+            seg = np.full(n, float(v1), dtype=float)
+        else:
+            idx_src = np.linspace(0.0, len(seg) - 1, n, endpoint=True, dtype=float)
+            seg = np.interp(idx_src, np.arange(len(seg), dtype=float), seg)
+    arr[i0:i1] = seg
+
 # ----------------------
 # utils
 # ----------------------
@@ -278,41 +309,37 @@ def main():
     zoom_path  = np.zeros_like(t_cam)
 
     # per segment easing
+    fps_safe = fps if fps and fps > 0 else 24.0
+    t_base = t_cam[0] if len(t_cam) else 0.0
     for seg in range(len(KF)-1):
         t0,L0,T0,W0,Z0 = KF[seg]
         t1,L1,T1,W1,Z1 = KF[seg+1]
-        i0 = int(np.searchsorted(t_cam, t0, side="left"))
-        i1 = int(np.searchsorted(t_cam, t1, side="right"))
+        i0 = int(np.floor((t0 - t_base) * fps_safe))
+        i1 = int(np.floor((t1 - t_base) * fps_safe))
+        if seg == len(KF) - 2:
+            i1 = len(t_cam)
         i0 = max(0, min(i0, len(t_cam)-1))
         i1 = max(i0+1, min(i1, len(t_cam)))
 
-        T = t_cam[i1-1] - t_cam[i0] if i1>i0 else 1.0/fps
-
-        # jerk-limited for pan/tilt
-        Lseg = ease_path(L0, L1, T, fps, vmax=args.slew, amax=args.accel)
-        Tseg = ease_path(T0, T1, T, fps, vmax=args.slew, amax=args.accel)
-
-        # zoom easing (units not px)
-        Zseg = ease_path(Z0, Z1, T, fps, vmax=args.zoom_rate, amax=args.zoom_accel)
-
-        # width easing is derived from Z (prefer that), but we store W target to clamp panning
-        Wseg = ease_path(W0, W1, T, fps, vmax=args.slew, amax=args.accel)
-
-        left_path[i0:i1]  = Lseg[:i1-i0]
-        top_path[i0:i1]   = Tseg[:i1-i0]
-        width_path[i0:i1] = Wseg[:i1-i0]
-        zoom_path[i0:i1]  = Zseg[:i1-i0]
+        _fill_segment_ease(left_path,  i0, i1, L0, L1, fps_safe, args.slew, args.accel)
+        _fill_segment_ease(top_path,   i0, i1, T0, T1, fps_safe, args.slew, args.accel)
+        _fill_segment_ease(width_path, i0, i1, W0, W1, fps_safe, args.slew, args.accel)
+        _fill_segment_ease(zoom_path,  i0, i1, Z0, Z1, fps_safe, args.zoom_rate, args.zoom_accel)
 
     # hold final values
-    left_path[-1]  = KF[-1][1]
-    top_path[-1]   = KF[-1][2]
-    width_path[-1] = KF[-1][3]
-    zoom_path[-1]  = KF[-1][4]
+    last_idx = len(left_path)
+    _fill_segment(left_path,  last_idx-1, last_idx, KF[-1][1], KF[-1][1])
+    _fill_segment(top_path,   last_idx-1, last_idx, KF[-1][2], KF[-1][2])
+    _fill_segment(width_path, last_idx-1, last_idx, KF[-1][3], KF[-1][3])
+    _fill_segment(zoom_path,  last_idx-1, last_idx, KF[-1][4], KF[-1][4])
 
     # small post-smooth to remove discretization ripple
     left_path  = smooth_1d(left_path,  fps, secs=0.20)
     top_path   = smooth_1d(top_path,   fps, secs=0.20)
     zoom_path  = smooth_1d(zoom_path,  fps, secs=0.20)
+
+    zoom_path = np.clip(zoom_path, args.zoom_min, args.zoom_max)
+    zoom_path[~np.isfinite(zoom_path)] = args.zoom_min
 
     # -------- render --------
     tmp_dir = os.path.join(os.path.dirname(args.out_mp4) or ".", "_temp_frames")
