@@ -4,6 +4,9 @@ import numpy as np
 import cv2
 from ultralytics import YOLO
 
+PERSON_CLS = 0  # YOLO 'person'
+BALL_CLS = 32   # YOLO 'sports ball'
+
 class Kalman1D:
     def __init__(self, q=3.0, r=30.0):
         self.x = np.array([0.0, 0.0])  # [pos, vel]
@@ -64,7 +67,6 @@ def main():
     W  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    rows = []
     frame = 0
     miss = 0
     last_xy = None
@@ -78,7 +80,7 @@ def main():
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
     with open(args.out_csv, "w", newline="") as f:
         wr = csv.writer(f)
-        wr.writerow(["frame","time","cx","cy","ppl"])  # NEW: ppl column
+        wr.writerow(["frame","time","cx","cy","px","py"])
 
         while True:
             ok, bgr = cap.read()
@@ -102,30 +104,49 @@ def main():
                 roi_off = (0, 0)
 
             cx, cy = None, None
-            ppl_centers = []
+            px, py = None, None
 
             try:
-                # one pass; we’ll read both classes from results
-                res = model.predict(roi, verbose=False, conf=args.yolo_conf, classes=[0, 32])  # 0=person, 32=sports ball
-                if res and len(res[0].boxes):
-                    boxes = res[0].boxes
+                res = model.predict(
+                    roi,
+                    verbose=False,
+                    conf=args.yolo_conf,
+                    classes=[PERSON_CLS, BALL_CLS],
+                )
+                boxes = res[0].boxes if res else None
+                if boxes is not None and len(boxes):
                     xyxy = boxes.xyxy.cpu().numpy()
-                    cls  = boxes.cls.cpu().numpy().astype(int)
+                    cls = boxes.cls.cpu().numpy()
 
-                    # BALL: pick smallest "ball-like" box
-                    ball_boxes = xyxy[cls==32]
-                    if ball_boxes.size:
-                        areas = (ball_boxes[:,2]-ball_boxes[:,0])*(ball_boxes[:,3]-ball_boxes[:,1])
-                        i = int(np.argmin(areas))
-                        x1,y1,x2,y2 = ball_boxes[i]
-                        cx = float((x1+x2)/2) + roi_off[0]
-                        cy = float((y1+y2)/2) + roi_off[1]
+                    ball_ix = np.where(cls == BALL_CLS)[0]
+                    if len(ball_ix):
+                        bxy = xyxy[ball_ix]
+                        areas = (bxy[:, 2] - bxy[:, 0]) * (bxy[:, 3] - bxy[:, 1])
+                        i = ball_ix[int(np.argmin(areas))]
+                        x1, y1, x2, y2 = xyxy[i]
+                        cx = float((x1 + x2) / 2.0) + roi_off[0]
+                        cy = float((y1 + y2) / 2.0) + roi_off[1]
 
-                    # PEOPLE: keep up to 10 centers
-                    person_boxes = xyxy[cls==0]
-                    for bx in person_boxes[:]:
-                        x1,y1,x2,y2 = bx
-                        ppl_centers.append((float((x1+x2)/2)+roi_off[0], float((y1+y2)/2)+roi_off[1]))
+                    ppl_ix = np.where(cls == PERSON_CLS)[0]
+                    if len(ppl_ix):
+                        pxy = xyxy[ppl_ix]
+                        centers = np.stack(
+                            [
+                                (pxy[:, 0] + pxy[:, 2]) / 2.0,
+                                (pxy[:, 1] + pxy[:, 3]) / 2.0,
+                            ],
+                            axis=1,
+                        )
+                        if cx is not None:
+                            d2 = (centers[:, 0] - (cx - roi_off[0])) ** 2 + (
+                                centers[:, 1] - (cy - roi_off[1])
+                            ) ** 2
+                            j = int(np.argmin(d2))
+                        else:
+                            areas = (pxy[:, 2] - pxy[:, 0]) * (pxy[:, 3] - pxy[:, 1])
+                            j = int(np.argmax(areas))
+                        px = float(centers[j, 0]) + roi_off[0]
+                        py = float(centers[j, 1]) + roi_off[1]
             except Exception:
                 pass
 
@@ -164,11 +185,21 @@ def main():
             if initialized:
                 last_xy = last_good if cx is None and last_good is not None else (sx, sy)
 
-            ppl_str = "|".join(f"{px:.1f}:{py:.1f}" for px,py in ppl_centers[:10])
-            wr.writerow([frame, f"{t:.3f}",
-                         f"{sx:.1f}" if initialized else "",
-                         f"{sy:.1f}" if initialized else "",
-                         ppl_str])
+            row_cx = float(kf_x.x[0]) if initialized else ""
+            row_cy = float(kf_y.x[0]) if initialized else ""
+            row_px = float(px) if px is not None else ""
+            row_py = float(py) if py is not None else ""
+
+            wr.writerow(
+                [
+                    frame,
+                    f"{t:.3f}",
+                    row_cx,
+                    row_cy,
+                    row_px,
+                    row_py,
+                ]
+            )
             frame += 1
 
     cap.release()
