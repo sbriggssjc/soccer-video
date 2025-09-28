@@ -1,205 +1,232 @@
-import argparse, os, subprocess
-import cv2, numpy as np, pandas as pd
-from scipy.signal import savgol_filter
+# -*- coding: utf-8 -*-
+import argparse, os, math, subprocess
+import numpy as np
+import pandas as pd
+import cv2
 
-def parse_args():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--clip', required=True)
-    ap.add_argument('--track_csv', required=True)
-    ap.add_argument('--out_mp4', required=True)
-    ap.add_argument('--tau', type=float, default=0.26)
-    ap.add_argument('--slew', type=float, default=210.0)
-    ap.add_argument('--accel', type=float, default=750.0)
-    ap.add_argument('--left_frac', type=float, default=0.44)
-    ap.add_argument('--W_out', type=int, default=608)
-    ap.add_argument('--H_out', type=int, default=1080)
-    # zoom
-    ap.add_argument('--zoom_min', type=float, default=1.0)
-    ap.add_argument('--zoom_max', type=float, default=1.85)
-    ap.add_argument('--zoom_rate', type=float, default=0.35)
-    ap.add_argument('--zoom_accel', type=float, default=0.90)
-    ap.add_argument('--speed_tight', type=float, default=50.0)
-    ap.add_argument('--speed_wide', type=float, default=280.0)
-    ap.add_argument('--hyst', type=float, default=35.0)
-    # new stability knobs
-    ap.add_argument('--deadband', type=float, default=18.0, help='px error ignored for pan')
-    ap.add_argument('--dir_hold', type=int, default=6, help='frames before accepting direction reversal')
-    ap.add_argument('--jerk', type=float, default=2500.0, help='px/s^3 max change of acceleration')
-    ap.add_argument('--zoom_dwell', type=float, default=0.7, help='seconds min dwell between zoom state changes')
-    return ap.parse_args()
 
-def smooth_series(arr, fps):
-    n = len(arr)
-    if n < 5: return arr
-    win = max(5, int(round(fps*0.5)))
-    if win % 2 == 0: win += 1
-    win = min(win, n if n%2==1 else n-1)
-    if win < 5: return arr
-    return savgol_filter(arr, window_length=win, polyorder=2)
+def parse_ppl(s):
+    if not isinstance(s, str) or not s:
+        return []
+    out = []
+    for tok in s.split("|"):
+        try:
+            x,y = tok.split(":")
+            out.append((float(x), float(y)))
+        except Exception:
+            pass
+    return out
+
 
 def main():
-    args = parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--clip", required=True)
+    ap.add_argument("--track_csv", required=True)
+    ap.add_argument("--out_mp4", required=True)
+
+    # motion parameters (same spirit as before)
+    ap.add_argument("--tau", type=float, default=0.26)      # lookahead (s) for ball
+    ap.add_argument("--slew", type=float, default=210.0)    # px/s for x,y
+    ap.add_argument("--accel", type=float, default=750.0)   # px/s^2 for x,y
+    ap.add_argument("--left_frac", type=float, default=0.44)
+
+    # output size
+    ap.add_argument("--W_out", type=int, default=608)
+    ap.add_argument("--H_out", type=int, default=1080)
+
+    # zoom parameters
+    ap.add_argument("--zoom_min", type=float, default=1.00)
+    ap.add_argument("--zoom_max", type=float, default=1.85)
+    ap.add_argument("--zoom_rate", type=float, default=0.45)   # zoom speed (units/s)
+    ap.add_argument("--zoom_accel", type=float, default=1.2)   # zoom accel (units/s^2)
+
+    # context box settings
+    ap.add_argument("--k_near", type=int, default=4)       # how many nearest players to include
+    ap.add_argument("--ctx_pad", type=float, default=0.30) # extra padding on bbox (ratio of width)
+    ap.add_argument("--ctx_radius", type=float, default=420.0) # max distance (px) to consider "near"
+
+    # behavior based on motion
+    ap.add_argument("--speed_tight", type=float, default=60)   # px/s ball => tighter zoom
+    ap.add_argument("--speed_wide",  type=float, default=260)  # px/s ball => wider zoom
+    ap.add_argument("--hyst", type=float, default=35.0)        # deadband on speed switch
+
+    args = ap.parse_args()
+
     cap = cv2.VideoCapture(args.clip)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
     W   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
 
-    crop_w_base = int(np.floor(H*args.W_out/args.H_out/2)*2)
-    crop_w_base = min(crop_w_base, W)
-    half = crop_w_base/2
+    # base crop width that preserves aspect before resize
+    crop_w_base = int(np.floor(H * (args.W_out/args.H_out) / 2) * 2)
+    crop_w_base = min(crop_w_base, W - (W % 2))
+    aspect = args.W_out / args.H_out
 
     df = pd.read_csv(args.track_csv)
-    cx = pd.to_numeric(df['cx'], errors='coerce').to_numpy()
-    # fill short gaps (<=10)
-    s = pd.Series(cx).ffill(limit=10).bfill(limit=10).to_numpy()
-    # if any NaNs remain, interp globally
-    if np.isnan(s).any():
-        idx = np.where(~np.isnan(s))[0]
-        s = np.interp(np.arange(len(s)), idx, s[idx])
-    cx = smooth_series(s, fps)
+    cx = pd.to_numeric(df["cx"], errors="coerce").to_numpy()
+    cy = pd.to_numeric(df["cy"], errors="coerce").to_numpy()
+    # fill remaining gaps safely
+    if np.isnan(cx).any():
+        idx = np.where(~np.isnan(cx))[0]
+        if len(idx) >= 2:
+            cx = np.interp(np.arange(len(cx)), idx, cx[idx])
+        else:
+            cx = np.nan_to_num(cx, nan=W/2)
+    if np.isnan(cy).any():
+        idx = np.where(~np.isnan(cy))[0]
+        if len(idx) >= 2:
+            cy = np.interp(np.arange(len(cy)), idx, cy[idx])
+        else:
+            cy = np.nan_to_num(cy, nan=H/2)
 
-    # lead with velocity
+    ppl = [parse_ppl(s) for s in df.get("ppl", [])]
+
+    # lookahead on ball x
     vx = np.gradient(cx) * fps
-    lead_cx = cx + args.tau * vx
-    target = np.clip(lead_cx - args.left_frac*crop_w_base, 0, W - crop_w_base)
+    cx_lead = cx + args.tau * vx
 
-    # pan controller with deadband + direction hysteresis + jerk limit
-    dt = 1.0/fps
-    x   = np.zeros_like(target)
-    v   = 0.0
-    a   = 0.0
-    x[0] = target[0]
-    slew = args.slew
-    accel = args.accel
-    jerk = args.jerk
-    dead = args.deadband
-    dir_hold = args.dir_hold
-    hold_cnt = 0
-    last_sign = 0
+    # state
+    dt = 1.0 / fps
+    x, y = 0.0, H/2.0
+    vx_cam = vy_cam = 0.0
+    zoom = 1.0
+    vzoom = 0.0
 
-    for i in range(1, len(target)):
-        err = target[i] - x[i-1]
-        # deadband
-        if abs(err) < dead: err = 0.0
-        sign = 0 if err==0 else (1 if err>0 else -1)
-        # direction-change hysteresis
-        if sign != 0 and sign != last_sign and last_sign != 0:
-            if hold_cnt < dir_hold:
-                # pretend error is zero until we believe the reversal
-                err = 0.0
-                sign = last_sign
-                hold_cnt += 1
-            else:
-                last_sign = sign
-                hold_cnt = 0
-        else:
-            if sign != 0: last_sign = sign
-            hold_cnt = 0
+    # helpers
+    def clamp(val, lo, hi): return lo if val < lo else hi if val > hi else val
 
-        v_des = np.clip(err/dt, -slew, slew)
-        a_des = np.clip((v_des - v)/dt, -accel, accel)
-        # jerk clamp
-        j = (a_des - a)/dt
-        if j >  jerk: a_des = a + jerk*dt
-        if j < -jerk: a_des = a - jerk*dt
-        a = a_des
-        v = np.clip(v + a*dt, -slew, slew)
-        x[i] = float(np.clip(x[i-1] + v*dt, 0, W - crop_w_base))
-
-    # zoom controller (calm)
-    speed = np.abs(vx)
-    desir_zoom = np.where(speed < args.speed_tight, args.zoom_max,
-                    np.where(speed > args.speed_wide, args.zoom_min,
-                             # linear map between thresholds
-                             args.zoom_max - (speed-args.speed_tight)*
-                             (args.zoom_max-args.zoom_min)/max(1.0, (args.speed_wide-args.speed_tight))))
-    # hysteresis around thresholds
-    desir_zoom = smooth_series(desir_zoom, fps)
-    zoom = np.zeros_like(desir_zoom, dtype=float)
-    zoom[0] = np.clip(desir_zoom[0], args.zoom_min, args.zoom_max)
-    vz = 0.0
-    az = 0.0
-    z_last_switch = 0.0
-    min_dwell_frames = int(round(args.zoom_dwell*fps))
-
-    for i in range(1, len(desir_zoom)):
-        # dwell guard
-        if i - z_last_switch < min_dwell_frames:
-            z_target = zoom[i-1]  # hold
-        else:
-            z_target = desir_zoom[i]
-            if (z_target > zoom[i-1] and desir_zoom[i-1] <= zoom[i-1]) or \
-               (z_target < zoom[i-1] and desir_zoom[i-1] >= zoom[i-1]):
-                z_last_switch = i
-
-        # smooth S-curve to z_target
-        errz = z_target - zoom[i-1]
-        vz_des = np.clip(errz/dt, -args.zoom_rate, args.zoom_rate)
-        az_des = np.clip((vz_des - vz)/dt, -args.zoom_accel, args.zoom_accel)
-        vz = np.clip(vz + az_des*dt, -args.zoom_rate, args.zoom_rate)
-        zoom[i] = float(np.clip(zoom[i-1] + vz*dt, args.zoom_min, args.zoom_max))
-
-    # render frames
-    dbg_dir = os.path.join(os.path.dirname(args.out_mp4), '_temp_frames')
-    os.makedirs(dbg_dir, exist_ok=True)
+    # temp frames folder
+    tmp_dir = os.path.join(os.path.dirname(args.out_mp4) or ".", "_temp_frames")
+    os.makedirs(tmp_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(args.clip)
     i = 0
     while True:
-        ok, bgr = cap.read()
+        ok, frame = cap.read()
         if not ok: break
-        z = max(zoom[i], 1e-6)
-        eff_w = int(round(crop_w_base / z))
-        eff_w = max(16, min(eff_w, crop_w_base))  # clamp
 
-        # compute matched-height crop to preserve aspect before resizing
-        xi_base = x[i] if i < len(x) else x[-1]
-        xi_center = int(round(xi_base + half))
-        eff_w_i = int(eff_w)
-        eff_h_i = int(np.floor((eff_w_i * args.H_out / args.W_out) / 2) * 2)
+        # --- build a context box around the ball + nearest players ---
+        cx_i = float(cx_lead[i] if i < len(cx_lead) else cx[-1])
+        cy_i = float(cy[i]       if i < len(cy)       else H/2)
 
-        # clamp height to source
-        eff_h_i = min(eff_h_i, H - (H % 2))  # keep even and ≤ H
+        # gather nearby players
+        near = []
+        if i < len(ppl) and ppl[i]:
+            for (px,py) in ppl[i]:
+                d = math.hypot(px - cx_i, py - cy_i)
+                if d <= args.ctx_radius:
+                    near.append((d, px, py))
+            near.sort(key=lambda t: t[0])
+            near = near[:args.k_near]
 
-        # vertical framing: center (or later, follow df['cy'] if you like)
-        yi_center = H // 2
-        yi = int(np.clip(yi_center - eff_h_i // 2, 0, H - eff_h_i))
+        # initial bbox: at least the ball point
+        xs = [cx_i]; ys = [cy_i]
+        for _,px,py in near:
+            xs.append(px); ys.append(py)
 
-        # clamp x as well
-        xi = int(np.clip(xi_center - eff_w_i // 2, 0, W - eff_w_i))
+        # pad bbox horizontally (context), then fit to output aspect
+        minx, maxx = min(xs), max(xs)
+        miny, maxy = min(ys), max(ys)
+        bw = max(40.0, maxx - minx)
+        bh = max(40.0, maxy - miny)
 
-        # final crop with correct aspect
-        crop = bgr[yi:yi+eff_h_i, xi:xi+eff_w_i]
+        # expand horizontally by ctx_pad
+        padw = bw * args.ctx_pad
+        box_w = bw + 2*padw
+        box_h = bh + 2*padw/ aspect  # expand vertically in proportion to keep context
 
-        # safety pad if edge rounding ever bites
-        if crop.shape[0] != eff_h_i or crop.shape[1] != eff_w_i:
-            pad_h = max(0, eff_h_i - crop.shape[0])
-            pad_w = max(0, eff_w_i - crop.shape[1])
+        # center of box (weighted a bit toward the ball)
+        cx_box = 0.7*cx_i + 0.3*((minx+maxx)/2.0)
+        cy_box = 0.7*cy_i + 0.3*((miny+maxy)/2.0)
+
+        # make box match output aspect
+        if box_w / box_h > aspect:
+            # too wide → grow height
+            box_h = box_w / aspect
+        else:
+            # too tall → grow width
+            box_w = box_h * aspect
+
+        # translate to left edge (x target) so ball sits slightly forward (left_frac)
+        left_target = cx_box - args.left_frac * box_w
+        top_target  = cy_box - 0.5 * box_h
+
+        # --- turn desired box into pan/zoom targets ---
+        # zoom target from desired width
+        target_zoom = clamp(crop_w_base / max(1.0, box_w),
+                            args.zoom_min, args.zoom_max)
+
+        # pan targets (x,y for box left/top), clamped to frame
+        x_target = clamp(left_target, 0, W - box_w)
+        y_target = clamp(top_target,  0, H - box_h)
+
+        # slew/accel limit x
+        ex = x_target - x
+        v_des_x = clamp(ex/dt, -args.slew, args.slew)
+        dvx = clamp(v_des_x - vx_cam, -args.accel*dt, args.accel*dt)
+        vx_cam = clamp(vx_cam + dvx, -args.slew, args.slew)
+        x = clamp(x + vx_cam*dt, 0, W - box_w)
+
+        # slew/accel limit y
+        ey = y_target - y
+        v_des_y = clamp(ey/dt, -args.slew, args.slew)
+        dvy = clamp(v_des_y - vy_cam, -args.accel*dt, args.accel*dt)
+        vy_cam = clamp(vy_cam + dvy, -args.slew, args.slew)
+        y = clamp(y + vy_cam*dt, 0, H - box_h)
+
+        # zoom rate/accel limit
+        ez = target_zoom - zoom
+        v_des_z = clamp(ez/dt, -args.zoom_rate, args.zoom_rate)
+        dvz = clamp(v_des_z - vzoom, -args.zoom_accel*dt, args.zoom_accel*dt)
+        vzoom = clamp(vzoom + dvz, -args.zoom_rate, args.zoom_rate)
+        zoom = clamp(zoom + vzoom*dt, args.zoom_min, args.zoom_max)
+
+        # derive crop width/height from zoom, keep aspect
+        eff_w = max(2, int(round(crop_w_base / max(1e-6, zoom))))
+        eff_h = int(np.floor((eff_w / aspect) / 2) * 2)
+        eff_w = int(np.floor(eff_w / 2) * 2)
+
+        # fix if height spills
+        if eff_h > H: 
+            eff_h = H - (H % 2)
+            eff_w = int(np.floor(eff_h * aspect / 2) * 2)
+
+        # convert (x,y) (left/top) to ints and clamp
+        xi = int(clamp(round(x), 0, max(0, W - eff_w)))
+        yi = int(clamp(round(y), 0, max(0, H - eff_h)))
+
+        crop = frame[yi:yi+eff_h, xi:xi+eff_w]
+        if crop.shape[0] != eff_h or crop.shape[1] != eff_w:
+            # rare safety pad
+            pad_h = max(0, eff_h - crop.shape[0])
+            pad_w = max(0, eff_w - crop.shape[1])
             crop = cv2.copyMakeBorder(crop, 0, pad_h, 0, pad_w, cv2.BORDER_REPLICATE)
 
-        # now resize — no warp since crop already matches 608:1080
         crop = cv2.resize(crop, (args.W_out, args.H_out), interpolation=cv2.INTER_LANCZOS4)
-        cv2.imwrite(os.path.join(dbg_dir, f'f_{i:06d}.jpg'), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
+        cv2.imwrite(os.path.join(tmp_dir, f"f_{i:06d}.jpg"), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
         i += 1
+
     cap.release()
 
-    # encode
+    os.makedirs(os.path.dirname(args.out_mp4) or ".", exist_ok=True)
     subprocess.run([
-        'ffmpeg','-y',
-        '-framerate', str(int(round(fps))),
-        '-i', os.path.join(dbg_dir, 'f_%06d.jpg'),
-        '-i', args.clip,
-        '-map','0:v','-map','1:a:0?',
-        '-c:v','libx264','-preset','veryfast','-crf','19',
-        '-x264-params','keyint=120:min-keyint=120:scenecut=0',
-        '-pix_fmt','yuv420p','-profile:v','high','-level','4.0',
-        '-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
-        '-shortest','-movflags','+faststart',
-        '-c:a','aac','-b:a','128k',
+        "ffmpeg","-y",
+        "-framerate", str(int(round(fps))),
+        "-i", os.path.join(tmp_dir, "f_%06d.jpg"),
+        "-i", args.clip,
+        "-map","0:v","-map","1:a:0?",
+        "-c:v","libx264","-preset","veryfast","-crf","19",
+        "-x264-params","keyint=120:min-keyint=120:scenecut=0",
+        "-pix_fmt","yuv420p","-profile:v","high","-level","4.0",
+        "-colorspace","bt709","-color_primaries","bt709","-color_trc","bt709",
+        "-shortest","-movflags","+faststart",
+        "-c:a","aac","-b:a","128k",
         args.out_mp4
     ], check=True)
-    print('Wrote', args.out_mp4)
 
-if __name__=='__main__':
+    print("Wrote", args.out_mp4)
+
+
+if __name__ == "__main__":
     main()
