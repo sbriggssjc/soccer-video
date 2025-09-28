@@ -479,8 +479,18 @@ def main():
         if ay > by:
             ay, by = 0.0, max(0.0, H - h)
 
-        left_pref = cx[i] - center_kx * w
-        top_pref = cy[i] - center_ky * h
+        cx_pref = cx[i]
+        cy_pref = cy[i]
+        if fast[i] and np.isfinite(vx[i]) and np.isfinite(vy[i]):
+            lead_t = 0.18
+            ball_ahead_x = cx[i] + vx[i] * lead_t
+            ball_ahead_y = cy[i] + vy[i] * lead_t
+            if np.isfinite(ball_ahead_x) and np.isfinite(ball_ahead_y):
+                cx_pref = 0.6 * cx[i] + 0.4 * ball_ahead_x
+                cy_pref = 0.7 * cy[i] + 0.3 * ball_ahead_y
+
+        left_pref = cx_pref - center_kx * w
+        top_pref = cy_pref - center_ky * h
 
         if i == 0:
             left[i] = clamp(left_pref, ax, bx)
