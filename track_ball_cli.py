@@ -4,6 +4,27 @@ import numpy as np
 import cv2
 from ultralytics import YOLO
 
+class Kalman1D:
+    def __init__(self, q=3.0, r=30.0):
+        self.x = np.array([0.0, 0.0])  # [pos, vel]
+        self.P = np.eye(2) * 1e6       # start uncertain
+        self.q = float(q); self.r = float(r)
+
+    def predict(self, dt):
+        F = np.array([[1.0, dt],[0.0, 1.0]])
+        Q = np.array([[self.q*dt**3/3, self.q*dt**2/2],
+                      [self.q*dt**2/2, self.q*dt]])
+        self.x = F @ self.x
+        self.P = F @ self.P @ F.T + Q
+
+    def update(self, z):
+        H = np.array([[1.0, 0.0]])
+        S = H @ self.P @ H.T + self.r
+        K = (self.P @ H.T) / S
+        y = z - H @ self.x
+        self.x = self.x + (K.flatten() * y)
+        self.P = (np.eye(2) - K @ H) @ self.P
+
 def hsv_orange_mask(bgr):
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     m1 = cv2.inRange(hsv, (5, 120, 90), (20, 255, 255))
@@ -48,6 +69,12 @@ def main():
     miss = 0
     last_xy = None
 
+    kf_x = Kalman1D(q=8.0, r=80.0)
+    kf_y = Kalman1D(q=8.0, r=80.0)
+    dt = 1.0 / max(fps, 1e-6)
+    initialized = False
+    last_good = None
+
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
     with open(args.out_csv, "w", newline="") as f:
         wr = csv.writer(f)
@@ -60,7 +87,10 @@ def main():
 
             # dynamic ROI to speed/steady detection
             if last_xy is not None:
-                pad = min(args.roi_pad + miss*12, args.roi_pad_max)
+                pad = min(
+                    args.roi_pad_max,
+                    args.roi_pad + min(miss, args.max_miss) * (args.roi_pad_max - args.roi_pad) / max(1, args.max_miss),
+                )
                 x0 = max(0, int(last_xy[0] - pad))
                 y0 = max(0, int(last_xy[1] - pad))
                 x1 = min(W, int(last_xy[0] + pad))
@@ -105,19 +135,39 @@ def main():
                 if cen is not None:
                     cx, cy = cen[0] + roi_off[0], cen[1] + roi_off[1]
 
-            if cx is not None:
-                last_xy = (cx, cy if cy is not None else (last_xy[1] if last_xy else H/2))
+            kf_x.predict(dt)
+            kf_y.predict(dt)
+
+            if cx is not None and cy is not None:
+                if not initialized:
+                    kf_x.x[0] = cx
+                    kf_y.x[0] = cy
+                    initialized = True
+                kf_x.update(cx)
+                kf_y.update(cy)
+                last_good = (float(kf_x.x[0]), float(kf_y.x[0]))
+                sx, sy = last_good
                 miss = 0
             else:
-                miss += 1
+                sx = float(kf_x.x[0])
+                sy = float(kf_y.x[0])
+                if initialized:
+                    miss += 1
                 if miss > args.max_miss:
+                    initialized = False
+                    last_good = None
                     last_xy = None
+                    kf_x = Kalman1D(q=8.0, r=80.0)
+                    kf_y = Kalman1D(q=8.0, r=80.0)
                     miss = 0
+
+            if initialized:
+                last_xy = last_good if cx is None and last_good is not None else (sx, sy)
 
             ppl_str = "|".join(f"{px:.1f}:{py:.1f}" for px,py in ppl_centers[:10])
             wr.writerow([frame, f"{t:.3f}",
-                         f"{cx:.1f}" if cx is not None else "",
-                         f"{cy:.1f}" if cy is not None else "",
+                         f"{sx:.1f}" if initialized else "",
+                         f"{sy:.1f}" if initialized else "",
                          ppl_str])
             frame += 1
 
