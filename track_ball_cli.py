@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-import argparse, os, math, csv
-import numpy as np
-import cv2
+import argparse, os, csv
+import cv2, numpy as np, math
 from ultralytics import YOLO
 
 PERSON_CLS = 0  # YOLO 'person'
@@ -63,6 +62,9 @@ def main():
 
     model = YOLO("yolov8n.pt")
     cap = cv2.VideoCapture(args.inp)
+    last_ball = None  # (x,y)
+    lk_prev_gray = None
+    conf = 0.0       # 0..1, how sure we are about the ball this frame
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
     W  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -79,13 +81,15 @@ def main():
 
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
     with open(args.out_csv, "w", newline="") as f:
+        f.write('frame,time,cx,cy,px,py,conf\n')
         wr = csv.writer(f)
-        wr.writerow(["frame","time","cx","cy","px","py"])
 
         while True:
             ok, bgr = cap.read()
             if not ok: break
             t = frame / fps
+
+            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
             # dynamic ROI to speed/steady detection
             if last_xy is not None:
@@ -105,6 +109,7 @@ def main():
 
             cx, cy = None, None
             px, py = None, None
+            det_conf = 0.0
 
             try:
                 res = model.predict(
@@ -117,6 +122,7 @@ def main():
                 if boxes is not None and len(boxes):
                     xyxy = boxes.xyxy.cpu().numpy()
                     cls = boxes.cls.cpu().numpy()
+                    conf_arr = boxes.conf.cpu().numpy()
 
                     ball_ix = np.where(cls == BALL_CLS)[0]
                     if len(ball_ix):
@@ -126,6 +132,7 @@ def main():
                         x1, y1, x2, y2 = xyxy[i]
                         cx = float((x1 + x2) / 2.0) + roi_off[0]
                         cy = float((y1 + y2) / 2.0) + roi_off[1]
+                        det_conf = float(conf_arr[i])
 
                     ppl_ix = np.where(cls == PERSON_CLS)[0]
                     if len(ppl_ix):
@@ -156,6 +163,50 @@ def main():
                 if cen is not None:
                     cx, cy = cen[0] + roi_off[0], cen[1] + roi_off[1]
 
+            flow_xy, flow_ok = None, False
+            if last_ball is not None and lk_prev_gray is not None:
+                p0 = np.array([[last_ball]], dtype=np.float32)  # shape (1,1,2)
+                p1, st, err = cv2.calcOpticalFlowPyrLK(
+                    lk_prev_gray,
+                    gray,
+                    p0,
+                    None,
+                    winSize=(21, 21),
+                    maxLevel=2,
+                    criteria=(
+                        cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+                        20,
+                        0.03,
+                    ),
+                )
+                if st is not None and st[0, 0] == 1:
+                    flow_xy = (float(p1[0, 0, 0]), float(p1[0, 0, 1]))
+                    flow_ok = True
+
+            conf = 0.0
+            use_yolo = (cx is not None)
+            use_flow = flow_ok
+
+            if use_yolo and use_flow:
+                alpha = 0.65  # YOLO weight
+                fx, fy = flow_xy
+                cx = alpha * cx + (1 - alpha) * fx
+                cy = alpha * cy + (1 - alpha) * fy
+                conf = min(1.0, 0.5 + 0.5 * det_conf)
+            elif use_yolo:
+                conf = det_conf * 0.9 + 0.1
+            elif use_flow:
+                cx, cy = flow_xy
+                conf = 0.45  # moderate confidence from flow only
+            else:
+                conf = 0.0
+
+            if cx is not None:
+                cx = float(np.clip(cx, 0, W - 1))
+                cy = float(np.clip(cy, 0, H - 1))
+                last_ball = (cx, cy)
+            lk_prev_gray = gray.copy()
+
             kf_x.predict(dt)
             kf_y.predict(dt)
 
@@ -181,6 +232,7 @@ def main():
                     kf_x = Kalman1D(q=8.0, r=80.0)
                     kf_y = Kalman1D(q=8.0, r=80.0)
                     miss = 0
+                    last_ball = None
 
             if initialized:
                 last_xy = last_good if cx is None and last_good is not None else (sx, sy)
@@ -198,6 +250,7 @@ def main():
                     row_cy,
                     row_px,
                     row_py,
+                    round(conf, 3),
                 ]
             )
             frame += 1
