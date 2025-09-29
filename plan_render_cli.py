@@ -1,27 +1,71 @@
 # plan_render_cli.py
-import argparse, os, json
+import argparse, os
 import numpy as np
 import pandas as pd
 import cv2, subprocess
 from scipy.signal import savgol_filter
 
-def odd(n): 
-    n=int(n); 
-    return n if n%2==1 else n+1
 
-def smooth(arr, fps, seconds=0.40):
-    n=len(arr)
-    if n<5: return arr
-    win = odd(max(5, int(round(fps*seconds))))
-    win = min(win, n-(1-n%2))  # <= n and odd
-    if win<5: return arr
-    return savgol_filter(arr, window_length=win, polyorder=2)
+def even(n):
+    n = int(np.floor(n / 2) * 2)
+    return n
 
-def lowpass_iir(prev, target, alpha):
-    return prev + alpha*(target-prev)
+
+def savgol(arr, fps, seconds=0.3):
+    n = len(arr)
+    if n < 5:
+        return arr
+    win = max(5, int(round(fps * seconds)))
+    if win % 2 == 0:
+        win += 1
+    if win > n:
+        win = n - (1 - n % 2)
+    if win < 5:
+        return arr
+    return savgol_filter(arr, window_length=win, polyorder=2, mode='interp')
+
+
+def slew_accel_limit(sig, fps, slew_per_s, accel_per_s2):
+    if len(sig) == 0:
+        return sig
+    dt = 1.0 / fps
+    y = np.zeros_like(sig, dtype=float)
+    v = 0.0
+    y[0] = float(sig[0])
+    for i in range(1, len(sig)):
+        err = sig[i] - y[i - 1]
+        v_des = np.clip(err / dt, -slew_per_s, slew_per_s)
+        dv = np.clip(v_des - v, -accel_per_s2 * dt, accel_per_s2 * dt)
+        v += dv
+        v = np.clip(v, -slew_per_s, slew_per_s)
+        y[i] = y[i - 1] + v * dt
+    return y
+
+
+def initial_zoom_from_speed(cx, fps, args):
+    if len(cx) == 0:
+        return np.array([], dtype=float)
+    vx = np.gradient(cx) * fps
+    speed = np.abs(vx)
+    tight = float(getattr(args, 'speed_tight', 0.0))
+    wide = float(getattr(args, 'speed_wide', tight + 1.0))
+    zoom = np.empty_like(speed, dtype=float)
+    if wide <= tight:
+        zoom.fill(args.zoom_min)
+        return zoom
+    for i, s in enumerate(speed):
+        if s <= tight:
+            zoom[i] = args.zoom_min
+        elif s >= wide:
+            zoom[i] = args.zoom_max
+        else:
+            t = (s - tight) / (wide - tight)
+            zoom[i] = args.zoom_min * (1.0 - t) + args.zoom_max * t
+    return zoom
+
 
 def clamp(v, lo, hi):
-    return lo if v<lo else hi if v>hi else v
+    return lo if v < lo else hi if v > hi else v
 
 def main():
     ap = argparse.ArgumentParser()
@@ -32,15 +76,18 @@ def main():
     ap.add_argument("--H_out", type=int, default=1080)
 
     # camera dynamics
-    ap.add_argument("--slew", type=float, default=160)      # px/s
-    ap.add_argument("--accel", type=float, default=480)     # px/s^2
-    ap.add_argument("--zoom_rate", type=float, default=0.22)  # 1/s
-    ap.add_argument("--zoom_accel", type=float, default=0.7)  # 1/s^2
+    ap.add_argument("--slew", type=float, default=110.0)      # px/s
+    ap.add_argument("--accel", type=float, default=320.0)     # px/s^2
+    ap.add_argument("--zoom_rate", type=float, default=0.14)  # 1/s
+    ap.add_argument("--zoom_accel", type=float, default=0.45)  # 1/s^2
     ap.add_argument("--left_frac", type=float, default=0.44)
+    ap.add_argument("--ball_margin", type=float, default=0.18)
+    ap.add_argument("--conf_min", type=float, default=0.25)
+    ap.add_argument("--miss_jump", type=float, default=220.0)
 
     # composition / look-ahead
     ap.add_argument("--zoom_min", type=float, default=1.00)
-    ap.add_argument("--zoom_max", type=float, default=1.70)
+    ap.add_argument("--zoom_max", type=float, default=1.60)
     ap.add_argument("--ctx_radius", type=int, default=420)
     ap.add_argument("--k_near", type=int, default=4)
     ap.add_argument("--ctx_pad", type=float, default=0.30)
@@ -63,11 +110,8 @@ def main():
     H   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
 
-    # base crop width for output aspect (kept exact; no aspect warp)
-    base_crop_w = int(np.floor(H*args.W_out/args.H_out/2)*2)
-    base_crop_w = min(base_crop_w, W - (W%2))
-    base_crop_h = int(np.floor(base_crop_w*args.H_out/args.W_out/2)*2)
-    # NOTE: we compute width from height (portrait), then height from width to maintain exact aspect.
+    crop_w_base = int(np.floor(H * args.W_out / args.H_out / 2) * 2)
+    crop_w_base = min(crop_w_base, even(W))
 
     df = pd.read_csv(args.track_csv, engine='python', on_bad_lines='skip')
     for col in ['cx','cy']:
@@ -77,133 +121,102 @@ def main():
 
     cx = df['cx'].to_numpy(dtype=float)
     cy = df['cy'].to_numpy(dtype=float)
-    persons_raw = df.get('persons_json', pd.Series(['']*len(df))).fillna('').tolist()
+    conf = pd.to_numeric(df.get('conf', pd.Series(1.0, index=df.index)), errors='coerce').fillna(1.0).to_numpy()
 
-    # Smooth a touch to avoid micro-jitter
-    cx_s = smooth(cx, fps, 0.35)
-    cy_s = smooth(cy, fps, 0.35)
+    cx = savgol(cx, fps, seconds=0.35)
+    cy = savgol(cy, fps, seconds=0.35)
 
-    # Parse persons
-    persons = []
-    for j in range(len(persons_raw)):
-        if persons_raw[j]:
-            try:
-                plist = json.loads(persons_raw[j])
-                parsed = []
-                for p in plist:
-                    if isinstance(p, dict):
-                        px = float(p.get('x', 0.0))
-                        py = float(p.get('y', 0.0))
-                        pw = float(p.get('w', 0.0))
-                        ph = float(p.get('h', 0.0))
-                        x1 = px - pw/2.0
-                        y1 = py - ph/2.0
-                        x2 = px + pw/2.0
-                        y2 = py + ph/2.0
-                        parsed.append((px, py, x1, y1, x2, y2))
-                persons.append(parsed)
-            except Exception:
-                persons.append([])
+    lead_frac = args.left_frac
+    ball_margin = getattr(args, 'ball_margin', 0.18)
+    conf_min = getattr(args, 'conf_min', 0.25)
+    miss_jump = getattr(args, 'miss_jump', 220.0)
+
+    crop_w_base = max(2, crop_w_base)
+    min_w = max(2, even(crop_w_base / max(args.zoom_max, 1e-6)))
+
+    zoom = np.clip(initial_zoom_from_speed(cx, fps, args), args.zoom_min, args.zoom_max)
+    eff_w = crop_w_base / np.clip(zoom, 1e-6, None)
+    eff_w = np.clip(eff_w, min_w, crop_w_base)
+    eff_w = np.floor(eff_w / 2.0) * 2.0
+    eff_w = np.clip(eff_w, min_w, crop_w_base)
+    eff_w = eff_w.astype(int)
+
+    target_left = cx - lead_frac * eff_w
+
+    min_left = cx - (1.0 - ball_margin) * eff_w
+    max_left = cx - ball_margin * eff_w
+    target_left = np.clip(target_left, min_left, max_left)
+    target_left = np.clip(target_left, 0, W - eff_w)
+
+    frozen_left = target_left.copy()
+    last_good = None
+    miss_active = False
+    blend_frames = max(1, int(round(fps * 0.4)))
+    blend_step = 0
+    recover_start = target_left[0] if len(target_left) else 0.0
+    zoom_hold = zoom[0] if len(zoom) else args.zoom_min
+    dt = 1.0 / float(fps)
+
+    for i in range(len(target_left)):
+        if i > 0:
+            zoom_hold = zoom[i - 1]
+
+        jump_ok = True
+        if last_good is not None and abs(cx[i] - cx[last_good]) > miss_jump:
+            jump_ok = False
+        good = (conf[i] >= conf_min) and jump_ok
+
+        if good:
+            zoom_hold = zoom[i]
+            zoom[i] = zoom_hold
+            if miss_active:
+                if blend_step == 0:
+                    if i > 0:
+                        recover_start = frozen_left[i - 1]
+                    elif last_good is not None:
+                        recover_start = frozen_left[last_good]
+                    else:
+                        recover_start = target_left[i]
+                blend_step += 1
+                t = min(1.0, blend_step / float(blend_frames))
+                frozen_left[i] = recover_start + (target_left[i] - recover_start) * t
+                if t >= 1.0:
+                    miss_active = False
+                    blend_step = 0
+            else:
+                frozen_left[i] = target_left[i]
+            last_good = i
         else:
-            persons.append([])
+            if last_good is not None:
+                frozen_left[i] = frozen_left[last_good]
+            elif i > 0:
+                frozen_left[i] = frozen_left[i - 1]
+            else:
+                frozen_left[i] = target_left[i]
+            zoom_hold = min(args.zoom_max, zoom_hold + args.zoom_rate * dt)
+            zoom[i] = zoom_hold
+            miss_active = True
+            blend_step = 0
 
-    # Plan zoom to fit ball + nearest player (if any)
-    # zoom=1.0 => crop width = base_crop_w
-    Z = np.ones_like(cx_s, dtype=float)
-    target_left = np.zeros_like(cx_s, dtype=float)
+    left = slew_accel_limit(frozen_left, fps, args.slew, args.accel)
+    zoom = slew_accel_limit(zoom, fps, args.zoom_rate, args.zoom_accel)
 
-    for i in range(len(cx_s)):
-        bx,by = cx_s[i], cy_s[i]
-        # pick nearest player by center distance
-        plist = persons[i]
-        fit_w = base_crop_w
-        if plist:
-            d = [ ( (px-bx)**2 + (py-by)**2, (x1,y1,x2,y2) ) for (px,py,x1,y1,x2,y2) in plist ]
-            d.sort(key=lambda u:u[0])
-            # candidate: nearest k
-            k = min(args.k_near, len(d))
-            xs=[bx]; ys=[by]
-            for n in range(k):
-                x1,y1,x2,y2 = d[n][1]
-                xs += [x1,x2]; ys += [y1,y2]
-            minx, maxx = min(xs)-args.player_fit_margin, max(xs)+args.player_fit_margin
-            # compute width to fit union with context pad
-            union_w = maxx - minx
-            union_w *= (1.0 + args.ctx_pad)
-            fit_w = clamp(union_w, base_crop_w/args.zoom_max, base_crop_w/args.zoom_min)
-        # desired zoom that would achieve that width
-        z_des = clamp(base_crop_w / max(1.0, fit_w), args.zoom_min, args.zoom_max)
-        Z[i] = z_des
+    left = savgol(left, fps, seconds=0.30)
+    zoom = savgol(zoom, fps, seconds=0.30)
 
-        # left edge target (ball slightly left for lead room)
-        L = bx - args.left_frac * (base_crop_w / z_des)
-        L = clamp(L, 0, W - (base_crop_w / z_des))
-        target_left[i] = L
+    left = pd.Series(left).ffill().bfill().to_numpy()
+    zoom = pd.Series(zoom).ffill().bfill().to_numpy()
+    zoom = np.clip(zoom, args.zoom_min, args.zoom_max)
 
-    # Smooth desired sequences & apply dynamics + hard keep-in-frame
-    Ld = smooth(target_left, fps, 0.45)
-    Zd = smooth(Z, fps, 0.45)
+    eff_w = crop_w_base / np.clip(zoom, 1e-6, None)
+    eff_w = np.clip(eff_w, min_w, crop_w_base)
+    eff_w = np.floor(eff_w / 2.0) * 2.0
+    eff_w = np.clip(eff_w, min_w, crop_w_base)
+    eff_w = eff_w.astype(int)
+    left = np.clip(left, 0, W - eff_w)
 
-    dt = 1.0/float(fps)
-    # camera state
-    L = Ld[0]
-    V = 0.0
-    Zc = float(Zd[0])  # current zoom
-    Zrate = 0.0
-
-    left_path = np.zeros_like(Ld)
-    zoom_path = np.zeros_like(Zd)
-
-    # speed caps by zoom (wider => faster allowed)
-    def slew_cap(z):
-        # interpolate between tight and wide based on effective width
-        eff_w = base_crop_w / z
-        t = clamp((eff_w - (base_crop_w/args.zoom_max)) / ( (base_crop_w/args.zoom_min) - (base_crop_w/args.zoom_max) + 1e-6 ), 0.0, 1.0)
-        return args.speed_tight*(1-t) + args.speed_wide*t
-
-    for i in range(len(Ld)):
-        # pan dynamics towards Ld[i]
-        sc = min(args.slew, slew_cap(Zc))
-        err = Ld[i] - L
-        v_des = clamp(err/dt, -sc, sc)
-        # accel limit
-        dv = clamp(v_des - V, -args.accel*dt, args.accel*dt)
-        V += dv
-        L += V*dt
-
-        # zoom dynamics towards Zd[i]
-        zr_des = clamp((Zd[i] - Zc)/dt, -args.zoom_rate, args.zoom_rate)
-        dzr = clamp(zr_des - Zrate, -args.zoom_accel*dt, args.zoom_accel*dt)
-        Zrate += dzr
-        Zc += Zrate*dt
-        Zc = clamp(Zc, args.zoom_min, args.zoom_max)
-
-        # ---- HARD KEEP-IN-FRAME CONSTRAINT ----
-        eff_w = base_crop_w / Zc
-        bx = cx_s[i]
-        # keep the ball inside crop with a small margin
-        Lmin = clamp(bx - eff_w + args.keep_margin, 0, W - eff_w)
-        Lmax = clamp(bx - args.keep_margin, 0, W - eff_w)
-        if L < Lmin: 
-            L = Lmin; V = 0.0  # kill velocity when clamped to avoid “spring out”
-        elif L > Lmax:
-            L = Lmax; V = 0.0
-
-        left_path[i] = L
-        zoom_path[i] = Zc
-
-    # Final gentle smoothing pass (no warp, we re-constrain after)
-    left_path = smooth(left_path, fps, 0.25)
-    zoom_path = smooth(zoom_path, fps, 0.25)
-
-    left_path = pd.Series(left_path).ffill().bfill().to_numpy()
-    zoom_path = pd.Series(zoom_path).ffill().bfill().to_numpy()
-
-    zoom_min = args.zoom_min if hasattr(args, 'zoom_min') else 1.0
-    zoom_max = args.zoom_max if hasattr(args, 'zoom_max') else 1.7
-    zoom_path = np.clip(zoom_path, zoom_min, zoom_max)
-    zoom_path[np.isnan(zoom_path)] = zoom_min
-    left_path[np.isnan(left_path)] = 0.0
+    left_path = left
+    zoom_path = zoom
 
     # Render frames (pure crop+scale, no aspect warp)
     out_dir = os.path.dirname(args.out_mp4)
@@ -219,12 +232,12 @@ def main():
         i_clamped = min(i, len(left_path)-1)
         left = int(round(left_path[i_clamped]))
         zoom = float(zoom_path[i_clamped])
-        eff_w = int(round(base_crop_w / max(zoom,1e-6)))
+        eff_w = int(round(crop_w_base / max(zoom,1e-6)))
         eff_w -= eff_w % 2
         eff_h = int(round(eff_w * args.H_out / args.W_out))
         eff_h -= eff_h % 2
         # center vertical on ball Y with safety (never warp)
-        by = int(round(cy_s[min(i,len(cy_s)-1)]))
+        by = int(round(cy[min(i,len(cy)-1)]))
         top = clamp(by - eff_h//2, 0, H - eff_h)
         left = clamp(left, 0, W - eff_w)
 
