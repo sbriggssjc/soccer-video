@@ -42,28 +42,6 @@ def slew_accel_limit(sig, fps, slew_per_s, accel_per_s2):
     return y
 
 
-def initial_zoom_from_speed(cx, fps, args):
-    if len(cx) == 0:
-        return np.array([], dtype=float)
-    vx = np.gradient(cx) * fps
-    speed = np.abs(vx)
-    tight = float(getattr(args, 'speed_tight', 0.0))
-    wide = float(getattr(args, 'speed_wide', tight + 1.0))
-    zoom = np.empty_like(speed, dtype=float)
-    if wide <= tight:
-        zoom.fill(args.zoom_min)
-        return zoom
-    for i, s in enumerate(speed):
-        if s <= tight:
-            zoom[i] = args.zoom_min
-        elif s >= wide:
-            zoom[i] = args.zoom_max
-        else:
-            t = (s - tight) / (wide - tight)
-            zoom[i] = args.zoom_min * (1.0 - t) + args.zoom_max * t
-    return zoom
-
-
 def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
 
@@ -81,9 +59,9 @@ def main():
     ap.add_argument("--zoom_rate", type=float, default=0.14)  # 1/s
     ap.add_argument("--zoom_accel", type=float, default=0.45)  # 1/s^2
     ap.add_argument("--left_frac", type=float, default=0.44)
-    ap.add_argument("--ball_margin", type=float, default=0.18)
-    ap.add_argument("--conf_min", type=float, default=0.25)
-    ap.add_argument("--miss_jump", type=float, default=220.0)
+    ap.add_argument("--ball_margin", type=float, default=0.25)
+    ap.add_argument("--conf_min", type=float, default=0.35)
+    ap.add_argument("--miss_jump", type=float, default=160.0)
 
     # composition / look-ahead
     ap.add_argument("--zoom_min", type=float, default=1.00)
@@ -98,7 +76,7 @@ def main():
 
     # safety
     ap.add_argument("--speed_tight", type=float, default=60)
-    ap.add_argument("--speed_wide", type=float, default=240)
+    ap.add_argument("--speed_wide", type=float, default=220)
     ap.add_argument("--hyst", type=float, default=35)
 
     args = ap.parse_args()
@@ -114,109 +92,90 @@ def main():
     crop_w_base = min(crop_w_base, even(W))
 
     df = pd.read_csv(args.track_csv, engine='python', on_bad_lines='skip')
-    for col in ['cx','cy']:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    df[['cx','cy']] = df[['cx','cy']].interpolate(limit=15).ffill().bfill()
+    cx_series = pd.to_numeric(df.get('cx', pd.Series(np.nan, index=df.index)), errors='coerce')
+    cy_series = pd.to_numeric(df.get('cy', pd.Series(np.nan, index=df.index)), errors='coerce')
+    conf_series = pd.to_numeric(df.get('conf', pd.Series(1.0, index=df.index)), errors='coerce')
 
-    cx = df['cx'].to_numpy(dtype=float)
-    cy = df['cy'].to_numpy(dtype=float)
-    conf = pd.to_numeric(df.get('conf', pd.Series(1.0, index=df.index)), errors='coerce').fillna(1.0).to_numpy()
-
-    cx = savgol(cx, fps, seconds=0.35)
-    cy = savgol(cy, fps, seconds=0.35)
+    cx = cx_series.interpolate(limit=15).ffill().bfill().to_numpy(dtype=float)
+    cy = cy_series.interpolate(limit=15).ffill().bfill().to_numpy(dtype=float)
+    conf = conf_series.fillna(1.0).to_numpy(dtype=float)
 
     lead_frac = args.left_frac
-    ball_margin = getattr(args, 'ball_margin', 0.18)
-    conf_min = getattr(args, 'conf_min', 0.25)
-    miss_jump = getattr(args, 'miss_jump', 220.0)
+    ball_margin = getattr(args, 'ball_margin', 0.25)
+    conf_min = getattr(args, 'conf_min', 0.35)
+    miss_jump = getattr(args, 'miss_jump', 160.0)
 
     crop_w_base = max(2, crop_w_base)
     min_w = max(2, even(crop_w_base / max(args.zoom_max, 1e-6)))
 
-    zoom = np.clip(initial_zoom_from_speed(cx, fps, args), args.zoom_min, args.zoom_max)
-    eff_w = crop_w_base / np.clip(zoom, 1e-6, None)
-    eff_w = np.clip(eff_w, min_w, crop_w_base)
-    eff_w = np.floor(eff_w / 2.0) * 2.0
-    eff_w = np.clip(eff_w, min_w, crop_w_base)
-    eff_w = eff_w.astype(int)
+    if len(cx) == 0:
+        left_path = np.array([0.0], dtype=float)
+        zoom_path = np.array([args.zoom_min], dtype=float)
+        cy = np.array([H / 2.0], dtype=float)
+    else:
+        cx = savgol(cx, fps, seconds=0.35)
+        cy = savgol(cy, fps, seconds=0.35)
 
-    target_left = cx - lead_frac * eff_w
+        spd = np.abs(np.gradient(cx)) * fps
+        z_tgt = np.where(
+            (conf >= conf_min) & (spd <= getattr(args, 'speed_wide', 220)),
+            args.zoom_max,
+            np.maximum(args.zoom_min, args.zoom_max - 0.50)
+        )
 
-    min_left = cx - (1.0 - ball_margin) * eff_w
-    max_left = cx - ball_margin * eff_w
-    target_left = np.clip(target_left, min_left, max_left)
-    target_left = np.clip(target_left, 0, W - eff_w)
+        zoom = slew_accel_limit(z_tgt, fps, args.zoom_rate, args.zoom_accel)
+        zoom = np.clip(zoom, args.zoom_min, args.zoom_max)
 
-    frozen_left = target_left.copy()
-    last_good = None
-    miss_active = False
-    blend_frames = max(1, int(round(fps * 0.4)))
-    blend_step = 0
-    recover_start = target_left[0] if len(target_left) else 0.0
-    zoom_hold = zoom[0] if len(zoom) else args.zoom_min
-    dt = 1.0 / float(fps)
+        eff_w = np.maximum(2, (crop_w_base / np.clip(zoom, 1e-6, None))).astype(int)
+        eff_w -= eff_w % 2
+        eff_w = np.clip(eff_w, min_w, crop_w_base).astype(int)
 
-    for i in range(len(target_left)):
-        if i > 0:
-            zoom_hold = zoom[i - 1]
+        Lmin = cx - (1.0 - ball_margin) * eff_w
+        Lmax = cx - ball_margin * eff_w
+        Lmin = np.clip(Lmin, 0, W - eff_w)
+        Lmax = np.clip(Lmax, 0, W - eff_w)
 
-        jump_ok = True
-        if last_good is not None and abs(cx[i] - cx[last_good]) > miss_jump:
-            jump_ok = False
-        good = (conf[i] >= conf_min) and jump_ok
+        left = np.zeros_like(cx, dtype=float)
+        v = 0.0
+        dt = 1.0 / float(fps)
+        desired0 = np.clip(cx[0] - lead_frac * eff_w[0], Lmin[0], Lmax[0])
+        left[0] = desired0
 
-        if good:
-            zoom_hold = zoom[i]
-            zoom[i] = zoom_hold
-            if miss_active:
-                if blend_step == 0:
-                    if i > 0:
-                        recover_start = frozen_left[i - 1]
-                    elif last_good is not None:
-                        recover_start = frozen_left[last_good]
-                    else:
-                        recover_start = target_left[i]
-                blend_step += 1
-                t = min(1.0, blend_step / float(blend_frames))
-                frozen_left[i] = recover_start + (target_left[i] - recover_start) * t
-                if t >= 1.0:
-                    miss_active = False
-                    blend_step = 0
+        for i in range(1, len(cx)):
+            good = (conf[i] >= conf_min) and (abs(cx[i] - cx[i - 1]) <= miss_jump)
+            if not good:
+                desired = left[i - 1]
             else:
-                frozen_left[i] = target_left[i]
-            last_good = i
-        else:
-            if last_good is not None:
-                frozen_left[i] = frozen_left[last_good]
-            elif i > 0:
-                frozen_left[i] = frozen_left[i - 1]
-            else:
-                frozen_left[i] = target_left[i]
-            zoom_hold = min(args.zoom_max, zoom_hold + args.zoom_rate * dt)
-            zoom[i] = zoom_hold
-            miss_active = True
-            blend_step = 0
+                desired = np.clip(cx[i] - lead_frac * eff_w[i], Lmin[i], Lmax[i])
 
-    left = slew_accel_limit(frozen_left, fps, args.slew, args.accel)
-    zoom = slew_accel_limit(zoom, fps, args.zoom_rate, args.zoom_accel)
+            err = desired - left[i - 1]
+            v_des = np.clip(err / dt, -args.slew, args.slew)
+            dv = np.clip(v_des - v, -args.accel * dt, args.accel * dt)
+            v = np.clip(v + dv, -args.slew, args.slew)
+            left[i] = left[i - 1] + v * dt
 
-    left = savgol(left, fps, seconds=0.30)
-    zoom = savgol(zoom, fps, seconds=0.30)
+            if left[i] < Lmin[i]:
+                left[i] = Lmin[i]
+                v = (left[i] - left[i - 1]) / dt
+            elif left[i] > Lmax[i]:
+                left[i] = Lmax[i]
+                v = (left[i] - left[i - 1]) / dt
 
-    left = pd.Series(left).ffill().bfill().to_numpy()
-    zoom = pd.Series(zoom).ffill().bfill().to_numpy()
-    zoom = np.clip(zoom, args.zoom_min, args.zoom_max)
+        left = savgol(left, fps, seconds=0.28)
+        zoom = savgol(zoom, fps, seconds=0.28)
 
-    eff_w = crop_w_base / np.clip(zoom, 1e-6, None)
-    eff_w = np.clip(eff_w, min_w, crop_w_base)
-    eff_w = np.floor(eff_w / 2.0) * 2.0
-    eff_w = np.clip(eff_w, min_w, crop_w_base)
-    eff_w = eff_w.astype(int)
-    left = np.clip(left, 0, W - eff_w)
+        left = pd.Series(left).ffill().bfill().to_numpy(dtype=float)
+        zoom = pd.Series(zoom).ffill().bfill().to_numpy(dtype=float)
 
-    left_path = left
-    zoom_path = zoom
+        zoom = np.clip(zoom, args.zoom_min, args.zoom_max)
+        eff_w = np.maximum(2, (crop_w_base / np.clip(zoom, 1e-6, None))).astype(int)
+        eff_w -= eff_w % 2
+        eff_w = np.clip(eff_w, min_w, crop_w_base).astype(int)
+        left = np.clip(left, 0, W - eff_w)
+
+        left_path = left
+        zoom_path = zoom
 
     # Render frames (pure crop+scale, no aspect warp)
     out_dir = os.path.dirname(args.out_mp4)
