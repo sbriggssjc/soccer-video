@@ -121,16 +121,23 @@ def main():
             if res and len(res[0].boxes):
                 for b in res[0].boxes:
                     cls = int(b.cls.item())
-                    x1,y1,x2,y2 = b.xyxy[0].cpu().numpy()
+                    # force pure Python floats
+                    x1, y1, x2, y2 = [float(v) for v in b.xyxy[0].cpu().tolist()]
+
                     if roi is not None:
-                        x1+=roi[0]; x2+=roi[0]; y1+=roi[1]; y2+=roi[1]
-                    if cls==32:
-                        # smallest "ball" box heuristic
-                        area = (x2-x1)*(y2-y1)
+                        x1 += roi[0]; x2 += roi[0]; y1 += roi[1]; y2 += roi[1]
+
+                    if cls == 32:  # ball
+                        area = (x2 - x1) * (y2 - y1)
                         if yolo_xy is None or area < yolo_xy[2]:
-                            yolo_xy = ( (x1+x2)/2.0, (y1+y2)/2.0, area)
-                    elif cls==0:
-                        persons.append(((x1+x2)/2.0, (y1+y2)/2.0, float(x1), float(y1), float(x2), float(y2)))
+                            yolo_xy = ( (x1 + x2) / 2.0, (y1 + y2) / 2.0, area )
+                    elif cls == 0:  # person
+                        # centers + box corners as pure Python floats
+                        persons.append((
+                            float((x1 + x2) / 2.0),
+                            float((y1 + y2) / 2.0),
+                            x1, y1, x2, y2
+                        ))
         except Exception:
             pass
 
@@ -138,7 +145,7 @@ def main():
         if yolo_xy is None:
             cxy = find_orange_centroid(bgr, roi)
             if cxy is not None:
-                yolo_xy = (cxy[0], cxy[1], 400.0)
+                yolo_xy = (float(cxy[0]), float(cxy[1]), 400.0)
 
         # 3) Optical flow fallback (track a tiny patch around last_xy)
         flow_xy = None
@@ -161,12 +168,12 @@ def main():
 
         # 5) Kalman predict
         pred = kf.predict()
-        px,py = float(pred[0]), float(pred[1])
+        px, py = pred[0,0].item(), pred[1,0].item()
 
         # 6) Update or coast
         if meas is not None:
             kf.correct(meas)
-            cx,cy = float(kf.statePost[0]), float(kf.statePost[1])
+            cx, cy = kf.statePost[0,0].item(), kf.statePost[1,0].item()
             last_xy = (cx,cy)
             miss = 0
             pad = max(args.roi_pad, pad*0.85)  # tighten back towards base
@@ -193,8 +200,8 @@ def main():
                 except Exception:
                     pass
 
-        rows.append((frame, t, cx, cy, miss, pad, meas_src,
-                     json.dumps(persons) if persons else ""))
+        persons_json = json.dumps([[float(v) for v in p] for p in persons]) if persons else ""
+        rows.append((frame, t, cx, cy, miss, pad, meas_src, persons_json))
 
         prev_gray = gray
         frame += 1
