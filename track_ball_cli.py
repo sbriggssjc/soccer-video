@@ -1,261 +1,210 @@
-# -*- coding: utf-8 -*-
-import argparse, os, csv
-import cv2, numpy as np, math
+# track_ball_cli.py
+import argparse, os, math, json
+import numpy as np
+import cv2
 from ultralytics import YOLO
-
-PERSON_CLS = 0  # YOLO 'person'
-BALL_CLS = 32   # YOLO 'sports ball'
-
-class Kalman1D:
-    def __init__(self, q=3.0, r=30.0):
-        self.x = np.array([0.0, 0.0])  # [pos, vel]
-        self.P = np.eye(2) * 1e6       # start uncertain
-        self.q = float(q); self.r = float(r)
-
-    def predict(self, dt):
-        F = np.array([[1.0, dt],[0.0, 1.0]])
-        Q = np.array([[self.q*dt**3/3, self.q*dt**2/2],
-                      [self.q*dt**2/2, self.q*dt]])
-        self.x = F @ self.x
-        self.P = F @ self.P @ F.T + Q
-
-    def update(self, z):
-        H = np.array([[1.0, 0.0]])
-        S = H @ self.P @ H.T + self.r
-        K = (self.P @ H.T) / S
-        y = z - H @ self.x
-        self.x = self.x + (K.flatten() * y)
-        self.P = (np.eye(2) - K @ H) @ self.P
 
 def hsv_orange_mask(bgr):
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    m1 = cv2.inRange(hsv, (5, 120, 90), (20, 255, 255))
-    m2 = cv2.inRange(hsv, (0, 120, 90), (5, 255, 255))
+    m1 = cv2.inRange(hsv, (5, 110, 80), (22, 255, 255))
+    m2 = cv2.inRange(hsv, (0, 110, 80), (5, 255, 255))
     mask = cv2.bitwise_or(m1, m2)
     mask = cv2.medianBlur(mask, 5)
     return mask
 
-def find_orange_centroid(bgr):
-    cnts, _ = cv2.findContours(hsv_orange_mask(bgr), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not cnts: return None
-    best, best_score = None, 1e9
-    for c in cnts:
-        area = cv2.contourArea(c)
-        if area < 20 or area > 5000:
-            continue
-        (x,y), r = cv2.minEnclosingCircle(c)
-        circ = cv2.contourArea(c) / (math.pi*r*r + 1e-6)
-        score = abs(1-circ) + 0.0001*area
-        if score < best_score:
-            best_score, best = score, (float(x), float(y))
-    return best
+def find_orange_centroid(bgr, roi=None):
+    if roi is not None:
+        x0,y0,x1,y1 = roi
+        bgr_roi = bgr[y0:y1, x0:x1]
+        mask = hsv_orange_mask(bgr_roi)
+        cnts,_ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best=None; best_s=1e9; best_xy=None
+        for c in cnts:
+            a=cv2.contourArea(c)
+            if a<20 or a>6000: continue
+            (x,y), r = cv2.minEnclosingCircle(c)
+            circ = (cv2.contourArea(c) / (math.pi*r*r+1e-6))
+            s = abs(1-circ) + 0.0001*a
+            if s<best_s:
+                best_s=s; best=(x,y); best_xy=(x0+x, y0+y)
+        return best_xy
+    else:
+        mask=hsv_orange_mask(bgr)
+        cnts,_=cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts: return None
+        best=None; best_s=1e9; best_xy=None
+        for c in cnts:
+            a=cv2.contourArea(c)
+            if a<20 or a>6000: continue
+            (x,y), r = cv2.minEnclosingCircle(c)
+            circ = (cv2.contourArea(c) / (math.pi*r*r+1e-6))
+            s = abs(1-circ) + 0.0001*a
+            if s<best_s:
+                best_s=s; best=(x,y); best_xy=(x, y)
+        return best_xy
+
+def make_kalman(dt=1/24.0, accel_var=4000.0):
+    # Constant-velocity Kalman on (x,y,vx,vy)
+    kf = cv2.KalmanFilter(4,2)
+    kf.transitionMatrix = np.array([[1,0,dt,0],
+                                    [0,1,0,dt],
+                                    [0,0,1,0 ],
+                                    [0,0,0,1 ]], np.float32)
+    kf.measurementMatrix = np.array([[1,0,0,0],
+                                     [0,1,0,0]], np.float32)
+    kf.processNoiseCov  = np.array([[dt**4/4,0,dt**3/2,0],
+                                    [0,dt**4/4,0,dt**3/2],
+                                    [dt**3/2,0,dt**2,0],
+                                    [0,dt**3/2,0,dt**2]], np.float32) * (accel_var)
+    kf.measurementNoiseCov = np.eye(2, dtype=np.float32)*20.0
+    kf.errorCovPost = np.eye(4, dtype=np.float32)*1e2
+    return kf
+
+def clip_roi(x0,y0,x1,y1, W,H):
+    x0=max(0,x0); y0=max(0,y0); x1=min(W,x1); y1=min(H,y1)
+    if x1<=x0: x1=min(W, x0+1)
+    if y1<=y0: y1=min(H, y0+1)
+    return (int(x0),int(y0),int(x1),int(y1))
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--inp",      required=True, help="input clip (.mp4)")
-    ap.add_argument("--out_csv",  required=True, help="output CSV path")
-    ap.add_argument("--yolo_conf", type=float, default=0.15)
-    ap.add_argument("--roi_pad",   type=int,   default=220)
+    ap.add_argument("--inp", required=True, help="input clip (.mp4)")
+    ap.add_argument("--out_csv", required=True, help="output CSV path")
+    ap.add_argument("--yolo_conf", type=float, default=0.12)
+    ap.add_argument("--roi_pad", type=int, default=220)
     ap.add_argument("--roi_pad_max", type=int, default=560)
-    ap.add_argument("--max_miss",  type=int,   default=45)
+    ap.add_argument("--max_miss", type=int, default=45)
     args = ap.parse_args()
 
-    model = YOLO("yolov8n.pt")
     cap = cv2.VideoCapture(args.inp)
-    last_ball = None  # (x,y)
-    lk_prev_gray = None
-    conf = 0.0       # 0..1, how sure we are about the ball this frame
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-    W  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    H  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    W   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    H   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    frame = 0
-    miss = 0
+    model = YOLO('yolov8n.pt')  # classes: 32=ball, 0=person
+
+    rows = []
+    frame=0
+
+    # Kalman
+    kf = make_kalman(1.0/fps)
+
+    # Optical flow buffers
+    prev_gray = None
+    pts = None
+
     last_xy = None
+    miss = 0
+    pad = args.roi_pad
 
-    kf_x = Kalman1D(q=8.0, r=80.0)
-    kf_y = Kalman1D(q=8.0, r=80.0)
-    dt = 1.0 / max(fps, 1e-6)
-    initialized = False
-    last_good = None
+    while True:
+        ok, bgr = cap.read()
+        if not ok: break
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        t = frame / fps
 
-    os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
-    with open(args.out_csv, "w", newline="") as f:
-        f.write('frame,time,cx,cy,px,py,conf\n')
-        wr = csv.writer(f)
+        # ROI around last_xy when available
+        if last_xy is not None:
+            cx,cy = last_xy
+            x0,y0 = int(cx-pad), int(cy-pad)
+            x1,y1 = int(cx+pad), int(cy+pad)
+            roi = clip_roi(x0,y0,x1,y1,W,H)
+        else:
+            roi = None
 
-        while True:
-            ok, bgr = cap.read()
-            if not ok: break
-            t = frame / fps
+        # 1) YOLO (ball + persons in ROI if present)
+        yolo_xy = None
+        persons = []
+        try:
+            y_inp = bgr if roi is None else bgr[roi[1]:roi[3], roi[0]:roi[2]]
+            res = model.predict(y_inp, verbose=False, conf=args.yolo_conf, classes=[32,0])
+            if res and len(res[0].boxes):
+                for b in res[0].boxes:
+                    cls = int(b.cls.item())
+                    x1,y1,x2,y2 = b.xyxy[0].cpu().numpy()
+                    if roi is not None:
+                        x1+=roi[0]; x2+=roi[0]; y1+=roi[1]; y2+=roi[1]
+                    if cls==32:
+                        # smallest "ball" box heuristic
+                        area = (x2-x1)*(y2-y1)
+                        if yolo_xy is None or area < yolo_xy[2]:
+                            yolo_xy = ( (x1+x2)/2.0, (y1+y2)/2.0, area)
+                    elif cls==0:
+                        persons.append(((x1+x2)/2.0, (y1+y2)/2.0, float(x1), float(y1), float(x2), float(y2)))
+        except Exception:
+            pass
 
-            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        # 2) Color fallback (only when YOLO missed)
+        if yolo_xy is None:
+            cxy = find_orange_centroid(bgr, roi)
+            if cxy is not None:
+                yolo_xy = (cxy[0], cxy[1], 400.0)
 
-            # dynamic ROI to speed/steady detection
-            if last_xy is not None:
-                pad = min(
-                    args.roi_pad_max,
-                    args.roi_pad + min(miss, args.max_miss) * (args.roi_pad_max - args.roi_pad) / max(1, args.max_miss),
-                )
-                x0 = max(0, int(last_xy[0] - pad))
-                y0 = max(0, int(last_xy[1] - pad))
-                x1 = min(W, int(last_xy[0] + pad))
-                y1 = min(H, int(last_xy[1] + pad))
-                roi = bgr[y0:y1, x0:x1]
-                roi_off = (x0, y0)
-            else:
-                roi = bgr
-                roi_off = (0, 0)
+        # 3) Optical flow fallback (track a tiny patch around last_xy)
+        flow_xy = None
+        if yolo_xy is None and prev_gray is not None and last_xy is not None:
+            p0 = np.array([[last_xy]], dtype=np.float32)
+            p1, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None, winSize=(21,21), maxLevel=3,
+                                                   criteria=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT, 20, 0.03))
+            if st is not None and st[0,0]==1:
+                flow_xy = (float(p1[0,0,0]), float(p1[0,0,1]))
 
-            cx, cy = None, None
-            px, py = None, None
-            det_conf = 0.0
+        # 4) Choose measurement
+        meas = None
+        meas_src = ''
+        if yolo_xy is not None:
+            meas = np.array([[yolo_xy[0]],[yolo_xy[1]]], dtype=np.float32); meas_src='yolo_orange'
+        elif flow_xy is not None:
+            meas = np.array([[flow_xy[0]],[flow_xy[1]]], dtype=np.float32); meas_src='flow'
+        else:
+            meas = None
 
-            try:
-                res = model.predict(
-                    roi,
-                    verbose=False,
-                    conf=args.yolo_conf,
-                    classes=[PERSON_CLS, BALL_CLS],
-                )
-                boxes = res[0].boxes if res else None
-                if boxes is not None and len(boxes):
-                    xyxy = boxes.xyxy.cpu().numpy()
-                    cls = boxes.cls.cpu().numpy()
-                    conf_arr = boxes.conf.cpu().numpy()
+        # 5) Kalman predict
+        pred = kf.predict()
+        px,py = float(pred[0]), float(pred[1])
 
-                    ball_ix = np.where(cls == BALL_CLS)[0]
-                    if len(ball_ix):
-                        bxy = xyxy[ball_ix]
-                        areas = (bxy[:, 2] - bxy[:, 0]) * (bxy[:, 3] - bxy[:, 1])
-                        i = ball_ix[int(np.argmin(areas))]
-                        x1, y1, x2, y2 = xyxy[i]
-                        cx = float((x1 + x2) / 2.0) + roi_off[0]
-                        cy = float((y1 + y2) / 2.0) + roi_off[1]
-                        det_conf = float(conf_arr[i])
+        # 6) Update or coast
+        if meas is not None:
+            kf.correct(meas)
+            cx,cy = float(kf.statePost[0]), float(kf.statePost[1])
+            last_xy = (cx,cy)
+            miss = 0
+            pad = max(args.roi_pad, pad*0.85)  # tighten back towards base
+        else:
+            # coast on prediction
+            cx,cy = px,py
+            last_xy = (cx,cy)
+            miss += 1
+            pad = min(args.roi_pad_max, int(pad*1.15))
+            # periodic global re-scan if we've been missing too long
+            if miss>args.max_miss and (frame % int(fps//2 or 12)==0):
+                try:
+                    res = model.predict(bgr, verbose=False, conf=args.yolo_conf, classes=[32])
+                    if res and len(res[0].boxes):
+                        # pick smallest
+                        boxes = res[0].boxes.xyxy.cpu().numpy()
+                        areas = (boxes[:,2]-boxes[:,0])*(boxes[:,3]-boxes[:,1])
+                        i = int(np.argmin(areas))
+                        x1,y1,x2,y2 = boxes[i]
+                        cx,cy = float((x1+x2)/2), float((y1+y2)/2)
+                        kf.correct(np.array([[cx],[cy]], np.float32))
+                        last_xy=(cx,cy); miss=0; pad=args.roi_pad
+                        meas_src='yolo_rescue'
+                except Exception:
+                    pass
 
-                    ppl_ix = np.where(cls == PERSON_CLS)[0]
-                    if len(ppl_ix):
-                        pxy = xyxy[ppl_ix]
-                        centers = np.stack(
-                            [
-                                (pxy[:, 0] + pxy[:, 2]) / 2.0,
-                                (pxy[:, 1] + pxy[:, 3]) / 2.0,
-                            ],
-                            axis=1,
-                        )
-                        if cx is not None:
-                            d2 = (centers[:, 0] - (cx - roi_off[0])) ** 2 + (
-                                centers[:, 1] - (cy - roi_off[1])
-                            ) ** 2
-                            j = int(np.argmin(d2))
-                        else:
-                            areas = (pxy[:, 2] - pxy[:, 0]) * (pxy[:, 3] - pxy[:, 1])
-                            j = int(np.argmax(areas))
-                        px = float(centers[j, 0]) + roi_off[0]
-                        py = float(centers[j, 1]) + roi_off[1]
-            except Exception:
-                pass
+        rows.append((frame, t, cx, cy, miss, pad, meas_src,
+                     json.dumps(persons) if persons else ""))
 
-            # color fallback for ball
-            if cx is None:
-                cen = find_orange_centroid(roi)
-                if cen is not None:
-                    cx, cy = cen[0] + roi_off[0], cen[1] + roi_off[1]
-
-            flow_xy, flow_ok = None, False
-            if last_ball is not None and lk_prev_gray is not None:
-                p0 = np.array([[last_ball]], dtype=np.float32)  # shape (1,1,2)
-                p1, st, err = cv2.calcOpticalFlowPyrLK(
-                    lk_prev_gray,
-                    gray,
-                    p0,
-                    None,
-                    winSize=(21, 21),
-                    maxLevel=2,
-                    criteria=(
-                        cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
-                        20,
-                        0.03,
-                    ),
-                )
-                if st is not None and st[0, 0] == 1:
-                    flow_xy = (float(p1[0, 0, 0]), float(p1[0, 0, 1]))
-                    flow_ok = True
-
-            conf = 0.0
-            use_yolo = (cx is not None)
-            use_flow = flow_ok
-
-            if use_yolo and use_flow:
-                alpha = 0.65  # YOLO weight
-                fx, fy = flow_xy
-                cx = alpha * cx + (1 - alpha) * fx
-                cy = alpha * cy + (1 - alpha) * fy
-                conf = min(1.0, 0.5 + 0.5 * det_conf)
-            elif use_yolo:
-                conf = det_conf * 0.9 + 0.1
-            elif use_flow:
-                cx, cy = flow_xy
-                conf = 0.45  # moderate confidence from flow only
-            else:
-                conf = 0.0
-
-            if cx is not None:
-                cx = float(np.clip(cx, 0, W - 1))
-                cy = float(np.clip(cy, 0, H - 1))
-                last_ball = (cx, cy)
-            lk_prev_gray = gray.copy()
-
-            kf_x.predict(dt)
-            kf_y.predict(dt)
-
-            if cx is not None and cy is not None:
-                if not initialized:
-                    kf_x.x[0] = cx
-                    kf_y.x[0] = cy
-                    initialized = True
-                kf_x.update(cx)
-                kf_y.update(cy)
-                last_good = (float(kf_x.x[0]), float(kf_y.x[0]))
-                sx, sy = last_good
-                miss = 0
-            else:
-                sx = float(kf_x.x[0])
-                sy = float(kf_y.x[0])
-                if initialized:
-                    miss += 1
-                if miss > args.max_miss:
-                    initialized = False
-                    last_good = None
-                    last_xy = None
-                    kf_x = Kalman1D(q=8.0, r=80.0)
-                    kf_y = Kalman1D(q=8.0, r=80.0)
-                    miss = 0
-                    last_ball = None
-
-            if initialized:
-                last_xy = last_good if cx is None and last_good is not None else (sx, sy)
-
-            row_cx = float(kf_x.x[0]) if initialized else ""
-            row_cy = float(kf_y.x[0]) if initialized else ""
-            row_px = float(px) if px is not None else ""
-            row_py = float(py) if py is not None else ""
-
-            wr.writerow(
-                [
-                    frame,
-                    f"{t:.3f}",
-                    row_cx,
-                    row_cy,
-                    row_px,
-                    row_py,
-                    round(conf, 3),
-                ]
-            )
-            frame += 1
+        prev_gray = gray
+        frame += 1
 
     cap.release()
+    os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
+    with open(args.out_csv,'w',encoding='utf-8') as f:
+        f.write('frame,time,cx,cy,miss,pad,src,persons_json\n')
+        for r in rows:
+            f.write(','.join(map(str,r))+'\n')
     print(f"Saved {args.out_csv}")
 
 if __name__ == "__main__":
