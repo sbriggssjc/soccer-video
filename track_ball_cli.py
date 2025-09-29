@@ -1,5 +1,5 @@
 # track_ball_cli.py
-import argparse, os, math, json
+import argparse, os, math, json, csv
 import numpy as np
 import cv2
 from ultralytics import YOLO
@@ -14,8 +14,18 @@ def hsv_orange_mask(bgr):
 
 def find_orange_centroid(bgr, roi=None):
     if roi is not None:
-        x0,y0,x1,y1 = roi
+        H, W = bgr.shape[:2]
+        x0 = max(0, min(int(roi[0]), W-1))
+        y0 = max(0, min(int(roi[1]), H-1))
+        x1 = max(0, min(int(roi[2]), W))
+        y1 = max(0, min(int(roi[3]), H))
+
+        if x1 <= x0 or y1 <= y0:
+            return None
+
         bgr_roi = bgr[y0:y1, x0:x1]
+        if bgr_roi.size == 0:
+            return None
         mask = hsv_orange_mask(bgr_roi)
         cnts,_ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         best=None; best_s=1e9; best_xy=None
@@ -132,12 +142,15 @@ def main():
                         if yolo_xy is None or area < yolo_xy[2]:
                             yolo_xy = ( (x1 + x2) / 2.0, (y1 + y2) / 2.0, area )
                     elif cls == 0:  # person
-                        # centers + box corners as pure Python floats
-                        persons.append((
-                            float((x1 + x2) / 2.0),
-                            float((y1 + y2) / 2.0),
-                            x1, y1, x2, y2
-                        ))
+                        w = float(x2 - x1)
+                        h = float(y2 - y1)
+                        persons.append({
+                            'id': -1,
+                            'x': float((x1 + x2) / 2.0),
+                            'y': float((y1 + y2) / 2.0),
+                            'w': w,
+                            'h': h
+                        })
         except Exception:
             pass
 
@@ -168,12 +181,12 @@ def main():
 
         # 5) Kalman predict
         pred = kf.predict()
-        px, py = pred[0,0].item(), pred[1,0].item()
+        px, py = float(pred[0,0]), float(pred[1,0])
 
         # 6) Update or coast
         if meas is not None:
             kf.correct(meas)
-            cx, cy = kf.statePost[0,0].item(), kf.statePost[1,0].item()
+            cx, cy = float(kf.statePost[0,0]), float(kf.statePost[1,0])
             last_xy = (cx,cy)
             miss = 0
             pad = max(args.roi_pad, pad*0.85)  # tighten back towards base
@@ -200,18 +213,66 @@ def main():
                 except Exception:
                     pass
 
-        persons_json = json.dumps([[float(v) for v in p] for p in persons]) if persons else ""
-        rows.append((frame, t, cx, cy, miss, pad, meas_src, persons_json))
+        conf = 0.0
+        if meas_src == 'yolo_orange':
+            conf = 1.0
+        elif meas_src == 'yolo_rescue':
+            conf = 0.9
+        elif meas_src == 'flow':
+            conf = 0.5
+
+        if roi is not None:
+            roi_x0, roi_y0, roi_x1, roi_y1 = roi
+        else:
+            roi_x0, roi_y0, roi_x1, roi_y1 = 0, 0, W, H
+        roi_w = int(roi_x1 - roi_x0)
+        roi_h = int(roi_y1 - roi_y0)
+
+        persons_slim = []
+        if persons:
+            for p in persons:
+                persons_slim.append({
+                    'id': int(p.get('id', -1)),
+                    'x': float(p.get('x', 0.0)),
+                    'y': float(p.get('y', 0.0)),
+                    'w': float(p.get('w', 0.0)),
+                    'h': float(p.get('h', 0.0))
+                })
+        persons_json = json.dumps(persons_slim, separators=(',',':')) if persons_slim else ""
+
+        rows.append({
+            'frame': int(frame),
+            'time': float(t),
+            'cx': float(cx) if cx is not None else float('nan'),
+            'cy': float(cy) if cy is not None else float('nan'),
+            'conf': float(conf),
+            'roi_x': int(roi_x0),
+            'roi_y': int(roi_y0),
+            'roi_w': int(roi_w),
+            'roi_h': int(roi_h),
+            'miss': int(miss),
+            'pad': float(pad),
+            'src': meas_src,
+            'persons_json': persons_json
+        })
 
         prev_gray = gray
         frame += 1
 
     cap.release()
-    os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
-    with open(args.out_csv,'w',encoding='utf-8') as f:
-        f.write('frame,time,cx,cy,miss,pad,src,persons_json\n')
+    out_dir = os.path.dirname(args.out_csv)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    header = ['frame','time','cx','cy','conf','roi_x','roi_y','roi_w','roi_h','miss','pad','src','persons_json']
+    with open(args.out_csv, 'w', newline='', encoding='utf-8') as f:
+        w = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+        w.writerow(header)
         for r in rows:
-            f.write(','.join(map(str,r))+'\n')
+            w.writerow([
+                r['frame'], r['time'], r['cx'], r['cy'], r['conf'],
+                r['roi_x'], r['roi_y'], r['roi_w'], r['roi_h'],
+                r['miss'], r['pad'], r['src'], r['persons_json']
+            ])
     print(f"Saved {args.out_csv}")
 
 if __name__ == "__main__":
