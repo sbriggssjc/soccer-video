@@ -110,3 +110,19 @@ the net whenever the crop slips away. New flags like `--lead_ms`,
 dial in, while `--preview` / `--compare` render debug overlays showing the crop
 box, crosshair, goal outline, and per-frame IoU. See `README_AUTOFAME.md` for a
 complete rundown of the tuning options.
+
+When you want to batch-run the classic ball tracker (`track_ball_cli.py`) and
+camera planner (`plan_render_cli.py`) over a directory of clips, use the new
+Python helper instead of copying multi-line PowerShell commands:
+
+```powershell
+python scripts/batch_autoframe.py `
+    --atomic-dir .\out\atomic_clips `
+    --work-dir .\out\autoframe_work `
+    --out-dir .\out\reels\tiktok
+```
+
+The defaults mirror the values we previously documented, so you can omit the
+flags when using the recommended directory layout. Extra knobs like
+`--track-yolo-conf`, `--plan-zoom-max`, or `--overwrite` expose the same
+tuning options without tripping over PowerShell's line continuation rules.
