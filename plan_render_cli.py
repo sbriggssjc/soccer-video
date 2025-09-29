@@ -69,24 +69,15 @@ def main():
     base_crop_h = int(np.floor(base_crop_w*args.H_out/args.W_out/2)*2)
     # NOTE: we compute width from height (portrait), then height from width to maintain exact aspect.
 
-    df=pd.read_csv(args.track_csv)
-    cx = pd.to_numeric(df['cx'], errors='coerce').to_numpy()
-    cy = pd.to_numeric(df['cy'], errors='coerce').to_numpy()
+    df = pd.read_csv(args.track_csv, engine='python', on_bad_lines='skip')
+    for col in ['cx','cy']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df[['cx','cy']] = df[['cx','cy']].interpolate(limit=15).ffill().bfill()
+
+    cx = df['cx'].to_numpy(dtype=float)
+    cy = df['cy'].to_numpy(dtype=float)
     persons_raw = df.get('persons_json', pd.Series(['']*len(df))).fillna('').tolist()
-
-    # Fill small gaps on ball track
-    def fill_short_gaps(a, limit=12):
-        s = pd.Series(a)
-        s = s.ffill(limit=limit).bfill(limit=limit)
-        # if any NaN left, nearest fill
-        if s.isna().any():
-            idx = np.where(~s.isna())[0]
-            if len(idx)>0:
-                s = pd.Series(np.interp(np.arange(len(a)), idx, s.iloc[idx].to_numpy()))
-        return s.to_numpy()
-
-    cx = fill_short_gaps(cx)
-    cy = fill_short_gaps(cy)
 
     # Smooth a touch to avoid micro-jitter
     cx_s = smooth(cx, fps, 0.35)
@@ -98,7 +89,19 @@ def main():
         if persons_raw[j]:
             try:
                 plist = json.loads(persons_raw[j])
-                persons.append([(float(x),float(y),float(x1),float(y1),float(x2),float(y2)) for (x,y,x1,y1,x2,y2) in plist])
+                parsed = []
+                for p in plist:
+                    if isinstance(p, dict):
+                        px = float(p.get('x', 0.0))
+                        py = float(p.get('y', 0.0))
+                        pw = float(p.get('w', 0.0))
+                        ph = float(p.get('h', 0.0))
+                        x1 = px - pw/2.0
+                        y1 = py - ph/2.0
+                        x2 = px + pw/2.0
+                        y2 = py + ph/2.0
+                        parsed.append((px, py, x1, y1, x2, y2))
+                persons.append(parsed)
             except Exception:
                 persons.append([])
         else:
@@ -193,6 +196,15 @@ def main():
     left_path = smooth(left_path, fps, 0.25)
     zoom_path = smooth(zoom_path, fps, 0.25)
 
+    left_path = pd.Series(left_path).ffill().bfill().to_numpy()
+    zoom_path = pd.Series(zoom_path).ffill().bfill().to_numpy()
+
+    zoom_min = args.zoom_min if hasattr(args, 'zoom_min') else 1.0
+    zoom_max = args.zoom_max if hasattr(args, 'zoom_max') else 1.7
+    zoom_path = np.clip(zoom_path, zoom_min, zoom_max)
+    zoom_path[np.isnan(zoom_path)] = zoom_min
+    left_path[np.isnan(left_path)] = 0.0
+
     # Render frames (pure crop+scale, no aspect warp)
     out_dir = os.path.dirname(args.out_mp4)
     os.makedirs(out_dir, exist_ok=True)
@@ -204,15 +216,16 @@ def main():
     while True:
         ok, bgr = cap.read()
         if not ok: break
-        z = float(zoom_path[min(i, len(zoom_path)-1)])
-        eff_w = int(round(base_crop_w / max(z,1e-6)))
+        i_clamped = min(i, len(left_path)-1)
+        left = int(round(left_path[i_clamped]))
+        zoom = float(zoom_path[i_clamped])
+        eff_w = int(round(base_crop_w / max(zoom,1e-6)))
         eff_w -= eff_w % 2
         eff_h = int(round(eff_w * args.H_out / args.W_out))
         eff_h -= eff_h % 2
         # center vertical on ball Y with safety (never warp)
         by = int(round(cy_s[min(i,len(cy_s)-1)]))
         top = clamp(by - eff_h//2, 0, H - eff_h)
-        left = int(round(left_path[min(i,len(left_path)-1)]))
         left = clamp(left, 0, W - eff_w)
 
         crop = bgr[top:top+eff_h, left:left+eff_w]
