@@ -72,7 +72,19 @@ def compute_velocity(values: np.ndarray, fps: float) -> np.ndarray:
     return grad
 
 
-def load_track(args, fps: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_track(
+    args, fps: float
+) -> Tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
     df = pd.read_csv(args.track_csv, engine="python", on_bad_lines="skip")
 
     frame_series = pd.to_numeric(df.get("frame"), errors="coerce")
@@ -120,7 +132,11 @@ def load_track(args, fps: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np
     else:
         visible = (visible_series.fillna(0.0).to_numpy(dtype=float) > 0.5) & finite_mask
 
-    return frames, times, cx, cy, vx, vy, visible.astype(bool), conf
+    miss_series = pd.to_numeric(df.get("miss_streak"), errors="coerce") if "miss_streak" in df else pd.Series(0.0, index=df.index)
+    miss_filled = fill_small_gaps(miss_series, limit=5).fillna(method="ffill").fillna(method="bfill")
+    miss = np.clip(miss_filled.to_numpy(dtype=float), 0.0, None)
+
+    return frames, times, cx, cy, vx, vy, visible.astype(bool), conf, miss
 
 
 def main() -> None:
@@ -146,7 +162,7 @@ def main() -> None:
     # new planning controls
     ap.add_argument("--lookahead_s", type=float, default=0.60)
     ap.add_argument("--keep_margin", type=int, default=140)
-    ap.add_argument("--start_wide_s", type=float, default=0.80)
+    ap.add_argument("--start_wide_s", type=float, default=1.50)
     ap.add_argument("--min_streak", type=int, default=18)
     ap.add_argument("--loss_streak", type=int, default=10)
     ap.add_argument("--prewiden_factor", type=float, default=1.15)
@@ -154,6 +170,14 @@ def main() -> None:
     ap.add_argument("--pass_lookahead_s", type=float, default=0.45)
     ap.add_argument("--max_jerk", type=float, default=900.0)
     ap.add_argument("--zoom_jerk", type=float, default=1.0)
+    ap.add_argument("--widen_step", type=float, default=0.08)
+    ap.add_argument("--zoom_delta_min", type=float, default=0.03)
+    ap.add_argument("--zoom_hyst_frames", type=int, default=6)
+    ap.add_argument("--recenter_band", type=float, default=0.18)
+    ap.add_argument("--recenter_hyst", type=int, default=6)
+    ap.add_argument("--pass_window_s", type=float, default=0.35)
+    ap.add_argument("--uncertain_conf", type=float, default=0.25)
+    ap.add_argument("--smooth_window_s", type=float, default=0.7)
 
     args = ap.parse_args()
 
@@ -163,7 +187,7 @@ def main() -> None:
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
 
-    frames, times, cx, cy, vx, vy, visible, conf = load_track(args, fps)
+    frames, times, cx, cy, vx, vy, visible, conf, miss = load_track(args, fps)
     N = len(cx)
     if N == 0:
         raise RuntimeError("Track CSV is empty")
@@ -173,8 +197,8 @@ def main() -> None:
     crop_w_base = max(2, crop_w_base)
 
     dt = 1.0 / max(fps, 1e-6)
-    lookahead = max(1, int(round(args.lookahead_s * fps)))
-    pass_lookahead = max(1, int(round(args.pass_lookahead_s * fps)))
+    pass_lookahead_frames = max(1, int(round(args.pass_lookahead_s * fps)))
+    pass_window_frames = max(1, int(round(args.pass_window_s * fps)))
 
     speed = np.abs(vx)
     speed_filtered = np.zeros_like(speed)
@@ -189,29 +213,64 @@ def main() -> None:
                 speed_state = s + args.hyst
         speed_filtered[i] = max(speed_state, 0.0)
 
-    left_des = np.zeros(N, dtype=float)
-    zoom_des = np.zeros(N, dtype=float)
+    left_raw = np.zeros(N, dtype=float)
+    zoom_raw = np.zeros(N, dtype=float)
+    bias_dirs = np.zeros(N, dtype=float)
+    uncertain_flags = np.zeros(N, dtype=bool)
     states: List[str] = []
 
     visible_streak = 0
     invisible_streak = 0
+    calm_streak = 0
+    pass_timer = 0
+    zoom_hyst_counter = 0
+    recenter_counter = 0
     state = "acquire"
 
-    cx_last_valid = W / 2.0
+    widen_step = max(0.01, args.widen_step)
+    zoom_delta_min = max(1e-3, args.zoom_delta_min)
+    zoom_hyst_frames = max(1, int(round(args.zoom_hyst_frames)))
+    recenter_hyst = max(1, int(round(args.recenter_hyst)))
+    inner_band = max(0.02, float(args.recenter_band))
+    keep_margin = float(args.keep_margin)
+    uncertain_conf = float(args.uncertain_conf)
+    start_wide_frames = max(1, int(round(args.start_wide_s * fps)))
+
+    zoom_pending = clamp(args.zoom_min, args.zoom_min, args.zoom_max)
+    crop_w_initial = clamp(crop_w_base / max(zoom_pending, 1e-6), 2.0, float(W))
+    first_cx = cx[0] if len(cx) else W / 2.0
+    if not np.isfinite(first_cx):
+        first_cx = W / 2.0
+    left_pending = clamp(first_cx - 0.5 * crop_w_initial, 0.0, W - crop_w_initial)
+    last_good_cx = first_cx
+    last_dir = 0.0
 
     for i in range(N):
         vis = bool(visible[i])
+        miss_i = float(miss[i]) if i < len(miss) else 0.0
+        conf_i = float(conf[i]) if i < len(conf) else 0.0
+        speed_i = float(speed_filtered[i]) if i < len(speed_filtered) else 0.0
+
         if vis:
             visible_streak += 1
             invisible_streak = 0
+            if np.isfinite(cx[i]):
+                last_good_cx = cx[i]
+            if np.isfinite(vx[i]) and abs(vx[i]) > 6.0:
+                last_dir = math.copysign(1.0, vx[i])
         else:
             invisible_streak += 1
             visible_streak = 0
 
+        if vis and conf_i >= uncertain_conf and abs(vx[i]) < args.speed_tight * 0.55:
+            calm_streak += 1
+        else:
+            calm_streak = 0
+
         t_cur = times[i] if i < len(times) else i * dt
 
         if state == "acquire":
-            if t_cur >= args.start_wide_s and visible_streak >= args.min_streak:
+            if (t_cur >= args.start_wide_s or i >= start_wide_frames) and visible_streak >= args.min_streak:
                 state = "track"
         elif state == "track":
             if invisible_streak >= args.loss_streak:
@@ -222,80 +281,165 @@ def main() -> None:
 
         states.append(state)
 
-        cx_val = cx[i]
-        if np.isfinite(cx_val):
-            cx_last_valid = cx_val
-        cx_use = cx_last_valid
+        cx_val = cx[i] if np.isfinite(cx[i]) else last_good_cx
+        vx_val = vx[i] if np.isfinite(vx[i]) else 0.0
 
-        window_end = min(N, i + lookahead + 1)
-        cx_window = cx[i:window_end]
-        vx_window = vx[i:window_end]
-        cxp = np.nanmedian(cx_window) if np.isfinite(cx_window).any() else cx_use
-        vxp = np.nanmedian(vx_window) if np.isfinite(vx_window).any() else vx[i]
-        speed_window = np.abs(vx_window)
-        speedp = np.nanmedian(speed_window) if np.isfinite(speed_window).any() else speed_filtered[i]
+        if abs(vx_val) > args.pass_speed:
+            pass_timer = max(pass_timer, pass_window_frames)
+        else:
+            pass_timer = max(0, pass_timer - 1)
 
-        pass_active = False
-        if speedp >= args.pass_speed:
-            window_end = min(N, i + lookahead + pass_lookahead + 1)
-            cx_window = cx[i:window_end]
-            vx_window = vx[i:window_end]
-            if np.isfinite(cx_window).any():
-                cxp = np.nanmedian(cx_window)
-            if np.isfinite(vx_window).any():
-                vxp = np.nanmedian(vx_window)
-            speed_window = np.abs(vx_window)
-            if np.isfinite(speed_window).any():
-                speedp = np.nanmedian(speed_window)
-            pass_active = True
+        tau = float(args.lookahead_s)
+        if abs(vx_val) > args.speed_wide:
+            tau += 0.18
+        if pass_timer > 0:
+            tau += args.pass_lookahead_s
+        lead = cx_val + tau * vx_val
+        if pass_timer > 0:
+            look_idx = min(N - 1, i + pass_lookahead_frames)
+            future_cx = cx[look_idx] if np.isfinite(cx[look_idx]) else lead
+            lead = 0.6 * lead + 0.4 * future_cx
 
-        base_zoom = map_speed_to_zoom(speed_filtered[i], args.speed_tight, args.speed_wide, args.zoom_min, args.zoom_max)
-
-        if state == "acquire":
+        base_zoom = map_speed_to_zoom(speed_i, args.speed_tight, args.speed_wide, args.zoom_min, args.zoom_max)
+        if state == "acquire" or i < start_wide_frames:
             zoom_goal = args.zoom_min
         elif state == "reacquire":
-            zoom_goal = clamp(base_zoom / args.prewiden_factor, args.zoom_min, args.zoom_max)
+            zoom_goal = clamp(base_zoom - 0.12, args.zoom_min, args.zoom_max)
         else:
             zoom_goal = base_zoom
 
-        if pass_active:
-            zoom_goal = clamp(max(args.zoom_min, zoom_goal - 0.08), args.zoom_min, args.zoom_max)
+        miss_prev = float(miss[i - 1]) if i > 0 and i - 1 < len(miss) else miss_i
+        miss_rising = miss_i > miss_prev + 0.5
+        speed_spike = abs(vx_val) > args.speed_wide
+        uncertain = (not vis) or (miss_i >= args.loss_streak) or (conf_i < uncertain_conf)
+        uncertain_flags[i] = uncertain
 
-        zoom_des[i] = clamp(zoom_goal, args.zoom_min, args.zoom_max)
+        if uncertain or miss_rising or speed_spike:
+            zoom_goal = max(args.zoom_min, min(zoom_goal, zoom_pending) - widen_step)
+        if pass_timer > 0:
+            zoom_goal = max(args.zoom_min, zoom_goal - widen_step * 0.8)
+        if calm_streak >= args.min_streak and not uncertain:
+            zoom_goal = clamp(zoom_goal + 0.08, args.zoom_min, args.zoom_max)
 
-        crop_w = crop_w_base / max(zoom_des[i], 1e-6)
-        crop_w = clamp(crop_w, 2.0, float(W))
+        if uncertain or miss_rising or speed_spike:
+            if zoom_pending > args.zoom_min:
+                zoom_pending = max(args.zoom_min, zoom_pending - widen_step)
+                zoom_hyst_counter = 0
+        else:
+            if abs(zoom_goal - zoom_pending) > zoom_delta_min:
+                zoom_hyst_counter += 1
+                if zoom_hyst_counter >= zoom_hyst_frames:
+                    zoom_pending = clamp(zoom_goal, args.zoom_min, args.zoom_max)
+                    zoom_hyst_counter = 0
+            else:
+                zoom_hyst_counter = 0
+        zoom_pending = clamp(zoom_pending, args.zoom_min, args.zoom_max)
+
+        crop_w = clamp(crop_w_base / max(zoom_pending, 1e-6), 2.0, float(W))
+        center_prev = left_pending + 0.5 * crop_w
+        offset_prev = abs(cx_val - center_prev)
+        band_margin = max(keep_margin * 0.25, inner_band * crop_w)
+        if offset_prev > band_margin:
+            recenter_counter += 1
+        else:
+            recenter_counter = max(recenter_counter - 1, 0)
 
         if state == "acquire":
-            left_target = cx_use - 0.5 * crop_w
+            left_goal = cx_val - 0.5 * crop_w
         else:
-            left_target = cxp - args.left_frac * crop_w
+            left_goal = lead - args.left_frac * crop_w
+        left_goal = clamp(left_goal, 0.0, W - crop_w)
 
-        left_target = clamp(left_target, 0.0, W - crop_w)
-        offset = cx_use - left_target
-        if offset < args.keep_margin:
-            left_target -= (args.keep_margin - offset)
-        elif offset > crop_w - args.keep_margin:
-            left_target += offset - (crop_w - args.keep_margin)
-        left_target = clamp(left_target, 0.0, W - crop_w)
-        left_des[i] = left_target
+        allow_recenter = (
+            recenter_counter >= recenter_hyst
+            or uncertain
+            or state != "track"
+            or pass_timer > 0
+        )
+        if allow_recenter:
+            left_pending = left_goal
 
-    # Dynamics smoothing
+        if uncertain and abs(last_dir) > 0.0:
+            left_pending += last_dir * keep_margin * 0.3
+
+        margin_eff = min(keep_margin, crop_w * 0.45)
+        cx_constraint = cx_val
+        for _ in range(5):
+            left_pending = clamp(left_pending, 0.0, W - crop_w)
+            left_edge = left_pending
+            right_edge = left_edge + crop_w
+            adjusted = False
+            if cx_constraint < left_edge + margin_eff:
+                desired = cx_constraint - margin_eff
+                left_pending = clamp(desired, 0.0, W - crop_w)
+                if (left_edge <= 0.0 or desired <= 0.0) and zoom_pending > args.zoom_min:
+                    zoom_pending = max(args.zoom_min, zoom_pending - widen_step)
+                    crop_w = clamp(crop_w_base / max(zoom_pending, 1e-6), 2.0, float(W))
+                adjusted = True
+            elif cx_constraint > right_edge - margin_eff:
+                desired = cx_constraint - (crop_w - margin_eff)
+                left_pending = clamp(desired, 0.0, W - crop_w)
+                if (right_edge >= W or desired >= W - crop_w) and zoom_pending > args.zoom_min:
+                    zoom_pending = max(args.zoom_min, zoom_pending - widen_step)
+                    crop_w = clamp(crop_w_base / max(zoom_pending, 1e-6), 2.0, float(W))
+                adjusted = True
+            if not adjusted:
+                break
+
+        left_pending = clamp(left_pending, 0.0, W - crop_w)
+
+        zoom_raw[i] = zoom_pending
+        left_raw[i] = left_pending
+        bias_dirs[i] = last_dir
+
+    zoom_smooth = savgol(zoom_raw, fps, seconds=args.smooth_window_s)
+    left_smooth = savgol(left_raw, fps, seconds=args.smooth_window_s)
+    zoom_smooth = np.clip(zoom_smooth, args.zoom_min, args.zoom_max)
+
+    left_plan = left_smooth.copy()
+    zoom_plan = zoom_smooth.copy()
+
+    last_good_cx_constraint = W / 2.0
+    for i in range(N):
+        if np.isfinite(cx[i]):
+            last_good_cx_constraint = cx[i]
+        cx_use = last_good_cx_constraint
+        crop_w = clamp(crop_w_base / max(zoom_plan[i], 1e-6), 2.0, float(W))
+        margin_eff = min(keep_margin, crop_w * 0.45)
+        for _ in range(5):
+            left_plan[i] = clamp(left_plan[i], 0.0, W - crop_w)
+            left_edge = left_plan[i]
+            right_edge = left_edge + crop_w
+            adjusted = False
+            if cx_use < left_edge + margin_eff:
+                left_plan[i] = clamp(cx_use - margin_eff, 0.0, W - crop_w)
+                zoom_plan[i] = max(args.zoom_min, zoom_plan[i] - widen_step)
+                crop_w = clamp(crop_w_base / max(zoom_plan[i], 1e-6), 2.0, float(W))
+                adjusted = True
+            elif cx_use > right_edge - margin_eff:
+                left_plan[i] = clamp(cx_use - (crop_w - margin_eff), 0.0, W - crop_w)
+                zoom_plan[i] = max(args.zoom_min, zoom_plan[i] - widen_step)
+                crop_w = clamp(crop_w_base / max(zoom_plan[i], 1e-6), 2.0, float(W))
+                adjusted = True
+            if not adjusted:
+                break
+
     zoom_path = np.zeros(N, dtype=float)
     left_path = np.zeros(N, dtype=float)
 
-    z = clamp(zoom_des[0], args.zoom_min, args.zoom_max)
+    z = clamp(zoom_plan[0], args.zoom_min, args.zoom_max)
     if z <= 0:
         z = args.zoom_min
     r_prev = 0.0
     q_prev = 0.0
 
-    L = clamp(left_des[0], 0.0, W - crop_w_base / max(z, 1e-6))
+    L = clamp(left_plan[0], 0.0, W - crop_w_base / max(z, 1e-6))
     v = 0.0
     a_prev = 0.0
+    last_good_cx_constraint = W / 2.0
 
     for i in range(N):
-        zoom_target = clamp(zoom_des[i], args.zoom_min, args.zoom_max)
+        zoom_target = clamp(zoom_plan[i], args.zoom_min, args.zoom_max)
         rate_limit = args.zoom_rate
         accel_limit = args.zoom_accel
         jerk_limit = args.zoom_jerk * dt * dt
@@ -306,16 +450,16 @@ def main() -> None:
         accel_step = q_prev + jerk
         r_prev = clamp(r_prev + accel_step, -rate_limit * dt, rate_limit * dt)
         z += r_prev
-        if z <= 0:
-            z = args.zoom_min
+        if uncertain_flags[i] and z > args.zoom_min:
+            z = max(args.zoom_min, z - widen_step)
+            r_prev = 0.0
+            q_prev = 0.0
         z = clamp(z, args.zoom_min, args.zoom_max)
         q_prev = accel_step
         zoom_path[i] = z
 
-        crop_w = crop_w_base / max(z, 1e-6)
-        crop_w = clamp(crop_w, 2.0, float(W))
-
-        L_target = clamp(left_des[i], 0.0, W - crop_w)
+        crop_w = clamp(crop_w_base / max(z, 1e-6), 2.0, float(W))
+        L_target = clamp(left_plan[i], 0.0, W - crop_w)
         slew_limit = args.slew
         accel_limit_pan = args.accel
         if states[i] == "reacquire":
@@ -329,33 +473,27 @@ def main() -> None:
         jerk_pan = clamp(a_step - a_prev, -jerk_pan_limit, jerk_pan_limit)
         a_step = a_prev + jerk_pan
         v = clamp(v + a_step, -slew_limit, slew_limit)
+
+        if uncertain_flags[i] and abs(bias_dirs[i]) > 0.0:
+            v += bias_dirs[i] * min(keep_margin * 0.35, 28.0) * dt
+
         L += v * dt
         L = clamp(L, 0.0, W - crop_w)
         a_prev = a_step
 
-        cx_cur = cx[i]
-        if np.isfinite(cx_cur):
-            offset = cx_cur - L
-            margin = args.keep_margin
-            crop_w = crop_w_base / max(z, 1e-6)
-            crop_w = clamp(crop_w, 2.0, float(W))
-            min_zoom = args.zoom_min
-            if offset < margin or offset > crop_w - margin:
-                delta = 0.1 * (args.zoom_max - args.zoom_min)
-                new_z = clamp(z - delta, min_zoom, args.zoom_max)
-                if new_z != z:
-                    z = new_z
-                    crop_w = crop_w_base / max(z, 1e-6)
-                    crop_w = clamp(crop_w, 2.0, float(W))
-                    r_prev = 0.0
-                    q_prev = 0.0
-                if offset < margin:
-                    L = clamp(cx_cur - margin, 0.0, W - crop_w)
-                elif offset > crop_w - margin:
-                    L = clamp(cx_cur - (crop_w - margin), 0.0, W - crop_w)
-                v = 0.0
-                a_prev = 0.0
-        zoom_path[i] = z
+        if np.isfinite(cx[i]):
+            last_good_cx_constraint = cx[i]
+        cx_use = last_good_cx_constraint
+        margin_eff = min(keep_margin, crop_w * 0.45)
+        if cx_use < L + margin_eff:
+            L = clamp(cx_use - margin_eff, 0.0, W - crop_w)
+            v = 0.0
+            a_prev = 0.0
+        elif cx_use > L + crop_w - margin_eff:
+            L = clamp(cx_use - (crop_w - margin_eff), 0.0, W - crop_w)
+            v = 0.0
+            a_prev = 0.0
+
         left_path[i] = L
 
     out_dir = os.path.dirname(args.out_mp4)
@@ -414,18 +552,27 @@ def main() -> None:
     cx_out = cx[:frame_count] if len(cx) >= frame_count else np.pad(cx, (0, frame_count - len(cx)), constant_values=W / 2.0)
     cy_out = cy[:frame_count] if len(cy) >= frame_count else np.pad(cy, (0, frame_count - len(cy)), constant_values=H / 2.0)
     vx_out = vx[:frame_count] if len(vx) >= frame_count else np.zeros(frame_count, dtype=float)
+    conf_out = conf[:frame_count] if len(conf) >= frame_count else np.zeros(frame_count, dtype=float)
+    miss_out = miss[:frame_count] if len(miss) >= frame_count else np.zeros(frame_count, dtype=float)
 
     debug_csv = pd.DataFrame(
         {
             "frame": frames_out,
             "t": times_out,
+            "left_raw": left_raw[:frame_count],
+            "left_plan": left_plan[:frame_count],
             "left": left_path[:frame_count],
+            "zoom_raw": zoom_raw[:frame_count],
+            "zoom_plan": zoom_plan[:frame_count],
             "zoom": zoom_path[:frame_count],
             "state": states[:frame_count],
-            "visible": visible_out,
+            "visible": visible_out.astype(int),
+            "uncertain": uncertain_flags[:frame_count].astype(int),
             "cx": cx_out,
             "cy": cy_out,
             "speed": np.abs(vx_out),
+            "conf": conf_out,
+            "miss_streak": miss_out,
         }
     )
     debug_csv_path = os.path.join(out_dir, "virtual_cam.csv")

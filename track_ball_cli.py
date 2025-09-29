@@ -12,6 +12,8 @@ from ultralytics import YOLO
 
 
 def hsv_orange_mask(bgr: np.ndarray) -> np.ndarray:
+    if bgr is None or bgr.size == 0:
+        return np.zeros((0, 0), dtype=np.uint8)
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     m1 = cv2.inRange(hsv, (5, 110, 80), (22, 255, 255))
     m2 = cv2.inRange(hsv, (0, 110, 80), (5, 255, 255))
@@ -20,7 +22,9 @@ def hsv_orange_mask(bgr: np.ndarray) -> np.ndarray:
     return mask
 
 
-def find_orange_centroid(bgr: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> Optional[Tuple[float, float, float]]:
+def find_orange_centroid(
+    bgr: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None
+) -> Optional[Tuple[float, float, float]]:
     if roi is not None:
         H, W = bgr.shape[:2]
         x0 = max(0, min(int(roi[0]), W - 1))
@@ -212,6 +216,28 @@ def ensure_float(v: float) -> float:
     return float(v)
 
 
+def color_likelihood_at(
+    bgr: np.ndarray, x: float, y: float, radius: float = 14.0
+) -> float:
+    if bgr is None or bgr.size == 0 or not np.isfinite(x) or not np.isfinite(y):
+        return 0.0
+    H, W = bgr.shape[:2]
+    r = max(4, int(radius))
+    x0 = max(0, int(round(x) - r))
+    y0 = max(0, int(round(y) - r))
+    x1 = min(W, int(round(x) + r))
+    y1 = min(H, int(round(y) + r))
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    patch = bgr[y0:y1, x0:x1]
+    if patch.size == 0:
+        return 0.0
+    mask = hsv_orange_mask(patch)
+    if mask.size == 0:
+        return 0.0
+    return float(np.mean(mask) / 255.0)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--inp", required=True, help="input clip (.mp4)")
@@ -241,6 +267,7 @@ def main() -> None:
     filtered_covs: List[np.ndarray] = []
     visible_flags: List[int] = []
     conf_scores: List[float] = []
+    miss_history: List[int] = []
 
     prev_gray: Optional[np.ndarray] = None
     last_good_xy: Optional[Tuple[float, float]] = None
@@ -248,6 +275,8 @@ def main() -> None:
     miss = 0
     pad = float(args.roi_pad)
     last_conf = 0.0
+    yolo_conf_dyn = float(args.yolo_conf)
+    maha_gate_base = 9.21  # ~99% for 2 DoF
 
     frame = 0
     while True:
@@ -263,7 +292,7 @@ def main() -> None:
         predicted_states.append(state_pred.x.copy())
         predicted_covs.append(state_pred.P.copy())
 
-        candidates: List[Tuple[str, Tuple[float, float], float]] = []
+        candidates: List[Dict[str, float]] = []
 
         roi = None
         if last_good_xy is not None:
@@ -278,10 +307,20 @@ def main() -> None:
         if miss > 15:
             gate_radius = max(gate_radius, float(pad))
 
+        try:
+            S = kf.H @ state_pred.P @ kf.H.T + kf.R
+            S_inv = np.linalg.inv(S)
+        except np.linalg.LinAlgError:
+            S_inv = np.linalg.pinv(kf.H @ state_pred.P @ kf.H.T + kf.R)
+        maha_gate = maha_gate_base * (1.0 + min(miss, 6) * 0.35)
+
         # YOLO detection
         try:
             y_inp = bgr if roi is None else bgr[roi[1] : roi[3], roi[0] : roi[2]]
-            res = model.predict(y_inp, verbose=False, conf=args.yolo_conf, classes=[32])
+            if y_inp is not None and y_inp.size != 0:
+                res = model.predict(y_inp, verbose=False, conf=yolo_conf_dyn, classes=[32])
+            else:
+                res = None
             if res and len(res[0].boxes):
                 best_score = -1.0
                 best_det = None
@@ -300,9 +339,18 @@ def main() -> None:
                     score = conf / math.sqrt(area)
                     if score > best_score:
                         best_score = score
-                        best_det = (cx_det, cy_det, conf)
+                        best_det = (cx_det, cy_det, conf, area)
                 if best_det is not None:
-                    candidates.append(("yolo", (best_det[0], best_det[1]), float(best_det[2])))
+                    color_lk = color_likelihood_at(bgr, best_det[0], best_det[1], radius=math.sqrt(best_det[3]) * 0.5)
+                    candidates.append(
+                        {
+                            "src": "yolo",
+                            "x": float(best_det[0]),
+                            "y": float(best_det[1]),
+                            "yolo_conf": float(best_det[2]),
+                            "color": float(color_lk),
+                        }
+                    )
         except Exception:
             pass
 
@@ -312,26 +360,56 @@ def main() -> None:
         if hsv_candidate is None and roi is not None and (miss >= 5 or frame % 10 == 0):
             hsv_candidate = find_orange_centroid(bgr, None)
         if hsv_candidate is not None:
-            candidates.append(("hsv", (float(hsv_candidate[0]), float(hsv_candidate[1])), min(1.0, 0.35 + 0.0002 * float(hsv_candidate[2]))))
+            hx, hy, area = hsv_candidate
+            color_lk = color_likelihood_at(bgr, hx, hy, radius=math.sqrt(max(area, 1.0)))
+            hsv_score = min(1.0, 0.35 + 0.0002 * float(area))
+            candidates.append(
+                {
+                    "src": "hsv",
+                    "x": float(hx),
+                    "y": float(hy),
+                    "yolo_conf": 0.2,
+                    "color": max(color_lk, hsv_score),
+                }
+            )
 
         # Motion gate candidate
         motion_candidate = lightweight_motion_gate(gray, prev_gray, (px, py), gate_radius)
         if motion_candidate is not None:
-            candidates.append(("motion", (motion_candidate[0], motion_candidate[1]), float(0.4 + 0.4 * motion_candidate[2])))
+            mx, my, quality = motion_candidate
+            color_lk = color_likelihood_at(bgr, mx, my, radius=gate_radius * 0.3)
+            candidates.append(
+                {
+                    "src": "motion",
+                    "x": float(mx),
+                    "y": float(my),
+                    "yolo_conf": float(0.25 + 0.35 * quality),
+                    "color": float(color_lk * 0.8),
+                }
+            )
 
         meas = None
         meas_src = ""
-        best_score = -1e9
-        for label, (mx, my), base_score in candidates:
-            dist = math.hypot(mx - px, my - py) if np.isfinite(px) and np.isfinite(py) else 0.0
-            allowed = dist <= gate_radius or miss >= 8 or last_good_xy is None
-            if not allowed:
+        best_score = -1.0
+        for cand in candidates:
+            mx = cand.get("x", np.nan)
+            my = cand.get("y", np.nan)
+            if not np.isfinite(mx) or not np.isfinite(my):
                 continue
-            score = float(base_score) - 0.005 * dist
+            diff = np.array([[mx - px], [my - py]], dtype=np.float64)
+            maha_sq = float(diff.T @ S_inv @ diff)
+            if not np.isfinite(maha_sq):
+                continue
+            if maha_sq > maha_gate and miss < 6:
+                continue
+            dist_term = max(0.0, 1.0 - math.sqrt(max(maha_sq, 0.0)) / math.sqrt(maha_gate + 1e-6))
+            color_term = float(max(0.0, min(1.0, cand.get("color", 0.0))))
+            conf_term = float(max(0.0, min(1.0, cand.get("yolo_conf", 0.0))))
+            score = 0.45 * color_term + 0.35 * conf_term + 0.20 * dist_term
             if score > best_score:
                 best_score = score
                 meas = np.array([[mx], [my]], dtype=np.float64)
-                meas_src = label
+                meas_src = str(cand.get("src", ""))
 
         # Optical flow fallback
         flow_candidate = None
@@ -381,6 +459,7 @@ def main() -> None:
             visible = 1
             conf = float(max(0.05, min(1.0, best_score)))
             last_conf = conf
+            yolo_conf_dyn = float(args.yolo_conf)
         else:
             state_filt = KFState(x=state_pred.x.copy(), P=state_pred.P.copy())
             cx = float(state_filt.x[0, 0])
@@ -391,12 +470,11 @@ def main() -> None:
             visible = 0
             last_conf *= 0.8
             conf = float(max(0.01, min(1.0, last_conf)))
+            yolo_conf_dyn = max(0.05, yolo_conf_dyn * 0.85)
             if miss == 1:
                 pad = min(float(args.roi_pad_max), float(args.roi_pad) * 1.5)
-            elif miss == 2:
-                pad = min(float(args.roi_pad_max), float(args.roi_pad) * 2.0)
             else:
-                pad = min(float(args.roi_pad_max), pad * 1.1)
+                pad = min(float(args.roi_pad_max), pad * 1.5)
             if miss > args.max_miss:
                 pad = float(args.roi_pad_max)
 
@@ -404,6 +482,7 @@ def main() -> None:
         filtered_covs.append(state_filt.P.copy())
         visible_flags.append(int(visible))
         conf_scores.append(conf)
+        miss_history.append(int(miss))
 
         records.append(
             {
@@ -415,6 +494,7 @@ def main() -> None:
                 "conf": conf,
                 "vx": vx,
                 "vy": vy,
+                "miss_streak": miss,
             }
         )
 
@@ -427,7 +507,7 @@ def main() -> None:
         os.makedirs(os.path.dirname(args.out_csv), exist_ok=True) if os.path.dirname(args.out_csv) else None
         with open(args.out_csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["frame", "time", "cx", "cy", "visible", "conf", "vx", "vy"])
+            w.writerow(["frame", "time", "cx", "cy", "visible", "conf", "vx", "vy", "miss_streak"])
         print(f"Saved {args.out_csv}")
         return
 
@@ -454,7 +534,7 @@ def main() -> None:
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True) if os.path.dirname(args.out_csv) else None
     with open(args.out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["frame", "time", "cx", "cy", "visible", "conf", "vx", "vy"])
+        writer.writerow(["frame", "time", "cx", "cy", "visible", "conf", "vx", "vy", "miss_streak"])
         for i, rec in enumerate(records):
             xs_i = xs_smooth[i]
             cx = ensure_float(xs_i[0, 0])
@@ -471,6 +551,7 @@ def main() -> None:
                     f"{float(conf_scores[i]):.3f}",
                     f"{vx:.3f}",
                     f"{vy:.3f}",
+                    int(miss_history[i]),
                 ]
             )
 
