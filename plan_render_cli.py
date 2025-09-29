@@ -78,6 +78,8 @@ def main():
     ap.add_argument("--speed_tight", type=float, default=60)
     ap.add_argument("--speed_wide", type=float, default=220)
     ap.add_argument("--hyst", type=float, default=35)
+    ap.add_argument("--lookahead", type=int, default=None)
+    ap.add_argument("--widen_step", type=float, default=0.04)
 
     args = ap.parse_args()
 
@@ -90,6 +92,12 @@ def main():
 
     crop_w_base = int(np.floor(H * args.W_out / args.H_out / 2) * 2)
     crop_w_base = min(crop_w_base, even(W))
+
+    lookahead = getattr(args, "lookahead", None)
+    if lookahead is None:
+        lookahead = int(round(0.4 * fps))
+    lookahead = max(3, min(lookahead, int(1.0 * fps)))
+    widen_step = getattr(args, "widen_step", 0.04)
 
     df = pd.read_csv(args.track_csv, engine='python', on_bad_lines='skip')
 
@@ -131,23 +139,48 @@ def main():
         eff_w -= eff_w % 2
         eff_w = np.clip(eff_w, min_w, crop_w_base).astype(int)
 
-        Lmin = cx - (1.0 - ball_margin) * eff_w
-        Lmax = cx - ball_margin * eff_w
-        Lmin = np.clip(Lmin, 0, W - eff_w)
-        Lmax = np.clip(Lmax, 0, W - eff_w)
+        def horizon_bounds(i, eff_w_arr, cx_arr, margin):
+            j = min(len(cx_arr), i + lookahead + 1)
+            w_cons = np.max(eff_w_arr[i:j])
+            Lmin_h = cx_arr[i:j] - (1.0 - margin) * w_cons
+            Lmax_h = cx_arr[i:j] - margin * w_cons
+            Lmin_h = np.clip(Lmin_h, 0, W - w_cons)
+            Lmax_h = np.clip(Lmax_h, 0, W - w_cons)
+            L_lo = float(np.max(Lmin_h))
+            L_hi = float(np.min(Lmax_h))
+            return L_lo, L_hi, w_cons
 
         left = np.zeros_like(cx, dtype=float)
         v = 0.0
         dt = 1.0 / float(fps)
-        desired0 = np.clip(cx[0] - lead_frac * eff_w[0], Lmin[0], Lmax[0])
-        left[0] = desired0
+
+        L_lo0, L_hi0, _ = horizon_bounds(0, eff_w, cx, ball_margin)
+        if L_lo0 > L_hi0:
+            while L_lo0 > L_hi0 and zoom[0] > args.zoom_min + 1e-6:
+                zoom[0] = max(args.zoom_min, zoom[0] - widen_step)
+                eff_w[0] = int(max(2, crop_w_base / max(zoom[0], 1e-6))) & ~1
+                L_lo0, L_hi0, _ = horizon_bounds(0, eff_w, cx, ball_margin)
+        left[0] = np.clip(cx[0] - lead_frac * eff_w[0], L_lo0, L_hi0)
 
         for i in range(1, len(cx)):
+            L_lo, L_hi, w_cons = horizon_bounds(i, eff_w, cx, ball_margin)
+
+            widen_iters = 0
+            while L_lo > L_hi and zoom[i] > args.zoom_min + 1e-6 and widen_iters < 8:
+                zoom[i] = max(args.zoom_min, zoom[i] - widen_step)
+                eff_w[i] = int(max(2, crop_w_base / max(zoom[i], 1e-6))) & ~1
+                L_lo, L_hi, w_cons = horizon_bounds(i, eff_w, cx, ball_margin)
+                widen_iters += 1
+
+            if L_lo > L_hi:
+                mid = 0.5 * (L_lo + L_hi)
+                L_lo = L_hi = float(np.clip(mid, 0, W - w_cons))
+
             good = (conf[i] >= conf_min) and (abs(cx[i] - cx[i - 1]) <= miss_jump)
             if not good:
-                desired = left[i - 1]
+                desired = np.clip(left[i - 1], L_lo, L_hi)
             else:
-                desired = np.clip(cx[i] - lead_frac * eff_w[i], Lmin[i], Lmax[i])
+                desired = np.clip(cx[i] - lead_frac * eff_w[i], L_lo, L_hi)
 
             err = desired - left[i - 1]
             v_des = np.clip(err / dt, -args.slew, args.slew)
@@ -155,15 +188,15 @@ def main():
             v = np.clip(v + dv, -args.slew, args.slew)
             left[i] = left[i - 1] + v * dt
 
-            if left[i] < Lmin[i]:
-                left[i] = Lmin[i]
+            if left[i] < L_lo:
+                left[i] = L_lo
                 v = (left[i] - left[i - 1]) / dt
-            elif left[i] > Lmax[i]:
-                left[i] = Lmax[i]
+            elif left[i] > L_hi:
+                left[i] = L_hi
                 v = (left[i] - left[i - 1]) / dt
 
-        left = savgol(left, fps, seconds=0.28)
-        zoom = savgol(zoom, fps, seconds=0.28)
+        left = savgol(left, fps, seconds=0.22)
+        zoom = savgol(zoom, fps, seconds=0.22)
 
         left = pd.Series(left).ffill().bfill().to_numpy(dtype=float)
         zoom = pd.Series(zoom).ffill().bfill().to_numpy(dtype=float)
