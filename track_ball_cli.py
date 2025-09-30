@@ -130,7 +130,7 @@ class KFState:
 
 
 class ConstantAccelerationKF:
-    def __init__(self, dt: float, accel_var: float = 3000.0) -> None:
+    def __init__(self, dt: float, accel_var: float = 3800.0) -> None:
         self.dt = float(dt)
         dt2 = self.dt * self.dt
         dt3 = dt2 * self.dt
@@ -167,7 +167,7 @@ class ConstantAccelerationKF:
         )
         Qc = np.eye(2, dtype=np.float64) * q
         self.Q = G @ Qc @ G.T
-        self.R = np.eye(2, dtype=np.float64) * 120.0
+        self.R = np.eye(2, dtype=np.float64) * 150.0
         self.x = np.zeros((6, 1), dtype=np.float64)
         self.P = np.eye(6, dtype=np.float64) * 1e4
 
