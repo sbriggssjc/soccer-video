@@ -9,6 +9,34 @@ import pandas as pd
 from scipy.signal import savgol_filter
 
 
+def letterbox_to_size(img, out_w, out_h):
+    """Resize to fit inside (out_w, out_h) without changing aspect."""
+
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return np.zeros((out_h, out_w, 3), dtype=np.uint8)
+
+    scale = min(out_w / max(1, w), out_h / max(1, h))
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+    pad_left = (out_w - new_w) // 2
+    pad_right = out_w - new_w - pad_left
+    pad_top = (out_h - new_h) // 2
+    pad_bottom = out_h - new_h - pad_top
+
+    return cv2.copyMakeBorder(
+        resized,
+        pad_top,
+        pad_bottom,
+        pad_left,
+        pad_right,
+        borderType=cv2.BORDER_REPLICATE,
+    )
+
+
 def ema(series, alpha):
     out = np.empty_like(series, dtype=np.float32)
     m = np.isnan(series)
@@ -231,16 +259,16 @@ def main() -> None:
     sx[~valid_mask] = np.nan
     sy[~valid_mask] = np.nan
 
-    speed = np.hypot(vx, vy)
-    lead_scale = np.clip(speed / 18.0, 0.0, 1.0)
-    lead_px = 24.0 * lead_scale
+    speed_arr = np.hypot(vx, vy)
+    lead_scale = np.clip(speed_arr / 18.0, 0.0, 1.0)
+    lead_px_arr = 24.0 * lead_scale
     tx = sx + vx * 0.25 * lead_scale
     ty = sy + vy * 0.25 * lead_scale
 
     AR = OUT_W / max(OUT_H, 1)
     vw_min = 820.0
     vw_max = 1400.0
-    vw = vw_max - (vw_max - vw_min) * np.clip(speed / 30.0, 0.0, 1.0)
+    vw = vw_max - (vw_max - vw_min) * np.clip(speed_arr / 30.0, 0.0, 1.0)
     vh = vw / AR
 
     safe_margin = 0.12
@@ -270,7 +298,7 @@ def main() -> None:
         vw_tgt = vw[t] if vw[t] > 0 else view_w[t - 1]
         vh_tgt = vw_tgt / AR
 
-        spd = float(speed[t - 1] if t > 0 else 0.0)
+        spd = float(speed_arr[t - 1] if t > 0 else 0.0)
         max_pan_px = float(np.clip(6.0 + 1.15 * spd, 12.0, 85.0))
         max_zoom_px = float(np.clip(5.0 + 0.70 * spd, 8.0, 36.0))
 
@@ -375,46 +403,112 @@ def main() -> None:
             break
         idx = min(frame_count, N - 1)
 
-        cx_plan = float(centers_x[idx])
-        cy_plan = float(centers_y[idx])
-        vw_plan = float(max(view_w[idx], 2.0))
-        vh_plan = float(max(view_h[idx], 2.0))
+        # --- ACTION-AWARE ZOOM/FRAMING ---------------------------------------
+        # Current smoothed center & view size
+        cx = centers_x[idx]
+        cy = centers_y[idx]
+        vw = view_w[idx]
+        vh = view_h[idx]
 
-        half_w = vw_plan * 0.5
-        half_h = vh_plan * 0.5
+        # Estimate per-frame ball speed vector (px/frame)
+        if idx > 0:
+            vx = centers_x[idx] - centers_x[idx - 1]
+            vy = centers_y[idx] - centers_y[idx - 1]
+        else:
+            vx = vy = 0.0
+        ball_speed = float(np.hypot(vx, vy))
 
-        cx_plan, cy_plan = clamp_vec((cx_plan, cy_plan), half_w, half_h, W_src, H_src)
+        # Heuristics:
+        # - Dribbling: slow => slightly tighter view, modest lead
+        # - Pass: medium => wider view, lead more in ball direction
+        # - Shot: fast & near goal line => widest view, extra headroom toward goal
+        vw_scale = 1.00
+        vh_scale = 1.00
+        lead_px = 0.0
 
-        left_val = cx_plan - half_w
-        top_val = cy_plan - half_h
+        # thresholds (tune if needed)
+        slow_thr = 4.0  # px/frame
+        fast_thr = 12.0  # px/frame
+        goal_band = 0.15  # within 15% of either side horizontally counts as "near goal"
 
-        eff_w = int(round(vw_plan))
-        eff_h = int(round(vh_plan))
+        A_out = float(W_out) / float(H_out)
 
+        # classify
+        near_left = cx <= goal_band * W_src
+        near_right = cx >= (1.0 - goal_band) * W_src
+        near_goal_side = near_left or near_right
+
+        if ball_speed <= slow_thr:
+            # Likely dribbling: tighter zoom, a little forward lead
+            vw_scale = 0.90
+            vh_scale = 0.90
+            lead_px = np.clip(ball_speed * 6.0, 0, 120)
+        elif ball_speed <= fast_thr:
+            # Likely a pass: widen to include passer/receiver context; lead more
+            vw_scale = 1.20
+            vh_scale = 1.10
+            lead_px = np.clip(ball_speed * 10.0, 40, 200)
+        else:
+            # Fast: shot or long pass. If near a side, bias toward that "goal" and widen more
+            vw_scale = 1.30 if near_goal_side else 1.20
+            vh_scale = 1.15
+            lead_px = np.clip(ball_speed * 12.0, 80, 240)
+
+        # Apply scaling to requested window (clamped later)
+        eff_w = int(round(np.clip(vw * vw_scale, 64, W_src)))
+        eff_h = int(round(np.clip(vh * vh_scale, 64, H_src)))
+
+        # Keep the internal camera window aspect flexible (we'll letterbox at the very end)
+        # but try not to get insanely skinny/tall:
+        eff_w = int(np.clip(eff_w, 64, W_src))
+        eff_h = int(np.clip(eff_h, 64, H_src))
+
+        # Directional lead: look slightly ahead of motion
+        cx_lead = cx + np.sign(vx) * lead_px
+
+        # Initial placement using requested left fraction
+        left_val = cx_lead - args.left_frac * eff_w
+        top_val = cy - 0.5 * eff_h
+
+        # --- BALL-IN-FRAME GUARANTEE -----------------------------------------
+        # The ball must be at least keep_margin inside all sides. If not possible, zoom out.
+        margin = float(args.keep_margin)
+
+        def fits_ball_with_margin(lv, tv, ew, eh):
+            return (
+                (cx - lv) >= margin
+                and (lv + ew - cx) >= margin
+                and (cy - tv) >= margin
+                and (tv + eh - cy) >= margin
+            )
+
+        # Try up to a few expansions if the ball is too close to an edge
+        for _ in range(6):
+            if fits_ball_with_margin(left_val, top_val, eff_w, eff_h):
+                break
+            # Zoom out a notch (expand window equally)
+            eff_w = int(min(W_src, eff_w * 1.12))
+            eff_h = int(min(H_src, eff_h * 1.12))
+            left_val = cx_lead - args.left_frac * eff_w
+            top_val = cy - 0.5 * eff_h
+
+        # Clamp to source bounds
         eff_w = max(2, min(eff_w, W_src))
         eff_h = max(2, min(eff_h, H_src))
-
         left_int = int(round(clamp(left_val, 0, max(W_src - eff_w, 0))))
         top_int = int(round(clamp(top_val, 0, max(H_src - eff_h, 0))))
-
         right_int = min(W_src, left_int + eff_w)
         bottom_int = min(H_src, top_int + eff_h)
 
+        # --- CROP & PAD TO INTERNAL WINDOW -----------------------------------
         crop = bgr[top_int:bottom_int, left_int:right_int]
-
         pad_bottom = max(eff_h - crop.shape[0], 0)
         pad_right = max(eff_w - crop.shape[1], 0)
         if pad_bottom > 0 or pad_right > 0:
-            crop = cv2.copyMakeBorder(
-                crop,
-                0,
-                pad_bottom,
-                0,
-                pad_right,
-                borderType=cv2.BORDER_REPLICATE,
-            )
+            crop = cv2.copyMakeBorder(crop, 0, pad_bottom, 0, pad_right, borderType=cv2.BORDER_REPLICATE)
 
-        frame = cv2.resize(crop, (W_out, H_out), interpolation=cv2.INTER_LANCZOS4)
+        # --- *NO WARPING*: FINAL RESIZE WITH LETTERBOX TO (W_out,H_out) -------
+        frame = letterbox_to_size(crop, W_out, H_out)
         cv2.imwrite(os.path.join(tmp, f"f_{frame_count:06d}.jpg"), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
         frame_count += 1
     cap.release()
@@ -432,8 +526,8 @@ def main() -> None:
             "view_h": view_h[:frame_count],
             "ball_x": cx_filled[:frame_count],
             "ball_y": cy_filled[:frame_count],
-            "speed": speed[:frame_count],
-            "lead_px": lead_px[:frame_count],
+            "speed": speed_arr[:frame_count],
+            "lead_px": lead_px_arr[:frame_count],
             "visible": df["visible"].to_numpy(dtype=int)[:frame_count],
             "conf": df["conf"].to_numpy(dtype=float)[:frame_count],
             "miss_streak": df["miss_streak"].to_numpy(dtype=int)[:frame_count],
