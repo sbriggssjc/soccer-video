@@ -71,6 +71,21 @@ def kalman_1d(z, q=0.08, r=4.0):
     return x, v
 
 
+def reject_outliers(x, thresh_px=160.0):
+    x = x.copy()
+    m = np.isnan(x)
+    idx = np.where(~m)[0]
+    if len(idx) < 3:
+        return x
+    prev = x[idx[0]]
+    for i in idx[1:]:
+        if abs(x[i] - prev) > thresh_px:
+            x[i] = np.nan
+        else:
+            prev = x[i]
+    return x
+
+
 def smooth_xy(cx, cy, ema_alpha=0.25, k_q=0.08, k_r=4.0):
     kx, vx = kalman_1d(cx, q=k_q, r=k_r)
     ky, vy = kalman_1d(cy, q=k_q, r=k_r)
@@ -197,6 +212,9 @@ def main() -> None:
 
     cx_np = cx_series.to_numpy(dtype=float)
     cy_np = cy_series.to_numpy(dtype=float)
+
+    cx_np = reject_outliers(cx_np, 160.0)
+    cy_np = reject_outliers(cy_np, 160.0)
 
     # Updated pan/zoom planner
     SRC_W, SRC_H = W_src, H_src
