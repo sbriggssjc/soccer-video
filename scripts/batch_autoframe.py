@@ -98,17 +98,22 @@ class PlanOptions:
     H_out: int
     slew: float
     accel: float
+    max_jerk: float
     zoom_min: float
     zoom_max: float
     zoom_rate: float
     zoom_accel: float
+    zoom_jerk: float
     left_frac: float
-    ball_margin: float
-    conf_min: float
-    miss_jump: float
-    lookahead: int
-    widen_step: float
+    keep_margin: float
+    start_wide_s: float
+    min_streak: int
+    loss_streak: int
+    prewiden_factor: float
     hyst: float
+    lookahead_s: float
+    pass_speed: float
+    pass_lookahead_s: float
 
     def to_argv(self, clip: Path, csv_path: Path, out_mp4: Path) -> List[str]:
         cmd = [
@@ -126,17 +131,22 @@ class PlanOptions:
         _extend_with_pairs(cmd, "--H_out", self.H_out)
         _extend_with_pairs(cmd, "--slew", self.slew)
         _extend_with_pairs(cmd, "--accel", self.accel)
+        _extend_with_pairs(cmd, "--max_jerk", self.max_jerk)
         _extend_with_pairs(cmd, "--zoom_min", self.zoom_min)
         _extend_with_pairs(cmd, "--zoom_max", self.zoom_max)
         _extend_with_pairs(cmd, "--zoom_rate", self.zoom_rate)
         _extend_with_pairs(cmd, "--zoom_accel", self.zoom_accel)
+        _extend_with_pairs(cmd, "--zoom_jerk", self.zoom_jerk)
         _extend_with_pairs(cmd, "--left_frac", self.left_frac)
-        _extend_with_pairs(cmd, "--ball_margin", self.ball_margin)
-        _extend_with_pairs(cmd, "--conf_min", self.conf_min)
-        _extend_with_pairs(cmd, "--miss_jump", self.miss_jump)
-        _extend_with_pairs(cmd, "--lookahead", self.lookahead)
-        _extend_with_pairs(cmd, "--widen_step", self.widen_step)
+        _extend_with_pairs(cmd, "--keep_margin", self.keep_margin)
+        _extend_with_pairs(cmd, "--start_wide_s", self.start_wide_s)
+        _extend_with_pairs(cmd, "--min_streak", self.min_streak)
+        _extend_with_pairs(cmd, "--loss_streak", self.loss_streak)
+        _extend_with_pairs(cmd, "--prewiden_factor", self.prewiden_factor)
         _extend_with_pairs(cmd, "--hyst", self.hyst)
+        _extend_with_pairs(cmd, "--lookahead_s", self.lookahead_s)
+        _extend_with_pairs(cmd, "--pass_speed", self.pass_speed)
+        _extend_with_pairs(cmd, "--pass_lookahead_s", self.pass_lookahead_s)
         return cmd
 
 
@@ -155,27 +165,32 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
 
     # track options
-    parser.add_argument("--track-yolo-conf", type=_non_negative_float, default=0.10)
-    parser.add_argument("--track-roi-pad", type=_non_negative_int, default=280)
-    parser.add_argument("--track-roi-pad-max", type=_non_negative_int, default=760)
-    parser.add_argument("--track-max-miss", type=_non_negative_int, default=70)
+    parser.add_argument("--track-yolo-conf", type=_non_negative_float, default=0.06)
+    parser.add_argument("--track-roi-pad", type=_non_negative_int, default=360)
+    parser.add_argument("--track-roi-pad-max", type=_non_negative_int, default=900)
+    parser.add_argument("--track-max-miss", type=_non_negative_int, default=90)
 
     # plan options
     parser.add_argument("--plan-width", type=_non_negative_int, default=608)
     parser.add_argument("--plan-height", type=_non_negative_int, default=1080)
-    parser.add_argument("--plan-slew", type=_non_negative_float, default=120.0)
-    parser.add_argument("--plan-accel", type=_non_negative_float, default=320.0)
+    parser.add_argument("--plan-slew", type=_non_negative_float, default=80.0)
+    parser.add_argument("--plan-accel", type=_non_negative_float, default=260.0)
+    parser.add_argument("--plan-max-jerk", type=_non_negative_float, default=500.0)
     parser.add_argument("--plan-zoom-min", type=_positive_float, default=1.00)
-    parser.add_argument("--plan-zoom-max", type=_positive_float, default=1.55)
+    parser.add_argument("--plan-zoom-max", type=_positive_float, default=1.45)
     parser.add_argument("--plan-zoom-rate", type=_positive_float, default=0.10)
     parser.add_argument("--plan-zoom-accel", type=_positive_float, default=0.30)
-    parser.add_argument("--plan-left-frac", type=_non_negative_float, default=0.50)
-    parser.add_argument("--plan-ball-margin", type=_non_negative_float, default=0.22)
-    parser.add_argument("--plan-conf-min", type=_non_negative_float, default=0.25)
-    parser.add_argument("--plan-miss-jump", type=_non_negative_float, default=260.0)
-    parser.add_argument("--plan-lookahead", type=_non_negative_int, default=10)
-    parser.add_argument("--plan-widen-step", type=_non_negative_float, default=0.04)
-    parser.add_argument("--plan-hyst", type=_non_negative_float, default=45.0)
+    parser.add_argument("--plan-zoom-jerk", type=_positive_float, default=0.60)
+    parser.add_argument("--plan-left-frac", type=_non_negative_float, default=0.48)
+    parser.add_argument("--plan-keep-margin", type=_non_negative_float, default=220.0)
+    parser.add_argument("--plan-start-wide-s", type=_non_negative_float, default=1.6)
+    parser.add_argument("--plan-min-streak", type=_non_negative_int, default=16)
+    parser.add_argument("--plan-loss-streak", type=_non_negative_int, default=4)
+    parser.add_argument("--plan-prewiden-factor", type=_non_negative_float, default=1.30)
+    parser.add_argument("--plan-hyst", type=_non_negative_float, default=90.0)
+    parser.add_argument("--plan-lookahead-s", type=_non_negative_float, default=1.0)
+    parser.add_argument("--plan-pass-speed", type=_non_negative_float, default=360.0)
+    parser.add_argument("--plan-pass-lookahead-s", type=_non_negative_float, default=0.7)
 
     return parser.parse_args(argv)
 
@@ -203,17 +218,22 @@ def main(argv: Iterable[str] | None = None) -> int:
         H_out=args.plan_height,
         slew=args.plan_slew,
         accel=args.plan_accel,
+        max_jerk=args.plan_max_jerk,
         zoom_min=args.plan_zoom_min,
         zoom_max=args.plan_zoom_max,
         zoom_rate=args.plan_zoom_rate,
         zoom_accel=args.plan_zoom_accel,
+        zoom_jerk=args.plan_zoom_jerk,
         left_frac=args.plan_left_frac,
-        ball_margin=args.plan_ball_margin,
-        conf_min=args.plan_conf_min,
-        miss_jump=args.plan_miss_jump,
-        lookahead=args.plan_lookahead,
-        widen_step=args.plan_widen_step,
+        keep_margin=args.plan_keep_margin,
+        start_wide_s=args.plan_start_wide_s,
+        min_streak=args.plan_min_streak,
+        loss_streak=args.plan_loss_streak,
+        prewiden_factor=args.plan_prewiden_factor,
         hyst=args.plan_hyst,
+        lookahead_s=args.plan_lookahead_s,
+        pass_speed=args.plan_pass_speed,
+        pass_lookahead_s=args.plan_pass_lookahead_s,
     )
 
     clips = list(_iter_clips(atomic_dir))
