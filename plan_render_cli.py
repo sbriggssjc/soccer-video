@@ -199,14 +199,14 @@ def main() -> None:
     cy_series = pd.Series(cy)
     cx_interp = (
         cx_series.interpolate(limit=12, limit_direction="both")
-        .fillna(method="ffill")
-        .fillna(method="bfill")
+        .ffill()
+        .bfill()
         .to_numpy(np.float32)
     )
     cy_interp = (
         cy_series.interpolate(limit=12, limit_direction="both")
-        .fillna(method="ffill")
-        .fillna(method="bfill")
+        .ffill()
+        .bfill()
         .to_numpy(np.float32)
     )
 
@@ -401,8 +401,8 @@ def main() -> None:
         frame_count += 1
     cap.release()
 
-    frames_out = df["frame"].fillna(method="ffill").fillna(method="bfill").astype(int).to_numpy()
-    times_out = df["time"].fillna(method="ffill").fillna(method="bfill").to_numpy(dtype=float)
+    frames_out = df["frame"].ffill().bfill().astype(int).to_numpy()
+    times_out = df["time"].ffill().bfill().to_numpy(dtype=float)
 
     debug_csv = pd.DataFrame(
         {
