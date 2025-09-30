@@ -424,13 +424,13 @@ def main() -> None:
     debug_csv_path = os.path.join(out_dir or ".", "virtual_cam.csv")
     debug_csv.to_csv(debug_csv_path, index=False)
 
-    fr = int(round(fps))
+    fr_exact = f"{fps:.3f}"
     subprocess.run(
         [
             "ffmpeg",
             "-y",
             "-framerate",
-            str(fr),
+            str(fr_exact),        # use exact fps for the image sequence
             "-i",
             os.path.join(tmp, "f_%06d.jpg"),
             "-i",
@@ -441,6 +441,10 @@ def main() -> None:
             "[v]",
             "-map",
             "1:a:0?",
+            "-r",
+            str(fr_exact),                 # force CFR on the output stream too
+            "-vsync",
+            "cfr",                     # avoid ffmpeg inserting/duplicating frames
             "-c:v",
             "libx264",
             "-preset",
