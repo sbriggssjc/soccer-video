@@ -195,164 +195,135 @@ def main() -> None:
         .to_numpy(np.float32)
     )
 
-    sx, sy, vx_raw, _ = smooth_xy(cx, cy)
-    cx_filled = np.where(np.isfinite(sx), sx, cx_interp)
-    cy_filled = np.where(np.isfinite(sy), sy, cy_interp)
-    vx = vx_raw * fps
+    cx_np = cx_series.to_numpy(dtype=float)
+    cy_np = cy_series.to_numpy(dtype=float)
 
-    base_tau = getattr(args, "lookahead_s", 1.0)
-    tau = base_tau * (1.0 + 0.6 * np.clip(np.abs(vx) / 400.0, 0, 1))
-    lead_cx = cx_filled + tau * vx
-    lead_cx = ema(lead_cx.astype(np.float32), 0.20)
-
-    pass_speed = getattr(args, "pass_speed", 360.0)
-    pass_mask = (np.abs(vx) > pass_speed).astype(np.float32)
-    pass_look = getattr(args, "pass_lookahead_s", 0.7)
-    lead_pass = cx_filled + (pass_look * vx)
-
+    # Updated pan/zoom planner
+    SRC_W, SRC_H = W_src, H_src
     W_out = int(args.W_out)
     H_out = int(args.H_out)
-    target_aspect = W_out / max(H_out, 1)
-    crop_w_base = int(np.floor(H_src * target_aspect / 2.0) * 2)
-    crop_w_base = min(crop_w_base, W_src)
-    crop_w_base = max(2, crop_w_base)
+    OUT_W, OUT_H = W_out, H_out
 
-    left_frac = float(getattr(args, "left_frac", 0.48))
-    keep_margin = float(getattr(args, "keep_margin", 220.0))
-    zoom_min = float(getattr(args, "zoom_min", 1.0))
-    zoom_max = float(getattr(args, "zoom_max", 1.45))
-    start_wide_s = float(getattr(args, "start_wide_s", 1.6))
-    min_streak = int(getattr(args, "min_streak", 16))
-    loss_streak = int(getattr(args, "loss_streak", 4))
-    prewiden_factor = float(getattr(args, "prewiden_factor", 1.30))
+    sx_raw, sy_raw, vx, vy = smooth_xy(cx_np, cy_np, ema_alpha=0.25, k_q=0.06, k_r=6.0)
 
-    slew = float(getattr(args, "slew", 80.0))
-    accel = float(getattr(args, "accel", 260.0))
-    max_jerk = float(getattr(args, "max_jerk", 500.0))
-    z_rate = float(getattr(args, "zoom_rate", 0.10))
-    z_accel = float(getattr(args, "zoom_accel", 0.30))
-    z_jerk = float(getattr(args, "zoom_jerk", 0.60))
+    # Preserve NaNs where detections are missing so the planner can react accordingly.
+    valid_mask = ~np.isnan(cx_np) & ~np.isnan(cy_np)
+    sx = sx_raw.copy()
+    sy = sy_raw.copy()
+    sx[~valid_mask] = np.nan
+    sy[~valid_mask] = np.nan
 
-    left_path = np.zeros(N, dtype=np.float32)
-    zoom_path = np.ones(N, dtype=np.float32) * zoom_min
+    speed = np.hypot(vx, vy)
+    lead_scale = np.clip(speed / 18.0, 0.0, 1.0)
+    lead_px = 24.0 * lead_scale
+    tx = sx + vx * 0.25 * lead_scale
+    ty = sy + vy * 0.25 * lead_scale
 
-    initial_center = cx_filled[0] if np.isfinite(cx_filled[0]) else (lead_cx[0] if np.isfinite(lead_cx[0]) else W_src * 0.5)
-    zoom = zoom_min
-    eff_w = crop_w_base / max(zoom, 1e-6)
-    left = clamp(initial_center - left_frac * eff_w, 0, W_src - eff_w)
+    AR = OUT_W / max(OUT_H, 1)
+    vw_min = 900.0
+    vw_max = 1600.0
+    vw = vw_max - (vw_max - vw_min) * np.clip(speed / 30.0, 0.0, 1.0)
+    vh = vw / AR
 
-    hyst = int(getattr(args, "hyst", 90))
-    z_dead = 0.03
-    stable_count = 0
-    prev_left = left
+    safe_margin = 0.22
+    max_pan_px = 32.0
+    max_zoom_px = 22.0
 
-    for i in range(N):
-        vis = int(df.at[i, "visible"]) if i < len(df) else 0
-        miss = int(df.at[i, "miss_streak"]) if i < len(df) else 0
-        conf = float(df.at[i, "conf"]) if i < len(df) else 0.0
-        cx_i = float(cx_filled[i]) if np.isfinite(cx_filled[i]) else float(lead_cx[i])
-        lead_i = float(lead_cx[i]) if np.isfinite(lead_cx[i]) else cx_i
+    centers_x = np.zeros_like(sx, dtype=np.float32)
+    centers_y = np.zeros_like(sy, dtype=np.float32)
+    view_w = np.zeros_like(sx, dtype=np.float32)
+    view_h = np.zeros_like(sy, dtype=np.float32)
 
-        t_val = df.at[i, "time"] if np.isfinite(df.at[i, "time"]) else float(i) / fps
-        want_wide = (t_val < start_wide_s) or (miss >= loss_streak) or (vis == 0) or (conf < 0.15)
-        if want_wide:
-            zoom = max(zoom_min, zoom - 0.02 * prewiden_factor)
-            stable_count = 0
+    first = np.where(~np.isnan(sx) & ~np.isnan(sy))[0]
+    if len(first) == 0:
+        centers_x[:] = SRC_W * 0.5
+        centers_y[:] = SRC_H * 0.5
+        view_w[:] = vw_max
+        view_h[:] = vw_max / AR
+        k0 = 0
+    else:
+        k0 = first[0]
+        centers_x[k0] = clamp(tx[k0], 0, SRC_W)
+        centers_y[k0] = clamp(ty[k0], 0, SRC_H)
+        view_w[k0] = vw[k0]
+        view_h[k0] = vh[k0]
+
+    for t in range(max(1, k0 + 1), len(sx)):
+        cx_tgt = tx[t] if not np.isnan(tx[t]) else centers_x[t - 1]
+        cy_tgt = ty[t] if not np.isnan(ty[t]) else centers_y[t - 1]
+        vw_tgt = vw[t] if vw[t] > 0 else view_w[t - 1]
+        vh_tgt = vw_tgt / AR
+
+        cx_soft = limit_step(centers_x[t - 1], cx_tgt, max_pan_px)
+        cy_soft = limit_step(centers_y[t - 1], cy_tgt, max_pan_px)
+
+        vw_soft = limit_step(view_w[t - 1], vw_tgt, max_zoom_px)
+        vh_soft = vw_soft / AR
+
+        if not np.isnan(sx[t]):
+            bx = sx[t]
+        elif t > 0:
+            bx = sx[t - 1]
         else:
-            stable_count = stable_count + 1 if vis == 1 else 0
-            if stable_count > min_streak:
-                zoom = min(zoom_max, zoom + 0.015)
+            bx = SRC_W / 2
 
-        eff_w = crop_w_base / max(zoom, 1e-6)
+        if not np.isnan(sy[t]):
+            by = sy[t]
+        elif t > 0:
+            by = sy[t - 1]
+        else:
+            by = SRC_H / 2
 
-        alpha = float(np.clip(pass_mask[i] * 0.6, 0, 0.6))
-        pred_center = (1.0 - alpha) * lead_i + alpha * lead_pass[i]
+        half_w = vw_soft * 0.5
+        half_h = vh_soft * 0.5
+        left = cx_soft - half_w
+        right = cx_soft + half_w
+        top = cy_soft - half_h
+        bottom = cy_soft + half_h
 
-        desired_left = pred_center - left_frac * eff_w
-        desired_left = clamp(desired_left, 0, W_src - eff_w)
+        safe_l = left + vw_soft * safe_margin
+        safe_r = right - vw_soft * safe_margin
+        safe_t = top + vh_soft * safe_margin
+        safe_b = bottom - vh_soft * safe_margin
 
-        inner_loops = 0
-        cx_target = cx_i if np.isfinite(cx_i) else pred_center
-        while inner_loops < 3:
-            eff_w = crop_w_base / max(zoom, 1e-6)
-            left = clamp(desired_left, 0, W_src - eff_w)
-            left_edge = left + keep_margin
-            right_edge = left + eff_w - keep_margin
-            if cx_target < left_edge - 4:
-                desired_left = clamp(cx_target - keep_margin, 0, W_src - eff_w)
-                if desired_left == left and zoom > zoom_min:
-                    zoom = max(zoom_min, zoom - 0.04)
-            elif cx_target > right_edge + 4:
-                desired_left = clamp(cx_target + keep_margin - eff_w, 0, W_src - eff_w)
-                if desired_left == left and zoom > zoom_min:
-                    zoom = max(zoom_min, zoom - 0.04)
-            else:
-                break
-            inner_loops += 1
+        shift_x = 0.0
+        shift_y = 0.0
+        if bx < safe_l:
+            shift_x = bx - safe_l
+        elif bx > safe_r:
+            shift_x = bx - safe_r
+        if by < safe_t:
+            shift_y = by - safe_t
+        elif by > safe_b:
+            shift_y = by - safe_b
 
-        desired_left = clamp(desired_left, 0, W_src - eff_w)
-        if i > 0:
-            max_step = max(slew * dt, 1.0)
-            desired_left = limit_step(prev_left, desired_left, max_step)
+        cx_soft += shift_x
+        cy_soft += shift_y
 
-        if i > 0 and abs(zoom - zoom_path[i - 1]) < z_dead:
-            zoom = zoom_path[i - 1]
+        cx_soft, cy_soft = clamp_vec((cx_soft, cy_soft), half_w, half_h, SRC_W, SRC_H)
 
-        zoom = clamp(zoom, zoom_min, zoom_max)
-        zoom_path[i] = float(zoom)
-        eff_w = crop_w_base / max(zoom, 1e-6)
-        left = clamp(desired_left, 0, W_src - eff_w)
-        left = clamp(left, 0, W_src - eff_w)
-        left_path[i] = float(left)
-        prev_left = left
+        centers_x[t] = cx_soft
+        centers_y[t] = cy_soft
+        view_w[t] = vw_soft
+        view_h[t] = vh_soft
 
-    L = left_path.copy()
-    Z = zoom_path.copy()
+    if len(first) > 0:
+        for t in range(k0 - 1, -1, -1):
+            centers_x[t] = centers_x[t + 1]
+            centers_y[t] = centers_y[t + 1]
+            view_w[t] = view_w[t + 1]
+            view_h[t] = view_h[t + 1]
 
-    L_s = smooth_series(L, fps, sec=0.7)
-    Z_s = smooth_series(Z, fps, sec=0.7)
+    centers_x = ema(centers_x, 0.10)
+    centers_y = ema(centers_y, 0.10)
 
-    L_clamp = np.zeros_like(L_s)
-    Z_clamp = np.zeros_like(Z_s)
-    v = a = 0.0
-    vz = az = 0.0
+    df["center_x"] = centers_x
+    df["center_y"] = centers_y
+    df["view_w"] = view_w
+    df["view_h"] = view_h
 
-    L_clamp[0] = float(L_s[0])
-    Z_clamp[0] = float(clamp(Z_s[0], zoom_min, zoom_max))
-
-    for i in range(1, N):
-        v_des = (L_s[i] - L_clamp[i - 1]) / dt
-        a_des = (v_des - v) / dt
-        da = np.clip(a_des - a, -max_jerk * dt, max_jerk * dt)
-        a = np.clip(a + da, -accel, accel)
-        v = np.clip(v + a * dt, -slew, slew)
-        L_clamp[i] = L_clamp[i - 1] + v * dt
-
-        vz_des = (Z_s[i] - Z_clamp[i - 1]) / dt
-        az_des = (vz_des - vz) / dt
-        daz = np.clip(az_des - az, -z_jerk * dt, z_jerk * dt)
-        az = np.clip(az + daz, -z_accel, z_accel)
-        vz = np.clip(vz + az * dt, -z_rate, z_rate)
-        Z_clamp[i] = float(clamp(Z_clamp[i - 1] + vz * dt, zoom_min, zoom_max))
-
-        eff_w = crop_w_base / max(Z_clamp[i], 1e-6)
-        left = clamp(L_clamp[i], 0, W_src - eff_w)
-        left_edge = left + keep_margin
-        right_edge = left + eff_w - keep_margin
-        cx_i = cx_filled[i]
-        if np.isfinite(cx_i):
-            if cx_i < left_edge:
-                target_left = clamp(cx_i - keep_margin, 0, W_src - eff_w)
-                left = limit_step(left, target_left, max(slew * dt, 1.0))
-                left = clamp(left, 0, W_src - eff_w)
-            elif cx_i > right_edge:
-                target_left = clamp(cx_i + keep_margin - eff_w, 0, W_src - eff_w)
-                left = limit_step(left, target_left, max(slew * dt, 1.0))
-                left = clamp(left, 0, W_src - eff_w)
-        L_clamp[i] = left
-
-    left_path = L_clamp.astype(np.float32)
-    zoom_path = Z_clamp.astype(np.float32)
+    cx_filled = np.where(np.isfinite(sx_raw), sx_raw, cx_interp)
+    cy_filled = np.where(np.isfinite(sy_raw), sy_raw, cy_interp)
 
     out_dir = os.path.dirname(args.out_mp4)
     if out_dir:
@@ -367,20 +338,45 @@ def main() -> None:
         if not ok:
             break
         idx = min(frame_count, N - 1)
-        zoom_val = float(max(zoom_min, zoom_path[idx]))
-        eff_w = int(round(crop_w_base / max(zoom_val, 1e-6)))
+
+        cx_plan = float(centers_x[idx])
+        cy_plan = float(centers_y[idx])
+        vw_plan = float(max(view_w[idx], 2.0))
+        vh_plan = float(max(view_h[idx], 2.0))
+
+        half_w = vw_plan * 0.5
+        half_h = vh_plan * 0.5
+
+        cx_plan, cy_plan = clamp_vec((cx_plan, cy_plan), half_w, half_h, W_src, H_src)
+
+        left_val = cx_plan - half_w
+        top_val = cy_plan - half_h
+
+        eff_w = int(round(vw_plan))
+        eff_h = int(round(vh_plan))
+
         eff_w = max(2, min(eff_w, W_src))
-        left_val = clamp(left_path[idx], 0, W_src - eff_w)
-        center = (left_val + 0.5 * eff_w, H_src * 0.5)
-        cx_center, _ = clamp_vec(center, eff_w * 0.5, H_src * 0.5, W_src, H_src)
-        left_val = cx_center - 0.5 * eff_w
-        left_int = int(round(left_val))
-        left_int = int(clamp(left_int, 0, max(W_src - eff_w, 0)))
+        eff_h = max(2, min(eff_h, H_src))
+
+        left_int = int(round(clamp(left_val, 0, max(W_src - eff_w, 0))))
+        top_int = int(round(clamp(top_val, 0, max(H_src - eff_h, 0))))
+
         right_int = min(W_src, left_int + eff_w)
-        crop = bgr[:, left_int:right_int]
-        if crop.shape[1] != eff_w:
-            pad_right = max(eff_w - crop.shape[1], 0)
-            crop = cv2.copyMakeBorder(crop, 0, 0, 0, pad_right, borderType=cv2.BORDER_REPLICATE)
+        bottom_int = min(H_src, top_int + eff_h)
+
+        crop = bgr[top_int:bottom_int, left_int:right_int]
+
+        pad_bottom = max(eff_h - crop.shape[0], 0)
+        pad_right = max(eff_w - crop.shape[1], 0)
+        if pad_bottom > 0 or pad_right > 0:
+            crop = cv2.copyMakeBorder(
+                crop,
+                0,
+                pad_bottom,
+                0,
+                pad_right,
+                borderType=cv2.BORDER_REPLICATE,
+            )
 
         frame = cv2.resize(crop, (W_out, H_out), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(os.path.join(tmp, f"f_{frame_count:06d}.jpg"), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
@@ -394,11 +390,14 @@ def main() -> None:
         {
             "frame": frames_out[:frame_count],
             "time": times_out[:frame_count],
-            "left": left_path[:frame_count],
-            "zoom": zoom_path[:frame_count],
-            "cx": cx_filled[:frame_count],
-            "cy": cy_filled[:frame_count],
-            "lead": lead_cx[:frame_count],
+            "center_x": centers_x[:frame_count],
+            "center_y": centers_y[:frame_count],
+            "view_w": view_w[:frame_count],
+            "view_h": view_h[:frame_count],
+            "ball_x": cx_filled[:frame_count],
+            "ball_y": cy_filled[:frame_count],
+            "speed": speed[:frame_count],
+            "lead_px": lead_px[:frame_count],
             "visible": df["visible"].to_numpy(dtype=int)[:frame_count],
             "conf": df["conf"].to_numpy(dtype=float)[:frame_count],
             "miss_streak": df["miss_streak"].to_numpy(dtype=int)[:frame_count],
