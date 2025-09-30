@@ -1,6 +1,7 @@
 # track_ball_cli.py
 import argparse
 import csv
+import json
 import math
 import os
 from dataclasses import dataclass
@@ -9,6 +10,45 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+
+# === ADD: robust helpers ===
+def to_float(o):
+    # Convert numpy scalars/arrays to plain Python floats for JSON/logging
+    if isinstance(o, (np.floating,)):
+        return float(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, np.ndarray) and o.size == 1:
+        return float(o.item())
+    return o
+
+
+def safe_json(obj):
+    def default(x):
+        return to_float(x)
+
+    return json.dumps(obj, default=default)
+
+
+def nonempty_roi(bgr, x0, y0, x1, y1):
+    h, w = bgr.shape[:2]
+    x0 = max(0, min(w - 1, int(x0)))
+    y0 = max(0, min(h - 1, int(y0)))
+    x1 = max(0, min(w, int(x1)))
+    y1 = max(0, min(h, int(y1)))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return bgr[y0:y1, x0:x1]
+
+
+# === ADD: fused candidate scoring + Mahalanobis gating ===
+def score_candidate(px, py, yolo_conf, color_prob, pred, S_inv):
+    # Larger is better. Weight prediction proximity and detectors.
+    dx, dy = px - pred[0], py - pred[1]
+    maha = dx * dx * S_inv[0, 0] + 2 * dx * dy * S_inv[0, 1] + dy * dy * S_inv[1, 1]
+    prox = 1.0 / (1.0 + maha)
+    return 2.0 * prox + 1.5 * yolo_conf + 1.0 * color_prob
 
 
 def hsv_orange_mask(bgr: np.ndarray) -> np.ndarray:
@@ -35,8 +75,8 @@ def find_orange_centroid(
         if x1 <= x0 or y1 <= y0:
             return None
 
-        bgr_roi = bgr[y0:y1, x0:x1]
-        if bgr_roi.size == 0:
+        bgr_roi = nonempty_roi(bgr, x0, y0, x1, y1)
+        if bgr_roi is None or bgr_roi.size == 0:
             return None
         mask = hsv_orange_mask(bgr_roi)
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -273,7 +313,7 @@ def main() -> None:
     last_good_xy: Optional[Tuple[float, float]] = None
     last_template: Optional[np.ndarray] = None
     miss = 0
-    pad = float(args.roi_pad)
+    roi_pad = float(args.roi_pad)
     last_conf = 0.0
     yolo_conf_dyn = float(args.yolo_conf)
     maha_gate_base = 9.21  # ~99% for 2 DoF
@@ -297,26 +337,27 @@ def main() -> None:
         roi = None
         if last_good_xy is not None:
             cx_last, cy_last = last_good_xy
-            x0 = int(cx_last - pad)
-            y0 = int(cy_last - pad)
-            x1 = int(cx_last + pad)
-            y1 = int(cy_last + pad)
+            x0 = int(cx_last - roi_pad)
+            y0 = int(cy_last - roi_pad)
+            x1 = int(cx_last + roi_pad)
+            y1 = int(cy_last + roi_pad)
             roi = clip_roi(x0, y0, x1, y1, W, H)
 
-        gate_radius = max(40.0, min(float(pad) * 0.8, 260.0))
+        gate_radius = max(40.0, min(float(roi_pad) * 0.8, 260.0))
         if miss > 15:
-            gate_radius = max(gate_radius, float(pad))
+            gate_radius = max(gate_radius, float(roi_pad))
 
+        S = state_pred.P[:2, :2].astype(np.float64)
+        S += np.eye(2, dtype=np.float64) * 1e-6
         try:
-            S = kf.H @ state_pred.P @ kf.H.T + kf.R
             S_inv = np.linalg.inv(S)
         except np.linalg.LinAlgError:
-            S_inv = np.linalg.pinv(kf.H @ state_pred.P @ kf.H.T + kf.R)
+            S_inv = np.linalg.pinv(S)
         maha_gate = maha_gate_base * (1.0 + min(miss, 6) * 0.35)
 
         # YOLO detection
         try:
-            y_inp = bgr if roi is None else bgr[roi[1] : roi[3], roi[0] : roi[2]]
+            y_inp = bgr if roi is None else nonempty_roi(bgr, roi[0], roi[1], roi[2], roi[3])
             if y_inp is not None and y_inp.size != 0:
                 res = model.predict(y_inp, verbose=False, conf=yolo_conf_dyn, classes=[32])
             else:
@@ -388,32 +429,9 @@ def main() -> None:
                 }
             )
 
-        meas = None
-        meas_src = ""
-        best_score = -1.0
-        for cand in candidates:
-            mx = cand.get("x", np.nan)
-            my = cand.get("y", np.nan)
-            if not np.isfinite(mx) or not np.isfinite(my):
-                continue
-            diff = np.array([[mx - px], [my - py]], dtype=np.float64)
-            maha_sq = float(diff.T @ S_inv @ diff)
-            if not np.isfinite(maha_sq):
-                continue
-            if maha_sq > maha_gate and miss < 6:
-                continue
-            dist_term = max(0.0, 1.0 - math.sqrt(max(maha_sq, 0.0)) / math.sqrt(maha_gate + 1e-6))
-            color_term = float(max(0.0, min(1.0, cand.get("color", 0.0))))
-            conf_term = float(max(0.0, min(1.0, cand.get("yolo_conf", 0.0))))
-            score = 0.45 * color_term + 0.35 * conf_term + 0.20 * dist_term
-            if score > best_score:
-                best_score = score
-                meas = np.array([[mx], [my]], dtype=np.float64)
-                meas_src = str(cand.get("src", ""))
-
         # Optical flow fallback
         flow_candidate = None
-        if meas is None and miss >= 5 and prev_gray is not None and last_good_xy is not None:
+        if miss >= 5 and prev_gray is not None and last_good_xy is not None:
             p0 = np.array([[last_good_xy]], dtype=np.float32)
             p1, status, _ = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None, winSize=(21, 21), maxLevel=3,
                                                      criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03))
@@ -430,21 +448,67 @@ def main() -> None:
                                 flow_candidate = (fx, fy, max(0.3, min(0.75, ncc)))
                     else:
                         flow_candidate = (fx, fy, 0.4)
-        if meas is None and flow_candidate is not None:
-            meas = np.array([[flow_candidate[0]], [flow_candidate[1]]], dtype=np.float64)
-            meas_src = "flow"
-            best_score = float(flow_candidate[2])
+        if flow_candidate is not None:
+            mx, my, quality = flow_candidate
+            color_lk = color_likelihood_at(bgr, mx, my, radius=gate_radius * 0.3)
+            candidates.append(
+                {
+                    "src": "flow",
+                    "x": float(mx),
+                    "y": float(my),
+                    "yolo_conf": float(max(0.2, min(0.8, quality))),
+                    "color": float(color_lk),
+                }
+            )
 
         # Reacquire global color scan every 10th frame when missing
-        if meas is None and (frame % 10 == 0):
+        if frame % 10 == 0:
             global_candidate = find_orange_centroid(bgr, None)
             if global_candidate is not None:
                 mx, my, area = global_candidate
                 dist = math.hypot(mx - px, my - py)
                 if dist <= gate_radius * 1.8 or last_good_xy is None:
-                    meas = np.array([[mx], [my]], dtype=np.float64)
-                    meas_src = "hsv_global"
-                    best_score = 0.25 + 0.0001 * area
+                    candidates.append(
+                        {
+                            "src": "hsv_global",
+                            "x": float(mx),
+                            "y": float(my),
+                            "yolo_conf": 0.15,
+                            "color": float(min(1.0, 0.25 + 0.0001 * area)),
+                        }
+                    )
+
+        meas = None
+        meas_src = ""
+        fused_conf = 0.0
+        detected = False
+
+        pred_xy = (float(px), float(py))
+        best = None
+        best_score = -1e9
+        for cand in candidates:
+            mx = cand.get("x", np.nan)
+            my = cand.get("y", np.nan)
+            if not np.isfinite(mx) or not np.isfinite(my):
+                continue
+            diff = np.array([[mx - pred_xy[0]], [my - pred_xy[1]]], dtype=np.float64)
+            maha_sq = float(diff.T @ S_inv @ diff)
+            if not np.isfinite(maha_sq):
+                continue
+            if maha_sq > maha_gate and miss < 6:
+                continue
+            y_conf = float(max(0.0, min(1.0, cand.get("yolo_conf", 0.0))))
+            color_prob = float(max(0.0, min(1.0, cand.get("color", 0.0))))
+            score = score_candidate(mx, my, y_conf, color_prob, pred_xy, S_inv)
+            if score > best_score:
+                best_score = score
+                best = (mx, my, str(cand.get("src", "")))
+
+        if best is not None:
+            meas = np.array([[best[0]], [best[1]]], dtype=np.float64)
+            meas_src = best[2]
+            detected = True
+            fused_conf = float(max(0.0, min(1.0, best_score / 4.5)))
 
         if meas is not None:
             state_filt = kf.update(meas)
@@ -455,9 +519,9 @@ def main() -> None:
             last_good_xy = (cx, cy)
             last_template = extract_patch(gray, cx, cy, 21)
             miss = 0
-            pad = float(args.roi_pad)
+            roi_pad = float(args.roi_pad)
             visible = 1
-            conf = float(max(0.05, min(1.0, best_score)))
+            conf = float(max(0.05, min(1.0, fused_conf)))
             last_conf = conf
             yolo_conf_dyn = float(args.yolo_conf)
         else:
@@ -470,13 +534,10 @@ def main() -> None:
             visible = 0
             last_conf *= 0.8
             conf = float(max(0.01, min(1.0, last_conf)))
-            yolo_conf_dyn = max(0.05, yolo_conf_dyn * 0.85)
-            if miss == 1:
-                pad = min(float(args.roi_pad_max), float(args.roi_pad) * 1.5)
-            else:
-                pad = min(float(args.roi_pad_max), pad * 1.5)
+            roi_pad = float(min(int(roi_pad * 1.5), args.roi_pad_max))
+            yolo_conf_dyn = max(0.04, args.yolo_conf - 0.02)
             if miss > args.max_miss:
-                pad = float(args.roi_pad_max)
+                roi_pad = float(args.roi_pad_max)
 
         filtered_states.append(state_filt.x.copy())
         filtered_covs.append(state_filt.P.copy())
@@ -507,7 +568,7 @@ def main() -> None:
         os.makedirs(os.path.dirname(args.out_csv), exist_ok=True) if os.path.dirname(args.out_csv) else None
         with open(args.out_csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["frame", "time", "cx", "cy", "visible", "conf", "vx", "vy", "miss_streak"])
+            w.writerow(["frame", "time", "cx", "cy", "visible", "conf", "miss_streak"])
         print(f"Saved {args.out_csv}")
         return
 
@@ -534,13 +595,11 @@ def main() -> None:
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True) if os.path.dirname(args.out_csv) else None
     with open(args.out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["frame", "time", "cx", "cy", "visible", "conf", "vx", "vy", "miss_streak"])
+        writer.writerow(["frame", "time", "cx", "cy", "visible", "conf", "miss_streak"])
         for i, rec in enumerate(records):
             xs_i = xs_smooth[i]
             cx = ensure_float(xs_i[0, 0])
             cy = ensure_float(xs_i[1, 0])
-            vx = ensure_float(xs_i[2, 0])
-            vy = ensure_float(xs_i[3, 0])
             writer.writerow(
                 [
                     int(rec["frame"]),
@@ -549,8 +608,6 @@ def main() -> None:
                     f"{cy:.3f}",
                     int(visible_flags[i]),
                     f"{float(conf_scores[i]):.3f}",
-                    f"{vx:.3f}",
-                    f"{vy:.3f}",
                     int(miss_history[i]),
                 ]
             )
