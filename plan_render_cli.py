@@ -9,7 +9,94 @@ import pandas as pd
 from scipy.signal import savgol_filter
 
 
-# === ADD imports ===
+def ema(series, alpha):
+    out = np.empty_like(series, dtype=np.float32)
+    m = np.isnan(series)
+    idx = np.where(~m)[0]
+    if len(idx) == 0:
+        return np.zeros_like(series, dtype=np.float32)
+    first = idx[0]
+    out[: first + 1] = series[first]
+    prev = series[first]
+    for i in range(first + 1, len(series)):
+        x = series[i]
+        if np.isnan(x):
+            out[i] = prev
+        else:
+            prev = alpha * x + (1 - alpha) * prev
+            out[i] = prev
+    return out
+
+
+def kalman_1d(z, q=0.08, r=4.0):
+    """
+    Minimal constant-velocity Kalman for 1D with NaN handling.
+    q: process noise, r: measurement noise (tune per dataset)
+    Returns (x, v) filtered states.
+    """
+
+    n = len(z)
+    x = np.zeros(n, dtype=np.float32)
+    v = np.zeros(n, dtype=np.float32)
+    P = np.eye(2, dtype=np.float32) * 1e3
+    F = np.array([[1, 1], [0, 1]], dtype=np.float32)
+    Q = np.array([[q, 0], [0, q]], dtype=np.float32)
+    H = np.array([[1, 0]], dtype=np.float32)
+    R = np.array([[r]], dtype=np.float32)
+
+    idx = np.where(~np.isnan(z))[0]
+    if len(idx) == 0:
+        return x, v
+    k0 = idx[0]
+    x[k0] = z[k0]
+    v[k0] = 0.0
+    for t in range(k0 + 1, n):
+        xv = np.array([x[t - 1], v[t - 1]], dtype=np.float32)
+        xv = F @ xv
+        P[:] = F @ P @ F.T + Q
+
+        if np.isnan(z[t]):
+            x[t], v[t] = xv
+            continue
+
+        y = z[t] - (H @ xv)[0]
+        S = H @ P @ H.T + R
+        K = (P @ H.T) / S
+        xv = xv + (K.flatten() * y)
+        P[:] = (np.eye(2, dtype=np.float32) - K @ H) @ P
+        x[t], v[t] = xv
+    for t in range(k0 - 1, -1, -1):
+        x[t] = x[t + 1] - v[t + 1]
+        v[t] = v[t + 1]
+    return x, v
+
+
+def smooth_xy(cx, cy, ema_alpha=0.25, k_q=0.08, k_r=4.0):
+    kx, vx = kalman_1d(cx, q=k_q, r=k_r)
+    ky, vy = kalman_1d(cy, q=k_q, r=k_r)
+    sx = ema(kx, ema_alpha)
+    sy = ema(ky, ema_alpha)
+    return sx, sy, vx, vy
+
+
+def clamp(v, lo, hi):
+    return lo if v < lo else hi if v > hi else v
+
+
+def clamp_vec(center, half_w, half_h, src_w, src_h):
+    cx, cy = center
+    cx = clamp(cx, half_w, src_w - half_w)
+    cy = clamp(cy, half_h, src_h - half_h)
+    return cx, cy
+
+
+def limit_step(prev, target, max_step):
+    delta = target - prev
+    if np.abs(delta) <= max_step:
+        return target
+    return prev + np.sign(delta) * max_step
+
+
 def odd_window(fps, seconds, minimum=5):
     n = max(minimum, int(round(fps * seconds)))
     if n % 2 == 0:
@@ -26,10 +113,6 @@ def smooth_series(arr, fps, sec=0.7, poly=2):
     if win < 3:
         return arr
     return savgol_filter(arr, win, poly)
-
-
-def clamp(v, lo, hi):
-    return float(max(lo, min(hi, v)))
 
 
 def main() -> None:
@@ -92,16 +175,35 @@ def main() -> None:
         raise RuntimeError("Track CSV is empty")
 
     fps = max(1.0, float(fps))
+    dt = 1.0 / fps
     N = len(df)
 
     cx = df["cx"].to_numpy(np.float32)
+    cy = df["cy"].to_numpy(np.float32)
     cx_series = pd.Series(cx)
-    cx_filled = cx_series.interpolate(limit=12, limit_direction="both").fillna(method="ffill").fillna(method="bfill").to_numpy(np.float32)
-    vx = np.gradient(cx_filled) * fps
+    cy_series = pd.Series(cy)
+    cx_interp = (
+        cx_series.interpolate(limit=12, limit_direction="both")
+        .fillna(method="ffill")
+        .fillna(method="bfill")
+        .to_numpy(np.float32)
+    )
+    cy_interp = (
+        cy_series.interpolate(limit=12, limit_direction="both")
+        .fillna(method="ffill")
+        .fillna(method="bfill")
+        .to_numpy(np.float32)
+    )
+
+    sx, sy, vx_raw, _ = smooth_xy(cx, cy)
+    cx_filled = np.where(np.isfinite(sx), sx, cx_interp)
+    cy_filled = np.where(np.isfinite(sy), sy, cy_interp)
+    vx = vx_raw * fps
 
     base_tau = getattr(args, "lookahead_s", 1.0)
     tau = base_tau * (1.0 + 0.6 * np.clip(np.abs(vx) / 400.0, 0, 1))
     lead_cx = cx_filled + tau * vx
+    lead_cx = ema(lead_cx.astype(np.float32), 0.20)
 
     pass_speed = getattr(args, "pass_speed", 360.0)
     pass_mask = (np.abs(vx) > pass_speed).astype(np.float32)
@@ -124,6 +226,13 @@ def main() -> None:
     loss_streak = int(getattr(args, "loss_streak", 4))
     prewiden_factor = float(getattr(args, "prewiden_factor", 1.30))
 
+    slew = float(getattr(args, "slew", 80.0))
+    accel = float(getattr(args, "accel", 260.0))
+    max_jerk = float(getattr(args, "max_jerk", 500.0))
+    z_rate = float(getattr(args, "zoom_rate", 0.10))
+    z_accel = float(getattr(args, "zoom_accel", 0.30))
+    z_jerk = float(getattr(args, "zoom_jerk", 0.60))
+
     left_path = np.zeros(N, dtype=np.float32)
     zoom_path = np.ones(N, dtype=np.float32) * zoom_min
 
@@ -135,6 +244,7 @@ def main() -> None:
     hyst = int(getattr(args, "hyst", 90))
     z_dead = 0.03
     stable_count = 0
+    prev_left = left
 
     for i in range(N):
         vis = int(df.at[i, "visible"]) if i < len(df) else 0
@@ -180,6 +290,11 @@ def main() -> None:
                 break
             inner_loops += 1
 
+        desired_left = clamp(desired_left, 0, W_src - eff_w)
+        if i > 0:
+            max_step = max(slew * dt, 1.0)
+            desired_left = limit_step(prev_left, desired_left, max_step)
+
         if i > 0 and abs(zoom - zoom_path[i - 1]) < z_dead:
             zoom = zoom_path[i - 1]
 
@@ -189,15 +304,8 @@ def main() -> None:
         left = clamp(desired_left, 0, W_src - eff_w)
         left = clamp(left, 0, W_src - eff_w)
         left_path[i] = float(left)
+        prev_left = left
 
-    slew = float(getattr(args, "slew", 80.0))
-    accel = float(getattr(args, "accel", 260.0))
-    max_jerk = float(getattr(args, "max_jerk", 500.0))
-    z_rate = float(getattr(args, "zoom_rate", 0.10))
-    z_accel = float(getattr(args, "zoom_accel", 0.30))
-    z_jerk = float(getattr(args, "zoom_jerk", 0.60))
-
-    dt = 1.0 / fps
     L = left_path.copy()
     Z = zoom_path.copy()
 
@@ -234,9 +342,13 @@ def main() -> None:
         cx_i = cx_filled[i]
         if np.isfinite(cx_i):
             if cx_i < left_edge:
-                left = clamp(cx_i - keep_margin, 0, W_src - eff_w)
+                target_left = clamp(cx_i - keep_margin, 0, W_src - eff_w)
+                left = limit_step(left, target_left, max(slew * dt, 1.0))
+                left = clamp(left, 0, W_src - eff_w)
             elif cx_i > right_edge:
-                left = clamp(cx_i + keep_margin - eff_w, 0, W_src - eff_w)
+                target_left = clamp(cx_i + keep_margin - eff_w, 0, W_src - eff_w)
+                left = limit_step(left, target_left, max(slew * dt, 1.0))
+                left = clamp(left, 0, W_src - eff_w)
         L_clamp[i] = left
 
     left_path = L_clamp.astype(np.float32)
@@ -259,6 +371,9 @@ def main() -> None:
         eff_w = int(round(crop_w_base / max(zoom_val, 1e-6)))
         eff_w = max(2, min(eff_w, W_src))
         left_val = clamp(left_path[idx], 0, W_src - eff_w)
+        center = (left_val + 0.5 * eff_w, H_src * 0.5)
+        cx_center, _ = clamp_vec(center, eff_w * 0.5, H_src * 0.5, W_src, H_src)
+        left_val = cx_center - 0.5 * eff_w
         left_int = int(round(left_val))
         left_int = int(clamp(left_int, 0, max(W_src - eff_w, 0)))
         right_int = min(W_src, left_int + eff_w)
@@ -282,6 +397,7 @@ def main() -> None:
             "left": left_path[:frame_count],
             "zoom": zoom_path[:frame_count],
             "cx": cx_filled[:frame_count],
+            "cy": cy_filled[:frame_count],
             "lead": lead_cx[:frame_count],
             "visible": df["visible"].to_numpy(dtype=int)[:frame_count],
             "conf": df["conf"].to_numpy(dtype=float)[:frame_count],
