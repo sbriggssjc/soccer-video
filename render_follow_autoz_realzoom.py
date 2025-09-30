@@ -1,6 +1,25 @@
 ﻿import pandas as pd, numpy as np, cv2, os, subprocess
 from scipy.signal import savgol_filter
 
+def letterbox_to_size(img, out_w, out_h):
+    """
+    Resize to fit inside (out_w,out_h) without warping.
+    Pads equally on all sides using BORDER_REPLICATE so the edges don't go black.
+    """
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return np.zeros((out_h, out_w, 3), dtype=np.uint8)
+    scale = min(out_w / w, out_h / h)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    pad_left  = (out_w - new_w) // 2
+    pad_right = out_w - new_w - pad_left
+    pad_top   = (out_h - new_h) // 2
+    pad_bot   = out_h - new_h - pad_top
+    return cv2.copyMakeBorder(resized, pad_top, pad_bot, pad_left, pad_right, cv2.BORDER_REPLICATE)
+
+
 # ---- Inputs / outputs ----
 clip       = r'.\out\atomic_clips\004__GOAL__t266.50-t283.10.mp4'
 track_csv  = r'.\out\autoframe_work\ball_track.csv'
