@@ -238,14 +238,12 @@ def main() -> None:
     ty = sy + vy * 0.25 * lead_scale
 
     AR = OUT_W / max(OUT_H, 1)
-    vw_min = 900.0
-    vw_max = 1600.0
+    vw_min = 820.0
+    vw_max = 1400.0
     vw = vw_max - (vw_max - vw_min) * np.clip(speed / 30.0, 0.0, 1.0)
     vh = vw / AR
 
-    safe_margin = 0.22
-    max_pan_px = 32.0
-    max_zoom_px = 22.0
+    safe_margin = 0.12
 
     centers_x = np.zeros_like(sx, dtype=np.float32)
     centers_y = np.zeros_like(sy, dtype=np.float32)
@@ -271,6 +269,10 @@ def main() -> None:
         cy_tgt = ty[t] if not np.isnan(ty[t]) else centers_y[t - 1]
         vw_tgt = vw[t] if vw[t] > 0 else view_w[t - 1]
         vh_tgt = vw_tgt / AR
+
+        spd = float(speed[t - 1] if t > 0 else 0.0)
+        max_pan_px = float(np.clip(6.0 + 1.15 * spd, 12.0, 85.0))
+        max_zoom_px = float(np.clip(5.0 + 0.70 * spd, 8.0, 36.0))
 
         cx_soft = limit_step(centers_x[t - 1], cx_tgt, max_pan_px)
         cy_soft = limit_step(centers_y[t - 1], cy_tgt, max_pan_px)
@@ -318,6 +320,22 @@ def main() -> None:
         cx_soft += shift_x
         cy_soft += shift_y
 
+        left = cx_soft - half_w
+        right = cx_soft + half_w
+        top = cy_soft - half_h
+        bottom = cy_soft + half_h
+
+        edge = max(18.0, min(36.0, 0.06 * vw_soft))
+        if bx < left + edge:
+            cx_soft = bx + half_w - edge
+        elif bx > right - edge:
+            cx_soft = bx - half_w + edge
+
+        if by < top + edge:
+            cy_soft = by + half_h - edge
+        elif by > bottom - edge:
+            cy_soft = by - half_h + edge
+
         cx_soft, cy_soft = clamp_vec((cx_soft, cy_soft), half_w, half_h, SRC_W, SRC_H)
 
         centers_x[t] = cx_soft
@@ -332,8 +350,8 @@ def main() -> None:
             view_w[t] = view_w[t + 1]
             view_h[t] = view_h[t + 1]
 
-    centers_x = ema(centers_x, 0.10)
-    centers_y = ema(centers_y, 0.10)
+    centers_x = ema(centers_x, 0.08)
+    centers_y = ema(centers_y, 0.08)
 
     df["center_x"] = centers_x
     df["center_y"] = centers_y
