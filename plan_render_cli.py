@@ -176,9 +176,9 @@ def main() -> None:
 
     # Composition controls
     ap.add_argument("--left_frac", type=float, default=0.48)
-    ap.add_argument("--keep_margin", type=float, default=220.0)
+    ap.add_argument("--keep_margin", type=float, default=250.0)
     ap.add_argument("--zoom_min", type=float, default=1.00)
-    ap.add_argument("--zoom_max", type=float, default=1.45)
+    ap.add_argument("--zoom_max", type=float, default=1.55)
     ap.add_argument("--start_wide_s", type=float, default=1.6)
     ap.add_argument("--min_streak", type=int, default=16)
     ap.add_argument("--loss_streak", type=int, default=4)
