@@ -343,6 +343,25 @@ def mix_scalar(a: float, b: float, weight: float) -> float:
     return (1.0 - w) * float(a) + w * float(b)
 
 
+def blend_points(weighted_points: Sequence[Tuple[float, Sequence[float]]]) -> Optional[np.ndarray]:
+    """Blend 2D points with normalized weights, ignoring invalid entries."""
+
+    accum = np.zeros(2, dtype=np.float64)
+    total = 0.0
+    for weight, pt in weighted_points:
+        w = float(weight)
+        if w <= 0.0:
+            continue
+        arr = np.asarray(pt, dtype=np.float64)
+        if arr.size != 2 or not np.all(np.isfinite(arr)):
+            continue
+        accum += w * arr
+        total += w
+    if total <= 1e-6:
+        return None
+    return accum / total
+
+
 def euclidean_distance(ax: float, ay: float, bx: float, by: float) -> float:
     return float(np.hypot(ax - bx, ay - by))
 
@@ -671,6 +690,18 @@ def main() -> None:
     SHOT_TOWARD_CO = 0.65
     SHOT_SPEED_Q = 88.0
     SHOT_WIDEN = 0.20
+    DRIBBLE_SPEED_MAX = 520.0
+    DRIBBLE_ACCEL_MIN = 380.0
+    DRIBBLE_HEADING_MIN = 22.0
+    DRIBBLE_NEAR_MAX = 88.0
+    PASS_SPEED_MIN = 600.0
+    PASS_ACCEL_MIN = 300.0
+    PASS_HEADING_MAX = 18.0
+    PASS_DIST_RATE_MIN = 110.0
+    PASS_FORWARD_MIN = 35.0
+    PASS_PERP_MAX = 220.0
+    SHOT_SPEED_MIN = 900.0
+    SHOT_TOWARD_MIN = 0.60
 
     time_ms = (frames - frames[0]).astype(np.float64) * (1000.0 / fps)
     time_s = time_ms / 1000.0
@@ -794,6 +825,9 @@ def main() -> None:
         else 0.0
     )
     shot_speed_threshold = max(shot_speed_q, 1e-6)
+    shot_speed_required = max(SHOT_SPEED_MIN, shot_speed_threshold)
+    pass_speed_required = max(PASS_SPEED_MIN, 0.45 * shot_speed_required)
+    dribble_speed_cap = min(DRIBBLE_SPEED_MAX, 0.75 * pass_speed_required)
 
     if goal_center_x is not None:
         goal_center_x = _fit_len(goal_center_x, N, field_center_x)
@@ -886,6 +920,176 @@ def main() -> None:
             gy = float(goal_center_y[idx])
         return gx, gy
 
+    goal_targets = (
+        np.array([goal_target_for_frame(i) for i in range(N)], dtype=np.float64)
+        if N > 0
+        else np.zeros((0, 2), dtype=np.float64)
+    )
+
+    if player_tracks:
+        try:
+            player_positions = np.stack(player_tracks, axis=0)
+        except ValueError:
+            player_positions = np.empty((0, N, 2), dtype=np.float64)
+    else:
+        player_positions = np.empty((0, N, 2), dtype=np.float64)
+
+    nearest_positions = np.full((N, 2), np.nan, dtype=np.float64)
+    nearest_distance = np.full((N,), np.nan, dtype=np.float64)
+    receiver_positions = np.full((N, 2), np.nan, dtype=np.float64)
+
+    ball_valid = np.isfinite(ball_x) & np.isfinite(ball_y)
+    ball_speed = safe_norm(ball_vel)
+    if ball_speed.size:
+        ball_speed[~ball_valid] = 0.0
+
+    if N >= 2:
+        edge_order = 2 if N > 2 else 1
+        ax = np.gradient(ball_vel[:, 0], time_s, edge_order=edge_order)
+        ay = np.gradient(ball_vel[:, 1], time_s, edge_order=edge_order)
+        ball_accel_vec = np.stack([ax, ay], axis=1)
+        ball_accel = safe_norm(ball_accel_vec)
+    else:
+        ball_accel = np.zeros_like(ball_speed)
+    if ball_accel.size:
+        ball_accel[~ball_valid] = 0.0
+
+    ball_unit = np.zeros_like(ball_vel)
+    valid_speed_mask = ball_speed > 1e-6
+    if valid_speed_mask.any():
+        ball_unit[valid_speed_mask] = (
+            ball_vel[valid_speed_mask] / ball_speed[valid_speed_mask][:, None]
+        )
+
+    heading_change = np.zeros(N, dtype=np.float64)
+    if N >= 2:
+        dots = np.sum(ball_unit[1:] * ball_unit[:-1], axis=1)
+        dots = np.clip(dots, -1.0, 1.0)
+        delta = np.degrees(np.arccos(dots))
+        pair_mask = valid_speed_mask[1:] & valid_speed_mask[:-1]
+        heading_change[1:] = np.where(pair_mask, delta, 0.0)
+
+    toward_goal_val = toward_goal(ball_vel, goal_vec)
+    if toward_goal_val.size:
+        toward_goal_val = np.clip(toward_goal_val, -1.0, 1.0)
+        toward_goal_val[~ball_valid] = -1.0
+
+    if player_positions.size:
+        for idx in range(N):
+            if not ball_valid[idx]:
+                continue
+            px = player_positions[:, idx, 0]
+            py = player_positions[:, idx, 1]
+            mask = np.isfinite(px) & np.isfinite(py)
+            if not np.any(mask):
+                continue
+            dx = px[mask] - ball_x[idx]
+            dy = py[mask] - ball_y[idx]
+            dist = np.hypot(dx, dy)
+            mask_indices = np.where(mask)[0]
+            nearest_idx = int(np.argmin(dist))
+            track_idx = mask_indices[nearest_idx]
+            nearest_positions[idx] = player_positions[track_idx, idx]
+            nearest_distance[idx] = dist[nearest_idx]
+            speed_now = ball_speed[idx]
+            if speed_now < pass_speed_required or speed_now <= 1e-6:
+                continue
+            dir_unit = ball_vel[idx] / max(speed_now, 1e-6)
+            proj = dx * dir_unit[0] + dy * dir_unit[1]
+            perp = np.sqrt(np.clip(dist ** 2 - proj ** 2, 0.0, None))
+            order = np.argsort(perp)
+            for order_idx in order:
+                cand_track = mask_indices[order_idx]
+                if cand_track == track_idx:
+                    continue
+                if proj[order_idx] <= PASS_FORWARD_MIN:
+                    continue
+                if perp[order_idx] > PASS_PERP_MAX:
+                    continue
+                receiver_positions[idx] = player_positions[cand_track, idx]
+                break
+
+    if N >= 2:
+        dist_series = nearest_distance.copy()
+        finite_idx = np.where(np.isfinite(dist_series))[0]
+        if finite_idx.size >= 2:
+            interp = np.interp(np.arange(N), finite_idx, dist_series[finite_idx])
+        elif finite_idx.size == 1:
+            interp = np.full(N, dist_series[finite_idx[0]], dtype=np.float64)
+        else:
+            interp = np.zeros(N, dtype=np.float64)
+        edge_order = 2 if N > 2 else 1
+        dist_rate = np.gradient(interp, time_s, edge_order=edge_order)
+        if dist_rate.size:
+            dist_rate[~np.isfinite(dist_series)] = 0.0
+    else:
+        dist_rate = np.zeros(N, dtype=np.float64)
+
+    nearest_valid_mask = (
+        np.all(np.isfinite(nearest_positions), axis=1) if N else np.zeros(0, dtype=bool)
+    )
+    receiver_valid_mask = (
+        np.all(np.isfinite(receiver_positions), axis=1) if N else np.zeros(0, dtype=bool)
+    )
+
+    dribble_mask = (
+        valid_speed_mask
+        & nearest_valid_mask
+        & (ball_speed <= dribble_speed_cap)
+        & (nearest_distance <= DRIBBLE_NEAR_MAX)
+        & ((ball_accel >= DRIBBLE_ACCEL_MIN) | (heading_change >= DRIBBLE_HEADING_MIN))
+    )
+
+    pass_mask = (
+        valid_speed_mask
+        & receiver_valid_mask
+        & (ball_speed >= pass_speed_required)
+        & (ball_accel >= PASS_ACCEL_MIN)
+        & (heading_change <= PASS_HEADING_MAX)
+        & (dist_rate >= PASS_DIST_RATE_MIN)
+    )
+
+    shot_mask = (
+        valid_speed_mask
+        & (ball_speed >= shot_speed_required)
+        & (toward_goal_val >= SHOT_TOWARD_MIN)
+    )
+
+    pass_mask &= ~shot_mask
+    dribble_mask &= ~shot_mask & ~pass_mask
+
+    composition_points = np.full((N, 2), np.nan, dtype=np.float64)
+    action_codes = np.zeros(N, dtype=np.int8)
+    for idx in range(N):
+        if not ball_valid[idx]:
+            continue
+        base = np.array([ball_x[idx], ball_y[idx]], dtype=np.float64)
+        components: List[Tuple[float, Sequence[float]]] = [(1.0, base)]
+        if shot_mask[idx]:
+            action_codes[idx] = 3
+            components = [(0.6, base)]
+            if idx < goal_targets.shape[0] and np.all(np.isfinite(goal_targets[idx])):
+                components.append((0.25, goal_targets[idx]))
+            shooter = nearest_positions[idx]
+            if np.all(np.isfinite(shooter)):
+                components.append((0.15, shooter))
+        elif pass_mask[idx]:
+            action_codes[idx] = 2
+            passer = nearest_positions[idx]
+            receiver = receiver_positions[idx]
+            if np.all(np.isfinite(passer)) and np.all(np.isfinite(receiver)):
+                mid = 0.5 * (passer + receiver)
+                components = [(0.6, base), (0.4, mid)]
+        elif dribble_mask[idx]:
+            action_codes[idx] = 1
+            carrier = nearest_positions[idx]
+            if np.all(np.isfinite(carrier)):
+                components = [(0.3, base), (0.7, carrier)]
+        comp = blend_points(components)
+        if comp is None:
+            comp = base
+        composition_points[idx] = comp
+
     cx_out = np.empty_like(cx_s)
     cy_out = np.empty_like(cy_s)
     initial_pan = boot_seed_x if np.isfinite(boot_seed_x) else float(cx_s[0])
@@ -922,24 +1126,39 @@ def main() -> None:
                     tilt_target = float(field_center_y)
             z_guard_wide = True
 
+        comp_xy = (
+            composition_points[idx]
+            if idx < composition_points.shape[0]
+            else np.array([np.nan, np.nan], dtype=np.float64)
+        )
+        comp_valid = bool(comp_xy.size == 2 and np.all(np.isfinite(comp_xy)))
+        nearest_xy = (
+            nearest_positions[idx]
+            if idx < nearest_positions.shape[0]
+            else np.array([np.nan, np.nan], dtype=np.float64)
+        )
+        nearest_pos = (
+            (float(nearest_xy[0]), float(nearest_xy[1]))
+            if np.all(np.isfinite(nearest_xy))
+            else None
+        )
+        best_dist = float("inf")
+        if (
+            nearest_pos is not None
+            and idx < nearest_distance.shape[0]
+            and np.isfinite(nearest_distance[idx])
+        ):
+            best_dist = float(nearest_distance[idx])
+
         bx = float(ball_x[idx]) if not np.isnan(ball_x[idx]) else None
         by = float(ball_y[idx]) if not np.isnan(ball_y[idx]) else None
         conf = float(ball_conf[idx])
         if bx is not None and by is not None:
-            if conf >= conf_primary:
+            if comp_valid and conf >= conf_primary:
+                pan_target = float(comp_xy[0])
+            elif conf >= conf_primary:
                 pan_target = bx
             else:
-                nearest_pos: Optional[Tuple[float, float]] = None
-                if player_tracks:
-                    best_dist = float('inf')
-                    for track in player_tracks:
-                        px, py = track[idx]
-                        if np.isnan(px) or np.isnan(py):
-                            continue
-                        d = euclidean_distance(px, py, bx, by)
-                        if d < best_dist:
-                            best_dist = d
-                            nearest_pos = (float(px), float(py))
                 if (
                     nearest_pos is not None
                     and best_dist < PLAYER_RADIUS_PX
@@ -948,8 +1167,11 @@ def main() -> None:
                     pan_target = mix_scalar(pan_prev_target, nearest_pos[0], 0.15)
                 else:
                     pan_target = pan_prev_target
-            if args.v_enabled and conf >= args.conf_th:
-                tilt_target = by
+            if args.v_enabled:
+                if comp_valid and conf >= args.conf_th:
+                    tilt_target = float(comp_xy[1])
+                elif conf >= args.conf_th:
+                    tilt_target = by
 
         if celebration_mask[idx]:
             ref_bx = (
