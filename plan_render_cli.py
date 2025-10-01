@@ -11,6 +11,23 @@ import pandas as pd
 from scipy.signal import savgol_filter
 
 
+def smooth_series(vals, max_step=None, window=9, poly=2):
+    vals = np.asarray(vals, dtype=np.float32)
+    if len(vals) == 0:
+        return vals
+    if max_step is not None and len(vals) > 1:
+        for i in range(1, len(vals)):
+            d = vals[i] - vals[i - 1]
+            if d > max_step:
+                vals[i] = vals[i - 1] + max_step
+            elif d < -max_step:
+                vals[i] = vals[i - 1] - max_step
+    w = min(window, len(vals) - (1 - len(vals) % 2))
+    if w >= 5 and w % 2 == 1:
+        vals = savgol_filter(vals, w, poly, mode="interp")
+    return vals
+
+
 def letterbox_to_size(img, out_w, out_h):
     """Resize to fit inside (out_w, out_h) without changing aspect."""
 
@@ -218,24 +235,6 @@ def limit_step(prev, target, max_step):
     return prev + np.sign(delta) * max_step
 
 
-def odd_window(fps, seconds, minimum=5):
-    n = max(minimum, int(round(fps * seconds)))
-    if n % 2 == 0:
-        n += 1
-    return n
-
-
-def smooth_series(arr, fps, sec=0.7, poly=2):
-    arr = np.asarray(arr, dtype=np.float32)
-    if len(arr) < 7:
-        return arr
-    win = odd_window(fps, sec, 7)
-    win = min(win, len(arr) - (1 - len(arr) % 2))
-    if win < 3:
-        return arr
-    return savgol_filter(arr, win, poly)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--clip", required=True)
@@ -364,157 +363,65 @@ def main() -> None:
     tx = sx + vx * 0.25 * lead_scale
     ty = sy + vy * 0.25 * lead_scale
 
-    # --- Viewport planning with hard aspect-ratio crop --------------------
-    out_ar = float(OUT_W) / float(OUT_H)
-    src_ar = float(SRC_W) / float(SRC_H if SRC_H else 1)
-
-    if src_ar >= out_ar:
-        base_crop_h = float(SRC_H)
-        base_crop_w = base_crop_h * out_ar
-    else:
-        base_crop_w = float(SRC_W)
-        base_crop_h = base_crop_w / out_ar
-
-    base_crop_w = min(float(SRC_W), max(2.0, base_crop_w))
-    base_crop_h = min(float(SRC_H), max(2.0, base_crop_h))
-
-    zoom_min_factor = max(1.0, float(args.zoom_min))
-    zoom_max_factor = max(zoom_min_factor, float(args.zoom_max))
-
-    max_pan_per_frame = 25.0
-    max_pan_accel = 12.0
-    max_zoom_step = 0.03
-    max_zoom_accel = 0.015
-
-    safe_box_frac = 0.60
+    CROP_W = min(OUT_W, SRC_W)
+    CROP_H = min(OUT_H, SRC_H)
 
     target_x = np.where(np.isfinite(tx), tx, cx_interp)
     target_y = np.where(np.isfinite(ty), ty, cy_interp)
 
-    stage_a_x = ema(target_x, alpha=0.30)
-    stage_a_y = ema(target_y, alpha=0.30)
+    deadband_w = int(CROP_W * 0.60)
+    deadband_h = int(CROP_H * 0.60)
 
-    centers_x = np.zeros_like(stage_a_x, dtype=np.float32)
-    centers_y = np.zeros_like(stage_a_y, dtype=np.float32)
-    zoom_series = np.zeros_like(stage_a_x, dtype=np.float32)
-    view_w = np.zeros_like(stage_a_x, dtype=np.float32)
-    view_h = np.zeros_like(stage_a_y, dtype=np.float32)
-    pan_delta_x = np.zeros_like(stage_a_x, dtype=np.float32)
-    pan_delta_y = np.zeros_like(stage_a_x, dtype=np.float32)
-    zoom_delta_series = np.zeros_like(stage_a_x, dtype=np.float32)
+    x0_vals = []
+    y0_vals = []
 
-    def compute_zoom_target(speed_px, occ_ratio):
-        if np.isnan(speed_px):
-            base = zoom_min_factor
-        elif speed_px <= 4.0:
-            base = min(zoom_max_factor, zoom_min_factor + 0.20)
-        elif speed_px <= 12.0:
-            base = min(zoom_max_factor, zoom_min_factor + 0.08)
-        else:
-            base = zoom_min_factor
-        if occ_ratio > 0.0:
-            base = min(zoom_max_factor, base + 0.25 * occ_ratio)
-        return base
+    max_x = max(0, SRC_W - CROP_W)
+    max_y = max(0, SRC_H - CROP_H)
 
-    half_w0 = base_crop_w * 0.5 / zoom_min_factor
-    half_h0 = base_crop_h * 0.5 / zoom_min_factor
+    x0_curr = int(np.clip(target_x[0] - CROP_W * 0.5, 0, max_x)) if len(target_x) else 0
+    y0_curr = int(np.clip(target_y[0] - CROP_H * 0.5, 0, max_y)) if len(target_y) else 0
 
-    centers_x[0] = clamp(stage_a_x[0], half_w0, SRC_W - half_w0)
-    centers_y[0] = clamp(stage_a_y[0], half_h0, SRC_H - half_h0)
-    zoom_series[0] = compute_zoom_target(speed_arr[0], 0.0)
-    zoom_series[0] = clamp(zoom_series[0], zoom_min_factor, zoom_max_factor)
-    view_w[0] = base_crop_w / zoom_series[0]
-    view_h[0] = base_crop_h / zoom_series[0]
+    for tx_i, ty_i in zip(target_x, target_y):
+        x0 = x0_curr
+        safe_x0 = x0 + (CROP_W - deadband_w) // 2
+        safe_x1 = safe_x0 + deadband_w
+        if tx_i < safe_x0:
+            x0 -= int(round(safe_x0 - tx_i))
+        elif tx_i > safe_x1:
+            x0 += int(round(tx_i - safe_x1))
+        x0 = int(max(0, min(x0, max_x)))
 
-    for t in range(1, len(stage_a_x)):
-        occ_frames = int(occlusion_frames[t]) if t < len(occlusion_frames) else 0
-        occ_ratio = min(1.0, occ_frames / float(max(1, deadreckon_limit))) if occ_frames > 0 else 0.0
+        y0 = y0_curr
+        safe_y0 = y0 + (CROP_H - deadband_h) // 2
+        safe_y1 = safe_y0 + deadband_h
+        if ty_i < safe_y0:
+            y0 -= int(round(safe_y0 - ty_i))
+        elif ty_i > safe_y1:
+            y0 += int(round(ty_i - safe_y1))
+        y0 = int(max(0, min(y0, max_y)))
 
-        desired_zoom = compute_zoom_target(speed_arr[t], occ_ratio)
-        prev_zoom = zoom_series[t - 1]
-        zoom_step = clamp(desired_zoom - prev_zoom, -max_zoom_step, max_zoom_step)
-        zoom_step = clamp(zoom_step, zoom_delta_series[t - 1] - max_zoom_accel, zoom_delta_series[t - 1] + max_zoom_accel)
-        zoom_new = clamp(prev_zoom + zoom_step, zoom_min_factor, zoom_max_factor)
-        zoom_series[t] = zoom_new
-        zoom_delta_series[t] = zoom_step
+        x0_curr = x0
+        y0_curr = y0
 
-        vw = base_crop_w / zoom_new
-        vh = base_crop_h / zoom_new
-        view_w[t] = vw
-        view_h[t] = vh
+        x0_vals.append(x0_curr)
+        y0_vals.append(y0_curr)
 
-        prev_cx = centers_x[t - 1]
-        prev_cy = centers_y[t - 1]
+    x0_arr = smooth_series(x0_vals, max_step=25, window=9, poly=2)
+    y0_arr = smooth_series(y0_vals, max_step=25, window=9, poly=2)
 
-        safe_half_w = 0.5 * vw * safe_box_frac
-        safe_half_h = 0.5 * vh * safe_box_frac
+    x0_arr = np.clip(x0_arr, 0.0, float(max_x))
+    y0_arr = np.clip(y0_arr, 0.0, float(max_y))
 
-        cx_tgt = stage_a_x[t]
-        cy_tgt = stage_a_y[t]
+    centers_x = x0_arr + CROP_W * 0.5
+    centers_y = y0_arr + CROP_H * 0.5
 
-        desired_cx = prev_cx
-        if cx_tgt < prev_cx - safe_half_w:
-            desired_cx = cx_tgt + safe_half_w
-        elif cx_tgt > prev_cx + safe_half_w:
-            desired_cx = cx_tgt - safe_half_w
+    view_w = np.full_like(x0_arr, float(CROP_W), dtype=np.float32)
+    view_h = np.full_like(y0_arr, float(CROP_H), dtype=np.float32)
 
-        desired_cy = prev_cy
-        if cy_tgt < prev_cy - safe_half_h:
-            desired_cy = cy_tgt + safe_half_h
-        elif cy_tgt > prev_cy + safe_half_h:
-            desired_cy = cy_tgt - safe_half_h
-
-        step_x = clamp(desired_cx - prev_cx, -max_pan_per_frame, max_pan_per_frame)
-        step_x = clamp(step_x, pan_delta_x[t - 1] - max_pan_accel, pan_delta_x[t - 1] + max_pan_accel)
-
-        step_y = clamp(desired_cy - prev_cy, -max_pan_per_frame, max_pan_per_frame)
-        step_y = clamp(step_y, pan_delta_y[t - 1] - max_pan_accel, pan_delta_y[t - 1] + max_pan_accel)
-
-        new_cx = prev_cx + step_x
-        new_cy = prev_cy + step_y
-
-        half_w = vw * 0.5
-        half_h = vh * 0.5
-
-        new_cx, new_cy = clamp_vec((new_cx, new_cy), half_w, half_h, SRC_W, SRC_H)
-
-        centers_x[t] = new_cx
-        centers_y[t] = new_cy
-        pan_delta_x[t] = step_x
-        pan_delta_y[t] = step_y
-
-    x0_raw = centers_x - view_w * 0.5
-    y0_raw = centers_y - view_h * 0.5
-
-    def smooth_axis(arr):
-        arr = np.asarray(arr, dtype=np.float32)
-        if len(arr) < 5:
-            return arr
-        if len(arr) >= 9:
-            window = 9
-        else:
-            window = len(arr) if len(arr) % 2 == 1 else max(3, len(arr) - 1)
-        if window < 3 or window > len(arr):
-            return arr
-        return savgol_filter(arr, window_length=window, polyorder=2, mode="interp")
-
-    x0_smooth = smooth_axis(x0_raw)
-    y0_smooth = smooth_axis(y0_raw)
-
-    x0_clamped = np.clip(x0_smooth, 0.0, np.maximum(0.0, SRC_W - view_w))
-    y0_clamped = np.clip(y0_smooth, 0.0, np.maximum(0.0, SRC_H - view_h))
-
-    centers_x = (x0_clamped + view_w * 0.5).astype(np.float32)
-    centers_y = (y0_clamped + view_h * 0.5).astype(np.float32)
-
-    view_w = view_w.astype(np.float32)
-    view_h = view_h.astype(np.float32)
-    crop_x = x0_clamped.astype(np.float32)
-    crop_y = y0_clamped.astype(np.float32)
-    crop_h_arr = np.clip(np.round(view_h)).astype(int)
-    crop_h_arr = np.clip(crop_h_arr, 2, SRC_H)
-    crop_w_arr = np.clip(np.round(out_ar * crop_h_arr)).astype(int)
-    crop_w_arr = np.clip(crop_w_arr, 2, SRC_W)
+    crop_x = x0_arr.astype(np.float32)
+    crop_y = y0_arr.astype(np.float32)
+    crop_w_arr = np.full(len(x0_arr), CROP_W, dtype=int)
+    crop_h_arr = np.full(len(y0_arr), CROP_H, dtype=int)
 
     df["center_x"] = centers_x
     df["center_y"] = centers_y
@@ -554,8 +461,8 @@ def main() -> None:
         # --- AR-PRESERVING CROP ----------------------------------------------
         cx = centers_x[idx]
         cy = centers_y[idx]
-        crop_w = int(crop_w_arr[idx]) if idx < len(crop_w_arr) else int(out_ar * SRC_H)
-        crop_h = int(crop_h_arr[idx]) if idx < len(crop_h_arr) else SRC_H
+        crop_w = int(crop_w_arr[idx]) if idx < len(crop_w_arr) else CROP_W
+        crop_h = int(crop_h_arr[idx]) if idx < len(crop_h_arr) else CROP_H
         crop_w = max(2, min(crop_w, SRC_W))
         crop_h = max(2, min(crop_h, SRC_H))
 
@@ -566,11 +473,11 @@ def main() -> None:
 
         crop = bgr[top:bottom, left:right]
 
-        if crop.shape[0] <= 0 or crop.shape[1] <= 0:
-            frame = np.zeros((H_out, W_out, 3), dtype=np.uint8)
+        if crop.shape[0] == crop_h and crop.shape[1] == crop_w:
+            frame = crop
         else:
-            res = cv2.resize(crop, (W_out, H_out), interpolation=cv2.INTER_CUBIC)
-            frame = res
+            frame = np.zeros((crop_h, crop_w, 3), dtype=np.uint8)
+            frame[: crop.shape[0], : crop.shape[1]] = crop
         cv2.imwrite(
             str(out_frames_dir / f"f_{frame_count:06d}.jpg"),
             frame,
