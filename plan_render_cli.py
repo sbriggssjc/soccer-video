@@ -543,23 +543,30 @@ def main() -> None:
             left_val = cx_lead - args.left_frac * eff_w
             top_val = cy - 0.5 * eff_h
 
-        # Clamp to source bounds
+        # Clamp crop inside source (no padding)
         eff_w = max(2, min(eff_w, W_src))
         eff_h = max(2, min(eff_h, H_src))
-        left_int = int(round(clamp(left_val, 0, max(W_src - eff_w, 0))))
-        top_int = int(round(clamp(top_val, 0, max(H_src - eff_h, 0))))
-        right_int = min(W_src, left_int + eff_w)
-        bottom_int = min(H_src, top_int + eff_h)
+        left = int(round(max(0, min(left_val, W_src - eff_w))))
+        top = int(round(max(0, min(top_val, H_src - eff_h))))
+        right = left + eff_w
+        bottom = top + eff_h
 
-        # --- CROP & PAD TO INTERNAL WINDOW -----------------------------------
-        crop = bgr[top_int:bottom_int, left_int:right_int]
-        pad_bottom = max(eff_h - crop.shape[0], 0)
-        pad_right = max(eff_w - crop.shape[1], 0)
-        if pad_bottom > 0 or pad_right > 0:
-            crop = cv2.copyMakeBorder(crop, 0, pad_bottom, 0, pad_right, borderType=cv2.BORDER_REPLICATE)
+        crop = bgr[top:bottom, left:right]
 
-        # --- *NO WARPING*: FINAL RESIZE WITH LETTERBOX TO (W_out,H_out) -------
-        frame = letterbox_to_size(crop, W_out, H_out)
+        # Preserve aspect with scale-to-cover (no warping, no bars)
+        scale = max(W_out / eff_w, H_out / eff_h)
+        new_w = int(round(eff_w * scale))
+        new_h = int(round(eff_h * scale))
+
+        res = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+        # Center-crop to exact output size
+        x0 = max(0, (new_w - W_out) // 2)
+        y0 = max(0, (new_h - H_out) // 2)
+        res = res[y0:y0 + H_out, x0:x0 + W_out]
+
+        # 'res' is now exactly W_out x H_out with correct AR, no smear bars, no warping
+        frame = res
         cv2.imwrite(
             str(out_frames_dir / f"f_{frame_count:06d}.jpg"),
             frame,
