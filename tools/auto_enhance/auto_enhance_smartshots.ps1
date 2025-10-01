@@ -315,8 +315,13 @@ function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$c
       $filter = Build-Filter -eq $eq -wb:$tryWB
 
       # Log
-      $line = "{0},{1:0.###},{2:0.###},{3:0.###},{4:0.###},{5:0.###},{6:0.###},{7},{8},{9},{10},{11},\"{12}\"" -f `
-        $i,$s.Start,$s.End,$s.Dur,$stats.YAVG,$stats.YRNG,$stats.SAT,$cond,$eq.contrast,$eq.gamma,$eq.brightness,$eq.saturation,$filter
+      # Ensure any quotes in the filter string are CSV-safe
+      $filterCsv = $filter -replace '"','""'
+
+      # Build a clean CSV row (single-quoted format string, quotes only around the filter column)
+      $line = '{0},{1:0.###},{2:0.###},{3:0.###},{4:0.###},{5:0.###},{6:0.###},{7},{8},{9},{10},{11},"{12}"' -f `
+        $i, $s.Start, $s.End, $s.Dur, $stats.YAVG, $stats.YRNG, $stats.SAT, $cond, `
+        $eq.contrast, $eq.gamma, $eq.brightness, $eq.saturation, $filterCsv
       Add-Content -LiteralPath $log -Value $line -Encoding UTF8
 
       $seg = Encode-Shot -inPath $inPath -start $s.Start -dur $s.Dur -filter $filter -preset $preset -crf $crf -tmpDir $tmpDir -dry:$dry -wbInFilter:$tryWB
