@@ -19,51 +19,58 @@ def _target_out_ar(W_out: int, H_out: int) -> float:
     return float(W_out) / float(H_out)
 
 
-def _ensure_ball_inside_crop(
+def _inside_crop(cx, cy, x, y, view_w, view_h, margin):
+    left = cx - view_w * 0.5 + margin
+    right = cx + view_w * 0.5 - margin
+    top = cy - view_h * 0.5 + margin
+    bottom = cy + view_h * 0.5 - margin
+    return (x >= left) and (x <= right) and (y >= top) and (y <= bottom)
+
+
+def _grow_to_fit_point(
     cx,
     cy,
-    bx,
-    by,
+    x,
+    y,
     view_w,
     view_h,
     margin,
-    W_in,
-    H_in,
+    OUT_AR,
+    SRC_W,
+    SRC_H,
+    zoom_max_w,
 ):
     """
-    (cx, cy) = current crop center;
-    (bx, by) = ball position;
-    view_w, view_h = crop size BEFORE AR lock;
-    margin = safety pixels that must remain between ball and crop edge.
-    Returns adjusted (cx, cy) so ball+margin is inside the crop.
+    Grow view (preserve OUT_AR) until (x,y) falls inside with margin.
+    Returns (new_view_w, new_view_h).
     """
+
+    # required half-width/height from point to edges (with margin)
+    need_half_w = max(abs(x - cx) + margin, view_w * 0.5)
+    need_half_h = max(abs(y - cy) + margin, view_h * 0.5)
+
+    # make required size respect AR by taking the *larger* requirement
+    need_w_by_x = 2.0 * need_half_w
+    need_w_by_y = 2.0 * (need_half_h * OUT_AR)
+    need_w = max(need_w_by_x, need_w_by_y, view_w)
+
+    # cap by maximum portrait that still fits inside the source frame
+    max_w_from_height = float(SRC_H) * float(OUT_AR)  # width if height == SRC_H
+    hard_max_w = min(float(zoom_max_w), max_w_from_height, float(SRC_W))
+
+    new_w = min(need_w, hard_max_w)
+    new_h = min(float(SRC_H), round(new_w / OUT_AR)) if OUT_AR > 0 else float(SRC_H)
+    new_w = float(int(round(new_h * OUT_AR))) if OUT_AR > 0 else float(SRC_W)
+    return new_w, float(new_h)
+
+
+def _clamp_center(cx, cy, view_w, view_h, SRC_W, SRC_H):
+    """Keep the crop fully inside the source image."""
 
     half_w = view_w * 0.5
     half_h = view_h * 0.5
-
-    # Left/right edges where the ball+margin must fit
-    left = cx - half_w + margin
-    right = cx + half_w - margin
-    top = cy - half_h + margin
-    bottom = cy + half_h - margin
-
-    dx = 0.0
-    dy = 0.0
-    if bx < left:
-        dx = bx - left
-    if bx > right:
-        dx = bx - right
-    if by < top:
-        dy = by - top
-    if by > bottom:
-        dy = by - bottom
-
-    cx += dx
-    cy += dy
-
-    # Clamp center so the crop rectangle stays within frame (best effort before padding)
-    cx = max(half_w, min(W_in - half_w, cx))
-    cy = max(half_h, min(H_in - half_h, cy))
+    cx = max(half_w, min(float(SRC_W) - half_w, cx))
+    cy = max(half_h, min(float(SRC_H) - half_h, cy))
     return cx, cy
 
 
@@ -823,6 +830,7 @@ def main() -> None:
     used_crop_y = []
 
     frame_count = 0
+    outside_run = 0
     while True:
         ok, bgr = cap.read()
         if not ok:
@@ -876,6 +884,7 @@ def main() -> None:
         view_h_curr = max(1, min(view_h_curr, SRC_H))
         if OUT_AR > 0:
             view_w_curr = float(int(round(view_h_curr * OUT_AR)))
+        view_h_curr = float(view_h_curr)
         view_w_curr = max(2.0, min(float(SRC_W), view_w_curr))
 
         # 2) Predict/lead target center using speed-aware lead
@@ -915,47 +924,68 @@ def main() -> None:
         cx += max_dx
         cy += max_dy
 
-        # ensure both current and predicted ball x fit with margin
-        cx_pred = ball_x_now + dirx * (lead_s * fps * pan_step_now)
-
-        need_left = min(ball_x_now, cx_pred) - args.safe_margin_px
-        need_right = max(ball_x_now, cx_pred) + args.safe_margin_px
-        need_w = max(need_right - need_left, view_w_curr)
-
-        # expand if needed
-        if need_w > view_w_curr:
-            view_w_curr = min(float(zoom_max_w), need_w)
-            view_h_curr = int(round(view_w_curr / OUT_AR)) if OUT_AR else SRC_H
-            view_h_curr = min(view_h_curr, SRC_H)
-            if OUT_AR:
-                # re-quantize width to AR
-                view_w_curr = float(int(round(view_h_curr * OUT_AR)))
-
-        # 3) Hard guarantee: ball must be inside the crop with a margin every frame
-        cx, cy = _ensure_ball_inside_crop(
+        # track containment of the ball within the crop
+        ball_in = _inside_crop(
             cx,
             cy,
             ball_x_now,
             ball_y_now,
-            view_w=view_w_curr,
-            view_h=view_h_curr,
-            margin=args.safe_margin_px,
-            W_in=SRC_W,
-            H_in=SRC_H,
+            view_w_curr,
+            view_h_curr,
+            args.safe_margin_px,
         )
-        # also pull toward predicted center when occluded
-        if loss_mode:
-            cx, cy = _ensure_ball_inside_crop(
+        pred_x = ball_x_now + dirx * min(6.0, pan_step_now)
+        pred_y = ball_y_now + diry * min(6.0, pan_step_now)
+        pred_in = _inside_crop(
+            cx,
+            cy,
+            pred_x,
+            pred_y,
+            view_w_curr,
+            view_h_curr,
+            args.safe_margin_px,
+        )
+
+        if ball_in and pred_in:
+            outside_run = 0
+        else:
+            outside_run += 1
+
+        if outside_run >= 3:
+            target_x = pred_x if loss_mode else ball_x_now
+            target_y = pred_y if loss_mode else ball_y_now
+            alpha = 0.6
+            cx = (1 - alpha) * cx + alpha * target_x
+            cy = (1 - alpha) * cy + alpha * target_y
+
+            view_w_curr, view_h_curr = _grow_to_fit_point(
                 cx,
                 cy,
-                cx_pred,
-                ball_y_now,
-                view_w=view_w_curr,
-                view_h=view_h_curr,
-                margin=args.safe_margin_px,
-                W_in=SRC_W,
-                H_in=SRC_H,
+                target_x,
+                target_y,
+                view_w_curr,
+                view_h_curr,
+                args.safe_margin_px,
+                OUT_AR,
+                SRC_W,
+                SRC_H,
+                zoom_max_w,
             )
+
+        if loss_mode and occ >= int(0.75 * fps):
+            if OUT_AR > 0:
+                max_w_from_height = float(SRC_H) * float(OUT_AR)
+            else:
+                max_w_from_height = float(SRC_W)
+            fail_w = min(float(zoom_max_w), max_w_from_height, float(SRC_W))
+            view_w_curr = max(view_w_curr, fail_w * 0.85)
+            if OUT_AR > 0:
+                view_h_curr = float(int(round(view_w_curr / OUT_AR)))
+                view_w_curr = float(int(round(view_h_curr * OUT_AR)))
+            else:
+                view_h_curr = float(SRC_H)
+
+        cx, cy = _clamp_center(cx, cy, view_w_curr, view_h_curr, SRC_W, SRC_H)
 
         # 4) Compute final integer crop rectangle (AR-locked), clamp to frame
         half_w = int(round(view_w_curr * 0.5))
