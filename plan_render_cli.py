@@ -266,8 +266,15 @@ def apply_dead_reckoning(
     vy,
     visible,
     fps,
-    max_seconds=2.0,
+    max_seconds=2.0,  # kept for back-compat (unused in new logic)
+    long_max_seconds=12.0,
+    vel_decay_tau_s=3.0,
 ):
+    """
+    Predicts through occlusions with exponential velocity decay and *never* emits NaNs;
+    instead it switches to predicted (decayed) states. Returns:
+      out_x, out_y, out_vx, out_vy, occ (occlusion run length in frames), long_limit_frames
+    """
     n = len(sx)
     out_x = np.asarray(sx, dtype=np.float32).copy()
     out_y = np.asarray(sy, dtype=np.float32).copy()
@@ -275,62 +282,87 @@ def apply_dead_reckoning(
     out_vy = np.asarray(vy, dtype=np.float32).copy()
     occ = np.zeros(n, dtype=np.int32)
 
-    max_frames = max(1, int(round(float(fps) * float(max_seconds))))
-
+    # state used while hidden
     pred_x = np.nan
     pred_y = np.nan
     pred_vx = 0.0
     pred_vy = 0.0
     occlusion_run = 0
+    long_limit_frames = max(1, int(round(float(fps) * float(long_max_seconds))))
+    dt = 1.0 / max(1e-6, float(fps))
+    # per-frame decay factor so v -> v*exp(-dt/τ)
+    decay = math.exp(-dt / max(1e-6, float(vel_decay_tau_s)))
 
     for i in range(n):
-        vis = False
-        if i < len(visible):
-            vis = bool(visible[i])
+        vis = bool(visible[i]) if i < len(visible) else False
 
         kx_i = float(kx[i]) if i < len(kx) else np.nan
         ky_i = float(ky[i]) if i < len(ky) else np.nan
         vx_i = float(vx[i]) if i < len(vx) else 0.0
         vy_i = float(vy[i]) if i < len(vy) else 0.0
 
-        if vis and np.isfinite(out_x[i]) and np.isfinite(out_y[i]):
-            pred_x = kx_i if np.isfinite(kx_i) else out_x[i]
-            pred_y = ky_i if np.isfinite(ky_i) else out_y[i]
-            pred_vx = vx_i
-            pred_vy = vy_i
-            occlusion_run = 0
-            occ[i] = 0
-        elif vis:
-            # Visible but smoothed value is missing; fall back to raw Kalman state.
-            if np.isfinite(kx_i) and np.isfinite(ky_i):
-                out_x[i] = kx_i
-                out_y[i] = ky_i
-                pred_x = kx_i
-                pred_y = ky_i
-            elif np.isfinite(pred_x) and np.isfinite(pred_y):
-                out_x[i] = pred_x
-                out_y[i] = pred_y
+        if vis and np.isfinite(sx[i]) and np.isfinite(sy[i]):
+            # lock to filtered measurement, reset predictors
+            out_x[i] = sx[i]
+            out_y[i] = sy[i]
+            pred_x = kx_i if np.isfinite(kx_i) else sx[i]
+            pred_y = ky_i if np.isfinite(ky_i) else sy[i]
             pred_vx = vx_i
             pred_vy = vy_i
             occlusion_run = 0
             occ[i] = 0
         else:
+            # occluded OR missing smooth position
             occlusion_run += 1
             occ[i] = occlusion_run
-            if occlusion_run <= max_frames and np.isfinite(pred_x) and np.isfinite(pred_y):
+
+            if np.isfinite(kx_i) and np.isfinite(ky_i) and vis:
+                # visible but smoothed missing – fallback to Kalman
+                out_x[i] = kx_i
+                out_y[i] = ky_i
+                pred_x, pred_y = kx_i, ky_i
+                pred_vx, pred_vy = vx_i, vy_i
+                occlusion_run = 0
+                occ[i] = 0
+            else:
+                # fully hidden: integrate decaying velocity
+                if not np.isfinite(pred_x) or not np.isfinite(pred_y):
+                    # initialize from last finite (smooth or kalman or raw)
+                    last_x = (
+                        sx[i - 1]
+                        if i > 0 and np.isfinite(sx[i - 1])
+                        else kx[i - 1]
+                        if i > 0 and np.isfinite(kx[i - 1])
+                        else out_x[i - 1]
+                        if i > 0
+                        else 0.0
+                    )
+                    last_y = (
+                        sy[i - 1]
+                        if i > 0 and np.isfinite(sy[i - 1])
+                        else ky[i - 1]
+                        if i > 0 and np.isfinite(ky[i - 1])
+                        else out_y[i - 1]
+                        if i > 0
+                        else 0.0
+                    )
+                    last_vx = vx[i - 1] if i > 0 else 0.0
+                    last_vy = vy[i - 1] if i > 0 else 0.0
+                    pred_x, pred_y = float(last_x), float(last_y)
+                    pred_vx, pred_vy = float(last_vx), float(last_vy)
+
+                # decay velocity then step position
+                pred_vx *= decay
+                pred_vy *= decay
                 pred_x += pred_vx
                 pred_y += pred_vy
+
                 out_x[i] = pred_x
                 out_y[i] = pred_y
                 out_vx[i] = pred_vx
                 out_vy[i] = pred_vy
-            else:
-                out_x[i] = np.nan
-                out_y[i] = np.nan
-                out_vx[i] = 0.0
-                out_vy[i] = 0.0
 
-    return out_x, out_y, out_vx, out_vy, occ, max_frames
+    return out_x, out_y, out_vx, out_vy, occ, long_limit_frames
 
 
 def main() -> None:
@@ -349,6 +381,54 @@ def main() -> None:
     ap.add_argument("--zoom_step_max", type=float, default=0.05)
     ap.add_argument("--pan_step_max", type=int, default=36)
     ap.add_argument("--envelope_seconds", type=float, default=1.2)
+    ap.add_argument(
+        "--dead_reckon_s",
+        type=float,
+        default=12.0,
+        help="Max seconds to predict during occlusion (with decay).",
+    )
+    ap.add_argument(
+        "--pred_decay_tau",
+        type=float,
+        default=3.0,
+        help="Seconds time-constant for velocity decay during occlusion.",
+    )
+    ap.add_argument(
+        "--occl_zoom_gain",
+        type=float,
+        default=0.035,
+        help="Per-frame zoom widening factor while occluded.",
+    )
+    ap.add_argument(
+        "--occl_zoom_cap",
+        type=float,
+        default=1.00,
+        help="Max extra zoom factor (e.g., 1.0 == up to zoom_max_w).",
+    )
+    ap.add_argument(
+        "--loss_pan_boost",
+        type=float,
+        default=1.75,
+        help="Multiply pan_step_max while occluded.",
+    )
+    ap.add_argument(
+        "--loss_zoom_boost",
+        type=float,
+        default=1.35,
+        help="Multiply zoom_step_max while occluded.",
+    )
+    ap.add_argument(
+        "--lead_on_loss_s",
+        type=float,
+        default=0.9,
+        help="Extra lead seconds while occluded.",
+    )
+    ap.add_argument(
+        "--envelope_seconds_loss",
+        type=float,
+        default=2.5,
+        help="Future envelope sizing window while occluded.",
+    )
 
     # Motion/zoom controls
     ap.add_argument("--slew", type=float, default=80.0)
@@ -461,7 +541,8 @@ def main() -> None:
         vy_raw,
         visible_arr,
         fps,
-        max_seconds=2.0,
+        long_max_seconds=args.dead_reckon_s,
+        vel_decay_tau_s=args.pred_decay_tau,
     )
 
     speed_arr = np.hypot(vx, vy)
@@ -498,11 +579,12 @@ def main() -> None:
     curr_x0 = clamp(int(ball_x[0] - curr_w / 2), 0, max(0, SRC_W - curr_w))
     curr_y0 = clamp(int(ball_y[0] - curr_h / 2), 0, max(0, SRC_H - curr_h))
 
-    envelope_N = int(round(args.envelope_seconds * fps))
-
     for i in range(len(ball_x)):
         bx = float(ball_x[i])
         by = float(ball_y[i])
+
+        occ = int(occlusion_frames[i]) if i < len(occlusion_frames) else 0
+        loss_mode = occ > 0
 
         v = speed_px_per_s(ball_x, ball_y, fps, i, k=3)
         lead = choose_lead_frames(
@@ -525,7 +607,13 @@ def main() -> None:
         ty = (1.0 - alpha) * by + alpha * by_lead
 
         k1 = i
-        k2 = min(len(ball_x) - 1, i + envelope_N)
+        env_N = int(
+            round(
+                (args.envelope_seconds_loss if loss_mode else args.envelope_seconds)
+                * fps
+            )
+        )
+        k2 = min(len(ball_x) - 1, i + env_N)
         seg_x = ball_x[k1 : k2 + 1]
         seg_y = ball_y[k1 : k2 + 1]
         x_min = float(np.min(seg_x))
@@ -709,8 +797,8 @@ def main() -> None:
 
     prev_ball_x = None
     prev_ball_y = None
-    pan_step_max = float(args.pan_step_max)
-    zoom_step_max = float(args.zoom_step_max)
+    base_pan_step = float(args.pan_step_max)
+    base_zoom_step = float(args.zoom_step_max)
     zoom_min_w = int(args.zoom_min_w)
     zoom_max_w = int(getattr(args, "zoom_max_w", SRC_W))
     OUT_AR = _target_out_ar(OUT_W, OUT_H) if OUT_H else 1.0
@@ -751,14 +839,30 @@ def main() -> None:
             ball_x_now = cx
             ball_y_now = cy
 
+        occ = int(occlusion_frames[idx]) if idx < len(occlusion_frames) else 0
+        loss_mode = occ > 0
+
+        # Allow faster catch-up during loss
+        pan_step_now = base_pan_step * (args.loss_pan_boost if loss_mode else 1.0)
+        zoom_step_now = base_zoom_step * (args.loss_zoom_boost if loss_mode else 1.0)
+
         # 1) Base zoom window coming from smoothing state
         target_view_w = float(cw_arr[idx]) if idx < len(cw_arr) else view_w_curr
         target_view_w = max(float(zoom_min_w), min(float(zoom_max_w), target_view_w))
         if not np.isfinite(target_view_w):
             target_view_w = view_w_curr
 
+        if loss_mode:
+            # widen proportional to occlusion run, capped
+            widen_factor = min(
+                1.0 + args.occl_zoom_gain * occ, 1.0 + args.occl_zoom_cap
+            )
+            target_view_w = min(
+                float(zoom_max_w), float(target_view_w) * widen_factor
+            )
+
         zoom_delta = target_view_w - view_w_curr
-        max_zoom_delta = max(1.0, abs(view_w_curr) * zoom_step_max)
+        max_zoom_delta = max(1.0, abs(view_w_curr) * zoom_step_now)
         if abs(zoom_delta) > max_zoom_delta:
             zoom_delta = math.copysign(max_zoom_delta, zoom_delta)
         view_w_curr += zoom_delta
@@ -793,7 +897,9 @@ def main() -> None:
             v_low=120.0,
             v_high=720.0,
         )
-        lead_px = lead_s * fps * pan_step_max
+        if loss_mode:
+            lead_s = max(lead_s, args.lead_on_loss_s)
+        lead_px = lead_s * fps * pan_step_now
         lead_cx = ball_x_now + dirx * lead_px
         lead_cy = ball_y_now + diry * lead_px
 
@@ -804,10 +910,26 @@ def main() -> None:
 
         dx = target_cx - cx
         dy = target_cy - cy
-        max_dx = math.copysign(min(abs(dx), pan_step_max), dx)
-        max_dy = math.copysign(min(abs(dy), pan_step_max), dy)
+        max_dx = math.copysign(min(abs(dx), pan_step_now), dx)
+        max_dy = math.copysign(min(abs(dy), pan_step_now), dy)
         cx += max_dx
         cy += max_dy
+
+        # ensure both current and predicted ball x fit with margin
+        cx_pred = ball_x_now + dirx * (lead_s * fps * pan_step_now)
+
+        need_left = min(ball_x_now, cx_pred) - args.safe_margin_px
+        need_right = max(ball_x_now, cx_pred) + args.safe_margin_px
+        need_w = max(need_right - need_left, view_w_curr)
+
+        # expand if needed
+        if need_w > view_w_curr:
+            view_w_curr = min(float(zoom_max_w), need_w)
+            view_h_curr = int(round(view_w_curr / OUT_AR)) if OUT_AR else SRC_H
+            view_h_curr = min(view_h_curr, SRC_H)
+            if OUT_AR:
+                # re-quantize width to AR
+                view_w_curr = float(int(round(view_h_curr * OUT_AR)))
 
         # 3) Hard guarantee: ball must be inside the crop with a margin every frame
         cx, cy = _ensure_ball_inside_crop(
@@ -821,6 +943,19 @@ def main() -> None:
             W_in=SRC_W,
             H_in=SRC_H,
         )
+        # also pull toward predicted center when occluded
+        if loss_mode:
+            cx, cy = _ensure_ball_inside_crop(
+                cx,
+                cy,
+                cx_pred,
+                ball_y_now,
+                view_w=view_w_curr,
+                view_h=view_h_curr,
+                margin=args.safe_margin_px,
+                W_in=SRC_W,
+                H_in=SRC_H,
+            )
 
         # 4) Compute final integer crop rectangle (AR-locked), clamp to frame
         half_w = int(round(view_w_curr * 0.5))
