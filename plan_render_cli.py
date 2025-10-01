@@ -1,7 +1,9 @@
 # plan_render_cli.py
 import argparse
 import os
+import shutil
 import subprocess
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -389,11 +391,12 @@ def main() -> None:
     cx_filled = np.where(np.isfinite(sx_raw), sx_raw, cx_interp)
     cy_filled = np.where(np.isfinite(sy_raw), sy_raw, cy_interp)
 
-    out_dir = os.path.dirname(args.out_mp4)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-    tmp = os.path.join(out_dir or ".", "_temp_frames")
-    os.makedirs(tmp, exist_ok=True)
+    out_dir = os.path.dirname(args.out_mp4) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    out_frames_dir = Path(out_dir) / "_temp_frames"
+    if out_frames_dir.exists():
+        shutil.rmtree(out_frames_dir)
+    out_frames_dir.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(args.clip)
     frame_count = 0
@@ -509,7 +512,11 @@ def main() -> None:
 
         # --- *NO WARPING*: FINAL RESIZE WITH LETTERBOX TO (W_out,H_out) -------
         frame = letterbox_to_size(crop, W_out, H_out)
-        cv2.imwrite(os.path.join(tmp, f"f_{frame_count:06d}.jpg"), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
+        cv2.imwrite(
+            str(out_frames_dir / f"f_{frame_count:06d}.jpg"),
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 96],
+        )
         frame_count += 1
     cap.release()
 
@@ -533,7 +540,7 @@ def main() -> None:
             "miss_streak": df["miss_streak"].to_numpy(dtype=int)[:frame_count],
         }
     )
-    debug_csv_path = os.path.join(out_dir or ".", "virtual_cam.csv")
+    debug_csv_path = os.path.join(out_dir, "virtual_cam.csv")
     debug_csv.to_csv(debug_csv_path, index=False)
 
     fr_exact = f"{fps:.3f}"
@@ -544,7 +551,7 @@ def main() -> None:
             "-framerate",
             str(fr_exact),        # use exact fps for the image sequence
             "-i",
-            os.path.join(tmp, "f_%06d.jpg"),
+            str(out_frames_dir / "f_%06d.jpg"),
             "-i",
             args.clip,
             "-filter_complex",
