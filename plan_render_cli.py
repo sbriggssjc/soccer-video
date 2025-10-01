@@ -11,10 +11,12 @@ import pandas as pd
 from scipy.signal import savgol_filter
 
 
-def smooth_series(vals, max_step=None, window=9, poly=2):
+def clamp(v, lo, hi):
+    return lo if v < lo else hi if v > hi else v
+
+
+def smooth_path(vals, max_step=None, win=9, poly=2):
     vals = np.asarray(vals, dtype=np.float32)
-    if len(vals) == 0:
-        return vals
     if max_step is not None and len(vals) > 1:
         for i in range(1, len(vals)):
             d = vals[i] - vals[i - 1]
@@ -22,11 +24,30 @@ def smooth_series(vals, max_step=None, window=9, poly=2):
                 vals[i] = vals[i - 1] + max_step
             elif d < -max_step:
                 vals[i] = vals[i - 1] - max_step
-    w = min(window, len(vals) - (1 - len(vals) % 2))
+    w = min(win if win % 2 else win - 1, len(vals) - (1 - len(vals) % 2))
     if w >= 5 and w % 2 == 1:
         vals = savgol_filter(vals, w, poly, mode="interp")
     return vals
 
+
+def speed_px_per_s(xs, ys, fps, i, k=3):
+    i0 = max(0, i - k)
+    i1 = min(len(xs) - 1, i + k)
+    dt = max(1, i1 - i0) / fps
+    dx = float(xs[i1] - xs[i0])
+    dy = float(ys[i1] - ys[i0])
+    return np.hypot(dx, dy) / dt
+
+
+def choose_lead_frames(v, fps, lead_s_min, lead_s_max, v_lo=300, v_hi=1200):
+    if v <= v_lo:
+        lead_s = lead_s_min
+    elif v >= v_hi:
+        lead_s = lead_s_max
+    else:
+        t = (v - v_lo) / (v_hi - v_lo)
+        lead_s = (1 - t) * lead_s_min + t * lead_s_max
+    return int(round(lead_s * fps))
 
 def letterbox_to_size(img, out_w, out_h):
     """Resize to fit inside (out_w, out_h) without changing aspect."""
@@ -217,24 +238,6 @@ def apply_dead_reckoning(
     return out_x, out_y, out_vx, out_vy, occ, max_frames
 
 
-def clamp(v, lo, hi):
-    return lo if v < lo else hi if v > hi else v
-
-
-def clamp_vec(center, half_w, half_h, src_w, src_h):
-    cx, cy = center
-    cx = clamp(cx, half_w, src_w - half_w)
-    cy = clamp(cy, half_h, src_h - half_h)
-    return cx, cy
-
-
-def limit_step(prev, target, max_step):
-    delta = target - prev
-    if np.abs(delta) <= max_step:
-        return target
-    return prev + np.sign(delta) * max_step
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--clip", required=True)
@@ -242,6 +245,15 @@ def main() -> None:
     ap.add_argument("--out_mp4", required=True)
     ap.add_argument("--W_out", type=int, default=608)
     ap.add_argument("--H_out", type=int, default=1080)
+
+    ap.add_argument("--lead_seconds_min", type=float, default=0.4)
+    ap.add_argument("--lead_seconds_max", type=float, default=0.8)
+    ap.add_argument("--safe_margin_px", type=int, default=80)
+    ap.add_argument("--zoom_min_w", type=int, default=480)
+    ap.add_argument("--zoom_max_w", type=int, default=960)
+    ap.add_argument("--zoom_step_max", type=float, default=0.04)
+    ap.add_argument("--pan_step_max", type=int, default=28)
+    ap.add_argument("--envelope_seconds", type=float, default=0.9)
 
     # Motion/zoom controls
     ap.add_argument("--slew", type=float, default=80.0)
@@ -323,9 +335,9 @@ def main() -> None:
 
     # Updated pan/zoom planner
     SRC_W, SRC_H = W_src, H_src
-    W_out = int(args.W_out)
-    H_out = int(args.H_out)
-    OUT_W, OUT_H = W_out, H_out
+    OUT_W = int(args.W_out)
+    OUT_H = int(args.H_out)
+    OUT_AR = OUT_W / OUT_H if OUT_H else 1.0
 
     (
         sx_raw,
@@ -358,90 +370,187 @@ def main() -> None:
     )
 
     speed_arr = np.hypot(vx, vy)
-    lead_scale = np.clip(speed_arr / 18.0, 0.0, 1.0)
-    lead_px_arr = 24.0 * lead_scale
-    tx = sx + vx * 0.25 * lead_scale
-    ty = sy + vy * 0.25 * lead_scale
 
-    CROP_W = min(OUT_W, SRC_W)
-    CROP_H = min(OUT_H, SRC_H)
-
-    target_x = np.where(np.isfinite(tx), tx, cx_interp)
-    target_y = np.where(np.isfinite(ty), ty, cy_interp)
-
-    deadband_w = int(CROP_W * 0.60)
-    deadband_h = int(CROP_H * 0.60)
-
-    x0_vals = []
-    y0_vals = []
-
-    max_x = max(0, SRC_W - CROP_W)
-    max_y = max(0, SRC_H - CROP_H)
-
-    x0_curr = int(np.clip(target_x[0] - CROP_W * 0.5, 0, max_x)) if len(target_x) else 0
-    y0_curr = int(np.clip(target_y[0] - CROP_H * 0.5, 0, max_y)) if len(target_y) else 0
-
-    for tx_i, ty_i in zip(target_x, target_y):
-        x0 = x0_curr
-        safe_x0 = x0 + (CROP_W - deadband_w) // 2
-        safe_x1 = safe_x0 + deadband_w
-        if tx_i < safe_x0:
-            x0 -= int(round(safe_x0 - tx_i))
-        elif tx_i > safe_x1:
-            x0 += int(round(tx_i - safe_x1))
-        x0 = int(max(0, min(x0, max_x)))
-
-        y0 = y0_curr
-        safe_y0 = y0 + (CROP_H - deadband_h) // 2
-        safe_y1 = safe_y0 + deadband_h
-        if ty_i < safe_y0:
-            y0 -= int(round(safe_y0 - ty_i))
-        elif ty_i > safe_y1:
-            y0 += int(round(ty_i - safe_y1))
-        y0 = int(max(0, min(y0, max_y)))
-
-        x0_curr = x0
-        y0_curr = y0
-
-        x0_vals.append(x0_curr)
-        y0_vals.append(y0_curr)
-
-    x0_arr = smooth_series(x0_vals, max_step=25, window=9, poly=2)
-    y0_arr = smooth_series(y0_vals, max_step=25, window=9, poly=2)
-
-    x0_arr = np.clip(x0_arr, 0.0, float(max_x))
-    y0_arr = np.clip(y0_arr, 0.0, float(max_y))
-
-    centers_x = x0_arr + CROP_W * 0.5
-    centers_y = y0_arr + CROP_H * 0.5
-
-    view_w = np.full_like(x0_arr, float(CROP_W), dtype=np.float32)
-    view_h = np.full_like(y0_arr, float(CROP_H), dtype=np.float32)
-
-    crop_x = x0_arr.astype(np.float32)
-    crop_y = y0_arr.astype(np.float32)
-    crop_w_arr = np.full(len(x0_arr), CROP_W, dtype=int)
-    crop_h_arr = np.full(len(y0_arr), CROP_H, dtype=int)
-
-    df["center_x"] = centers_x
-    df["center_y"] = centers_y
-    df["view_w"] = view_w
-    df["view_h"] = view_h
-    df["crop_x"] = crop_x
-    df["crop_y"] = crop_y
-    df["crop_w"] = crop_w_arr
-    df["crop_h"] = crop_h_arr
-
-    cx_filled = np.where(
+    ball_x = np.where(
         np.isfinite(sx),
         sx,
         np.where(np.isfinite(sx_raw), sx_raw, cx_interp),
     )
-    cy_filled = np.where(
+    ball_y = np.where(
         np.isfinite(sy),
         sy,
         np.where(np.isfinite(sy_raw), sy_raw, cy_interp),
     )
+    ball_x = np.clip(ball_x, 0.0, float(max(1, SRC_W) - 1))
+    ball_y = np.clip(ball_y, 0.0, float(max(1, SRC_H) - 1))
+
+    x0_series = []
+    y0_series = []
+    cw_series = []
+
+    min_w = int(args.zoom_min_w)
+    max_w = int(min(args.zoom_max_w, SRC_W))
+    curr_w = clamp(min_w, int(OUT_AR * 200), max_w)
+    curr_w = clamp(curr_w, min_w, max_w)
+    curr_h = int(round(curr_w / OUT_AR)) if OUT_AR else SRC_H
+    if curr_h > SRC_H:
+        curr_h = SRC_H
+        curr_w = int(round(curr_h * OUT_AR)) if OUT_AR else max_w
+    curr_x0 = clamp(int(ball_x[0] - curr_w / 2), 0, max(0, SRC_W - curr_w))
+    curr_y0 = clamp(int(ball_y[0] - curr_h / 2), 0, max(0, SRC_H - curr_h))
+
+    envelope_N = int(round(args.envelope_seconds * fps))
+
+    for i in range(len(ball_x)):
+        bx = float(ball_x[i])
+        by = float(ball_y[i])
+
+        v = speed_px_per_s(ball_x, ball_y, fps, i, k=3)
+        lead = choose_lead_frames(
+            v,
+            fps,
+            args.lead_seconds_min,
+            args.lead_seconds_max,
+        )
+        j = min(len(ball_x) - 1, i + lead)
+        bx_lead = float(ball_x[j])
+        by_lead = float(ball_y[j])
+
+        if v < 300:
+            alpha = 0.15
+        elif v < 800:
+            alpha = 0.35
+        else:
+            alpha = 0.55
+        tx = (1.0 - alpha) * bx + alpha * bx_lead
+        ty = (1.0 - alpha) * by + alpha * by_lead
+
+        k1 = i
+        k2 = min(len(ball_x) - 1, i + envelope_N)
+        seg_x = ball_x[k1 : k2 + 1]
+        seg_y = ball_y[k1 : k2 + 1]
+        x_min = float(np.min(seg_x))
+        x_max = float(np.max(seg_x))
+        y_min = float(np.min(seg_y))
+        y_max = float(np.max(seg_y))
+
+        need_w = (x_max - x_min) + 2 * args.safe_margin_px
+        need_h = (y_max - y_min) + 2 * args.safe_margin_px
+
+        w_from_h = int(np.ceil(need_h * OUT_AR)) if OUT_AR else max_w
+        w_needed = max(int(np.ceil(need_w)), w_from_h)
+
+        w_target = clamp(int(w_needed), min_w, max_w)
+
+        w_change_max = int(np.ceil(curr_w * args.zoom_step_max))
+        if w_change_max < 1:
+            w_change_max = 1
+        if w_target > curr_w + w_change_max:
+            curr_w += w_change_max
+        elif w_target < curr_w - w_change_max:
+            curr_w -= w_change_max
+        else:
+            curr_w = w_target
+
+        curr_h = int(round(curr_w / OUT_AR)) if OUT_AR else SRC_H
+        if curr_h > SRC_H:
+            curr_h = SRC_H
+            curr_w = int(round(curr_h * OUT_AR)) if OUT_AR else max_w
+
+        cx = clamp(int(round(tx)), 0, SRC_W)
+        cy = clamp(int(round(ty)), 0, SRC_H)
+
+        x0 = cx - curr_w // 2
+        y0 = cy - curr_h // 2
+
+        x0_min = int(np.floor(x_max - curr_w + args.safe_margin_px))
+        x0_max = int(np.ceil(x_min - args.safe_margin_px))
+        if x0 < x0_min:
+            x0 = x0_min
+        if x0 > x0_max:
+            x0 = x0_max
+
+        y0_min = int(np.floor(y_max - curr_h + args.safe_margin_px))
+        y0_max = int(np.ceil(y_min - args.safe_margin_px))
+        if y0 < y0_min:
+            y0 = y0_min
+        if y0 > y0_max:
+            y0 = y0_max
+
+        x0 = clamp(x0, 0, max(0, SRC_W - curr_w))
+        y0 = clamp(y0, 0, max(0, SRC_H - curr_h))
+
+        dx = x0 - curr_x0
+        dy = y0 - curr_y0
+        pan_step_max = int(args.pan_step_max)
+        if abs(dx) > pan_step_max:
+            x0 = curr_x0 + int(np.sign(dx)) * pan_step_max
+        if abs(dy) > pan_step_max:
+            y0 = curr_y0 + int(np.sign(dy)) * pan_step_max
+
+        curr_x0 = int(x0)
+        curr_y0 = int(y0)
+
+        x0_series.append(curr_x0)
+        y0_series.append(curr_y0)
+        cw_series.append(int(curr_w))
+
+    pan_step_max = int(args.pan_step_max)
+    x0_smooth = smooth_path(x0_series, max_step=pan_step_max, win=9, poly=2)
+    y0_smooth = smooth_path(y0_series, max_step=pan_step_max, win=9, poly=2)
+    if cw_series:
+        zoom_smooth_limit = int(max(1, round(args.zoom_step_max * max(cw_series))))
+    else:
+        zoom_smooth_limit = 1
+    cw_smooth = smooth_path(cw_series, max_step=zoom_smooth_limit, win=9, poly=2)
+
+    x0_final = []
+    y0_final = []
+    cw_final = []
+    ch_final = []
+    for x0_val, y0_val, w_val in zip(x0_smooth, y0_smooth, cw_smooth):
+        w = int(clamp(int(round(w_val)), min_w, max_w))
+        h = int(round(w / OUT_AR)) if OUT_AR else SRC_H
+        if h > SRC_H:
+            h = SRC_H
+            w = int(round(h * OUT_AR)) if OUT_AR else max_w
+        w = max(2, min(w, SRC_W))
+        h = max(2, min(h, SRC_H))
+        max_x0 = max(0, SRC_W - w)
+        max_y0 = max(0, SRC_H - h)
+        x0 = int(clamp(int(round(x0_val)), 0, max_x0))
+        y0 = int(clamp(int(round(y0_val)), 0, max_y0))
+        x0_final.append(x0)
+        y0_final.append(y0)
+        cw_final.append(w)
+        ch_final.append(h)
+
+    x0_arr = np.asarray(x0_final, dtype=np.float32)
+    y0_arr = np.asarray(y0_final, dtype=np.float32)
+    cw_arr = np.asarray(cw_final, dtype=np.float32)
+    ch_arr = np.asarray(ch_final, dtype=np.float32)
+
+    centers_x = x0_arr + cw_arr * 0.5
+    centers_y = y0_arr + ch_arr * 0.5
+
+    df["center_x"] = centers_x
+    df["center_y"] = centers_y
+    df["view_w"] = cw_arr
+    df["view_h"] = ch_arr
+    df["crop_x"] = x0_arr
+    df["crop_y"] = y0_arr
+    df["crop_w"] = cw_arr.astype(int)
+    df["crop_h"] = ch_arr.astype(int)
+
+    cx_filled = ball_x
+    cy_filled = ball_y
+
+    view_w = cw_arr
+    view_h = ch_arr
+    crop_x = x0_arr
+    crop_y = y0_arr
+    crop_w_arr = cw_arr.astype(int)
+    crop_h_arr = ch_arr.astype(int)
 
     out_dir = os.path.dirname(args.out_mp4) or "."
     os.makedirs(out_dir, exist_ok=True)
@@ -459,10 +568,8 @@ def main() -> None:
         idx = min(frame_count, N - 1)
 
         # --- AR-PRESERVING CROP ----------------------------------------------
-        cx = centers_x[idx]
-        cy = centers_y[idx]
-        crop_w = int(crop_w_arr[idx]) if idx < len(crop_w_arr) else CROP_W
-        crop_h = int(crop_h_arr[idx]) if idx < len(crop_h_arr) else CROP_H
+        crop_w = int(crop_w_arr[idx]) if idx < len(crop_w_arr) else int(min_w)
+        crop_h = int(crop_h_arr[idx]) if idx < len(crop_h_arr) else int(round(crop_w / OUT_AR))
         crop_w = max(2, min(crop_w, SRC_W))
         crop_h = max(2, min(crop_h, SRC_H))
 
@@ -472,15 +579,11 @@ def main() -> None:
         bottom = min(SRC_H, top + crop_h)
 
         crop = bgr[top:bottom, left:right]
+        crop_resized = cv2.resize(crop, (OUT_W, OUT_H), interpolation=cv2.INTER_AREA)
 
-        if crop.shape[0] == crop_h and crop.shape[1] == crop_w:
-            frame = crop
-        else:
-            frame = np.zeros((crop_h, crop_w, 3), dtype=np.uint8)
-            frame[: crop.shape[0], : crop.shape[1]] = crop
         cv2.imwrite(
             str(out_frames_dir / f"f_{frame_count:06d}.jpg"),
-            frame,
+            crop_resized,
             [int(cv2.IMWRITE_JPEG_QUALITY), 96],
         )
         frame_count += 1
@@ -504,7 +607,6 @@ def main() -> None:
             "ball_x": cx_filled[:frame_count],
             "ball_y": cy_filled[:frame_count],
             "speed": speed_arr[:frame_count],
-            "lead_px": lead_px_arr[:frame_count],
             "visible": df["visible"].to_numpy(dtype=int)[:frame_count],
             "conf": df["conf"].to_numpy(dtype=float)[:frame_count],
             "miss_streak": df["miss_streak"].to_numpy(dtype=int)[:frame_count],
