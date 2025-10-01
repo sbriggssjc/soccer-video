@@ -1,5 +1,6 @@
 # plan_render_cli.py
 import argparse
+import math
 import os
 import shutil
 import subprocess
@@ -9,6 +10,100 @@ import cv2
 import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
+
+
+# --- AR + safety helpers ------------------------------------------------------
+
+
+def _target_out_ar(W_out: int, H_out: int) -> float:
+    return float(W_out) / float(H_out)
+
+
+def _ensure_ball_inside_crop(
+    cx,
+    cy,
+    bx,
+    by,
+    view_w,
+    view_h,
+    margin,
+    W_in,
+    H_in,
+):
+    """
+    (cx, cy) = current crop center;
+    (bx, by) = ball position;
+    view_w, view_h = crop size BEFORE AR lock;
+    margin = safety pixels that must remain between ball and crop edge.
+    Returns adjusted (cx, cy) so ball+margin is inside the crop.
+    """
+
+    half_w = view_w * 0.5
+    half_h = view_h * 0.5
+
+    # Left/right edges where the ball+margin must fit
+    left = cx - half_w + margin
+    right = cx + half_w - margin
+    top = cy - half_h + margin
+    bottom = cy + half_h - margin
+
+    dx = 0.0
+    dy = 0.0
+    if bx < left:
+        dx = bx - left
+    if bx > right:
+        dx = bx - right
+    if by < top:
+        dy = by - top
+    if by > bottom:
+        dy = by - bottom
+
+    cx += dx
+    cy += dy
+
+    # Clamp center so the crop rectangle stays within frame (best effort before padding)
+    cx = max(half_w, min(W_in - half_w, cx))
+    cy = max(half_h, min(H_in - half_h, cy))
+    return cx, cy
+
+
+def _speed_aware_lead(
+    bx_prev,
+    by_prev,
+    bx_now,
+    by_now,
+    fps,
+    lead_min_s,
+    lead_max_s,
+    v_low=120.0,
+    v_high=720.0,
+):
+    """
+    Compute dynamic lead seconds based on pixel speed per second.
+    v_low..v_high are rough thresholds for slow vs very fast ball motion.
+    Returns lead seconds in [lead_min_s, lead_max_s] and a unit direction vector.
+    """
+
+    vx = (bx_now - bx_prev) * fps
+    vy = (by_now - by_prev) * fps
+    speed = (vx * vx + vy * vy) ** 0.5
+    # Map speed -> lead seconds
+    if speed <= v_low:
+        lead_s = lead_min_s
+    elif speed >= v_high:
+        lead_s = lead_max_s
+    else:
+        t = (speed - v_low) / max(1e-6, (v_high - v_low))
+        lead_s = (1.0 - t) * lead_min_s + t * lead_max_s
+
+    # Direction (unit) from current to predicted
+    mag = ((bx_now - bx_prev) ** 2 + (by_now - by_prev) ** 2) ** 0.5
+    if mag < 1e-6:
+        dirx, diry = 0.0, 0.0
+    else:
+        dirx, diry = (bx_now - bx_prev) / mag, (by_now - by_prev) / mag
+
+    return lead_s, dirx, diry
 
 
 def clamp(v, lo, hi):
@@ -247,13 +342,13 @@ def main() -> None:
     ap.add_argument("--H_out", type=int, default=1080)
 
     ap.add_argument("--lead_seconds_min", type=float, default=0.4)
-    ap.add_argument("--lead_seconds_max", type=float, default=0.8)
-    ap.add_argument("--safe_margin_px", type=int, default=80)
-    ap.add_argument("--zoom_min_w", type=int, default=480)
-    ap.add_argument("--zoom_max_w", type=int, default=960)
-    ap.add_argument("--zoom_step_max", type=float, default=0.04)
-    ap.add_argument("--pan_step_max", type=int, default=28)
-    ap.add_argument("--envelope_seconds", type=float, default=0.9)
+    ap.add_argument("--lead_seconds_max", type=float, default=0.9)
+    ap.add_argument("--safe_margin_px", type=int, default=120)
+    ap.add_argument("--zoom_min_w", type=int, default=520)
+    ap.add_argument("--zoom_max_w", type=int, default=1280)
+    ap.add_argument("--zoom_step_max", type=float, default=0.05)
+    ap.add_argument("--pan_step_max", type=int, default=36)
+    ap.add_argument("--envelope_seconds", type=float, default=1.2)
 
     # Motion/zoom controls
     ap.add_argument("--slew", type=float, default=80.0)
@@ -611,6 +706,34 @@ def main() -> None:
     out_frames_dir.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(args.clip)
+
+    prev_ball_x = None
+    prev_ball_y = None
+    pan_step_max = float(args.pan_step_max)
+    zoom_step_max = float(args.zoom_step_max)
+    zoom_min_w = int(args.zoom_min_w)
+    zoom_max_w = int(getattr(args, "zoom_max_w", SRC_W))
+    OUT_AR = _target_out_ar(OUT_W, OUT_H) if OUT_H else 1.0
+
+    if len(cw_arr) > 0:
+        view_w_curr = float(cw_arr[0])
+    else:
+        view_w_curr = float(zoom_min_w)
+    view_w_curr = max(float(zoom_min_w), min(float(zoom_max_w), view_w_curr))
+    if len(x0_arr) > 0 and len(ch_arr) > 0:
+        cx = float(x0_arr[0] + cw_arr[0] * 0.5)
+        cy = float(y0_arr[0] + ch_arr[0] * 0.5)
+    else:
+        cx = float(SRC_W * 0.5)
+        cy = float(SRC_H * 0.5)
+
+    used_center_x = []
+    used_center_y = []
+    used_view_w = []
+    used_view_h = []
+    used_crop_x = []
+    used_crop_y = []
+
     frame_count = 0
     while True:
         ok, bgr = cap.read()
@@ -618,19 +741,129 @@ def main() -> None:
             break
         idx = min(frame_count, N - 1)
 
-        # --- AR-PRESERVING CROP ----------------------------------------------
-        crop_w = int(crop_w_arr[idx]) if idx < len(crop_w_arr) else int(min_w)
-        crop_h = int(crop_h_arr[idx]) if idx < len(crop_h_arr) else int(round(crop_w / OUT_AR))
-        crop_w = max(2, min(crop_w, SRC_W))
-        crop_h = max(2, min(crop_h, SRC_H))
+        # --- figure target output AR ---
+        OUT_AR = _target_out_ar(OUT_W, OUT_H) if OUT_H else 1.0
 
-        left = int(round(np.clip(crop_x[idx], 0.0, SRC_W - crop_w)))
-        top = int(round(np.clip(crop_y[idx], 0.0, SRC_H - crop_h)))
-        right = min(SRC_W, left + crop_w)
-        bottom = min(SRC_H, top + crop_h)
+        # ball positions
+        ball_x_now = float(ball_x[idx]) if idx < len(ball_x) else cx
+        ball_y_now = float(ball_y[idx]) if idx < len(ball_y) else cy
+        if not np.isfinite(ball_x_now) or not np.isfinite(ball_y_now):
+            ball_x_now = cx
+            ball_y_now = cy
 
-        crop = bgr[top:bottom, left:right]
-        crop_resized = cv2.resize(crop, (OUT_W, OUT_H), interpolation=cv2.INTER_AREA)
+        # 1) Base zoom window coming from smoothing state
+        target_view_w = float(cw_arr[idx]) if idx < len(cw_arr) else view_w_curr
+        target_view_w = max(float(zoom_min_w), min(float(zoom_max_w), target_view_w))
+        if not np.isfinite(target_view_w):
+            target_view_w = view_w_curr
+
+        zoom_delta = target_view_w - view_w_curr
+        max_zoom_delta = max(1.0, abs(view_w_curr) * zoom_step_max)
+        if abs(zoom_delta) > max_zoom_delta:
+            zoom_delta = math.copysign(max_zoom_delta, zoom_delta)
+        view_w_curr += zoom_delta
+        view_w_curr = max(float(zoom_min_w), min(float(zoom_max_w), view_w_curr))
+        view_w_curr = max(2.0, min(float(SRC_W), view_w_curr))
+
+        if OUT_AR > 0:
+            view_h_curr = int(round(view_w_curr / OUT_AR))
+        else:
+            view_h_curr = SRC_H
+        view_h_curr = max(1, min(view_h_curr, SRC_H))
+        if OUT_AR > 0:
+            view_w_curr = float(int(round(view_h_curr * OUT_AR)))
+        view_w_curr = max(2.0, min(float(SRC_W), view_w_curr))
+
+        # 2) Predict/lead target center using speed-aware lead
+        bx_prev = prev_ball_x if prev_ball_x is not None else ball_x_now
+        by_prev = prev_ball_y if prev_ball_y is not None else ball_y_now
+        if not np.isfinite(bx_prev):
+            bx_prev = ball_x_now
+        if not np.isfinite(by_prev):
+            by_prev = ball_y_now
+
+        lead_s, dirx, diry = _speed_aware_lead(
+            bx_prev,
+            by_prev,
+            ball_x_now,
+            ball_y_now,
+            fps=fps,
+            lead_min_s=args.lead_seconds_min,
+            lead_max_s=args.lead_seconds_max,
+            v_low=120.0,
+            v_high=720.0,
+        )
+        lead_px = lead_s * fps * pan_step_max
+        lead_cx = ball_x_now + dirx * lead_px
+        lead_cy = ball_y_now + diry * lead_px
+
+        dt_frame = 1.0 / fps if fps else 0.0
+        t_env = min(1.0, max(0.0, 1.0 - math.exp(-dt_frame / max(1e-6, args.envelope_seconds))))
+        target_cx = (1.0 - t_env) * ball_x_now + t_env * lead_cx
+        target_cy = (1.0 - t_env) * ball_y_now + t_env * lead_cy
+
+        dx = target_cx - cx
+        dy = target_cy - cy
+        max_dx = math.copysign(min(abs(dx), pan_step_max), dx)
+        max_dy = math.copysign(min(abs(dy), pan_step_max), dy)
+        cx += max_dx
+        cy += max_dy
+
+        # 3) Hard guarantee: ball must be inside the crop with a margin every frame
+        cx, cy = _ensure_ball_inside_crop(
+            cx,
+            cy,
+            ball_x_now,
+            ball_y_now,
+            view_w=view_w_curr,
+            view_h=view_h_curr,
+            margin=args.safe_margin_px,
+            W_in=SRC_W,
+            H_in=SRC_H,
+        )
+
+        # 4) Compute final integer crop rectangle (AR-locked), clamp to frame
+        half_w = int(round(view_w_curr * 0.5))
+        half_h = int(round(view_h_curr * 0.5))
+        cx_int = int(round(cx))
+        cy_int = int(round(cy))
+        x0 = cx_int - half_w
+        y0 = cy_int - half_h
+        x1 = x0 + int(round(view_w_curr))
+        y1 = y0 + int(round(view_h_curr))
+
+        pad_left = max(0, -x0)
+        pad_top = max(0, -y0)
+        pad_right = max(0, x1 - SRC_W)
+        pad_bottom = max(0, y1 - SRC_H)
+
+        x0 = max(0, x0)
+        y0 = max(0, y0)
+        x1 = min(SRC_W, x1)
+        y1 = min(SRC_H, y1)
+
+        crop = bgr[y0:y1, x0:x1]
+
+        if any([pad_left, pad_top, pad_right, pad_bottom]):
+            crop = cv2.copyMakeBorder(
+                crop,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                borderType=cv2.BORDER_REPLICATE,
+            )
+
+        crop_resized = cv2.resize(crop, (OUT_W, OUT_H), interpolation=cv2.INTER_LANCZOS4)
+
+        used_center_x.append(cx)
+        used_center_y.append(cy)
+        used_view_w.append(int(round(view_w_curr)))
+        used_view_h.append(int(round(view_h_curr)))
+        used_crop_x.append(x0)
+        used_crop_y.append(y0)
+
+        prev_ball_x, prev_ball_y = float(ball_x_now), float(ball_y_now)
 
         cv2.imwrite(
             str(out_frames_dir / f"f_{frame_count:06d}.jpg"),
@@ -643,18 +876,33 @@ def main() -> None:
     frames_out = df["frame"].ffill().bfill().astype(int).to_numpy()
     times_out = df["time"].ffill().bfill().to_numpy(dtype=float)
 
+    if used_center_x:
+        debug_center_x = np.asarray(used_center_x, dtype=float)
+        debug_center_y = np.asarray(used_center_y, dtype=float)
+        debug_view_w = np.asarray(used_view_w, dtype=int)
+        debug_view_h = np.asarray(used_view_h, dtype=int)
+        debug_crop_x = np.asarray(used_crop_x, dtype=int)
+        debug_crop_y = np.asarray(used_crop_y, dtype=int)
+    else:
+        debug_center_x = centers_x[:frame_count]
+        debug_center_y = centers_y[:frame_count]
+        debug_view_w = view_w[:frame_count]
+        debug_view_h = view_h[:frame_count]
+        debug_crop_x = crop_x[:frame_count]
+        debug_crop_y = crop_y[:frame_count]
+
     debug_csv = pd.DataFrame(
         {
             "frame": frames_out[:frame_count],
             "time": times_out[:frame_count],
-            "center_x": centers_x[:frame_count],
-            "center_y": centers_y[:frame_count],
-            "view_w": view_w[:frame_count],
-            "view_h": view_h[:frame_count],
-            "crop_x": crop_x[:frame_count],
-            "crop_y": crop_y[:frame_count],
-            "crop_w": crop_w_arr[:frame_count],
-            "crop_h": crop_h_arr[:frame_count],
+            "center_x": debug_center_x,
+            "center_y": debug_center_y,
+            "view_w": debug_view_w,
+            "view_h": debug_view_h,
+            "crop_x": debug_crop_x,
+            "crop_y": debug_crop_y,
+            "crop_w": np.asarray(used_view_w if used_view_w else crop_w_arr[:frame_count], dtype=int),
+            "crop_h": np.asarray(used_view_h if used_view_h else crop_h_arr[:frame_count], dtype=int),
             "ball_x": cx_filled[:frame_count],
             "ball_y": cy_filled[:frame_count],
             "speed": speed_arr[:frame_count],
