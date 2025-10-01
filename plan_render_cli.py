@@ -384,6 +384,10 @@ def main() -> None:
     ball_x = np.clip(ball_x, 0.0, float(max(1, SRC_W) - 1))
     ball_y = np.clip(ball_y, 0.0, float(max(1, SRC_H) - 1))
 
+    vx_pred = np.zeros_like(ball_x, dtype=np.float32)
+    if len(ball_x) > 1:
+        vx_pred[1:] = (ball_x[1:] - ball_x[:-1]) / dt
+
     x0_series = []
     y0_series = []
     cw_series = []
@@ -529,6 +533,53 @@ def main() -> None:
     y0_arr = np.asarray(y0_final, dtype=np.float32)
     cw_arr = np.asarray(cw_final, dtype=np.float32)
     ch_arr = np.asarray(ch_final, dtype=np.float32)
+
+    margin_px = int(args.safe_margin_px) if hasattr(args, "safe_margin_px") else 160
+    lead_seconds = getattr(args, "lead_seconds_max", 1.2)
+    zoom_max_w = int(getattr(args, "zoom_max_w", SRC_W))
+    for i in range(len(x0_arr)):
+        w = float(cw_arr[i])
+        h = float(ch_arr[i])
+        left = float(x0_arr[i])
+        right = left + w
+        cx_curr = float(ball_x[i]) if i < len(ball_x) else left + w * 0.5
+        vx_i = float(vx_pred[i]) if i < len(vx_pred) and i > 0 else 0.0
+        if not np.isfinite(vx_i):
+            vx_i = 0.0
+        cx_pred = cx_curr + vx_i * lead_seconds
+
+        if cx_pred < left + margin_px:
+            left = clamp(cx_pred - margin_px, 0.0, float(max(0.0, SRC_W - w)))
+        elif cx_pred > right - margin_px:
+            left = clamp(cx_pred + margin_px - w, 0.0, float(max(0.0, SRC_W - w)))
+
+        if not np.isfinite(cx_np[i]):
+            widened_w = int(round(w * 1.12))
+            widened_w = min(widened_w, zoom_max_w)
+            widened_w = int(clamp(widened_w, min_w, max_w))
+            if widened_w > w:
+                w = float(widened_w)
+                h = float(int(round(w / OUT_AR)) if OUT_AR else SRC_H)
+                if h > SRC_H:
+                    h = float(SRC_H)
+                    w = float(int(round(h * OUT_AR)) if OUT_AR else zoom_max_w)
+            j = i - 1
+            last_cx = None
+            while j >= 0:
+                if np.isfinite(cx_np[j]):
+                    last_cx = float(cx_np[j])
+                    break
+                j -= 1
+            if last_cx is not None:
+                left = clamp(last_cx - 0.5 * w, 0.0, float(max(0.0, SRC_W - w)))
+
+        w = float(clamp(w, 2.0, float(SRC_W)))
+        h = float(clamp(h, 2.0, float(SRC_H)))
+        left = clamp(left, 0.0, float(max(0.0, SRC_W - w)))
+
+        x0_arr[i] = float(left)
+        cw_arr[i] = float(w)
+        ch_arr[i] = float(h)
 
     centers_x = x0_arr + cw_arr * 0.5
     centers_y = y0_arr + ch_arr * 0.5
