@@ -27,41 +27,21 @@ def _inside_crop(cx, cy, x, y, view_w, view_h, margin):
     return (x >= left) and (x <= right) and (y >= top) and (y <= bottom)
 
 
-def _grow_to_fit_point(
-    cx,
-    cy,
-    x,
-    y,
-    view_w,
-    view_h,
-    margin,
-    OUT_AR,
-    SRC_W,
-    SRC_H,
-    zoom_max_w,
-):
-    """
-    Grow view (preserve OUT_AR) until (x,y) falls inside with margin.
-    Returns (new_view_w, new_view_h).
-    """
+def _grow_to_fit_point(cx, cy, x, y, view_w, view_h, margin, OUT_AR, SRC_W, SRC_H):
+    """Grow the viewport just enough (preserving AR) to include (x, y)."""
 
-    # required half-width/height from point to edges (with margin)
     need_half_w = max(abs(x - cx) + margin, view_w * 0.5)
     need_half_h = max(abs(y - cy) + margin, view_h * 0.5)
 
-    # make required size respect AR by taking the *larger* requirement
     need_w_by_x = 2.0 * need_half_w
     need_w_by_y = 2.0 * (need_half_h * OUT_AR)
     need_w = max(need_w_by_x, need_w_by_y, view_w)
 
-    # cap by maximum portrait that still fits inside the source frame
-    max_w_from_height = float(SRC_H) * float(OUT_AR)  # width if height == SRC_H
-    hard_max_w = min(float(zoom_max_w), max_w_from_height, float(SRC_W))
+    hard_max_w = min(float(SRC_W), float(SRC_H) * float(OUT_AR)) if OUT_AR > 0 else float(SRC_W)
 
     new_w = min(need_w, hard_max_w)
-    new_h = min(float(SRC_H), round(new_w / OUT_AR)) if OUT_AR > 0 else float(SRC_H)
-    new_w = float(int(round(new_h * OUT_AR))) if OUT_AR > 0 else float(SRC_W)
-    return new_w, float(new_h)
+    new_h = new_w / OUT_AR if OUT_AR > 0 else float(SRC_H)
+    return float(new_w), float(new_h)
 
 
 def _clamp_center(cx, cy, view_w, view_h, SRC_W, SRC_H):
@@ -831,6 +811,9 @@ def main() -> None:
 
     frame_count = 0
     outside_run = 0
+    last_seen_xy = None
+    prev_small = None
+    flow_pan_px = 0.0
     while True:
         ok, bgr = cap.read()
         if not ok:
@@ -847,8 +830,41 @@ def main() -> None:
             ball_x_now = cx
             ball_y_now = cy
 
+        ball_is_measured_now = bool(visible_arr[idx]) if idx < len(visible_arr) else True
+        if ball_is_measured_now and np.isfinite(ball_x_now) and np.isfinite(ball_y_now):
+            last_seen_xy = (ball_x_now, ball_y_now)
+
         occ = int(occlusion_frames[idx]) if idx < len(occlusion_frames) else 0
         loss_mode = occ > 0
+
+        flow_pan_impulse = 0.0
+        if loss_mode:
+            h, w = bgr.shape[:2]
+            y0_band = int(round(h * 0.20))
+            y1_band = int(round(h * 0.80))
+            y0_band = max(0, min(h - 1, y0_band))
+            y1_band = max(y0_band + 1, min(h, y1_band))
+            band = bgr[y0_band:y1_band, :, :]
+            if band.size:
+                band_gray = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
+                small_w = max(1, w // 8)
+                small_h = max(1, (y1_band - y0_band) // 8)
+                small = cv2.resize(band_gray, (small_w, small_h), interpolation=cv2.INTER_AREA)
+
+                if prev_small is not None and prev_small.shape == small.shape:
+                    flow = cv2.calcOpticalFlowFarneback(
+                        prev_small, small, None, 0.5, 3, 11, 3, 5, 1.2, 0
+                    )
+                    med_vx = float(np.median(flow[..., 0]))
+                    scale = float(w) / float(small_w)
+                    flow_pan_px = 0.85 * flow_pan_px + 0.15 * (med_vx * scale)
+                    flow_pan_impulse = float(
+                        np.clip(flow_pan_px, -float(args.pan_step_max), float(args.pan_step_max))
+                    )
+                prev_small = small
+        else:
+            prev_small = None
+            flow_pan_px = 0.0
 
         # Allow faster catch-up during loss
         pan_step_now = base_pan_step * (args.loss_pan_boost if loss_mode else 1.0)
@@ -924,7 +940,14 @@ def main() -> None:
         cx += max_dx
         cy += max_dy
 
+        if flow_pan_impulse:
+            cx += flow_pan_impulse
+
         # track containment of the ball within the crop
+        vx_short = float(vx[idx]) if idx < len(vx) else 0.0
+        vy_short = float(vy[idx]) if idx < len(vy) else 0.0
+        pred_x = ball_x_now + vx_short * 0.1
+        pred_y = ball_y_now + vy_short * 0.1
         ball_in = _inside_crop(
             cx,
             cy,
@@ -934,8 +957,6 @@ def main() -> None:
             view_h_curr,
             args.safe_margin_px,
         )
-        pred_x = ball_x_now + dirx * min(6.0, pan_step_now)
-        pred_y = ball_y_now + diry * min(6.0, pan_step_now)
         pred_in = _inside_crop(
             cx,
             cy,
@@ -951,9 +972,11 @@ def main() -> None:
         else:
             outside_run += 1
 
-        if outside_run >= 3:
-            target_x = pred_x if loss_mode else ball_x_now
-            target_y = pred_y if loss_mode else ball_y_now
+        if outside_run >= 2:
+            if loss_mode:
+                target_x, target_y = pred_x, pred_y
+            else:
+                target_x, target_y = ball_x_now, ball_y_now
             alpha = 0.6
             cx = (1 - alpha) * cx + alpha * target_x
             cy = (1 - alpha) * cy + alpha * target_y
@@ -969,19 +992,13 @@ def main() -> None:
                 OUT_AR,
                 SRC_W,
                 SRC_H,
-                zoom_max_w,
             )
 
-        if loss_mode and occ >= int(0.75 * fps):
+        if loss_mode and occ >= int(0.60 * fps):
+            full_w = min(float(SRC_W), float(SRC_H) * OUT_AR) if OUT_AR > 0 else float(SRC_W)
+            view_w_curr = max(view_w_curr, full_w * 0.90)
             if OUT_AR > 0:
-                max_w_from_height = float(SRC_H) * float(OUT_AR)
-            else:
-                max_w_from_height = float(SRC_W)
-            fail_w = min(float(zoom_max_w), max_w_from_height, float(SRC_W))
-            view_w_curr = max(view_w_curr, fail_w * 0.85)
-            if OUT_AR > 0:
-                view_h_curr = float(int(round(view_w_curr / OUT_AR)))
-                view_w_curr = float(int(round(view_h_curr * OUT_AR)))
+                view_h_curr = view_w_curr / OUT_AR
             else:
                 view_h_curr = float(SRC_H)
 
