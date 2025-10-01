@@ -121,7 +121,83 @@ def smooth_xy(cx, cy, ema_alpha=0.25, k_q=0.08, k_r=4.0):
     ky, vy = kalman_1d(cy, q=k_q, r=k_r)
     sx = ema(kx, ema_alpha)
     sy = ema(ky, ema_alpha)
-    return sx, sy, vx, vy
+    return sx, sy, vx, vy, kx, ky
+
+
+def apply_dead_reckoning(
+    sx,
+    sy,
+    kx,
+    ky,
+    vx,
+    vy,
+    visible,
+    fps,
+    max_seconds=2.0,
+):
+    n = len(sx)
+    out_x = np.asarray(sx, dtype=np.float32).copy()
+    out_y = np.asarray(sy, dtype=np.float32).copy()
+    out_vx = np.asarray(vx, dtype=np.float32).copy()
+    out_vy = np.asarray(vy, dtype=np.float32).copy()
+    occ = np.zeros(n, dtype=np.int32)
+
+    max_frames = max(1, int(round(float(fps) * float(max_seconds))))
+
+    pred_x = np.nan
+    pred_y = np.nan
+    pred_vx = 0.0
+    pred_vy = 0.0
+    occlusion_run = 0
+
+    for i in range(n):
+        vis = False
+        if i < len(visible):
+            vis = bool(visible[i])
+
+        kx_i = float(kx[i]) if i < len(kx) else np.nan
+        ky_i = float(ky[i]) if i < len(ky) else np.nan
+        vx_i = float(vx[i]) if i < len(vx) else 0.0
+        vy_i = float(vy[i]) if i < len(vy) else 0.0
+
+        if vis and np.isfinite(out_x[i]) and np.isfinite(out_y[i]):
+            pred_x = kx_i if np.isfinite(kx_i) else out_x[i]
+            pred_y = ky_i if np.isfinite(ky_i) else out_y[i]
+            pred_vx = vx_i
+            pred_vy = vy_i
+            occlusion_run = 0
+            occ[i] = 0
+        elif vis:
+            # Visible but smoothed value is missing; fall back to raw Kalman state.
+            if np.isfinite(kx_i) and np.isfinite(ky_i):
+                out_x[i] = kx_i
+                out_y[i] = ky_i
+                pred_x = kx_i
+                pred_y = ky_i
+            elif np.isfinite(pred_x) and np.isfinite(pred_y):
+                out_x[i] = pred_x
+                out_y[i] = pred_y
+            pred_vx = vx_i
+            pred_vy = vy_i
+            occlusion_run = 0
+            occ[i] = 0
+        else:
+            occlusion_run += 1
+            occ[i] = occlusion_run
+            if occlusion_run <= max_frames and np.isfinite(pred_x) and np.isfinite(pred_y):
+                pred_x += pred_vx
+                pred_y += pred_vy
+                out_x[i] = pred_x
+                out_y[i] = pred_y
+                out_vx[i] = pred_vx
+                out_vy[i] = pred_vy
+            else:
+                out_x[i] = np.nan
+                out_y[i] = np.nan
+                out_vx[i] = 0.0
+                out_vy[i] = 0.0
+
+    return out_x, out_y, out_vx, out_vy, occ, max_frames
 
 
 def clamp(v, lo, hi):
@@ -252,14 +328,35 @@ def main() -> None:
     H_out = int(args.H_out)
     OUT_W, OUT_H = W_out, H_out
 
-    sx_raw, sy_raw, vx, vy = smooth_xy(cx_np, cy_np, ema_alpha=0.25, k_q=0.06, k_r=6.0)
+    (
+        sx_raw,
+        sy_raw,
+        vx_raw,
+        vy_raw,
+        kx_raw,
+        ky_raw,
+    ) = smooth_xy(cx_np, cy_np, ema_alpha=0.25, k_q=0.06, k_r=6.0)
 
-    # Preserve NaNs where detections are missing so the planner can react accordingly.
-    valid_mask = ~np.isnan(cx_np) & ~np.isnan(cy_np)
-    sx = sx_raw.copy()
-    sy = sy_raw.copy()
-    sx[~valid_mask] = np.nan
-    sy[~valid_mask] = np.nan
+    visible_arr = df["visible"].to_numpy(dtype=int)
+
+    (
+        sx,
+        sy,
+        vx,
+        vy,
+        occlusion_frames,
+        deadreckon_limit,
+    ) = apply_dead_reckoning(
+        sx_raw,
+        sy_raw,
+        kx_raw,
+        ky_raw,
+        vx_raw,
+        vy_raw,
+        visible_arr,
+        fps,
+        max_seconds=2.0,
+    )
 
     speed_arr = np.hypot(vx, vy)
     lead_scale = np.clip(speed_arr / 18.0, 0.0, 1.0)
@@ -282,6 +379,7 @@ def main() -> None:
     # 'safe' keeps it well in; 'trigger' only kicks in when it gets close to the edge.
     safe_margin_frac    = 0.18   # 18% margins
     trigger_margin_frac = 0.10   # 10% margins
+    occlusion_zoom_extra = 0.35
 
     # View window uses exact output aspect ratio to avoid any warping.
     AR_out = float(W_out) / float(H_out if H_out else 1)
@@ -332,6 +430,11 @@ def main() -> None:
         cy_tgt = ty[t] if not np.isnan(ty[t]) else centers_y[t - 1]
         desired_zoom_base = zoom_targets[t] if zoom_targets[t] > 0 else view_zoom[t - 1]
 
+        occ_frames = int(occlusion_frames[t]) if t < len(occlusion_frames) else 0
+        occ_ratio = 0.0
+        if occ_frames > 0:
+            occ_ratio = min(1.0, occ_frames / float(max(1, deadreckon_limit)))
+
         speed = speed_arr[t] if t < len(speed_arr) else np.nan
         if not np.isnan(speed):
             if speed > 18.0:
@@ -343,6 +446,9 @@ def main() -> None:
         else:
             desired_zoom = desired_zoom_base
 
+        if occ_ratio > 0.0:
+            desired_zoom = min(zoom_max, desired_zoom + occlusion_zoom_extra * occ_ratio)
+
         prev_zoom = view_zoom[t - 1] if view_zoom[t - 1] > 0 else desired_zoom
         zoom_delta = desired_zoom - prev_zoom
         zoom_delta = max(-max_zoom_step, min(max_zoom_step, float(zoom_delta)))
@@ -353,8 +459,9 @@ def main() -> None:
         vh_soft = zoom_new * vh_base
         view_zoom[t] = zoom_new
 
-        cx_soft = limit_step(centers_x[t - 1], cx_tgt, max_pan_px)
-        cy_soft = limit_step(centers_y[t - 1], cy_tgt, max_pan_px)
+        max_pan_now = max_pan_px * (1.0 + 0.75 * occ_ratio)
+        cx_soft = limit_step(centers_x[t - 1], cx_tgt, max_pan_now)
+        cy_soft = limit_step(centers_y[t - 1], cy_tgt, max_pan_now)
 
         if not np.isnan(sx[t]):
             bx = sx[t]
@@ -379,15 +486,18 @@ def main() -> None:
         bx_view = bx - (cam_x - half_w)
         by_view = by - (cam_y - half_h)
 
-        safe_l = vw_soft * safe_margin_frac
-        safe_r = vw_soft * (1.0 - safe_margin_frac)
-        safe_t = vh_soft * safe_margin_frac
-        safe_b = vh_soft * (1.0 - safe_margin_frac)
+        safe_frac = min(0.45, safe_margin_frac * (1.0 + 0.6 * occ_ratio))
+        trig_frac = min(0.48, trigger_margin_frac * (1.0 + 0.6 * occ_ratio))
 
-        trig_l = vw_soft * trigger_margin_frac
-        trig_r = vw_soft * (1.0 - trigger_margin_frac)
-        trig_t = vh_soft * trigger_margin_frac
-        trig_b = vh_soft * (1.0 - trigger_margin_frac)
+        safe_l = vw_soft * safe_frac
+        safe_r = vw_soft * (1.0 - safe_frac)
+        safe_t = vh_soft * safe_frac
+        safe_b = vh_soft * (1.0 - safe_frac)
+
+        trig_l = vw_soft * trig_frac
+        trig_r = vw_soft * (1.0 - trig_frac)
+        trig_t = vh_soft * trig_frac
+        trig_b = vh_soft * (1.0 - trig_frac)
 
         dx = 0.0
         dy = 0.0
@@ -402,8 +512,8 @@ def main() -> None:
         elif by_view > trig_b:
             dy = by_view - safe_b
 
-        dx = max(-max_pan_px, min(max_pan_px, dx))
-        dy = max(-max_pan_px, min(max_pan_px, dy))
+        dx = max(-max_pan_now, min(max_pan_now, dx))
+        dy = max(-max_pan_now, min(max_pan_now, dy))
 
         cam_x += dx
         cam_y += dy
@@ -448,8 +558,16 @@ def main() -> None:
     df["view_w"] = view_w
     df["view_h"] = view_h
 
-    cx_filled = np.where(np.isfinite(sx_raw), sx_raw, cx_interp)
-    cy_filled = np.where(np.isfinite(sy_raw), sy_raw, cy_interp)
+    cx_filled = np.where(
+        np.isfinite(sx),
+        sx,
+        np.where(np.isfinite(sx_raw), sx_raw, cx_interp),
+    )
+    cy_filled = np.where(
+        np.isfinite(sy),
+        sy,
+        np.where(np.isfinite(sy_raw), sy_raw, cy_interp),
+    )
 
     out_dir = os.path.dirname(args.out_mp4) or "."
     os.makedirs(out_dir, exist_ok=True)
@@ -474,6 +592,9 @@ def main() -> None:
         vh = view_h[idx]
 
         # Estimate per-frame ball speed vector (px/frame)
+        occ_frames = int(occlusion_frames[idx]) if idx < len(occlusion_frames) else 0
+        occ_ratio = min(1.0, occ_frames / float(max(1, deadreckon_limit))) if occ_frames > 0 else 0.0
+
         if idx > 0:
             vx = centers_x[idx] - centers_x[idx - 1]
             vy = centers_y[idx] - centers_y[idx - 1]
@@ -516,6 +637,12 @@ def main() -> None:
             vw_scale = 1.30 if near_goal_side else 1.20
             vh_scale = 1.15
             lead_px = np.clip(ball_speed * 12.0, 80, 240)
+
+        if occ_ratio > 0.0:
+            zoom_widen = 1.0 + 0.45 * occ_ratio
+            vw_scale *= zoom_widen
+            vh_scale *= zoom_widen
+            lead_px *= max(0.25, 1.0 - 0.65 * occ_ratio)
 
         # Apply scaling to requested window (clamped later)
         eff_w = int(round(np.clip(vw * vw_scale, 64, W_src)))
@@ -605,6 +732,7 @@ def main() -> None:
             "visible": df["visible"].to_numpy(dtype=int)[:frame_count],
             "conf": df["conf"].to_numpy(dtype=float)[:frame_count],
             "miss_streak": df["miss_streak"].to_numpy(dtype=int)[:frame_count],
+            "occlusion_frames": occlusion_frames[:frame_count],
         }
     )
     debug_csv_path = os.path.join(out_dir, "virtual_cam.csv")
