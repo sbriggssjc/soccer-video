@@ -60,39 +60,50 @@ function Clamp([double]$v,[double]$lo,[double]$hi){ if($v -lt $lo){return $lo}; 
 
 # -------------- Scene detection --------------
 function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap) {
-  # Use ffprobe with 'select=gt(scene,THRESH)' to list cut times; prepend 0; append duration=end.
-  # Get total duration:
-  $dur = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
-  if (-not $dur) { throw "Could not get duration with ffprobe." }
-  $total = [double]::Parse($dur, [System.Globalization.CultureInfo]::InvariantCulture)
+  # Get total duration
+  $durStr = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
+  if (-not $durStr) { throw "Could not get duration with ffprobe." }
+  $total = [double]::Parse($durStr, [System.Globalization.CultureInfo]::InvariantCulture)
 
-  $csv = New-Object System.Collections.Generic.List[double]
-  $csv.Add(0.0)
-
-  $cmd = @(
-    '-v','error','-show_entries','frame=pkt_pts_time:frame_tags=lavfi.scene_score',
-    '-of','csv','-f','lavfi',"movie='$(($inPath -replace "'","''"))',select=gt(scene\,${thresh})"
-  )
-  $out = & ffprobe @cmd 2>$null
-  if ($LASTEXITCODE -eq 0 -and $out) {
-    foreach($line in $out -split "`r?`n"){
-      if ($line -match 'frame,\s*([\d\.]+),?') {
-        $t = [double]::Parse($Matches[1], [System.Globalization.CultureInfo]::InvariantCulture)
-        if ($t -gt 0 -and $t -lt $total) { $csv.Add($t) }
+  # Try scene detection via ffprobe+lavfi (can fail on Windows path quoting)
+  $cuts = New-Object System.Collections.Generic.List[double]
+  try {
+    $cmd = @(
+      '-v','error',
+      '-show_entries','frame=pkt_pts_time:frame_tags=lavfi.scene_score',
+      '-of','csv',
+      '-f','lavfi',
+      ("movie='{0}',select=gt(scene\,{1})" -f ($inPath -replace "'","''"), ('{0:0.###}' -f $thresh))
+    )
+    $out = & ffprobe @cmd 2>$null
+    if ($LASTEXITCODE -eq 0 -and $out) {
+      foreach($line in $out -split "`r?`n"){
+        if ($line -match 'frame,\s*([\d\.]+)') {
+          $t = [double]::Parse($Matches[1], [System.Globalization.CultureInfo]::InvariantCulture)
+          if ($t -gt 0 -and $t -lt $total) { $cuts.Add($t) }
+        }
       }
     }
+  } catch {
+    # ignore; we'll fallback
   }
 
-  $csv.Add($total)
-  $cuts = $csv | Sort-Object -Unique
+  # Always prepend 0 and append total
+  $all = New-Object System.Collections.Generic.List[double]
+  $all.Add(0.0)
+  if ($cuts.Count -gt 0) { $cuts | Sort-Object -Unique | ForEach-Object { $all.Add($_) } }
+  $all.Add($total)
 
-  # Merge tiny shots (< minDur)
+  # If we still have no usable cuts (i.e., only [0,total]), return a single-shot fallback
+  if ($all.Count -le 2) {
+    return ,([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
+  }
+
+  # Build ranges and merge tiny shots
   $ranges = New-Object System.Collections.Generic.List[pscustomobject]
-  for($i=0; $i -lt ($cuts.Count-1); $i++){
-    $start = $cuts[$i]; $end = $cuts[$i+1]
-    $len = $end - $start
+  for($i=0; $i -lt ($all.Count-1); $i++){
+    $start = $all[$i]; $end = $all[$i+1]; $len = $end - $start
     if ($len -lt $minDur -and $ranges.Count -gt 0) {
-      # merge with previous
       $prev = $ranges[$ranges.Count-1]
       $ranges[$ranges.Count-1] = [pscustomobject]@{ Start=$prev.Start; End=$end; Dur=($end-$prev.Start) }
     } else {
@@ -100,9 +111,8 @@ function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap
     }
   }
 
-  # Cap total shots
+  # Safety cap
   if ($ranges.Count -gt $cap) {
-    Write-Warning "Detected $($ranges.Count) shots; capping to $cap by merging tail."
     $kept = $ranges[0..($cap-2)]
     $lastStart = $kept[-1].End
     $ranges = [System.Collections.Generic.List[object]]$kept
