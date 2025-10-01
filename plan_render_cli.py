@@ -267,48 +267,82 @@ def main() -> None:
     tx = sx + vx * 0.25 * lead_scale
     ty = sy + vy * 0.25 * lead_scale
 
-    AR = OUT_W / max(OUT_H, 1)
-    vw_min = 820.0
-    vw_max = 1400.0
-    vw = vw_max - (vw_max - vw_min) * np.clip(speed_arr / 30.0, 0.0, 1.0)
-    vh = vw / AR
+    # --- Camera smoothing / limits (tighter & calmer) ---
+    # EMA gains (smaller = steadier)
+    alpha_pos_fwd = 0.06
+    alpha_pos_bwd = 0.06
+    alpha_zoom_fwd = 0.05
+    alpha_zoom_bwd = 0.05
 
-    safe_margin = 0.12
+    # Hard limits per frame (pixels & scale)
+    max_pan_px = max(6, int(0.0125 * min(SRC_W, SRC_H)))   # ~1.25% of min dimension
+    max_zoom_step = 0.025                                  # 2.5% zoom step/frame
+
+    # Keep the ball inside a "safe box" within the view with hysteresis.
+    # 'safe' keeps it well in; 'trigger' only kicks in when it gets close to the edge.
+    safe_margin_frac    = 0.18   # 18% margins
+    trigger_margin_frac = 0.10   # 10% margins
+
+    # View window uses exact output aspect ratio to avoid any warping.
+    AR_out = float(W_out) / float(H_out if H_out else 1)
+    vw_base = int(round(min(SRC_W, SRC_H * AR_out)))
+    vh_base = int(round(vw_base / AR_out))
+    vw_base = min(vw_base, SRC_W)
+    vh_base = min(vh_base, SRC_H)
+    vw_base = max(2, vw_base)
+    vh_base = max(2, vh_base)
+
+    vw_max_abs = float(min(vw_base, 1400.0))
+    vw_min_abs = float(min(vw_max_abs, 820.0))
+    if vw_min_abs > vw_max_abs:
+        vw_min_abs = vw_max_abs
+
+    base_w_float = float(max(vw_base, 1))
+    zoom_min = vw_min_abs / base_w_float
+    zoom_max = vw_max_abs / base_w_float
+
+    speed_scale = np.clip(speed_arr / 30.0, 0.0, 1.0)
+    vw_targets_abs = vw_max_abs - (vw_max_abs - vw_min_abs) * speed_scale
+    zoom_targets = np.clip(vw_targets_abs / base_w_float, zoom_min, zoom_max)
 
     centers_x = np.zeros_like(sx, dtype=np.float32)
     centers_y = np.zeros_like(sy, dtype=np.float32)
     view_w = np.zeros_like(sx, dtype=np.float32)
     view_h = np.zeros_like(sy, dtype=np.float32)
+    view_zoom = np.zeros_like(sx, dtype=np.float32)
 
     first = np.where(~np.isnan(sx) & ~np.isnan(sy))[0]
     if len(first) == 0:
         centers_x[:] = SRC_W * 0.5
         centers_y[:] = SRC_H * 0.5
-        view_w[:] = vw_max
-        view_h[:] = vw_max / AR
+        view_zoom[:] = zoom_max
+        view_w[:] = view_zoom * vw_base
+        view_h[:] = view_zoom * vh_base
         k0 = 0
     else:
         k0 = first[0]
         centers_x[k0] = clamp(tx[k0], 0, SRC_W)
         centers_y[k0] = clamp(ty[k0], 0, SRC_H)
-        view_w[k0] = vw[k0]
-        view_h[k0] = vh[k0]
+        view_zoom[k0] = zoom_targets[k0] if zoom_targets[k0] > 0 else zoom_max
+        view_w[k0] = view_zoom[k0] * vw_base
+        view_h[k0] = view_zoom[k0] * vh_base
 
     for t in range(max(1, k0 + 1), len(sx)):
         cx_tgt = tx[t] if not np.isnan(tx[t]) else centers_x[t - 1]
         cy_tgt = ty[t] if not np.isnan(ty[t]) else centers_y[t - 1]
-        vw_tgt = vw[t] if vw[t] > 0 else view_w[t - 1]
-        vh_tgt = vw_tgt / AR
+        desired_zoom = zoom_targets[t] if zoom_targets[t] > 0 else view_zoom[t - 1]
+        prev_zoom = view_zoom[t - 1] if view_zoom[t - 1] > 0 else desired_zoom
+        zoom_delta = desired_zoom - prev_zoom
+        zoom_delta = max(-max_zoom_step, min(max_zoom_step, float(zoom_delta)))
+        zoom_new = prev_zoom + zoom_delta
+        zoom_new = max(zoom_min, min(zoom_max, zoom_new))
 
-        spd = float(speed_arr[t - 1] if t > 0 else 0.0)
-        max_pan_px = float(np.clip(6.0 + 1.15 * spd, 12.0, 85.0))
-        max_zoom_px = float(np.clip(5.0 + 0.70 * spd, 8.0, 36.0))
+        vw_soft = zoom_new * vw_base
+        vh_soft = zoom_new * vh_base
+        view_zoom[t] = zoom_new
 
         cx_soft = limit_step(centers_x[t - 1], cx_tgt, max_pan_px)
         cy_soft = limit_step(centers_y[t - 1], cy_tgt, max_pan_px)
-
-        vw_soft = limit_step(view_w[t - 1], vw_tgt, max_zoom_px)
-        vh_soft = vw_soft / AR
 
         if not np.isnan(sx[t]):
             bx = sx[t]
@@ -326,45 +360,44 @@ def main() -> None:
 
         half_w = vw_soft * 0.5
         half_h = vh_soft * 0.5
-        left = cx_soft - half_w
-        right = cx_soft + half_w
-        top = cy_soft - half_h
-        bottom = cy_soft + half_h
 
-        safe_l = left + vw_soft * safe_margin
-        safe_r = right - vw_soft * safe_margin
-        safe_t = top + vh_soft * safe_margin
-        safe_b = bottom - vh_soft * safe_margin
+        cam_x = cx_soft
+        cam_y = cy_soft
 
-        shift_x = 0.0
-        shift_y = 0.0
-        if bx < safe_l:
-            shift_x = bx - safe_l
-        elif bx > safe_r:
-            shift_x = bx - safe_r
-        if by < safe_t:
-            shift_y = by - safe_t
-        elif by > safe_b:
-            shift_y = by - safe_b
+        bx_view = bx - (cam_x - half_w)
+        by_view = by - (cam_y - half_h)
 
-        cx_soft += shift_x
-        cy_soft += shift_y
+        safe_l = vw_soft * safe_margin_frac
+        safe_r = vw_soft * (1.0 - safe_margin_frac)
+        safe_t = vh_soft * safe_margin_frac
+        safe_b = vh_soft * (1.0 - safe_margin_frac)
 
-        left = cx_soft - half_w
-        right = cx_soft + half_w
-        top = cy_soft - half_h
-        bottom = cy_soft + half_h
+        trig_l = vw_soft * trigger_margin_frac
+        trig_r = vw_soft * (1.0 - trigger_margin_frac)
+        trig_t = vh_soft * trigger_margin_frac
+        trig_b = vh_soft * (1.0 - trigger_margin_frac)
 
-        edge = max(18.0, min(36.0, 0.06 * vw_soft))
-        if bx < left + edge:
-            cx_soft = bx + half_w - edge
-        elif bx > right - edge:
-            cx_soft = bx - half_w + edge
+        dx = 0.0
+        dy = 0.0
 
-        if by < top + edge:
-            cy_soft = by + half_h - edge
-        elif by > bottom - edge:
-            cy_soft = by - half_h + edge
+        if bx_view < trig_l:
+            dx = bx_view - safe_l
+        elif bx_view > trig_r:
+            dx = bx_view - safe_r
+
+        if by_view < trig_t:
+            dy = by_view - safe_t
+        elif by_view > trig_b:
+            dy = by_view - safe_b
+
+        dx = max(-max_pan_px, min(max_pan_px, dx))
+        dy = max(-max_pan_px, min(max_pan_px, dy))
+
+        cam_x += dx
+        cam_y += dy
+
+        cx_soft = cam_x
+        cy_soft = cam_y
 
         cx_soft, cy_soft = clamp_vec((cx_soft, cy_soft), half_w, half_h, SRC_W, SRC_H)
 
@@ -379,9 +412,24 @@ def main() -> None:
             centers_y[t] = centers_y[t + 1]
             view_w[t] = view_w[t + 1]
             view_h[t] = view_h[t + 1]
+            view_zoom[t] = view_zoom[t + 1]
 
-    centers_x = ema(centers_x, 0.08)
-    centers_y = ema(centers_y, 0.08)
+    centers_x_fwd = ema(centers_x, alpha_pos_fwd)
+    centers_x_bwd = ema(centers_x[::-1], alpha_pos_bwd)[::-1]
+    centers_x = (centers_x_fwd + centers_x_bwd) * 0.5
+
+    centers_y_fwd = ema(centers_y, alpha_pos_fwd)
+    centers_y_bwd = ema(centers_y[::-1], alpha_pos_bwd)[::-1]
+    centers_y = (centers_y_fwd + centers_y_bwd) * 0.5
+
+    zoom_fwd = ema(view_zoom, alpha_zoom_fwd)
+    zoom_bwd = ema(view_zoom[::-1], alpha_zoom_bwd)[::-1]
+    zoom_smoothed = np.clip((zoom_fwd + zoom_bwd) * 0.5, zoom_min, zoom_max)
+
+    view_w = (zoom_smoothed * vw_base).astype(np.float32)
+    view_h = (zoom_smoothed * vh_base).astype(np.float32)
+    centers_x = centers_x.astype(np.float32)
+    centers_y = centers_y.astype(np.float32)
 
     df["center_x"] = centers_x
     df["center_y"] = centers_y
