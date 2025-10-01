@@ -12,6 +12,41 @@ import pandas as pd
 from scipy.signal import savgol_filter
 
 
+def clamp_center_to_keep_point_inside(cx, cy, w_crop, h_crop, W_src, H_src, tx, ty, safe):
+    """
+    Shift (cx, cy) minimally so that target point (tx, ty) lies inside
+    the crop rect expanded by `safe` margins on all sides.
+    """
+    half_w = w_crop * 0.5
+    half_h = h_crop * 0.5
+
+    # Desired min/max bounds for the point inside crop (with safety margin)
+    min_x = cx - (half_w - safe)
+    max_x = cx + (half_w - safe)
+    min_y = cy - (half_h - safe)
+    max_y = cy + (half_h - safe)
+
+    dx = 0.0
+    if tx < min_x:
+        dx = tx - min_x
+    elif tx > max_x:
+        dx = tx - max_x
+
+    dy = 0.0
+    if ty < min_y:
+        dy = ty - min_y
+    elif ty > max_y:
+        dy = ty - max_y
+
+    cx_new = cx + dx
+    cy_new = cy + dy
+
+    # Constrain to image bounds so the crop stays valid
+    cx_new = max(half_w, min(W_src - half_w, cx_new))
+    cy_new = max(half_h, min(H_src - half_h, cy_new))
+    return cx_new, cy_new
+
+
 # --- AR + safety helpers ------------------------------------------------------
 
 
@@ -365,8 +400,8 @@ def main() -> None:
     ap.add_argument("--safe_margin_px", type=int, default=120)
     ap.add_argument("--zoom_min_w", type=int, default=520)
     ap.add_argument("--zoom_max_w", type=int, default=1280)
-    ap.add_argument("--zoom_step_max", type=float, default=0.05)
-    ap.add_argument("--pan_step_max", type=int, default=36)
+    ap.add_argument("--zoom_step_max", type=float, default=0.06)
+    ap.add_argument("--pan_step_max", type=int, default=42)
     ap.add_argument("--envelope_seconds", type=float, default=1.2)
     ap.add_argument(
         "--dead_reckon_s",
@@ -948,6 +983,7 @@ def main() -> None:
         vy_short = float(vy[idx]) if idx < len(vy) else 0.0
         pred_x = ball_x_now + vx_short * 0.1
         pred_y = ball_y_now + vy_short * 0.1
+        pred_valid = np.isfinite(pred_x) and np.isfinite(pred_y)
         ball_in = _inside_crop(
             cx,
             cy,
@@ -1001,6 +1037,59 @@ def main() -> None:
                 view_h_curr = view_w_curr / OUT_AR
             else:
                 view_h_curr = float(SRC_H)
+
+        # Choose the target to protect: detection > filtered > prediction
+        frame_has_detection = bool(ball_is_measured_now)
+        frame_has_filtered = np.isfinite(ball_x_now) and np.isfinite(ball_y_now)
+        tx, ty = None, None
+        target_kind = None
+        if frame_has_detection and frame_has_filtered:
+            tx, ty = ball_x_now, ball_y_now
+            target_kind = "detection"
+        elif frame_has_filtered and not loss_mode:
+            tx, ty = ball_x_now, ball_y_now
+            target_kind = "filtered"
+        elif pred_valid:
+            tx, ty = pred_x, pred_y
+            target_kind = "prediction"
+        elif frame_has_filtered:
+            tx, ty = ball_x_now, ball_y_now
+            target_kind = "filtered"
+
+        if tx is not None and ty is not None:
+            cx, cy = clamp_center_to_keep_point_inside(
+                cx,
+                cy,
+                view_w_curr,
+                view_h_curr,
+                float(SRC_W),
+                float(SRC_H),
+                tx,
+                ty,
+                float(args.safe_margin_px),
+            )
+
+            if target_kind == "prediction":
+                view_w_curr = float(
+                    min(
+                        max(view_w_curr * 1.08, float(zoom_min_w)),
+                        float(zoom_max_w),
+                    )
+                )
+                if OUT_W > 0 and OUT_H > 0:
+                    view_h_curr = float(
+                        max(
+                            1,
+                            int(round(view_w_curr * OUT_H / OUT_W)),
+                        )
+                    )
+                elif OUT_AR > 0:
+                    view_h_curr = float(max(1.0, view_w_curr / OUT_AR))
+                else:
+                    view_h_curr = float(min(float(SRC_H), view_h_curr))
+
+        view_w_curr = max(2.0, min(float(SRC_W), view_w_curr))
+        view_h_curr = max(2.0, min(float(SRC_H), view_h_curr))
 
         cx, cy = _clamp_center(cx, cy, view_w_curr, view_h_curr, SRC_W, SRC_H)
 
