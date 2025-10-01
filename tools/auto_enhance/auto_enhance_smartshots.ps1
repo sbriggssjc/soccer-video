@@ -162,17 +162,27 @@ function Compute-EQ([double]$yavg,[double]$yrng,[double]$sat,[string]$cond) {
   $targetRg = 0.72
   $targetSa = 0.45
 
-  $contrast = 1.0 + Clamp(($targetRg - $yrng) * 0.65, -0.20, 0.22)
-  $contrast = Clamp($contrast, 0.85, 1.22)
+  # Contrast: 1.0 + Clamp((targetRg - yrng) * 0.65, -0.20, 0.22)
+  $contrast = 1.0 + (Clamp ( ($targetRg - $yrng) * 0.65 ) -0.20 0.22)
+  $contrast = (Clamp $contrast 0.85 1.22)
 
+  # Gamma:
   $gamma = 1.0
-  if     ($yavg -lt 0.45)     { $gamma = 1.0 + Clamp((0.45 - $yavg) * 0.35, 0.00, 0.14) }
-  elseif ($yavg -gt 0.62)     { $gamma = 1.0 - Clamp(($yavg - 0.62) * 0.22, 0.00, 0.06) }
-  $gamma = Clamp($gamma, 0.94, 1.14)
+  if ($yavg -lt 0.45) {
+    # 1.0 + Clamp((0.45 - yavg) * 0.35, 0.00, 0.14)
+    $gamma = 1.0 + (Clamp ( (0.45 - $yavg) * 0.35 ) 0.00 0.14)
+  } elseif ($yavg -gt 0.62) {
+    # 1.0 - Clamp((yavg - 0.62) * 0.22, 0.00, 0.06)
+    $gamma = 1.0 - (Clamp ( ($yavg - 0.62) * 0.22 ) 0.00 0.06)
+  }
+  $gamma = (Clamp $gamma 0.94 1.14)
 
-  $brightness = Clamp(($targetY - $yavg) * 0.08, -0.035, 0.035)
-  $satGain    = 1.0 + Clamp(($targetSa - $sat) * 0.9, -0.18, 0.22)
-  $satGain    = Clamp($satGain, 0.82, 1.22)
+  # Brightness: Clamp((targetY - yavg) * 0.08, -0.035, 0.035)
+  $brightness = (Clamp ( ($targetY - $yavg) * 0.08 ) -0.035 0.035)
+
+  # Saturation gain: 1.0 + Clamp((targetSa - sat) * 0.9, -0.18, 0.22)
+  $satGain = 1.0 + (Clamp ( ($targetSa - $sat) * 0.9 ) -0.18 0.22)
+  $satGain = (Clamp $satGain 0.82 1.22)
 
   # Condition tweaks
   switch ($cond) {
@@ -184,11 +194,12 @@ function Compute-EQ([double]$yavg,[double]$yrng,[double]$sat,[string]$cond) {
     default    { }
   }
 
+  # Final clamp + rounding calls must also wrap function invocation:
   [pscustomobject]@{
-    contrast   = [math]::Round(Clamp($contrast, 0.85, 1.24), 3)
-    gamma      = [math]::Round(Clamp($gamma,    0.92, 1.16), 3)
-    brightness = [math]::Round(Clamp($brightness,-0.04,0.04), 3)
-    saturation = [math]::Round(Clamp($satGain,  0.80, 1.24), 3)
+    contrast   = [math]::Round((Clamp $contrast   0.85 1.24), 3)
+    gamma      = [math]::Round((Clamp $gamma      0.92 1.16), 3)
+    brightness = [math]::Round((Clamp $brightness -0.04 0.04), 3)
+    saturation = [math]::Round((Clamp $satGain    0.80 1.24), 3)
   }
 }
 
