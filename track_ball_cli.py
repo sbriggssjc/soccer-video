@@ -278,14 +278,61 @@ def color_likelihood_at(
     return float(np.mean(mask) / 255.0)
 
 
+def savitzky_golay(values: List[float]) -> List[float]:
+    if not values:
+        return []
+    if len(values) < 9:
+        # Fallback to simple exponential smoothing for short sequences
+        smoothed: List[float] = []
+        alpha = 0.4
+        prev = values[0]
+        for v in values:
+            prev = alpha * v + (1.0 - alpha) * prev
+            smoothed.append(prev)
+        return smoothed
+    coeffs = np.array([-21, 14, 39, 54, 59, 54, 39, 14, -21], dtype=np.float64) / 231.0
+    padded = [values[0]] * 4 + list(values) + [values[-1]] * 4
+    smoothed = []
+    for i in range(4, len(padded) - 4):
+        window = padded[i - 4 : i + 5]
+        smoothed.append(float(np.dot(coeffs, window)))
+    return smoothed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--inp", required=True, help="input clip (.mp4)")
     ap.add_argument("--out_csv", required=True, help="output CSV path")
-    ap.add_argument("--yolo_conf", type=float, default=0.12)
+    ap.add_argument("--yolo_conf", type=float, default=0.05)
     ap.add_argument("--roi_pad", type=int, default=220)
-    ap.add_argument("--roi_pad_max", type=int, default=560)
-    ap.add_argument("--max_miss", type=int, default=45)
+    ap.add_argument("--roi_pad_max", type=int, default=1080)
+    ap.add_argument("--max_miss", type=int, default=120)
+    ap.add_argument("--imgsz", type=int, default=1280, help="YOLO input size")
+    ap.add_argument("--model", default="yolov8n.pt", help="YOLO model path/name")
+    ap.add_argument(
+        "--classes",
+        default="32",
+        help="Comma-separated class ids for detection (use 'all' for no filter)",
+    )
+    ap.add_argument(
+        "--agnostic_nms",
+        type=int,
+        default=0,
+        choices=[0, 1],
+        help="Use class-agnostic NMS",
+    )
+    ap.add_argument(
+        "--min_track_len",
+        type=int,
+        default=6,
+        help="Minimum consecutive visible frames before trusting detections",
+    )
+    ap.add_argument(
+        "--velocity_jump_gate",
+        type=float,
+        default=140.0,
+        help="Reject detections jumping more than this many pixels from prediction",
+    )
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.inp)
@@ -293,7 +340,21 @@ def main() -> None:
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    model = YOLO("yolov8n.pt")
+    model = YOLO(args.model)
+
+    classes = None
+    if args.classes and str(args.classes).lower() != "all":
+        classes = []
+        for c in str(args.classes).split(","):
+            c = c.strip()
+            if not c:
+                continue
+            try:
+                classes.append(int(c))
+            except ValueError:
+                raise ValueError(f"Invalid class id '{c}' for --classes") from None
+        if not classes:
+            classes = None
 
     dt = 1.0 / max(fps, 1e-6)
     kf = ConstantAccelerationKF(dt)
@@ -313,6 +374,7 @@ def main() -> None:
     last_good_xy: Optional[Tuple[float, float]] = None
     last_template: Optional[np.ndarray] = None
     miss = 0
+    track_streak = 0
     roi_pad = float(args.roi_pad)
     last_conf = 0.0
     yolo_conf_dyn = float(args.yolo_conf)
@@ -359,7 +421,15 @@ def main() -> None:
         try:
             y_inp = bgr if roi is None else nonempty_roi(bgr, roi[0], roi[1], roi[2], roi[3])
             if y_inp is not None and y_inp.size != 0:
-                res = model.predict(y_inp, verbose=False, conf=yolo_conf_dyn, classes=[32])
+                predict_kwargs = dict(
+                    verbose=False,
+                    conf=yolo_conf_dyn,
+                    imgsz=int(args.imgsz),
+                    agnostic_nms=bool(args.agnostic_nms),
+                )
+                if classes is not None:
+                    predict_kwargs["classes"] = classes
+                res = model.predict(y_inp, **predict_kwargs)
             else:
                 res = None
             if res and len(res[0].boxes):
@@ -479,13 +549,12 @@ def main() -> None:
                     )
 
         meas = None
-        meas_src = ""
         fused_conf = 0.0
-        detected = False
 
         pred_xy = (float(px), float(py))
         best = None
         best_score = -1e9
+        jump_gate = float(args.velocity_jump_gate) * (1.0 + min(miss, 6) * 0.25)
         for cand in candidates:
             mx = cand.get("x", np.nan)
             my = cand.get("y", np.nan)
@@ -505,9 +574,14 @@ def main() -> None:
                 best = (mx, my, str(cand.get("src", "")))
 
         if best is not None:
+            jump = math.hypot(best[0] - pred_xy[0], best[1] - pred_xy[1])
+            if jump > jump_gate:
+                best = None
+
+        was_missing = miss > 0
+
+        if best is not None:
             meas = np.array([[best[0]], [best[1]]], dtype=np.float64)
-            meas_src = best[2]
-            detected = True
             fused_conf = float(max(0.0, min(1.0, best_score / 4.5)))
 
         if meas is not None:
@@ -519,8 +593,13 @@ def main() -> None:
             last_good_xy = (cx, cy)
             last_template = extract_patch(gray, cx, cy, 21)
             miss = 0
-            roi_pad = float(args.roi_pad)
-            visible = 1
+            track_streak += 1
+            if was_missing or roi_pad > float(args.roi_pad):
+                roi_pad = float(max(args.roi_pad, roi_pad * 0.9))
+            else:
+                roi_pad = float(max(args.roi_pad, roi_pad))
+            roi_pad = float(min(roi_pad, float(args.roi_pad_max)))
+            visible = 1 if track_streak >= args.min_track_len else 0
             conf = float(max(0.05, min(1.0, fused_conf)))
             last_conf = conf
             yolo_conf_dyn = float(args.yolo_conf)
@@ -531,11 +610,12 @@ def main() -> None:
             vx = float(state_filt.x[2, 0])
             vy = float(state_filt.x[3, 0])
             miss += 1
+            track_streak = 0
             visible = 0
             last_conf *= 0.8
             conf = float(max(0.01, min(1.0, last_conf)))
-            roi_pad = float(min(int(roi_pad * 1.5), args.roi_pad_max))
-            yolo_conf_dyn = max(0.04, args.yolo_conf - 0.02)
+            roi_pad = float(min(float(args.roi_pad_max), roi_pad * 1.2))
+            yolo_conf_dyn = max(0.03, args.yolo_conf - 0.02)
             if miss > args.max_miss:
                 roi_pad = float(args.roi_pad_max)
 
@@ -592,14 +672,18 @@ def main() -> None:
         xs_smooth[k] = xs[k] + Ck @ (xs_smooth[k + 1] - xp[k + 1])
         Ps_smooth[k] = Pk + Ck @ (Ps_smooth[k + 1] - Pk1_pred) @ Ck.T
 
+    cx_vals = [ensure_float(xs_smooth[i][0, 0]) for i in range(N)]
+    cy_vals = [ensure_float(xs_smooth[i][1, 0]) for i in range(N)]
+    cx_smooth = savitzky_golay(cx_vals)
+    cy_smooth = savitzky_golay(cy_vals)
+
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True) if os.path.dirname(args.out_csv) else None
     with open(args.out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["frame", "time", "cx", "cy", "visible", "conf", "miss_streak"])
         for i, rec in enumerate(records):
-            xs_i = xs_smooth[i]
-            cx = ensure_float(xs_i[0, 0])
-            cy = ensure_float(xs_i[1, 0])
+            cx = cx_smooth[i] if i < len(cx_smooth) else cx_vals[i]
+            cy = cy_smooth[i] if i < len(cy_smooth) else cy_vals[i]
             writer.writerow(
                 [
                     int(rec["frame"]),
