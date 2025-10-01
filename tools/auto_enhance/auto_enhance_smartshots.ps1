@@ -274,6 +274,12 @@ function Encode-Shot([string]$inPath,[double]$start,[double]$dur,[string]$filter
 
 # -------------- Join segments --------------
 function Concat-Segments([string[]]$paths,[string]$outPath){
+  if (-not $paths -or $paths.Count -eq 0) { throw "Concat-Segments: no segments to join." }
+  if ($paths.Count -eq 1) {
+    # If there's only one segment, just move/rename it to final to avoid concat fragility.
+    Copy-Item -LiteralPath $paths[0] -Destination $outPath -Force
+    return
+  }
   $list = [System.IO.Path]::GetTempFileName()
   $listUtf8 = [System.IO.Path]::ChangeExtension($list,'.txt')
   Remove-Item $list -Force -ErrorAction SilentlyContinue
@@ -300,8 +306,14 @@ function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$c
 
   Write-Host "`n=== SMART SHOTS: $inPath"
   $shots = Get-Scenes -inPath $inPath -thresh $sceneThr -minDur $minShot -cap $cap
-  if (-not $shots -or $shots.Count -eq 0) { throw "No shots detected." }
-  Write-Host "Detected $($shots.Count) shots."
+  if (-not $shots -or $shots.Count -eq 0) {
+    # Fallback: single-shot of full duration was already returned by Get-Scenes; extra guard:
+    $durStr = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
+    if (-not $durStr) { throw "No shots detected and duration unavailable." }
+    $total = [double]::Parse($durStr, [System.Globalization.CultureInfo]::InvariantCulture)
+    $shots = @([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
+  }
+  Write-Host ("Detected {0} shot{1}." -f $shots.Count, $(if($shots.Count -eq 1){''}else{'s'}))
 
   # Temp dir
   $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("smartshots_" + ([System.IO.Path]::GetRandomFileName()))
