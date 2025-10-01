@@ -290,7 +290,7 @@ def main() -> None:
     df["conf"] = pd.to_numeric(df["conf"], errors="coerce").fillna(0.0)
     df["miss_streak"] = pd.to_numeric(df["miss_streak"], errors="coerce").fillna(0).astype(int)
 
-    df = df.sort_values("frame").reset_index(drop=True)
+    df = df.sort_values("frame").drop_duplicates(subset="frame", keep="first").reset_index(drop=True)
 
     if df.empty:
         raise RuntimeError("Track CSV is empty")
@@ -364,199 +364,166 @@ def main() -> None:
     tx = sx + vx * 0.25 * lead_scale
     ty = sy + vy * 0.25 * lead_scale
 
-    # --- Camera smoothing / limits (tighter & calmer) ---
-    # EMA gains (smaller = steadier)
-    alpha_pos_fwd = 0.06
-    alpha_pos_bwd = 0.06
-    alpha_zoom_fwd = 0.05
-    alpha_zoom_bwd = 0.05
+    # --- Viewport planning with hard aspect-ratio crop --------------------
+    out_ar = float(OUT_W) / float(OUT_H)
+    src_ar = float(SRC_W) / float(SRC_H if SRC_H else 1)
 
-    # Hard limits per frame (pixels & scale)
-    max_pan_px = max(6, int(0.0125 * min(SRC_W, SRC_H)))   # ~1.25% of min dimension
-    max_zoom_step = 0.025                                  # 2.5% zoom step/frame
-
-    # Keep the ball inside a "safe box" within the view with hysteresis.
-    # 'safe' keeps it well in; 'trigger' only kicks in when it gets close to the edge.
-    safe_margin_frac    = 0.18   # 18% margins
-    trigger_margin_frac = 0.10   # 10% margins
-    occlusion_zoom_extra = 0.35
-
-    # View window uses exact output aspect ratio to avoid any warping.
-    AR_out = float(W_out) / float(H_out if H_out else 1)
-    vw_base = int(round(min(SRC_W, SRC_H * AR_out)))
-    vh_base = int(round(vw_base / AR_out))
-    vw_base = min(vw_base, SRC_W)
-    vh_base = min(vh_base, SRC_H)
-    vw_base = max(2, vw_base)
-    vh_base = max(2, vh_base)
-
-    vw_max_abs = float(min(vw_base, 1400.0))
-    vw_min_abs = float(min(vw_max_abs, 820.0))
-    if vw_min_abs > vw_max_abs:
-        vw_min_abs = vw_max_abs
-
-    base_w_float = float(max(vw_base, 1))
-    zoom_min = vw_min_abs / base_w_float
-    zoom_max = vw_max_abs / base_w_float
-
-    speed_scale = np.clip(speed_arr / 30.0, 0.0, 1.0)
-    vw_targets_abs = vw_max_abs - (vw_max_abs - vw_min_abs) * speed_scale
-    zoom_targets = np.clip(vw_targets_abs / base_w_float, zoom_min, zoom_max)
-
-    centers_x = np.zeros_like(sx, dtype=np.float32)
-    centers_y = np.zeros_like(sy, dtype=np.float32)
-    view_w = np.zeros_like(sx, dtype=np.float32)
-    view_h = np.zeros_like(sy, dtype=np.float32)
-    view_zoom = np.zeros_like(sx, dtype=np.float32)
-
-    first = np.where(~np.isnan(sx) & ~np.isnan(sy))[0]
-    if len(first) == 0:
-        centers_x[:] = SRC_W * 0.5
-        centers_y[:] = SRC_H * 0.5
-        view_zoom[:] = zoom_max
-        view_w[:] = view_zoom * vw_base
-        view_h[:] = view_zoom * vh_base
-        k0 = 0
+    if src_ar >= out_ar:
+        base_crop_h = float(SRC_H)
+        base_crop_w = base_crop_h * out_ar
     else:
-        k0 = first[0]
-        centers_x[k0] = clamp(tx[k0], 0, SRC_W)
-        centers_y[k0] = clamp(ty[k0], 0, SRC_H)
-        view_zoom[k0] = zoom_targets[k0] if zoom_targets[k0] > 0 else zoom_max
-        view_w[k0] = view_zoom[k0] * vw_base
-        view_h[k0] = view_zoom[k0] * vh_base
+        base_crop_w = float(SRC_W)
+        base_crop_h = base_crop_w / out_ar
 
-    for t in range(max(1, k0 + 1), len(sx)):
-        cx_tgt = tx[t] if not np.isnan(tx[t]) else centers_x[t - 1]
-        cy_tgt = ty[t] if not np.isnan(ty[t]) else centers_y[t - 1]
-        desired_zoom_base = zoom_targets[t] if zoom_targets[t] > 0 else view_zoom[t - 1]
+    base_crop_w = min(float(SRC_W), max(2.0, base_crop_w))
+    base_crop_h = min(float(SRC_H), max(2.0, base_crop_h))
 
-        occ_frames = int(occlusion_frames[t]) if t < len(occlusion_frames) else 0
-        occ_ratio = 0.0
-        if occ_frames > 0:
-            occ_ratio = min(1.0, occ_frames / float(max(1, deadreckon_limit)))
+    zoom_min_factor = max(1.0, float(args.zoom_min))
+    zoom_max_factor = max(zoom_min_factor, float(args.zoom_max))
 
-        speed = speed_arr[t] if t < len(speed_arr) else np.nan
-        if not np.isnan(speed):
-            if speed > 18.0:
-                desired_zoom = max(1.00, min(1.20, desired_zoom_base))
-            elif speed < 6.0:
-                desired_zoom = max(1.10, min(1.35, desired_zoom_base))
-            else:
-                desired_zoom = desired_zoom_base
+    max_pan_per_frame = 25.0
+    max_pan_accel = 12.0
+    max_zoom_step = 0.03
+    max_zoom_accel = 0.015
+
+    safe_box_frac = 0.60
+
+    target_x = np.where(np.isfinite(tx), tx, cx_interp)
+    target_y = np.where(np.isfinite(ty), ty, cy_interp)
+
+    stage_a_x = ema(target_x, alpha=0.30)
+    stage_a_y = ema(target_y, alpha=0.30)
+
+    centers_x = np.zeros_like(stage_a_x, dtype=np.float32)
+    centers_y = np.zeros_like(stage_a_y, dtype=np.float32)
+    zoom_series = np.zeros_like(stage_a_x, dtype=np.float32)
+    view_w = np.zeros_like(stage_a_x, dtype=np.float32)
+    view_h = np.zeros_like(stage_a_y, dtype=np.float32)
+    pan_delta_x = np.zeros_like(stage_a_x, dtype=np.float32)
+    pan_delta_y = np.zeros_like(stage_a_x, dtype=np.float32)
+    zoom_delta_series = np.zeros_like(stage_a_x, dtype=np.float32)
+
+    def compute_zoom_target(speed_px, occ_ratio):
+        if np.isnan(speed_px):
+            base = zoom_min_factor
+        elif speed_px <= 4.0:
+            base = min(zoom_max_factor, zoom_min_factor + 0.20)
+        elif speed_px <= 12.0:
+            base = min(zoom_max_factor, zoom_min_factor + 0.08)
         else:
-            desired_zoom = desired_zoom_base
-
+            base = zoom_min_factor
         if occ_ratio > 0.0:
-            desired_zoom = min(zoom_max, desired_zoom + occlusion_zoom_extra * occ_ratio)
+            base = min(zoom_max_factor, base + 0.25 * occ_ratio)
+        return base
 
-        prev_zoom = view_zoom[t - 1] if view_zoom[t - 1] > 0 else desired_zoom
-        zoom_delta = desired_zoom - prev_zoom
-        zoom_delta = max(-max_zoom_step, min(max_zoom_step, float(zoom_delta)))
-        zoom_new = prev_zoom + zoom_delta
-        zoom_new = max(zoom_min, min(zoom_max, zoom_new))
+    half_w0 = base_crop_w * 0.5 / zoom_min_factor
+    half_h0 = base_crop_h * 0.5 / zoom_min_factor
 
-        vw_soft = zoom_new * vw_base
-        vh_soft = zoom_new * vh_base
-        view_zoom[t] = zoom_new
+    centers_x[0] = clamp(stage_a_x[0], half_w0, SRC_W - half_w0)
+    centers_y[0] = clamp(stage_a_y[0], half_h0, SRC_H - half_h0)
+    zoom_series[0] = compute_zoom_target(speed_arr[0], 0.0)
+    zoom_series[0] = clamp(zoom_series[0], zoom_min_factor, zoom_max_factor)
+    view_w[0] = base_crop_w / zoom_series[0]
+    view_h[0] = base_crop_h / zoom_series[0]
 
-        max_pan_now = max_pan_px * (1.0 + 0.75 * occ_ratio)
-        cx_soft = limit_step(centers_x[t - 1], cx_tgt, max_pan_now)
-        cy_soft = limit_step(centers_y[t - 1], cy_tgt, max_pan_now)
+    for t in range(1, len(stage_a_x)):
+        occ_frames = int(occlusion_frames[t]) if t < len(occlusion_frames) else 0
+        occ_ratio = min(1.0, occ_frames / float(max(1, deadreckon_limit))) if occ_frames > 0 else 0.0
 
-        if not np.isnan(sx[t]):
-            bx = sx[t]
-        elif t > 0:
-            bx = sx[t - 1]
+        desired_zoom = compute_zoom_target(speed_arr[t], occ_ratio)
+        prev_zoom = zoom_series[t - 1]
+        zoom_step = clamp(desired_zoom - prev_zoom, -max_zoom_step, max_zoom_step)
+        zoom_step = clamp(zoom_step, zoom_delta_series[t - 1] - max_zoom_accel, zoom_delta_series[t - 1] + max_zoom_accel)
+        zoom_new = clamp(prev_zoom + zoom_step, zoom_min_factor, zoom_max_factor)
+        zoom_series[t] = zoom_new
+        zoom_delta_series[t] = zoom_step
+
+        vw = base_crop_w / zoom_new
+        vh = base_crop_h / zoom_new
+        view_w[t] = vw
+        view_h[t] = vh
+
+        prev_cx = centers_x[t - 1]
+        prev_cy = centers_y[t - 1]
+
+        safe_half_w = 0.5 * vw * safe_box_frac
+        safe_half_h = 0.5 * vh * safe_box_frac
+
+        cx_tgt = stage_a_x[t]
+        cy_tgt = stage_a_y[t]
+
+        desired_cx = prev_cx
+        if cx_tgt < prev_cx - safe_half_w:
+            desired_cx = cx_tgt + safe_half_w
+        elif cx_tgt > prev_cx + safe_half_w:
+            desired_cx = cx_tgt - safe_half_w
+
+        desired_cy = prev_cy
+        if cy_tgt < prev_cy - safe_half_h:
+            desired_cy = cy_tgt + safe_half_h
+        elif cy_tgt > prev_cy + safe_half_h:
+            desired_cy = cy_tgt - safe_half_h
+
+        step_x = clamp(desired_cx - prev_cx, -max_pan_per_frame, max_pan_per_frame)
+        step_x = clamp(step_x, pan_delta_x[t - 1] - max_pan_accel, pan_delta_x[t - 1] + max_pan_accel)
+
+        step_y = clamp(desired_cy - prev_cy, -max_pan_per_frame, max_pan_per_frame)
+        step_y = clamp(step_y, pan_delta_y[t - 1] - max_pan_accel, pan_delta_y[t - 1] + max_pan_accel)
+
+        new_cx = prev_cx + step_x
+        new_cy = prev_cy + step_y
+
+        half_w = vw * 0.5
+        half_h = vh * 0.5
+
+        new_cx, new_cy = clamp_vec((new_cx, new_cy), half_w, half_h, SRC_W, SRC_H)
+
+        centers_x[t] = new_cx
+        centers_y[t] = new_cy
+        pan_delta_x[t] = step_x
+        pan_delta_y[t] = step_y
+
+    x0_raw = centers_x - view_w * 0.5
+    y0_raw = centers_y - view_h * 0.5
+
+    def smooth_axis(arr):
+        arr = np.asarray(arr, dtype=np.float32)
+        if len(arr) < 5:
+            return arr
+        if len(arr) >= 9:
+            window = 9
         else:
-            bx = SRC_W / 2
+            window = len(arr) if len(arr) % 2 == 1 else max(3, len(arr) - 1)
+        if window < 3 or window > len(arr):
+            return arr
+        return savgol_filter(arr, window_length=window, polyorder=2, mode="interp")
 
-        if not np.isnan(sy[t]):
-            by = sy[t]
-        elif t > 0:
-            by = sy[t - 1]
-        else:
-            by = SRC_H / 2
+    x0_smooth = smooth_axis(x0_raw)
+    y0_smooth = smooth_axis(y0_raw)
 
-        half_w = vw_soft * 0.5
-        half_h = vh_soft * 0.5
+    x0_clamped = np.clip(x0_smooth, 0.0, np.maximum(0.0, SRC_W - view_w))
+    y0_clamped = np.clip(y0_smooth, 0.0, np.maximum(0.0, SRC_H - view_h))
 
-        cam_x = cx_soft
-        cam_y = cy_soft
+    centers_x = (x0_clamped + view_w * 0.5).astype(np.float32)
+    centers_y = (y0_clamped + view_h * 0.5).astype(np.float32)
 
-        bx_view = bx - (cam_x - half_w)
-        by_view = by - (cam_y - half_h)
-
-        safe_frac = min(0.45, safe_margin_frac * (1.0 + 0.6 * occ_ratio))
-        trig_frac = min(0.48, trigger_margin_frac * (1.0 + 0.6 * occ_ratio))
-
-        safe_l = vw_soft * safe_frac
-        safe_r = vw_soft * (1.0 - safe_frac)
-        safe_t = vh_soft * safe_frac
-        safe_b = vh_soft * (1.0 - safe_frac)
-
-        trig_l = vw_soft * trig_frac
-        trig_r = vw_soft * (1.0 - trig_frac)
-        trig_t = vh_soft * trig_frac
-        trig_b = vh_soft * (1.0 - trig_frac)
-
-        dx = 0.0
-        dy = 0.0
-
-        if bx_view < trig_l:
-            dx = bx_view - safe_l
-        elif bx_view > trig_r:
-            dx = bx_view - safe_r
-
-        if by_view < trig_t:
-            dy = by_view - safe_t
-        elif by_view > trig_b:
-            dy = by_view - safe_b
-
-        dx = max(-max_pan_now, min(max_pan_now, dx))
-        dy = max(-max_pan_now, min(max_pan_now, dy))
-
-        cam_x += dx
-        cam_y += dy
-
-        cx_soft = cam_x
-        cy_soft = cam_y
-
-        cx_soft, cy_soft = clamp_vec((cx_soft, cy_soft), half_w, half_h, SRC_W, SRC_H)
-
-        centers_x[t] = cx_soft
-        centers_y[t] = cy_soft
-        view_w[t] = vw_soft
-        view_h[t] = vh_soft
-
-    if len(first) > 0:
-        for t in range(k0 - 1, -1, -1):
-            centers_x[t] = centers_x[t + 1]
-            centers_y[t] = centers_y[t + 1]
-            view_w[t] = view_w[t + 1]
-            view_h[t] = view_h[t + 1]
-            view_zoom[t] = view_zoom[t + 1]
-
-    centers_x_fwd = ema(centers_x, alpha_pos_fwd)
-    centers_x_bwd = ema(centers_x[::-1], alpha_pos_bwd)[::-1]
-    centers_x = (centers_x_fwd + centers_x_bwd) * 0.5
-
-    centers_y_fwd = ema(centers_y, alpha_pos_fwd)
-    centers_y_bwd = ema(centers_y[::-1], alpha_pos_bwd)[::-1]
-    centers_y = (centers_y_fwd + centers_y_bwd) * 0.5
-
-    zoom_fwd = ema(view_zoom, alpha_zoom_fwd)
-    zoom_bwd = ema(view_zoom[::-1], alpha_zoom_bwd)[::-1]
-    zoom_smoothed = np.clip((zoom_fwd + zoom_bwd) * 0.5, zoom_min, zoom_max)
-
-    view_w = (zoom_smoothed * vw_base).astype(np.float32)
-    view_h = (zoom_smoothed * vh_base).astype(np.float32)
-    centers_x = centers_x.astype(np.float32)
-    centers_y = centers_y.astype(np.float32)
+    view_w = view_w.astype(np.float32)
+    view_h = view_h.astype(np.float32)
+    crop_x = x0_clamped.astype(np.float32)
+    crop_y = y0_clamped.astype(np.float32)
+    crop_h_arr = np.clip(np.round(view_h)).astype(int)
+    crop_h_arr = np.clip(crop_h_arr, 2, SRC_H)
+    crop_w_arr = np.clip(np.round(out_ar * crop_h_arr)).astype(int)
+    crop_w_arr = np.clip(crop_w_arr, 2, SRC_W)
 
     df["center_x"] = centers_x
     df["center_y"] = centers_y
     df["view_w"] = view_w
     df["view_h"] = view_h
+    df["crop_x"] = crop_x
+    df["crop_y"] = crop_y
+    df["crop_w"] = crop_w_arr
+    df["crop_h"] = crop_h_arr
 
     cx_filled = np.where(
         np.isfinite(sx),
@@ -584,128 +551,26 @@ def main() -> None:
             break
         idx = min(frame_count, N - 1)
 
-        # --- ACTION-AWARE ZOOM/FRAMING ---------------------------------------
-        # Current smoothed center & view size
+        # --- AR-PRESERVING CROP ----------------------------------------------
         cx = centers_x[idx]
         cy = centers_y[idx]
-        vw = view_w[idx]
-        vh = view_h[idx]
+        crop_w = int(crop_w_arr[idx]) if idx < len(crop_w_arr) else int(out_ar * SRC_H)
+        crop_h = int(crop_h_arr[idx]) if idx < len(crop_h_arr) else SRC_H
+        crop_w = max(2, min(crop_w, SRC_W))
+        crop_h = max(2, min(crop_h, SRC_H))
 
-        # Estimate per-frame ball speed vector (px/frame)
-        occ_frames = int(occlusion_frames[idx]) if idx < len(occlusion_frames) else 0
-        occ_ratio = min(1.0, occ_frames / float(max(1, deadreckon_limit))) if occ_frames > 0 else 0.0
-
-        if idx > 0:
-            vx = centers_x[idx] - centers_x[idx - 1]
-            vy = centers_y[idx] - centers_y[idx - 1]
-        else:
-            vx = vy = 0.0
-        ball_speed = float(np.hypot(vx, vy))
-
-        # Heuristics:
-        # - Dribbling: slow => slightly tighter view, modest lead
-        # - Pass: medium => wider view, lead more in ball direction
-        # - Shot: fast & near goal line => widest view, extra headroom toward goal
-        vw_scale = 1.00
-        vh_scale = 1.00
-        lead_px = 0.0
-
-        # thresholds (tune if needed)
-        slow_thr = 4.0  # px/frame
-        fast_thr = 12.0  # px/frame
-        goal_band = 0.15  # within 15% of either side horizontally counts as "near goal"
-
-        A_out = float(W_out) / float(H_out)
-
-        # classify
-        near_left = cx <= goal_band * W_src
-        near_right = cx >= (1.0 - goal_band) * W_src
-        near_goal_side = near_left or near_right
-
-        if ball_speed <= slow_thr:
-            # Likely dribbling: tighter zoom, a little forward lead
-            vw_scale = 0.90
-            vh_scale = 0.90
-            lead_px = np.clip(ball_speed * 6.0, 0, 120)
-        elif ball_speed <= fast_thr:
-            # Likely a pass: widen to include passer/receiver context; lead more
-            vw_scale = 1.20
-            vh_scale = 1.10
-            lead_px = np.clip(ball_speed * 10.0, 40, 200)
-        else:
-            # Fast: shot or long pass. If near a side, bias toward that "goal" and widen more
-            vw_scale = 1.30 if near_goal_side else 1.20
-            vh_scale = 1.15
-            lead_px = np.clip(ball_speed * 12.0, 80, 240)
-
-        if occ_ratio > 0.0:
-            zoom_widen = 1.0 + 0.45 * occ_ratio
-            vw_scale *= zoom_widen
-            vh_scale *= zoom_widen
-            lead_px *= max(0.25, 1.0 - 0.65 * occ_ratio)
-
-        # Apply scaling to requested window (clamped later)
-        eff_w = int(round(np.clip(vw * vw_scale, 64, W_src)))
-        eff_h = int(round(np.clip(vh * vh_scale, 64, H_src)))
-
-        # Keep the internal camera window aspect flexible (we'll letterbox at the very end)
-        # but try not to get insanely skinny/tall:
-        eff_w = int(np.clip(eff_w, 64, W_src))
-        eff_h = int(np.clip(eff_h, 64, H_src))
-
-        # Directional lead: look slightly ahead of motion
-        cx_lead = cx + np.sign(vx) * lead_px
-
-        # Initial placement using requested left fraction
-        left_val = cx_lead - args.left_frac * eff_w
-        top_val = cy - 0.5 * eff_h
-
-        # --- BALL-IN-FRAME GUARANTEE -----------------------------------------
-        # The ball must be at least keep_margin inside all sides. If not possible, zoom out.
-        margin = float(args.keep_margin)
-
-        def fits_ball_with_margin(lv, tv, ew, eh):
-            return (
-                (cx - lv) >= margin
-                and (lv + ew - cx) >= margin
-                and (cy - tv) >= margin
-                and (tv + eh - cy) >= margin
-            )
-
-        # Try up to a few expansions if the ball is too close to an edge
-        for _ in range(6):
-            if fits_ball_with_margin(left_val, top_val, eff_w, eff_h):
-                break
-            # Zoom out a notch (expand window equally)
-            eff_w = int(min(W_src, eff_w * 1.12))
-            eff_h = int(min(H_src, eff_h * 1.12))
-            left_val = cx_lead - args.left_frac * eff_w
-            top_val = cy - 0.5 * eff_h
-
-        # Clamp crop inside source (no padding)
-        eff_w = max(2, min(eff_w, W_src))
-        eff_h = max(2, min(eff_h, H_src))
-        left = int(round(max(0, min(left_val, W_src - eff_w))))
-        top = int(round(max(0, min(top_val, H_src - eff_h))))
-        right = left + eff_w
-        bottom = top + eff_h
+        left = int(round(np.clip(crop_x[idx], 0.0, SRC_W - crop_w)))
+        top = int(round(np.clip(crop_y[idx], 0.0, SRC_H - crop_h)))
+        right = min(SRC_W, left + crop_w)
+        bottom = min(SRC_H, top + crop_h)
 
         crop = bgr[top:bottom, left:right]
 
-        # Preserve aspect with scale-to-cover (no warping, no bars)
-        scale = max(W_out / eff_w, H_out / eff_h)
-        new_w = int(round(eff_w * scale))
-        new_h = int(round(eff_h * scale))
-
-        res = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-
-        # Center-crop to exact output size
-        x0 = max(0, (new_w - W_out) // 2)
-        y0 = max(0, (new_h - H_out) // 2)
-        res = res[y0:y0 + H_out, x0:x0 + W_out]
-
-        # 'res' is now exactly W_out x H_out with correct AR, no smear bars, no warping
-        frame = res
+        if crop.shape[0] <= 0 or crop.shape[1] <= 0:
+            frame = np.zeros((H_out, W_out, 3), dtype=np.uint8)
+        else:
+            res = cv2.resize(crop, (W_out, H_out), interpolation=cv2.INTER_CUBIC)
+            frame = res
         cv2.imwrite(
             str(out_frames_dir / f"f_{frame_count:06d}.jpg"),
             frame,
@@ -725,6 +590,10 @@ def main() -> None:
             "center_y": centers_y[:frame_count],
             "view_w": view_w[:frame_count],
             "view_h": view_h[:frame_count],
+            "crop_x": crop_x[:frame_count],
+            "crop_y": crop_y[:frame_count],
+            "crop_w": crop_w_arr[:frame_count],
+            "crop_h": crop_h_arr[:frame_count],
             "ball_x": cx_filled[:frame_count],
             "ball_y": cy_filled[:frame_count],
             "speed": speed_arr[:frame_count],
