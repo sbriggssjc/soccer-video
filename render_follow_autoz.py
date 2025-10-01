@@ -90,9 +90,46 @@ v_x  = 0.0
 w    = np.zeros(N); w[0] = float(width_target[0])
 v_w  = 0.0
 
+# Fallback knobs to keep the ball in frame when the crop lags behind
+fallback_bias         = 0.8   # weight pulling the target toward the ball when outside
+fallback_zoom_step    = 0.06  # ~6% extra width when we have to zoom out
+fallback_zoom_max     = 0.10  # cap the extra zoom-out at 10%
+fallback_zoom_relax   = 0.02  # ease the extra zoom back by ~2% when stable
+zoom_extra            = 0.0
+
 for i in range(1, N):
+    base_w = float(width_target[i])
+    base_center = x_target[i] + ball_left_frac * base_w
+
+    # Apply any temporary extra zoom from the fallback logic
+    w_goal = float(np.clip(base_w * (1.0 + zoom_extra), min_w, max_w))
+    x_goal = float(np.clip(base_center - ball_left_frac * w_goal, 0, W - w_goal))
+
+    ball_pos = float(lead[i])
+    crop_left_prev = x[i-1]
+    crop_right_prev = crop_left_prev + w[i-1]
+
+    if ball_pos < crop_left_prev or ball_pos > crop_right_prev:
+        # Pull the target toward the ball so we slew faster in emergencies
+        center_goal = x_goal + ball_left_frac * w_goal
+        center_goal = (1.0 - fallback_bias) * center_goal + fallback_bias * ball_pos
+        x_goal = float(np.clip(center_goal - ball_left_frac * w_goal, 0, W - w_goal))
+
+        # If the ball would still be outside, temporarily zoom out a bit more
+        if ball_pos < x_goal or ball_pos > x_goal + w_goal:
+            zoom_extra = min(fallback_zoom_max, zoom_extra + fallback_zoom_step)
+            w_goal = float(np.clip(base_w * (1.0 + zoom_extra), min_w, max_w))
+            x_goal = float(np.clip(ball_pos - ball_left_frac * w_goal, 0, W - w_goal))
+    else:
+        # Ease the temporary zoom back in once the play is stable again
+        margin = 0.1 * w[i-1]
+        if zoom_extra > 0.0 and (crop_left_prev + margin <= ball_pos <= crop_right_prev - margin):
+            zoom_extra = max(0.0, zoom_extra - fallback_zoom_relax)
+            w_goal = float(np.clip(base_w * (1.0 + zoom_extra), min_w, max_w))
+            x_goal = float(np.clip(base_center - ball_left_frac * w_goal, 0, W - w_goal))
+
     # Pan
-    err_x   = x_target[i] - x[i-1]
+    err_x   = x_goal - x[i-1]
     v_des_x = np.clip(err_x/dt, -slew_max_pan, slew_max_pan)
     dv_x    = np.clip(v_des_x - v_x, -accel_max_pan*dt, accel_max_pan*dt)
     v_x    += dv_x
@@ -100,7 +137,7 @@ for i in range(1, N):
     x[i]    = x[i-1] + v_x*dt
 
     # Zoom width
-    err_w   = width_target[i] - w[i-1]
+    err_w   = w_goal - w[i-1]
     v_des_w = np.clip(err_w/dt, -slew_max_zoom, slew_max_zoom)
     dv_w    = np.clip(v_des_w - v_w, -accel_max_zoom*dt, accel_max_zoom*dt)
     v_w    += dv_w
