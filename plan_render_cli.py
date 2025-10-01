@@ -330,7 +330,19 @@ def main() -> None:
     for t in range(max(1, k0 + 1), len(sx)):
         cx_tgt = tx[t] if not np.isnan(tx[t]) else centers_x[t - 1]
         cy_tgt = ty[t] if not np.isnan(ty[t]) else centers_y[t - 1]
-        desired_zoom = zoom_targets[t] if zoom_targets[t] > 0 else view_zoom[t - 1]
+        desired_zoom_base = zoom_targets[t] if zoom_targets[t] > 0 else view_zoom[t - 1]
+
+        speed = speed_arr[t] if t < len(speed_arr) else np.nan
+        if not np.isnan(speed):
+            if speed > 18.0:
+                desired_zoom = max(1.00, min(1.20, desired_zoom_base))
+            elif speed < 6.0:
+                desired_zoom = max(1.10, min(1.35, desired_zoom_base))
+            else:
+                desired_zoom = desired_zoom_base
+        else:
+            desired_zoom = desired_zoom_base
+
         prev_zoom = view_zoom[t - 1] if view_zoom[t - 1] > 0 else desired_zoom
         zoom_delta = desired_zoom - prev_zoom
         zoom_delta = max(-max_zoom_step, min(max_zoom_step, float(zoom_delta)))
