@@ -105,6 +105,9 @@ soccerhl reel --list out\smart_top10_concat.txt --out out\reels\top10.mp4 --prof
 
 3. **Brand overlays.** Use `tools/tsc_brand.ps1` to wrap a finished reel with Tulsa Soccer Club graphics, watermarks, lower thirds, and optional end cards. The script automatically swaps between 16×9 and 9×16 art, verifies ribbon/watermark assets, and renders drawtext overlays for title/subtitle copy when the Montserrat font family is installed under `fonts/`.【F:README.md†L59-L74】【F:tools/tsc_brand.ps1†L1-L213】
 
+3. **Brand overlays.** Use `tools/tsc_brand.ps1` to wrap a finished reel with Tulsa Soccer Club graphics, watermarks, and end cards. Ensure the Montserrat fonts are installed in `fonts/`.【F:README.md†L59-L74】
+
+
 4. **Autoframe for social cuts.**
    * Track motion and goal anchors with `autoframe.py`, which now outputs per-frame centers, zoom, and diagnostics while exposing detailed tuning flags (`--lead`, `--deadband_xy`, `--goal_side`, etc.).【F:README_AUTOFAME.md†L13-L65】
    * Fit smooth cubic expressions with `fit_expr.py` and feed them into the PowerShell reel scripts to drive FFmpeg’s `crop`/`scale` filters without thousands of raw numbers.【F:README_AUTOFAME.md†L68-L99】
