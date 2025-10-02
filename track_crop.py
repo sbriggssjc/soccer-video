@@ -58,6 +58,7 @@ def main() -> None:
     parser.add_argument("--out", default="out/crops.jsonl", help="Output JSONL with tracked crops")
     parser.add_argument("--tracker", default="csrt", help="OpenCV tracker to use (csrt, kcf)")
     parser.add_argument("--display", action="store_true", help="Show the tracking preview")
+    parser.add_argument("--video-out", help="Optional path to save cropped preview video")
     parser.add_argument("--roi", help="Initial ROI as x,y,w,h (pixels). If set, skip selection UI.")
     parser.add_argument("--save-roi", help="Path to write the ROI json after first run (x,y,w,h).")
     parser.add_argument("--load-roi", help="Path to read ROI json (overrides --roi).")
@@ -95,6 +96,19 @@ def main() -> None:
     tracker.init(frame, init_rect)
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    crop_w, crop_h = int(init_rect[2]), int(init_rect[3])
+    writer = None
+    if args.video_out:
+        video_path = (
+            args.video_out
+            if args.video_out.endswith(".mp4")
+            else args.video_out + ".mp4"
+        )
+        video_path = Path(video_path)
+        video_path.parent.mkdir(parents=True, exist_ok=True)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, fps, (crop_w, crop_h))
+
     frame_idx = 0
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,6 +128,13 @@ def main() -> None:
 
     with out_path.open("w", encoding="utf-8") as out_file:
         emit(frame_idx, init_rect)
+        if writer is not None:
+            limit_x = max(frame.shape[1] - crop_w, 0)
+            limit_y = max(frame.shape[0] - crop_h, 0)
+            x0 = max(0, min(int(init_rect[0]), limit_x))
+            y0 = max(0, min(int(init_rect[1]), limit_y))
+            crop_frame = frame[y0 : y0 + crop_h, x0 : x0 + crop_w]
+            writer.write(crop_frame)
 
         while True:
             ok, frame = cap.read()
@@ -124,6 +145,14 @@ def main() -> None:
             if not ok:
                 break
             emit(frame_idx, bbox)
+            if writer is not None:
+                x, y = int(bbox[0]), int(bbox[1])
+                limit_x = max(frame.shape[1] - crop_w, 0)
+                limit_y = max(frame.shape[0] - crop_h, 0)
+                x = max(0, min(x, limit_x))
+                y = max(0, min(y, limit_y))
+                crop_frame = frame[y : y + crop_h, x : x + crop_w]
+                writer.write(crop_frame)
 
             if args.display:
                 x, y, w, h = map(int, bbox)
@@ -133,6 +162,8 @@ def main() -> None:
                 if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
                     break
 
+    if writer is not None:
+        writer.release()
     cap.release()
     if args.display:
         cv2.destroyWindow("Tracking")
