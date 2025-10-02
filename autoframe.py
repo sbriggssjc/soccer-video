@@ -12,6 +12,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from soccer_highlights.ball_tracker import BallTrack, BallTracker
+
 
 def clamp(x: float, lo: float, hi: float) -> float:
     """Clamp *x* to the inclusive range ``[lo, hi]``."""
@@ -46,6 +48,18 @@ def compute_motion_spread(
         if d.size:
             return float(np.percentile(d, 85.0))
     return 0.5 * max(frame_w, frame_h)
+
+
+def choose_target_center(
+    motion_center: Tuple[float, float],
+    ball_track: Optional[BallTrack],
+    min_confidence: float,
+) -> Tuple[float, float, bool]:
+    """Fuse motion and ball detections, returning the selected center."""
+
+    if ball_track is not None and ball_track.conf >= min_confidence:
+        return float(ball_track.cx), float(ball_track.cy), True
+    return float(motion_center[0]), float(motion_center[1]), False
 
 
 def update_camera(
@@ -1248,6 +1262,40 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Goal lock as t_goal_sec,cele_sec,cele_tight_zoom",
     )
+    parser.add_argument(
+        "--ball-detector",
+        dest="ball_detector",
+        choices=["none", "yolo"],
+        default="none",
+        help="Ball detection backend to fuse with motion tracking",
+    )
+    parser.add_argument(
+        "--ball-weights",
+        dest="ball_weights",
+        type=Path,
+        help="Optional path to YOLO weights for ball detection",
+    )
+    parser.add_argument(
+        "--ball-min-conf",
+        dest="ball_min_conf",
+        type=float,
+        default=0.35,
+        help="Minimum confidence before using YOLO ball detections",
+    )
+    parser.add_argument(
+        "--ball-smooth-alpha",
+        dest="ball_smooth_alpha",
+        type=float,
+        default=0.25,
+        help="EMA smoothing weight for YOLO ball tracks",
+    )
+    parser.add_argument(
+        "--ball-max-gap",
+        dest="ball_max_gap",
+        type=int,
+        default=12,
+        help="Reset YOLO smoothing after this many missed frames",
+    )
     parser.add_argument("--config", type=Path, help="Reserved for compatibility; unused")
     parser.add_argument("--lead", type=int, help="Legacy frames to lead/predict center")
     parser.add_argument(
@@ -1481,6 +1529,12 @@ def parse_args() -> argparse.Namespace:
         default=400,
         help="Top-K flow vectors to use for barycentric fallback",
     )
+    parser.add_argument(
+        "--diagnostics",
+        type=int,
+        default=0,
+        help="Enable verbose diagnostics (writes debug tracks when set to 1)",
+    )
     return parser.parse_args()
 
 
@@ -1538,6 +1592,7 @@ def run_autoframe(
     ball_window_x = int(args.ball_window_x) if args.ball_window_x is not None else 240
     ball_window_y = int(args.ball_window_y) if args.ball_window_y is not None else 180
     spread_hi = float(args.spread_hi) if args.spread_hi is not None else 420.0
+    diagnostics_enabled = bool(int(args.diagnostics))
 
     camera_params = SimpleNamespace(
         lead_frames=lead_frames,
@@ -1561,6 +1616,25 @@ def run_autoframe(
 
     detector = YOLODetector(conf_floor, frame_size)
     flow_clusterer = FlowClusterer(frame_size, flow_thresh)
+
+    ball_tracker: Optional[BallTracker] = None
+    ball_debug_rows: List[List[object]] = []
+    ball_weights_path = args.ball_weights
+    if args.ball_detector == "yolo":
+        if ball_weights_path is not None and not ball_weights_path.exists():
+            print(f"[ball] weights not found at {ball_weights_path}; using motion-only tracker")
+        else:
+            tracker = BallTracker(
+                ball_weights_path,
+                min_conf=float(args.ball_min_conf),
+                smooth_alpha=float(args.ball_smooth_alpha),
+                max_gap=int(args.ball_max_gap),
+            )
+            if not tracker.is_ready:
+                if tracker.failure_reason:
+                    print(f"[ball] {tracker.failure_reason}; continuing without YOLO")
+            else:
+                ball_tracker = tracker
 
     goal_preference = args.goal_roi
     if goal_preference == "auto" and args.goal_side in {"left", "right"}:
@@ -1616,6 +1690,31 @@ def run_autoframe(
                 vectors=np.zeros((0, 2), dtype=np.float64),
                 magnitudes=np.zeros((0,), dtype=np.float64),
             )
+
+        ball_track: Optional[BallTrack] = None
+        if ball_tracker is not None:
+            ball_track = ball_tracker.update(frame_idx, current_frame)
+            if diagnostics_enabled:
+                if ball_track is None:
+                    ball_debug_rows.append(
+                        [frame_idx, "", "", "", "", "", "", "", "", "", ""]
+                    )
+                else:
+                    ball_debug_rows.append(
+                        [
+                            ball_track.frame,
+                            ball_track.cx,
+                            ball_track.cy,
+                            ball_track.width,
+                            ball_track.height,
+                            ball_track.conf,
+                            ball_track.raw_cx,
+                            ball_track.raw_cy,
+                            ball_track.raw_width,
+                            ball_track.raw_height,
+                            ball_track.raw_conf,
+                        ]
+                    )
 
         detections = detector.detect(current_frame)
         flow_targets = flow_result.targets
@@ -1688,8 +1787,14 @@ def run_autoframe(
 
         conf_value = conf_raw if points else 1.0
 
-        target_cx = cx_hint
-        target_cy = cy_hint
+        target_cx, target_cy, ball_used = choose_target_center(
+            (cx_hint, cy_hint), ball_track, float(args.ball_min_conf)
+        )
+        if ball_used and ball_track is not None:
+            conf_value = max(conf_value, float(ball_track.conf))
+            state["ball_used"] = 1.0
+        else:
+            state["ball_used"] = 0.0
         if goal_box is not None and goal_blend > 1e-6:
             goal_cx, goal_cy = goal_box.center
             dist = math.hypot(target_cx - goal_cx, target_cy - goal_cy)
@@ -1820,6 +1925,31 @@ def run_autoframe(
         frame_idx += 1
 
     cap.release()
+
+    if diagnostics_enabled and ball_debug_rows:
+        debug_dir = Path("out/autoframe_debug/ball_tracks")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        debug_path = debug_dir / f"{Path(args.input_path).stem}.csv"
+        with debug_path.open("w", newline="", encoding="utf-8") as dbg:
+            writer = csv.writer(dbg)
+            writer.writerow(
+                [
+                    "frame",
+                    "cx",
+                    "cy",
+                    "w",
+                    "h",
+                    "conf",
+                    "raw_cx",
+                    "raw_cy",
+                    "raw_w",
+                    "raw_h",
+                    "raw_conf",
+                ]
+            )
+            writer.writerows(ball_debug_rows)
+        print(f"[ball] wrote debug track CSV to {debug_path}")
+
     return results, debug_states, fps, frame_size, zoom_min, zoom_max
 
 def main() -> None:
