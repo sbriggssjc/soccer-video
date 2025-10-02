@@ -269,20 +269,21 @@ function Build-Filter([pscustomobject]$eq, [bool]$wb) {
 
 # -------------- Sampling one shot --------------
 function Sample-Shot([string]$inPath,[double]$start,[double]$dur){
-  # Parse signalstats from stderr. We add showinfo so ffmpeg prints per-frame metadata.
+  # Use metadata=print (no file) so ffmpeg prints frame metadata with lavfi.signalstats.* keys
   $args = @(
-    '-hide_banner','-v','verbose','-ss',('{0:0.###}' -f $start),'-t',('{0:0.###}' -f $dur),
-    '-i',$inPath,
-    '-vf','scale=in_range=auto:out_range=tv,signalstats,showinfo',
-    '-f','null','NUL'
+    '-hide_banner',
+    '-v','error',
+    '-ss',('{0:0.###}' -f $start), '-t',('{0:0.###}' -f $dur),
+    '-i', $inPath,
+    '-vf', 'scale=in_range=auto:out_range=tv,signalstats,metadata=print',
+    '-f', 'null', 'NUL'
   )
-  $stderr = & ffmpeg @args 2>&1
+  $text = & ffmpeg @args 2>&1
   if ($LASTEXITCODE -ne 0) { throw "signalstats sampling failed ($start..$([math]::Round($start+$dur,3)))" }
 
-  $lines = $stderr -split "`r?`n"
-  # Keep only the noisy lines to speed parsing (optional)
-  $cand = $lines | Where-Object { $_ -match 'YAVG:|SATAVG:' }
-  if (-not $cand -or $cand.Count -eq 0) { $cand = $lines }
+  $lines = $text -split "`r?`n"
+  $cand  = $lines | Where-Object { ($_ -like '*lavfi.signalstats.*') -or ($_ -match 'YAVG:|SATAVG:') }
+  if (-not $cand -or $cand.Count -eq 0) { throw "No signalstats lines parsed from stderr." }
 
   Parse-StatsText $cand
 }
