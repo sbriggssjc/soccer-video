@@ -307,10 +307,7 @@ function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$c
   Write-Host "`n=== SMART SHOTS: $inPath"
   $shots = Get-Scenes -inPath $inPath -thresh $sceneThr -minDur $minShot -cap $cap
   if (-not $shots -or $shots.Count -eq 0) {
-    # Fallback: single-shot of full duration was already returned by Get-Scenes; extra guard:
-    $durStr = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
-    if (-not $durStr) { throw "No shots detected and duration unavailable." }
-    $total = [double]::Parse($durStr, [System.Globalization.CultureInfo]::InvariantCulture)
+    $total = Get-DurationSec $inPath
     $shots = @([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
   }
   Write-Host ("Detected {0} shot{1}." -f $shots.Count, $(if($shots.Count -eq 1){''}else{'s'}))
@@ -354,6 +351,32 @@ function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$c
   }
 
   if (-not $dry) {
+    if ($segments.Count -eq 0) {
+      Write-Warning "No segments encoded; falling back to whole-video smart pass."
+      # Analyze mid-video for EQ
+      $total = Get-DurationSec $inPath
+      $midStart = [math]::Max(0.0, ($total/2.0) - 2.0)
+      $eqStats = Sample-Shot -inPath $inPath -start $midStart -dur ([math]::Min(4.0, $total - $midStart))
+      $cond    = Detect-Conditions $eqStats
+      $eq      = Compute-EQ -yavg $eqStats.YAVG -yrng $eqStats.YRNG -sat $eqStats.SAT -cond $cond
+      $filter1 = Build-Filter -eq $eq -wb:$false  # WB off (your build lacks it)
+
+      $args = @(
+        '-hide_banner','-y',
+        '-i',$inPath,
+        '-map','0:v:0','-map','0:a:0?',
+        '-vf', $filter1,
+        '-c:v','libx264','-preset',$preset,'-crf',$crf,
+        '-c:a','aac','-b:a','192k',
+        $final
+      )
+      $p = Start-Process -FilePath 'ffmpeg' -ArgumentList $args -NoNewWindow -PassThru -Wait
+      if ($p.ExitCode -ne 0) { throw "Whole-video fallback encode failed." }
+      try { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+      Write-Host "Final: $final"
+      Write-Host "Log  : $log"
+      return $final
+    }
     Concat-Segments -paths $segments.ToArray() -outPath $final
   }
 
