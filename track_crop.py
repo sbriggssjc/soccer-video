@@ -60,6 +60,10 @@ def main() -> None:
     parser.add_argument("--tracker", default="csrt", help="OpenCV tracker to use (csrt, kcf)")
     parser.add_argument("--display", action="store_true", help="Show the tracking preview")
     parser.add_argument("--video-out", help="Optional path to save cropped preview video")
+    parser.add_argument(
+        "--frames-dir",
+        help="Optional directory to dump cropped frames and fps.txt",
+    )
     parser.add_argument("--roi", help="Initial ROI as x,y,w,h (pixels). If set, skip selection UI.")
     parser.add_argument("--save-roi", help="Path to write the ROI json after first run (x,y,w,h).")
     parser.add_argument("--load-roi", help="Path to read ROI json (overrides --roi).")
@@ -98,37 +102,48 @@ def main() -> None:
     tracker = build_tracker(args.tracker)
     tracker.init(frame, init_rect)
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if not fps or fps <= 0:
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    if fps <= 0 or fps != fps:
         fps = 30.0
-    out_w, out_h = int(init_rect[2]), int(init_rect[3])
+    tracked_frame_width = int(init_rect[2])
+    tracked_frame_height = int(init_rect[3])
+    frame_size = (int(tracked_frame_width), int(tracked_frame_height))
     writer = None
     video_writer_path: Path | None = None
+    frames_dir_path: Path | None = None
+    if args.frames_dir:
+        frames_dir_path = Path(args.frames_dir)
+        frames_dir_path.mkdir(parents=True, exist_ok=True)
     if args.video_out:
-        video_path = (
-            args.video_out
-            if args.video_out.lower().endswith(".mp4")
-            else args.video_out + ".mp4"
-        )
-        video_writer_path = Path(video_path)
+        out_video_path = args.video_out
+        root, ext = os.path.splitext(out_video_path)
+        if ext.lower() not in (".avi", ".mp4", ".mkv"):
+            out_video_path = root + ".avi"
+
+        video_writer_path = Path(out_video_path)
         video_writer_path.parent.mkdir(parents=True, exist_ok=True)
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(
-            str(video_writer_path), fourcc, fps, (out_w, out_h), isColor=True
-        )
+
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+        writer = cv2.VideoWriter(str(video_writer_path), fourcc, fps, frame_size)
+
         if not writer.isOpened():
-            print(f"[ERROR] Failed to open VideoWriter for: {video_writer_path}")
-            sys.exit(1)
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            writer = cv2.VideoWriter(str(video_writer_path), fourcc, fps, frame_size)
+
+        if not writer.isOpened():
+            raise RuntimeError(
+                f"Failed to open VideoWriter for {video_writer_path} "
+                f"(fps={fps}, size={frame_size})"
+            )
 
     frame_idx = 0
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    json_out_path = Path(args.out)
+    json_out_path.parent.mkdir(parents=True, exist_ok=True)
     frames_written = 0
+    frames_dumped = 0
 
     def write_crop_frame(src_frame, bbox: Tuple[float, float, float, float]) -> None:
-        nonlocal frames_written
-        if writer is None:
-            return
+        nonlocal frames_written, frames_dumped
         x, y, w, h = bbox
         x0 = max(0, int(x))
         y0 = max(0, int(y))
@@ -139,11 +154,21 @@ def main() -> None:
         crop = src_frame[y0:y1, x0:x1]
         if crop.size == 0:
             return
-        crop_resized = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_AREA)
+        crop_resized = cv2.resize(crop, frame_size, interpolation=cv2.INTER_AREA)
         if crop_resized.dtype != "uint8":
             crop_resized = crop_resized.astype("uint8")
-        writer.write(crop_resized)
-        frames_written += 1
+        if writer is not None:
+            writer.write(crop_resized)
+            frames_written += 1
+        if frames_dir_path is not None:
+            frame_name = f"f{frames_dumped:06d}.jpg"
+            frame_path = frames_dir_path / frame_name
+            cv2.imwrite(
+                str(frame_path),
+                crop_resized,
+                [int(cv2.IMWRITE_JPEG_QUALITY), 92],
+            )
+            frames_dumped += 1
 
     def emit(idx: int, bbox: Tuple[float, float, float, float]) -> None:
         x, y, w, h = bbox
@@ -159,7 +184,7 @@ def main() -> None:
         out_file.write("\n")
 
     try:
-        with out_path.open("w", encoding="utf-8") as out_file:
+        with json_out_path.open("w", encoding="utf-8") as out_file:
             emit(frame_idx, init_rect)
             write_crop_frame(frame, init_rect)
 
@@ -201,7 +226,17 @@ def main() -> None:
             )
             sys.exit(1)
         else:
-            print(f"[OK] Wrote {frames_written} frames to {output_str}")
+            print(
+                f"[track_crop] Wrote {frames_written} frames at {fps} fps -> {output_str}"
+            )
+
+    if frames_dir_path is not None:
+        fps_file = frames_dir_path / "fps.txt"
+        with fps_file.open("w", encoding="utf-8") as f:
+            f.write(str(fps))
+        print(
+            f"[track_crop] Wrote {frames_dumped} frames to {frames_dir_path} @ {fps} fps"
+        )
 
 
 if __name__ == "__main__":
