@@ -60,6 +60,10 @@ def main() -> None:
     parser.add_argument("--tracker", default="csrt", help="OpenCV tracker to use (csrt, kcf)")
     parser.add_argument("--display", action="store_true", help="Show the tracking preview")
     parser.add_argument("--video-out", help="Optional path to save cropped preview video")
+    parser.add_argument(
+        "--frames-dir",
+        help="Optional directory to dump cropped frames and fps.txt",
+    )
     parser.add_argument("--roi", help="Initial ROI as x,y,w,h (pixels). If set, skip selection UI.")
     parser.add_argument("--save-roi", help="Path to write the ROI json after first run (x,y,w,h).")
     parser.add_argument("--load-roi", help="Path to read ROI json (overrides --roi).")
@@ -104,6 +108,10 @@ def main() -> None:
     out_w, out_h = int(init_rect[2]), int(init_rect[3])
     writer = None
     video_writer_path: Path | None = None
+    frames_dir_path: Path | None = None
+    if args.frames_dir:
+        frames_dir_path = Path(args.frames_dir)
+        frames_dir_path.mkdir(parents=True, exist_ok=True)
     if args.video_out:
         video_path = (
             args.video_out
@@ -124,11 +132,10 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     frames_written = 0
+    frames_dumped = 0
 
     def write_crop_frame(src_frame, bbox: Tuple[float, float, float, float]) -> None:
-        nonlocal frames_written
-        if writer is None:
-            return
+        nonlocal frames_written, frames_dumped
         x, y, w, h = bbox
         x0 = max(0, int(x))
         y0 = max(0, int(y))
@@ -142,8 +149,18 @@ def main() -> None:
         crop_resized = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_AREA)
         if crop_resized.dtype != "uint8":
             crop_resized = crop_resized.astype("uint8")
-        writer.write(crop_resized)
-        frames_written += 1
+        if writer is not None:
+            writer.write(crop_resized)
+            frames_written += 1
+        if frames_dir_path is not None:
+            frame_name = f"f{frames_dumped:06d}.jpg"
+            frame_path = frames_dir_path / frame_name
+            cv2.imwrite(
+                str(frame_path),
+                crop_resized,
+                [int(cv2.IMWRITE_JPEG_QUALITY), 92],
+            )
+            frames_dumped += 1
 
     def emit(idx: int, bbox: Tuple[float, float, float, float]) -> None:
         x, y, w, h = bbox
@@ -202,6 +219,14 @@ def main() -> None:
             sys.exit(1)
         else:
             print(f"[OK] Wrote {frames_written} frames to {output_str}")
+
+    if frames_dir_path is not None:
+        fps_file = frames_dir_path / "fps.txt"
+        with fps_file.open("w", encoding="utf-8") as f:
+            f.write(str(fps))
+        print(
+            f"[track_crop] Wrote {frames_dumped} frames to {frames_dir_path} @ {fps} fps"
+        )
 
 
 if __name__ == "__main__":
