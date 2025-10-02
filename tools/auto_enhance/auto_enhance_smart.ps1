@@ -91,15 +91,17 @@ function Build-FixedChunks([double]$total, [double]$chunkSec){
   $ranges
 }
 
-# Parse a stats file produced by signalstats/metadata=print
-function Parse-Stats([string]$statsPath) {
-  # We’ll collect YAVG, YMIN, YMAX, SATAVG per frame, then average.
+# Parse signalstats lines captured from stderr output.
+function Parse-StatsText([string[]]$lines) {
   $yavgSum = 0.0; $satSum = 0.0; $frames = 0
-  $yminMin =  1.0; $ymaxMax = 0.0
+  $yminMin = 1.0; $ymaxMax = 0.0
 
+  # Look for lines printed by signalstats in stderr (via showinfo)
+  # Common forms include "... YAVG:0.512 YMIN:0.043 YMAX:0.982 ... SATAVG:0.38 ..."
   $rx = [regex]'YAVG:(?<yavg>[\d\.]+).*?YMIN:(?<ymin>[\d\.]+).*?YMAX:(?<ymax>[\d\.]+).*?SATAVG:(?<satavg>[\d\.]+)'
-  Get-Content -LiteralPath $statsPath -ErrorAction SilentlyContinue | ForEach-Object {
-    $m = $rx.Match($_)
+
+  foreach ($line in $lines) {
+    $m = $rx.Match($line)
     if ($m.Success) {
       $frames++
       $y = [double]$m.Groups['yavg'].Value
@@ -107,28 +109,17 @@ function Parse-Stats([string]$statsPath) {
       $ymax = [double]$m.Groups['ymax'].Value
       $sat = [double]$m.Groups['satavg'].Value
 
-      $yavgSum += $y
-      $satSum  += $sat
+      $yavgSum += $y; $satSum += $sat
       if ($ymin -lt $yminMin) { $yminMin = $ymin }
       if ($ymax -gt $ymaxMax) { $ymaxMax = $ymax }
     }
   }
 
-  if ($frames -eq 0) {
-    throw "No signalstats frames parsed. Is 'signalstats' available in your FFmpeg build?"
-  }
+  if ($frames -eq 0) { throw "No signalstats lines parsed from stderr." }
 
-  $yavg = $yavgSum / $frames
-  $sat  = $satSum  / $frames
-  $yrng = $ymaxMax - $yminMin
-
+  $yavg = $yavgSum / $frames; $sat  = $satSum / $frames
   [pscustomobject]@{
-    YAVG = $yavg     # Average luma (0..1)
-    SAT  = $sat      # Average saturation proxy (0..1)
-    YMIN = $yminMin  # Lowest luma seen
-    YMAX = $ymaxMax  # Highest luma seen
-    YRNG = $yrng     # Luma dynamic range seen
-    FRAMES = $frames
+    YAVG=$yavg; SAT=$sat; YMIN=$yminMin; YMAX=$ymaxMax; YRNG=($ymaxMax-$yminMin); FRAMES=$frames
   }
 }
 
@@ -188,26 +179,25 @@ function Build-FilterChain([pscustomobject]$eq, [bool]$wannaWB) {
 }
 
 function Analyze-And-ComputeEQ([string]$inPath, [double]$ss, [double]$dur) {
-  $tmp = [IO.Path]::GetTempFileName()
-  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-  $tmp = [IO.Path]::ChangeExtension($tmp, '.txt')
-
-  # Use metadata=print to write stats; discard actual output to NUL on Windows.
+  # Parse signalstats from stderr via showinfo to avoid temp files.
   $args = @(
-    '-hide_banner', '-y',
+    '-hide_banner','-v','verbose',
     '-ss', ('{0:0.###}' -f $ss), '-t', ('{0:0.###}' -f $dur),
     '-i', $inPath,
-    '-vf', 'scale=in_range=auto:out_range=tv,signalstats,metadata=print:file=' + $tmp,
+    '-vf', 'scale=in_range=auto:out_range=tv,signalstats,showinfo',
     '-f', 'null', 'NUL'
   )
 
   Write-Host "`n[SMART] Sampling $inPath  (ss=$ss, t=$dur)"
   Write-Host "ffmpeg $($args -join ' ')`n"
-  $p = Start-Process -FilePath 'ffmpeg' -ArgumentList $args -NoNewWindow -PassThru -Wait
-  if ($p.ExitCode -ne 0) { throw "FFmpeg signalstats pass failed." }
+  $stderr = & ffmpeg @args 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "FFmpeg signalstats pass failed." }
 
-  $stats = Parse-Stats $tmp
-  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+  $lines = $stderr -split "`r?`n"
+  $cand = $lines | Where-Object { $_ -match 'YAVG:|SATAVG:' }
+  if (-not $cand -or $cand.Count -eq 0) { $cand = $lines }
+
+  $stats = Parse-StatsText $cand
 
   Write-Host "[SMART] Stats → YAVG=$($stats.YAVG.ToString('0.000'))  YRNG=$($stats.YRNG.ToString('0.000'))  SAT=$($stats.SAT.ToString('0.000'))  Frames=$($stats.FRAMES)"
   $eq = Compute-EQ -yavg $stats.YAVG -yrng $stats.YRNG -sat $stats.SAT
