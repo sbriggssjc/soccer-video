@@ -166,38 +166,51 @@ function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap
 
 # -------------- Stats parsing --------------
 function Parse-StatsText([string[]]$lines) {
-  $yavgSum = 0.0; $satSum = 0.0; $frames = 0
+  # Accumulate per-frame stats no matter how FFmpeg prints them.
+  $frames = 0
+  $yavgSum = 0.0; $satSum = 0.0
   $yminMin = 1.0; $ymaxMax = 0.0
 
-  # A) metadata=print style: lavfi.signalstats.YAVG=0.512 ...
-  $rxA = [regex]'lavfi\.signalstats\.YAVG=(?<yavg>[\d\.]+).*?lavfi\.signalstats\.YMIN=(?<ymin>[\d\.]+).*?lavfi\.signalstats\.YMAX=(?<ymax>[\d\.]+).*?lavfi\.signalstats\.SATAVG=(?<satavg>[\d\.]+)'
-
-  # B) showinfo style: ... YAVG:0.512 YMIN:0.043 YMAX:0.982 ... SATAVG:0.38 ...
-  $rxB = [regex]'YAVG:(?<yavg>[\d\.]+).*?YMIN:(?<ymin>[\d\.]+).*?YMAX:(?<ymax>[\d\.]+).*?SATAVG:(?<satavg>[\d\.]+)'
-
   foreach ($line in $lines) {
-    $m = $rxA.Match($line)
-    if (-not $m.Success) { $m = $rxB.Match($line) }
-    if ($m.Success) {
-      $frames++
-      $y    = [double]$m.Groups['yavg'].Value
-      $ymin = [double]$m.Groups['ymin'].Value
-      $ymax = [double]$m.Groups['ymax'].Value
-      $sat  = [double]$m.Groups['satavg'].Value
+    # Try multiple patterns & tokenizers.
+    # Style A: lavfi.signalstats.YAVG=0.512 ...
+    $mA = [regex]::Matches($line, 'lavfi\.signalstats\.(YAVG|YMIN|YMAX|SATAVG)=([0-9]*\.?[0-9]+)')
+    # Style B: ... YAVG:0.512 YMIN:0.043 YMAX:0.982 ... SATAVG:0.38 ...
+    $mB = [regex]::Matches($line, '\b(YAVG|YMIN|YMAX|SATAVG)\s*[:=]\s*([0-9]*\.?[0-9]+)')
 
-      $yavgSum += $y; $satSum += $sat
-      if ($ymin -lt $yminMin) { $yminMin = $ymin }
-      if ($ymax -gt $ymaxMax) { $ymaxMax = $ymax }
+    $vals = @{}
+    foreach ($m in $mA) { $vals[$m.Groups[1].Value] = [double]$m.Groups[2].Value }
+    foreach ($m in $mB) { $vals[$m.Groups[1].Value] = [double]$m.Groups[2].Value }
+
+    if ($vals.ContainsKey('YAVG')) {
+      $frames++
+      $y = $vals['YAVG']
+      $yavgSum += $y
+
+      if ($vals.ContainsKey('YMIN')) {
+        $ymin = $vals['YMIN']; if ($ymin -lt $yminMin) { $yminMin = $ymin }
+      }
+      if ($vals.ContainsKey('YMAX')) {
+        $ymax = $vals['YMAX']; if ($ymax -gt $ymaxMax) { $ymaxMax = $ymax }
+      }
+      if ($vals.ContainsKey('SATAVG')) {
+        $satSum += $vals['SATAVG']
+      }
     }
   }
 
-  if ($frames -eq 0) { throw "No signalstats lines parsed from stderr." }
+  if ($frames -eq 0) { throw "No signalstats frames parsed." }
 
   $yavg = $yavgSum / $frames
-  $sat  = $satSum  / $frames
+  $sat  = $satSum / [math]::Max(1,$frames)   # guard if SATAVG missing sometimes
 
   [pscustomobject]@{
-    YAVG=$yavg; SAT=$sat; YMIN=$yminMin; YMAX=$ymaxMax; YRNG=($ymaxMax-$yminMin); FRAMES=$frames
+    YAVG=$yavg
+    SAT=$sat
+    YMIN=$yminMin
+    YMAX=$ymaxMax
+    YRNG=($ymaxMax-$yminMin)
+    FRAMES=$frames
   }
 }
 
@@ -279,22 +292,20 @@ function Build-Filter([pscustomobject]$eq, [bool]$wb) {
 
 # -------------- Sampling one shot --------------
 function Sample-Shot([string]$inPath,[double]$start,[double]$dur){
-  # Use metadata=mode=print to dump lavfi.signalstats.* per-frame.
-  # IMPORTANT: raise loglevel so prints aren't suppressed.
+  # Force prints: use signalstats + showinfo + high loglevel.
   $args = @(
     '-hide_banner',
-    '-loglevel','info',                     # was '-v error' — too quiet for metadata prints
+    '-loglevel','debug',
     '-ss',('{0:0.###}' -f $start), '-t',('{0:0.###}' -f $dur),
     '-i', $inPath,
-    '-vf', 'scale=in_range=auto:out_range=tv,signalstats,metadata=mode=print',
+    '-vf', 'scale=in_range=auto:out_range=tv,signalstats,metadata=mode=print,showinfo',
     '-f', 'null', 'NUL'
   )
   $text = & ffmpeg @args 2>&1
   if ($LASTEXITCODE -ne 0) { throw "signalstats sampling failed ($start..$([math]::Round($start+$dur,3)))" }
 
-  # Keep only lines that likely contain our keys to speed parsing
   $lines = $text -split "`r?`n"
-  $cand  = $lines | Where-Object { $_ -like '*lavfi.signalstats.*' -or $_ -match 'YAVG:|SATAVG:' }
+  $cand  = $lines | Where-Object { $_ -match 'signalstats|YAVG|SATAVG|lavfi\.signalstats' }
   if (-not $cand -or $cand.Count -eq 0) { throw "No signalstats lines parsed from stderr." }
 
   Parse-StatsText $cand
