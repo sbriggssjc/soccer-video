@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -102,39 +104,50 @@ def main() -> None:
     tracker = build_tracker(args.tracker)
     tracker.init(frame, init_rect)
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    if fps <= 0 or fps != fps:
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or math.isnan(fps) or fps <= 0:
         fps = 30.0
-    tracked_frame_width = int(init_rect[2])
-    tracked_frame_height = int(init_rect[3])
-    frame_size = (int(tracked_frame_width), int(tracked_frame_height))
+    tracked_width = int(init_rect[2])
+    tracked_height = int(init_rect[3])
+    out_w, out_h = int(tracked_width), int(tracked_height)
+    frame_size = (out_w, out_h)
     writer = None
     video_writer_path: Path | None = None
+    writer_output_path: str | None = None
     frames_dir_path: Path | None = None
     if args.frames_dir:
         frames_dir_path = Path(args.frames_dir)
         frames_dir_path.mkdir(parents=True, exist_ok=True)
     if args.video_out:
-        out_video_path = args.video_out
-        root, ext = os.path.splitext(out_video_path)
-        if ext.lower() not in (".avi", ".mp4", ".mkv"):
-            out_video_path = root + ".avi"
+        out_path = args.video_out
+        root, ext = os.path.splitext(out_path)
+        if ext.lower() not in (".mp4", ".avi"):
+            out_path = root + ".avi"
 
-        video_writer_path = Path(out_video_path)
+        video_writer_path = Path(out_path)
         video_writer_path.parent.mkdir(parents=True, exist_ok=True)
 
-        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
-        writer = cv2.VideoWriter(str(video_writer_path), fourcc, fps, frame_size)
-
-        if not writer.isOpened():
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
-            writer = cv2.VideoWriter(str(video_writer_path), fourcc, fps, frame_size)
-
-        if not writer.isOpened():
+        def _open_writer(path: str, fps_value: float, size: Tuple[int, int]):
+            attempts = [
+                (path if path.lower().endswith(".mp4") else root + ".mp4", "mp4v"),
+                (path if path.lower().endswith(".avi") else root + ".avi", "MJPG"),
+                (root + ".avi", "XVID"),
+            ]
+            for p, four in attempts:
+                fourcc = cv2.VideoWriter_fourcc(*four)
+                w = cv2.VideoWriter(p, fourcc, float(fps_value), size, True)
+                if w.isOpened():
+                    print(f"[writer] opened: {p} fourcc={four} fps={fps_value} size={size}")
+                    return w, p
+                else:
+                    print(f"[writer] failed open: {p} fourcc={four}")
             raise RuntimeError(
-                f"Failed to open VideoWriter for {video_writer_path} "
-                f"(fps={fps}, size={frame_size})"
+                f"Failed to open VideoWriter for {path} (fps={fps_value}, size={size})"
             )
+
+        writer, writer_output_path = _open_writer(out_path, fps, frame_size)
+        video_writer_path = Path(writer_output_path)
+        atexit.register(lambda w=writer: w.release())
 
     frame_idx = 0
     json_out_path = Path(args.out)
@@ -158,6 +171,14 @@ def main() -> None:
         if crop_resized.dtype != "uint8":
             crop_resized = crop_resized.astype("uint8")
         if writer is not None:
+            if (
+                crop_resized.shape[1] != out_w
+                or crop_resized.shape[0] != out_h
+                or crop_resized.ndim != 3
+            ):
+                raise RuntimeError(
+                    f"out_frame wrong shape: got {crop_resized.shape}, expected {(out_h, out_w, 3)}"
+                )
             writer.write(crop_resized)
             frames_written += 1
         if frames_dir_path is not None:
@@ -206,29 +227,31 @@ def main() -> None:
                     cv2.imshow("Tracking", preview)
                     if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
                         break
+        if writer is not None and writer_output_path is not None:
+            writer.release()
+            frame_count = frames_written
+            print(
+                f"[track_crop] done. wrote {frame_count} frames @ {fps} fps -> {writer_output_path}"
+            )
+            writer = None
     finally:
         if writer is not None:
             writer.release()
-            if video_writer_path is not None:
+            if writer_output_path is not None:
                 try:
-                    os.utime(str(video_writer_path), None)
+                    os.utime(writer_output_path, None)
                 except Exception:
                     pass
         cap.release()
         cv2.destroyAllWindows()
 
-    if video_writer_path is not None:
-        output_str = str(video_writer_path)
-        size = os.path.getsize(output_str) if os.path.exists(output_str) else 0
+    if writer_output_path is not None:
+        size = os.path.getsize(writer_output_path) if os.path.exists(writer_output_path) else 0
         if size < 1024 or frames_written == 0:
             print(
                 f"[ERROR] Output looks invalid (size={size}, frames={frames_written})"
             )
             sys.exit(1)
-        else:
-            print(
-                f"[track_crop] Wrote {frames_written} frames at {fps} fps -> {output_str}"
-            )
 
     if frames_dir_path is not None:
         fps_file = frames_dir_path / "fps.txt"
