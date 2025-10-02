@@ -109,7 +109,13 @@ def main() -> None:
         fps = 30.0
     tracked_width = int(init_rect[2])
     tracked_height = int(init_rect[3])
-    out_w, out_h = int(tracked_width), int(tracked_height)
+
+    def _ensure_even(value: int) -> int:
+        """Return the nearest even integer greater than or equal to value."""
+
+        return value + (value & 1)
+
+    out_w, out_h = _ensure_even(int(tracked_width)), _ensure_even(int(tracked_height))
     frame_size = (out_w, out_h)
     writer = None
     video_writer_path: Path | None = None
