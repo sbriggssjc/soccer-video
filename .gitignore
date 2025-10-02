@@ -9,6 +9,7 @@ livestream_logs/
 *.mkv
 *.mov
 *.png
+!brand/tsc/*.png
 *.jpg
 *.wav
 

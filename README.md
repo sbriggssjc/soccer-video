@@ -56,6 +56,23 @@ Each command updates `out/report.md` with summary statistics so you always know
 how many windows, clips, and reel duration were produced.
 
 
+## Tulsa Soccer Club Branding
+
+Run the full highlight export and wrap it with the TSC brand kit in a single command:
+
+```powershell
+.\tools\tsc_brand.ps1 -In .\out\top_highlights_goals_first.mp4 -Out .\out\top_highlights_goals_first_b.mp4 -Title "U10 Girls | Matchday Highlights" -Subtitle "Week 6 vs Bartlesville" -Watermark -EndCard
+```
+
+Place the required Montserrat headline fonts under `tools\..\fonts\` (for example
+`fonts/Montserrat-ExtraBold.ttf`, `Montserrat-SemiBold.ttf`, `Montserrat-Bold.ttf`,
+and `Montserrat-Medium.ttf`). The script automatically picks landscape or portrait
+overlays and applies the watermark, lower-third plate, and end card when enabled.
+
+Example recipes live under `recipes/` and include both landscape and vertical
+presets along with screenshots of the ribbon, watermark, and safe-area guides.
+
+
 ### Cheer-anchored Top-10
 
 When you have a CSV of cheer timestamps (see `09_detect_cheers.py`), run
