@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Callable, Tuple
 
@@ -66,11 +67,13 @@ def main() -> None:
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
-        raise SystemExit(f"Could not open video: {args.video}")
+        print(f"[ERROR] Cannot open input: {args.video}")
+        sys.exit(1)
 
     ok, frame = cap.read()
     if not ok:
-        raise SystemExit("Unable to read first frame from video")
+        print("[ERROR] Unable to read first frame from video")
+        sys.exit(1)
 
     if args.load_roi and os.path.exists(args.load_roi):
         with open(args.load_roi, "r", encoding="utf-8") as f:
@@ -98,7 +101,7 @@ def main() -> None:
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 0:
         fps = 30.0
-    crop_w, crop_h = int(init_rect[2]), int(init_rect[3])
+    out_w, out_h = int(init_rect[2]), int(init_rect[3])
     writer = None
     video_writer_path: Path | None = None
     if args.video_out:
@@ -110,13 +113,37 @@ def main() -> None:
         video_writer_path = Path(video_path)
         video_writer_path.parent.mkdir(parents=True, exist_ok=True)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(video_writer_path), fourcc, fps, (crop_w, crop_h))
+        writer = cv2.VideoWriter(
+            str(video_writer_path), fourcc, fps, (out_w, out_h), isColor=True
+        )
         if not writer.isOpened():
-            raise RuntimeError(f"Failed to open VideoWriter for: {video_writer_path}")
+            print(f"[ERROR] Failed to open VideoWriter for: {video_writer_path}")
+            sys.exit(1)
 
     frame_idx = 0
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    frames_written = 0
+
+    def write_crop_frame(src_frame, bbox: Tuple[float, float, float, float]) -> None:
+        nonlocal frames_written
+        if writer is None:
+            return
+        x, y, w, h = bbox
+        x0 = max(0, int(x))
+        y0 = max(0, int(y))
+        x1 = min(src_frame.shape[1], int(x + w))
+        y1 = min(src_frame.shape[0], int(y + h))
+        if x1 <= x0 or y1 <= y0:
+            return
+        crop = src_frame[y0:y1, x0:x1]
+        if crop.size == 0:
+            return
+        crop_resized = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_AREA)
+        if crop_resized.dtype != "uint8":
+            crop_resized = crop_resized.astype("uint8")
+        writer.write(crop_resized)
+        frames_written += 1
 
     def emit(idx: int, bbox: Tuple[float, float, float, float]) -> None:
         x, y, w, h = bbox
@@ -134,13 +161,7 @@ def main() -> None:
     try:
         with out_path.open("w", encoding="utf-8") as out_file:
             emit(frame_idx, init_rect)
-            if writer is not None:
-                limit_x = max(frame.shape[1] - crop_w, 0)
-                limit_y = max(frame.shape[0] - crop_h, 0)
-                x0 = max(0, min(int(init_rect[0]), limit_x))
-                y0 = max(0, min(int(init_rect[1]), limit_y))
-                crop_frame = frame[y0 : y0 + crop_h, x0 : x0 + crop_w]
-                writer.write(crop_frame)
+            write_crop_frame(frame, init_rect)
 
             while True:
                 ok, frame = cap.read()
@@ -151,14 +172,7 @@ def main() -> None:
                 if not ok:
                     break
                 emit(frame_idx, bbox)
-                if writer is not None:
-                    x, y = int(bbox[0]), int(bbox[1])
-                    limit_x = max(frame.shape[1] - crop_w, 0)
-                    limit_y = max(frame.shape[0] - crop_h, 0)
-                    x = max(0, min(x, limit_x))
-                    y = max(0, min(y, limit_y))
-                    crop_frame = frame[y : y + crop_h, x : x + crop_w]
-                    writer.write(crop_frame)
+                write_crop_frame(frame, bbox)
 
                 if args.display:
                     x, y, w, h = map(int, bbox)
@@ -177,6 +191,17 @@ def main() -> None:
                     pass
         cap.release()
         cv2.destroyAllWindows()
+
+    if video_writer_path is not None:
+        output_str = str(video_writer_path)
+        size = os.path.getsize(output_str) if os.path.exists(output_str) else 0
+        if size < 1024 or frames_written == 0:
+            print(
+                f"[ERROR] Output looks invalid (size={size}, frames={frames_written})"
+            )
+            sys.exit(1)
+        else:
+            print(f"[OK] Wrote {frames_written} frames to {output_str}")
 
 
 if __name__ == "__main__":
