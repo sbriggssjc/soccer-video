@@ -95,19 +95,24 @@ def main() -> None:
     tracker = build_tracker(args.tracker)
     tracker.init(frame, init_rect)
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 0:
+        fps = 30.0
     crop_w, crop_h = int(init_rect[2]), int(init_rect[3])
     writer = None
+    video_writer_path: Path | None = None
     if args.video_out:
         video_path = (
             args.video_out
-            if args.video_out.endswith(".mp4")
+            if args.video_out.lower().endswith(".mp4")
             else args.video_out + ".mp4"
         )
-        video_path = Path(video_path)
-        video_path.parent.mkdir(parents=True, exist_ok=True)
+        video_writer_path = Path(video_path)
+        video_writer_path.parent.mkdir(parents=True, exist_ok=True)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(video_path), fourcc, fps, (crop_w, crop_h))
+        writer = cv2.VideoWriter(str(video_writer_path), fourcc, fps, (crop_w, crop_h))
+        if not writer.isOpened():
+            raise RuntimeError(f"Failed to open VideoWriter for: {video_writer_path}")
 
     frame_idx = 0
     out_path = Path(args.out)
@@ -126,47 +131,52 @@ def main() -> None:
         json.dump(record, out_file)
         out_file.write("\n")
 
-    with out_path.open("w", encoding="utf-8") as out_file:
-        emit(frame_idx, init_rect)
-        if writer is not None:
-            limit_x = max(frame.shape[1] - crop_w, 0)
-            limit_y = max(frame.shape[0] - crop_h, 0)
-            x0 = max(0, min(int(init_rect[0]), limit_x))
-            y0 = max(0, min(int(init_rect[1]), limit_y))
-            crop_frame = frame[y0 : y0 + crop_h, x0 : x0 + crop_w]
-            writer.write(crop_frame)
-
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            frame_idx += 1
-            ok, bbox = tracker.update(frame)
-            if not ok:
-                break
-            emit(frame_idx, bbox)
+    try:
+        with out_path.open("w", encoding="utf-8") as out_file:
+            emit(frame_idx, init_rect)
             if writer is not None:
-                x, y = int(bbox[0]), int(bbox[1])
                 limit_x = max(frame.shape[1] - crop_w, 0)
                 limit_y = max(frame.shape[0] - crop_h, 0)
-                x = max(0, min(x, limit_x))
-                y = max(0, min(y, limit_y))
-                crop_frame = frame[y : y + crop_h, x : x + crop_w]
+                x0 = max(0, min(int(init_rect[0]), limit_x))
+                y0 = max(0, min(int(init_rect[1]), limit_y))
+                crop_frame = frame[y0 : y0 + crop_h, x0 : x0 + crop_w]
                 writer.write(crop_frame)
 
-            if args.display:
-                x, y, w, h = map(int, bbox)
-                preview = frame.copy()
-                cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cv2.imshow("Tracking", preview)
-                if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
+            while True:
+                ok, frame = cap.read()
+                if not ok:
                     break
+                frame_idx += 1
+                ok, bbox = tracker.update(frame)
+                if not ok:
+                    break
+                emit(frame_idx, bbox)
+                if writer is not None:
+                    x, y = int(bbox[0]), int(bbox[1])
+                    limit_x = max(frame.shape[1] - crop_w, 0)
+                    limit_y = max(frame.shape[0] - crop_h, 0)
+                    x = max(0, min(x, limit_x))
+                    y = max(0, min(y, limit_y))
+                    crop_frame = frame[y : y + crop_h, x : x + crop_w]
+                    writer.write(crop_frame)
 
-    if writer is not None:
-        writer.release()
-    cap.release()
-    if args.display:
-        cv2.destroyWindow("Tracking")
+                if args.display:
+                    x, y, w, h = map(int, bbox)
+                    preview = frame.copy()
+                    cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cv2.imshow("Tracking", preview)
+                    if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
+                        break
+    finally:
+        if writer is not None:
+            writer.release()
+            if video_writer_path is not None:
+                try:
+                    os.utime(str(video_writer_path), None)
+                except Exception:
+                    pass
+        cap.release()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
