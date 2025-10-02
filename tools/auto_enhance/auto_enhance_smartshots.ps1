@@ -160,12 +160,16 @@ function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap
 }
 
 # -------------- Stats parsing --------------
-function Parse-Stats([string]$statsPath) {
+function Parse-StatsText([string[]]$lines) {
   $yavgSum = 0.0; $satSum = 0.0; $frames = 0
   $yminMin = 1.0; $ymaxMax = 0.0
+
+  # Look for lines printed by signalstats in stderr (via showinfo)
+  # Common forms include "... YAVG:0.512 YMIN:0.043 YMAX:0.982 ... SATAVG:0.38 ..."
   $rx = [regex]'YAVG:(?<yavg>[\d\.]+).*?YMIN:(?<ymin>[\d\.]+).*?YMAX:(?<ymax>[\d\.]+).*?SATAVG:(?<satavg>[\d\.]+)'
-  Get-Content -LiteralPath $statsPath -ErrorAction SilentlyContinue | ForEach-Object {
-    $m = $rx.Match($_)
+
+  foreach ($line in $lines) {
+    $m = $rx.Match($line)
     if ($m.Success) {
       $frames++
       $y = [double]$m.Groups['yavg'].Value
@@ -178,8 +182,10 @@ function Parse-Stats([string]$statsPath) {
       if ($ymax -gt $ymaxMax) { $ymaxMax = $ymax }
     }
   }
-  if ($frames -eq 0) { throw "No signalstats frames parsed." }
-  $yavg = $yavgSum / $frames; $sat = $satSum / $frames
+
+  if ($frames -eq 0) { throw "No signalstats lines parsed from stderr." }
+
+  $yavg = $yavgSum / $frames; $sat  = $satSum / $frames
   [pscustomobject]@{
     YAVG=$yavg; SAT=$sat; YMIN=$yminMin; YMAX=$ymaxMax; YRNG=($ymaxMax-$yminMin); FRAMES=$frames
   }
@@ -263,21 +269,22 @@ function Build-Filter([pscustomobject]$eq, [bool]$wb) {
 
 # -------------- Sampling one shot --------------
 function Sample-Shot([string]$inPath,[double]$start,[double]$dur){
-  $tmp = [IO.Path]::GetTempFileName()
-  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-  $tmp = [IO.Path]::ChangeExtension($tmp, '.txt')
+  # Parse signalstats from stderr. We add showinfo so ffmpeg prints per-frame metadata.
   $args = @(
-    '-hide_banner','-y',
-    '-ss',('{0:0.###}' -f $start),'-t',('{0:0.###}' -f $dur),
+    '-hide_banner','-v','verbose','-ss',('{0:0.###}' -f $start),'-t',('{0:0.###}' -f $dur),
     '-i',$inPath,
-    '-vf','scale=in_range=auto:out_range=tv,signalstats,metadata=print:file='+$tmp,
+    '-vf','scale=in_range=auto:out_range=tv,signalstats,showinfo',
     '-f','null','NUL'
   )
-  $p = Start-Process -FilePath 'ffmpeg' -ArgumentList $args -NoNewWindow -PassThru -Wait
-  if ($p.ExitCode -ne 0) { throw "signalstats sampling failed ($start..$($start+$dur))" }
-  $stats = Parse-Stats $tmp
-  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-  $stats
+  $stderr = & ffmpeg @args 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "signalstats sampling failed ($start..$([math]::Round($start+$dur,3)))" }
+
+  $lines = $stderr -split "`r?`n"
+  # Keep only the noisy lines to speed parsing (optional)
+  $cand = $lines | Where-Object { $_ -match 'YAVG:|SATAVG:' }
+  if (-not $cand -or $cand.Count -eq 0) { $cand = $lines }
+
+  Parse-StatsText $cand
 }
 
 # -------------- Encode one shot --------------
