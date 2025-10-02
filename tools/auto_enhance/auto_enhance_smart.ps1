@@ -96,18 +96,21 @@ function Parse-StatsText([string[]]$lines) {
   $yavgSum = 0.0; $satSum = 0.0; $frames = 0
   $yminMin = 1.0; $ymaxMax = 0.0
 
-  # Look for lines printed by signalstats in stderr (via showinfo)
-  # Common forms include "... YAVG:0.512 YMIN:0.043 YMAX:0.982 ... SATAVG:0.38 ..."
-  $rx = [regex]'YAVG:(?<yavg>[\d\.]+).*?YMIN:(?<ymin>[\d\.]+).*?YMAX:(?<ymax>[\d\.]+).*?SATAVG:(?<satavg>[\d\.]+)'
+  # A) metadata=print style: lavfi.signalstats.YAVG=0.512 ...
+  $rxA = [regex]'lavfi\.signalstats\.YAVG=(?<yavg>[\d\.]+).*?lavfi\.signalstats\.YMIN=(?<ymin>[\d\.]+).*?lavfi\.signalstats\.YMAX=(?<ymax>[\d\.]+).*?lavfi\.signalstats\.SATAVG=(?<satavg>[\d\.]+)'
+
+  # B) showinfo style: ... YAVG:0.512 YMIN:0.043 YMAX:0.982 ... SATAVG:0.38 ...
+  $rxB = [regex]'YAVG:(?<yavg>[\d\.]+).*?YMIN:(?<ymin>[\d\.]+).*?YMAX:(?<ymax>[\d\.]+).*?SATAVG:(?<satavg>[\d\.]+)'
 
   foreach ($line in $lines) {
-    $m = $rx.Match($line)
+    $m = $rxA.Match($line)
+    if (-not $m.Success) { $m = $rxB.Match($line) }
     if ($m.Success) {
       $frames++
-      $y = [double]$m.Groups['yavg'].Value
+      $y    = [double]$m.Groups['yavg'].Value
       $ymin = [double]$m.Groups['ymin'].Value
       $ymax = [double]$m.Groups['ymax'].Value
-      $sat = [double]$m.Groups['satavg'].Value
+      $sat  = [double]$m.Groups['satavg'].Value
 
       $yavgSum += $y; $satSum += $sat
       if ($ymin -lt $yminMin) { $yminMin = $ymin }
@@ -117,7 +120,9 @@ function Parse-StatsText([string[]]$lines) {
 
   if ($frames -eq 0) { throw "No signalstats lines parsed from stderr." }
 
-  $yavg = $yavgSum / $frames; $sat  = $satSum / $frames
+  $yavg = $yavgSum / $frames
+  $sat  = $satSum  / $frames
+
   [pscustomobject]@{
     YAVG=$yavg; SAT=$sat; YMIN=$yminMin; YMAX=$ymaxMax; YRNG=($ymaxMax-$yminMin); FRAMES=$frames
   }
