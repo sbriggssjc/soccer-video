@@ -20,3 +20,13 @@ GameFilm/
 videos/
 *.zip
 yolov8x.pt
+
+runs/
+
+*.avi
+
+runs/
+
+*.avi
+
+*.pt
