@@ -53,6 +53,44 @@ function Clamp([double]$v, [double]$lo, [double]$hi) {
   return $v
 }
 
+function Get-DurationSec([string]$inPath){
+  $durStr = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
+  if (-not $durStr) { throw "Get-DurationSec: ffprobe failed for $inPath" }
+  [double]::Parse($durStr, [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+# Very portable: ask ffmpeg to detect scenes and print showinfo; parse pts_time from stderr.
+function Get-Scenes-Portable([string]$inPath, [double]$thresh){
+  $tmp = [IO.Path]::GetTempFileName()
+  $args = @(
+    '-hide_banner','-nostats','-i', $inPath,
+    '-filter_complex', ("select='gt(scene,{0})',showinfo" -f ('{0:0.###}' -f $thresh)),
+    '-f','null','NUL'
+  )
+  $stderr = & ffmpeg @args 2>&1 | Tee-Object -FilePath $tmp
+  $cuts = New-Object System.Collections.Generic.List[double]
+  # showinfo lines look like: "pts_time:12.345 ... n: ..."
+  Select-String -Path $tmp -Pattern 'pts_time:([0-9]+\.[0-9]+|[0-9]+)' | ForEach-Object {
+    $t = [double]::Parse($_.Matches[0].Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    if ($t -gt 0) { $cuts.Add($t) }
+  }
+  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+  $cuts | Sort-Object -Unique
+}
+
+# Simple fixed-chunk fallback: split every $chunkSec seconds.
+function Build-FixedChunks([double]$total, [double]$chunkSec){
+  if ($chunkSec -le 0) { $chunkSec = 12.0 }
+  $ranges = New-Object System.Collections.Generic.List[pscustomobject]
+  $t = 0.0
+  while ($t -lt $total) {
+    $end = [math]::Min($total, $t + $chunkSec)
+    $ranges.Add([pscustomobject]@{ Start=$t; End=$end; Dur=($end-$t) })
+    $t = $end
+  }
+  $ranges
+}
+
 # Parse a stats file produced by signalstats/metadata=print
 function Parse-Stats([string]$statsPath) {
   # We’ll collect YAVG, YMIN, YMAX, SATAVG per frame, then average.
