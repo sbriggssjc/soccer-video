@@ -354,6 +354,7 @@ function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$c
     $total = Get-DurationSec $inPath
     $shots = @([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
   }
+  # Report the number of detected shots so the console always shows a count.
   Write-Host ("Detected {0} shot{1}." -f $shots.Count, $(if($shots.Count -eq 1){''}else{'s'}))
 
   # Temp dir
