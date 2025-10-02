@@ -373,7 +373,14 @@ function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$c
   $log   = Join-Path $dir ($base + "_ENH_SMARTSHOTS_log.csv")
 
   Write-Host "`n=== SMART SHOTS: $inPath"
-  $shots = Get-Scenes -inPath $inPath -thresh $sceneThr -minDur $minShot -cap $cap -fixedChunk $fixedChunk
+  $shots = $null
+  if ($fixedChunk -gt 0) {
+    $total = Get-DurationSec $inPath
+    $shots = Build-FixedChunks $total $fixedChunk
+  } else {
+    $shots = Get-Scenes -inPath $inPath -thresh $sceneThr -minDur $minShot -cap $cap
+  }
+
   if (-not $shots -or $shots.Count -eq 0) {
     $total = Get-DurationSec $inPath
     $shots = @([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
