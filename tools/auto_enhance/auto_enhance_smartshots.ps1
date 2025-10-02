@@ -37,6 +37,7 @@ param(
 
   [double]$SampleStart = 0.2,
   [double]$SampleDur   = 4.0,
+  [double]$FixedChunk = 0.0,   # seconds; 0 disables fixed-chunk forcing
 
   [ValidateRange(10,40)]
   [int]$Crf = 20,
@@ -95,8 +96,12 @@ function Build-FixedChunks([double]$total, [double]$chunkSec){
 }
 
 # -------------- Scene detection --------------
-function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap) {
+function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap, [double]$fixedChunk) {
   $total = Get-DurationSec $inPath
+
+  if ($fixedChunk -gt 0) {
+    return (Build-FixedChunks $total $fixedChunk)
+  }
 
   # 1) Try ffprobe lavfi (might fail on Windows quoting)
   $cuts = New-Object System.Collections.Generic.List[double]
@@ -350,14 +355,14 @@ function Concat-Segments([string[]]$paths,[string]$outPath){
 }
 
 # -------------- Main per-file --------------
-function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$cap,[double]$ss,[double]$sd,[string]$preset,[int]$crf,[switch]$tryWB,[switch]$dry){
+function Process-File([string]$inPath,[double]$sceneThr,[double]$minShot,[int]$cap,[double]$fixedChunk,[double]$ss,[double]$sd,[string]$preset,[int]$crf,[switch]$tryWB,[switch]$dry){
   $dir  = Split-Path $inPath -Parent
   $base = [System.IO.Path]::GetFileNameWithoutExtension($inPath)
   $final = Join-Path $dir ($base + "_ENH_SMARTSHOTS.mp4")
   $log   = Join-Path $dir ($base + "_ENH_SMARTSHOTS_log.csv")
 
   Write-Host "`n=== SMART SHOTS: $inPath"
-  $shots = Get-Scenes -inPath $inPath -thresh $sceneThr -minDur $minShot -cap $cap
+  $shots = Get-Scenes -inPath $inPath -thresh $sceneThr -minDur $minShot -cap $cap -fixedChunk $fixedChunk
   if (-not $shots -or $shots.Count -eq 0) {
     $total = Get-DurationSec $inPath
     $shots = @([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
@@ -447,7 +452,7 @@ if (-not $files.Count) { Write-Error "No input videos found."; exit 1 }
 
 foreach($f in $files){
   try {
-    Process-File -inPath $f -sceneThr $SceneThresh -minShot $MinShotSec -cap $MaxShots `
+    Process-File -inPath $f -sceneThr $SceneThresh -minShot $MinShotSec -cap $MaxShots -fixedChunk $FixedChunk `
       -ss $SampleStart -sd $SampleDur -preset $Preset -crf $Crf -tryWB:$TryWB -dry:$DryRun | Out-Null
   } catch {
     Write-Warning $_
