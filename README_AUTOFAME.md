@@ -53,6 +53,38 @@ Existing flags still work:
 * `--preview` writes the debug overlay (crop box, crosshair, goal anchor, IoU).
 * `--compare` writes an optional side-by-side stack of raw vs. overlayed frames.
 
+### Ball-first autoframe (optional)
+
+Pass `--ball-detector yolo --ball-weights path/to/weights.pt` to prioritise a
+trained ball detector whenever it fires. When enabled, the tracker fuses the
+smoothed YOLO center with the existing motion/goal logic so the crop follows
+the ball first, then falls back to flow-only behaviour during gaps.
+
+Additional overrides:
+
+* `--ball-min-conf` (default `0.35`) — require this confidence before trusting
+  YOLO detections.
+* `--ball-smooth-alpha` (default `0.25`) — EMA smoothing applied to the ball
+  center/box after the constant-velocity filter.
+* `--ball-max-gap` (default `12`) — reset smoothing after this many missed
+  frames.
+
+Set `--diagnostics 1` to capture the smoothed vs. raw ball detections in
+`out/autoframe_debug/ball_tracks/<clip>.csv`. Config-driven runs can toggle the
+same behaviour with the optional `ball` block in `config.yaml`:
+
+```yaml
+ball:
+  detector: yolo        # none|yolo
+  weights: models/ball_v1.pt
+  min_conf: 0.35
+  smooth_alpha: 0.25
+  max_gap: 12
+```
+
+Smart shrink, jersey bias, and downstream rendering are unchanged — they still
+operate purely on motion/optical-flow features when YOLO is disabled or misses.
+
 The CSV now contains one row per frame with columns:
 
 ```

@@ -207,6 +207,25 @@ class ColorsConfig(BaseModel):
     calibrate: bool = Field(False)
 
 
+class BallConfig(BaseModel):
+    detector: str = Field("none", description="Ball detector backend (none or yolo).")
+    weights: Optional[Path] = Field(
+        Path("models/ball_v1.pt"), description="Path to YOLO weights for the ball model."
+    )
+    min_conf: float = Field(0.35, ge=0.0, le=1.0, description="Minimum confidence to trust detections.")
+    smooth_alpha: float = Field(
+        0.25, ge=0.0, le=1.0, description="EMA smoothing applied to YOLO ball tracks."
+    )
+    max_gap: int = Field(12, ge=0, description="Reset smoothing after this many missed frames.")
+
+    @validator("detector")
+    def validate_detector(cls, value: str) -> str:
+        lowered = value.lower()
+        if lowered not in {"none", "yolo"}:
+            raise ValueError("detector must be 'none' or 'yolo'")
+        return lowered
+
+
 class AppConfig(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     detect: DetectConfig = Field(default_factory=DetectConfig)
@@ -215,6 +234,7 @@ class AppConfig(BaseModel):
     rank: RankConfig = Field(default_factory=RankConfig)
     reels: ReelConfig = Field(default_factory=ReelConfig)
     colors: ColorsConfig = Field(default_factory=ColorsConfig)
+    ball: BallConfig = Field(default_factory=BallConfig)
     profiles: Dict[str, ReelProfile] = Field(
         default_factory=lambda: {
             "broadcast": ReelProfile(name="broadcast", width=1920, height=1080, fps=30.0, crossfade_frames=6),
