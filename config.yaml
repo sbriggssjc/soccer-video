@@ -53,3 +53,8 @@ colors:
     h: 30
     s: 70
     v: 70
+
+branding:
+  profile: tsc
+  default_aspect: '16x9'
+  title_font: 'fonts/Montserrat-ExtraBold.ttf'

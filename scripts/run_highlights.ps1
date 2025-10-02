@@ -1,7 +1,9 @@
 param(
   [string]$Video = ".\out\full_game_stabilized.mp4",
   [string]$OutDir = ".\out",
-  [switch]$Reencode
+  [switch]$Reencode,
+  [switch]$UseTSCBrand,
+  [string]$Title = ""
 )
 
 if (!(Test-Path $Video)) { throw "Missing input video: $Video" }
@@ -91,6 +93,17 @@ if ($Reencode) {
 } else {
   & ffmpeg -f concat -safe 0 -i $concatGoals -c copy $outGoals
   & ffmpeg -f concat -safe 0 -i $concatBoth  -c copy $outBoth
+}
+
+if ($UseTSCBrand) {
+  $brandScript = Join-Path $PSScriptRoot "..\tools\tsc_brand.ps1"
+  if (-not (Test-Path $brandScript)) {
+    throw "Brand script missing: $brandScript"
+  }
+  $branded = [System.IO.Path]::ChangeExtension($outBoth, '.tsc.mp4')
+  & $brandScript -In $outBoth -Out $branded -Title $Title -Watermark -EndCard -Aspect '16x9'
+  if ($LASTEXITCODE -ne 0) { throw "Brand pass failed." }
+  Move-Item $branded $outBoth -Force
 }
 
 Write-Host "[done] Rebuilt highlights:"

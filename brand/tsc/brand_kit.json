@@ -1,0 +1,40 @@
+{
+  "name": "Tulsa Soccer Club",
+  "colors": {
+    "navy": "#1F2B3D",
+    "red": "#9B1B33",
+    "gold": "#B7A37C",
+    "white": "#FFFFFF",
+    "black": "#000000"
+  },
+  "fonts": {
+    "headline": [
+      "Montserrat-ExtraBold",
+      "Montserrat-Bold",
+      "Montserrat-SemiBold"
+    ],
+    "body": [
+      "Inter",
+      "Roboto"
+    ]
+  },
+  "watermark": {
+    "position": "bottom-left",
+    "padding_px": 32,
+    "opacity": 0.65
+  },
+  "safe_area": {
+    "inset_percent": 5
+  },
+  "assets": {
+    "badge": "badge_clean.png",
+    "watermark": "watermark_corner_256.png",
+    "lower_third": "lower_third_1920x220.png",
+    "title_ribbon_landscape": "title_ribbon_1920x1080.png",
+    "title_ribbon_portrait": "title_ribbon_1080x1920.png",
+    "end_card_landscape": "end_card_1920x1080.png",
+    "end_card_portrait": "end_card_1080x1920.png",
+    "safe_guides_landscape": "safe_guides_16x9.png",
+    "safe_guides_portrait": "safe_guides_9x16.png"
+  }
+}
