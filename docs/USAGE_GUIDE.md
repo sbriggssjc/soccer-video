@@ -97,25 +97,66 @@ soccerhl reel --list out\smart_top10_concat.txt --out out\reels\top10.mp4 --prof
 * **Clip metadata** enables ranking heuristics to recognise event types and prior trimming decisions.【F:soccer_highlights/clips.py†L110-L125】
 * **`out/report.json` + `out/report.md`** are updated after every command with counts, durations, thresholds, and output paths so production staff can confirm completion at a glance.【F:soccer_highlights/utils.py†L76-L110】
 
-## 5. Extended Workflows
+## 5. Extended Workflows & Social Reels
 
-1. **Motion filtering before ranking.** The optional `05_filter_by_motion.py` script culls low-action windows via motion and ball-speed heuristics; tune jersey HSV bounds and sensitivity flags to match your footage.【F:README.md†L85-L103】
+### 5.1 Motion filtering before ranking
 
-2. **Cheer-anchored top tens.** When you have a CSV of crowd-cheer detections, run `08b_build_top10_cheers.py` to force those moments into the final list before filling remaining slots with the highest `action_score` clips.【F:README.md†L76-L83】
+The optional `05_filter_by_motion.py` script culls low-action windows via motion and ball-speed heuristics; tune jersey HSV bounds and sensitivity flags to match your footage.【F:README.md†L85-L103】
 
-3. **Brand overlays.** Use `tools/tsc_brand.ps1` to wrap a finished reel with Tulsa Soccer Club graphics, watermarks, lower thirds, and optional end cards. The script automatically swaps between 16×9 and 9×16 art, verifies ribbon/watermark assets, and renders drawtext overlays for title/subtitle copy when the Montserrat font family is installed under `fonts/`.【F:README.md†L59-L74】【F:tools/tsc_brand.ps1†L1-L213】
+### 5.2 Cheer-anchored Top-10 lists
 
-3. **Brand overlays.** Use `tools/tsc_brand.ps1` to wrap a finished reel with Tulsa Soccer Club graphics, watermarks, and end cards. Ensure the Montserrat fonts are installed in `fonts/`.【F:README.md†L59-L74】
+When you have a CSV of crowd-cheer detections, run `08b_build_top10_cheers.py` to force those moments into the final list before filling remaining slots with the highest `action_score` clips.【F:README.md†L76-L83】
 
+### 5.3 Portrait auto-framing and reel finishing
 
-4. **Autoframe for social cuts.**
-   * Track motion and goal anchors with `autoframe.py`, which now outputs per-frame centers, zoom, and diagnostics while exposing detailed tuning flags (`--lead`, `--deadband_xy`, `--goal_side`, etc.).【F:README_AUTOFAME.md†L13-L65】
-   * Fit smooth cubic expressions with `fit_expr.py` and feed them into the PowerShell reel scripts to drive FFmpeg’s `crop`/`scale` filters without thousands of raw numbers.【F:README_AUTOFAME.md†L68-L99】
-   * Batch processing is available via `scripts/batch_autoframe.py`, mirroring the recommended directory layout and exposing planner/tracker flags from the CLI.【F:README.md†L120-L145】
+1. **Track per-frame centers and zoom.** Invoke `autoframe.py` on each source clip to generate a `*_autoframe.csv` and optional preview overlay. The CLI exposes granular goal anchoring, ball fusion, and smoothing controls (`--lead_frames`, `--deadband_xy`, `--goal_side`, `--ball-detector`, `--preview`, `--poly_out`, etc.) so you can tune behaviour per footage. Add `--poly_out clip.ps1vars` when you want a quick polynomial vars file straight from the tracker.【F:autoframe.py†L1204-L1344】【F:autoframe.py†L1970-L1984】【F:README_AUTOFAME.md†L13-L139】
 
-5. **Social-first reel packaging.** The `05_make_social_reel.sh` helper sorts the detection CSV by score, grabs the top `N` clips, and concatenates them into a vertical or square deliverable with optional music bed and configurable audio offset. Override `TARGET_AR`, `MAX_LEN`, `BITRATE`, `MUSIC`, or `audioOffset` in the environment to match each platform before the script pads/crops and titles the mix.【F:05_make_social_reel.sh†L1-L47】
+   ```powershell
+   python .\autoframe.py --in "C:\clips\DJI_20251001_203314_740_video.mov" `
+       --csv .\out\DJI_20251001_203314_740_video_autoframe.csv --profile portrait `
+       --roi goal --goal_side auto --preview .\out\DJI_20251001_203314_740_preview.mp4
+   ```
 
-6. **Image polish pass.** Run `.\enhance.ps1` (a thin wrapper over `tools/auto_enhance/auto_enhance.ps1`) to batch-normalise highlights into broadcast-safe Rec.709 levels. Profiles such as `rec709_smart`, `rec709_basic`, and `punchy` adjust contrast/saturation curves, retry without `normalize` when FFmpeg lacks the filter, and emit `_ENH` clips alongside the originals so you can choose the preferred grade.【F:enhance.ps1†L1-L12】【F:tools/auto_enhance/auto_enhance.ps1†L1-L134】
+2. **Fit smooth FFmpeg expressions.** Run `fit_expr.py` when you prefer tighter control than the inline `--poly_out`. The script reads tracker metadata, honours profile/ROI zoom limits from `configs/zoom.yaml`, and writes `$cxExpr`, `$cyExpr`, `$zExpr` assignments into a `.ps1vars` file alongside comments capturing the run flags (`--degree`, `--lead-ms`, `--deadzone`, goal bias, celebration locks, etc.).【F:fit_expr.py†L1-L640】
+
+   ```powershell
+   python .\fit_expr.py --csv .\out\DJI_20251001_203314_740_video_autoframe.csv `
+       --out .\out\DJI_20251001_203314_740_video.ps1vars --profile portrait --roi goal --degree 5
+   ```
+
+3. **Render a 9:16 master.** Feed the expressions to `make_reel.ps1`, which sources the vars file, clamps crop math, renders portrait or landscape outputs, and can emit debug/compare overlays on demand. Pair it with the social preset in `config/reels.json` (`tiktok_9x16`: 1080×1920 @24 fps) whenever you need matching frame geometry for downstream packaging.【F:make_reel.ps1†L1-L133】【F:config/reels.json†L1-L5】
+
+   ```powershell
+   pwsh -File .\make_reel.ps1 -Input "C:\clips\DJI_20251001_203314_740_video.mov" `
+         -Vars .\out\DJI_20251001_203314_740_video.ps1vars -Output .\out\DJI_20251001_203314_740_portrait.mp4 `
+         -Profile portrait -Debug .\out\DJI_20251001_203314_740_portrait_debug.mp4
+   ```
+
+4. **Enhance the grade.** `.\enhance.ps1` wraps `tools/auto_enhance/auto_enhance.ps1`, scanning files or folders, appending `_ENH.mp4`, and exposing `rec709_smart`, `rec709_basic`, and `punchy` looks plus CRF/preset knobs. The inner script retries without `normalize` if your FFmpeg build lacks the filter, making it safe for short social clips.【F:enhance.ps1†L1-L10】【F:tools/auto_enhance/auto_enhance.ps1†L1-L134】
+
+   ```powershell
+   pwsh -File .\enhance.ps1 -In .\out\DJI_20251001_203314_740_portrait.mp4 -Profile rec709_smart -Crf 18 -Preset fast
+   ```
+
+5. **Apply branding.** `tools/tsc_brand.ps1` overlays Tulsa SC assets, titles, watermarks, optional lower thirds, and end cards. Passing `-Aspect 9x16` switches to the portrait ribbon/watermark set automatically, while font checks warn when Montserrat weights are missing. Run it on the already-cropped or enhanced clip to finish deliverables.【F:tools/tsc_brand.ps1†L1-L200】
+
+   ```powershell
+   pwsh -File .\tools\tsc_brand.ps1 -In .\out\DJI_20251001_203314_740_portrait_ENH.mp4 `
+         -Out .\out\DJI_20251001_203314_740_portrait_BRAND.mp4 -Aspect 9x16 `
+         -Title "Claire Practice" -Subtitle "2025-10-01" -Watermark -EndCard
+   ```
+
+   **Data hand-off recap:** `autoframe.py` → CSV/preview (and optional `.ps1vars`) → `fit_expr.py` `.ps1vars` → `make_reel.ps1` portrait master → `.\enhance.ps1` `_ENH` grade → `tools/tsc_brand.ps1` branded final. Ensure FFmpeg/FFprobe remain on `PATH` for every PowerShell stage, and install the Montserrat family under `fonts/` to keep text overlays intact.【F:make_reel.ps1†L54-L117】【F:tools/auto_enhance/auto_enhance.ps1†L83-L133】【F:tools/tsc_brand.ps1†L37-L168】
+
+6. **Batch processing.** `scripts/batch_autoframe.py` orchestrates `track_ball_cli.py` and `plan_render_cli.py` across entire clip folders with identical defaults to the documented PowerShell chain. Flags expose tracker ROI padding, YOLO confidence, zoom rails, and overwrite behaviour, keeping repeated runs consistent across platforms.【F:scripts/batch_autoframe.py†L1-L195】
+
+### 5.4 Social reel shell helpers
+
+The `05_make_social_reel.sh` helper sorts the detection CSV by score, grabs the top `N` clips, and concatenates them into a vertical or square deliverable with optional music bed and configurable audio offset. Override `TARGET_AR`, `MAX_LEN`, `BITRATE`, `MUSIC`, or `audioOffset` in the environment to match each platform before the script pads/crops and titles the mix.【F:05_make_social_reel.sh†L1-L47】
+
+### 5.5 Image polish without portrait work
+
+Outside the portrait pipeline you can still run `.\enhance.ps1` directly on landscape reels or raw match exports to normalize exposure and colour before publishing.【F:enhance.ps1†L1-L10】【F:tools/auto_enhance/auto_enhance.ps1†L43-L134】
 
 ## 6. Quality Assurance
 
@@ -131,5 +172,16 @@ soccerhl reel --list out\smart_top10_concat.txt --out out\reels\top10.mp4 --prof
 | Smart shrink produces little motion context | Enable jersey bias with `--bias-blue` (adjust `colors.team_primary` first) or fall back to `--mode simple` for deterministic padding.【F:soccer_highlights/shrink.py†L205-L267】【F:soccer_highlights/config.py†L197-L208】 |
 | Ranked clips start late | Reduce `rank.min_tail` or raise `rank.sustain` to change how aggressively the ranking step trims the lead-in.【F:soccer_highlights/config.py†L173-L177】【F:soccer_highlights/rank.py†L114-L193】 |
 | Reel numbering overlaps text | Adjust the chosen profile’s `label_position` or create a custom profile entry in `config.yaml` for unique overlays.【F:soccer_highlights/config.py†L180-L246】【F:soccer_highlights/reels.py†L79-L95】 |
+
+## 8. Script Inventory & Legacy Utilities
+
+| Script | Purpose |
+| --- | --- |
+| `02_detect_events.py` | Standalone motion/audio detector that identifies passes, shots, and intensity spikes, writing `out/highlights.csv` with start/end/score for ad-hoc runs outside the packaged CLI.【F:02_detect_events.py†L1-L188】 |
+| `03_motion_zoom.py` | Early auto-zoom prototype that estimates motion regions, writes `out/crops.jsonl`, and pipes crops to FFmpeg or OpenCV when you need a quick follow-cam without the full autoframe stack.【F:03_motion_zoom.py†L1-L120】 |
+| `track_ball_cli.py` | YOLO-accelerated ball tracker with colour gating, Kalman filtering, and JSON/CSV output used by batch planners and the autoframe fitter to keep the ball centred.【F:track_ball_cli.py†L1-L144】 |
+| `plan_render_cli.py` | Camera planner that smooths ball tracks, enforces pan/zoom slew limits, and renders directed crops for follow-cam deliveries from the tracked CSV.【F:plan_render_cli.py†L1-L160】 |
+| `render_follow_cli.py` | Legacy follow-camera renderer that turns a `track_csv` into 608×1080 crops using slew/acceleration, zoom hysteresis, and context-aware padding around nearby players.【F:render_follow_cli.py†L21-L200】 |
+| `render_follow_autoz*.py` | Notebook-style variants tuned for different looks (e.g., cinematic, realzoom) that read YOLO tracks, apply Savitzky–Golay smoothing, and constrain pan/zoom behaviour via explicit parameter blocks.【F:render_follow_autoz.py†L1-L160】 |
 
 Armed with these procedures and references, an operator can ingest raw match footage, iterate on highlight selections, and ship branded reels with confidence.
