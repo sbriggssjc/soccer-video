@@ -103,12 +103,19 @@ soccerhl reel --list out\smart_top10_concat.txt --out out\reels\top10.mp4 --prof
 
 2. **Cheer-anchored top tens.** When you have a CSV of crowd-cheer detections, run `08b_build_top10_cheers.py` to force those moments into the final list before filling remaining slots with the highest `action_score` clips.【F:README.md†L76-L83】
 
+3. **Brand overlays.** Use `tools/tsc_brand.ps1` to wrap a finished reel with Tulsa Soccer Club graphics, watermarks, lower thirds, and optional end cards. The script automatically swaps between 16×9 and 9×16 art, verifies ribbon/watermark assets, and renders drawtext overlays for title/subtitle copy when the Montserrat font family is installed under `fonts/`.【F:README.md†L59-L74】【F:tools/tsc_brand.ps1†L1-L213】
+
 3. **Brand overlays.** Use `tools/tsc_brand.ps1` to wrap a finished reel with Tulsa Soccer Club graphics, watermarks, and end cards. Ensure the Montserrat fonts are installed in `fonts/`.【F:README.md†L59-L74】
+
 
 4. **Autoframe for social cuts.**
    * Track motion and goal anchors with `autoframe.py`, which now outputs per-frame centers, zoom, and diagnostics while exposing detailed tuning flags (`--lead`, `--deadband_xy`, `--goal_side`, etc.).【F:README_AUTOFAME.md†L13-L65】
    * Fit smooth cubic expressions with `fit_expr.py` and feed them into the PowerShell reel scripts to drive FFmpeg’s `crop`/`scale` filters without thousands of raw numbers.【F:README_AUTOFAME.md†L68-L99】
    * Batch processing is available via `scripts/batch_autoframe.py`, mirroring the recommended directory layout and exposing planner/tracker flags from the CLI.【F:README.md†L120-L145】
+
+5. **Social-first reel packaging.** The `05_make_social_reel.sh` helper sorts the detection CSV by score, grabs the top `N` clips, and concatenates them into a vertical or square deliverable with optional music bed and configurable audio offset. Override `TARGET_AR`, `MAX_LEN`, `BITRATE`, `MUSIC`, or `audioOffset` in the environment to match each platform before the script pads/crops and titles the mix.【F:05_make_social_reel.sh†L1-L47】
+
+6. **Image polish pass.** Run `.\enhance.ps1` (a thin wrapper over `tools/auto_enhance/auto_enhance.ps1`) to batch-normalise highlights into broadcast-safe Rec.709 levels. Profiles such as `rec709_smart`, `rec709_basic`, and `punchy` adjust contrast/saturation curves, retry without `normalize` when FFmpeg lacks the filter, and emit `_ENH` clips alongside the originals so you can choose the preferred grade.【F:enhance.ps1†L1-L12】【F:tools/auto_enhance/auto_enhance.ps1†L1-L134】
 
 ## 6. Quality Assurance
 
