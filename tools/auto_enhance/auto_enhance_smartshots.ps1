@@ -58,14 +58,47 @@ function Get-VideoFiles($root, $recurse) {
 
 function Clamp([double]$v,[double]$lo,[double]$hi){ if($v -lt $lo){return $lo}; if($v -gt $hi){return $hi}; $v }
 
+# -------------- Shared helpers --------------
+function Get-DurationSec([string]$inPath){
+  $durStr = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
+  if (-not $durStr) { throw "Get-DurationSec: ffprobe failed for $inPath" }
+  [double]::Parse($durStr, [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-Scenes-Portable([string]$inPath, [double]$thresh){
+  $tmp = [IO.Path]::GetTempFileName()
+  $args = @(
+    '-hide_banner','-nostats','-i', $inPath,
+    '-filter_complex', ("select='gt(scene,{0})',showinfo" -f ('{0:0.###}' -f $thresh)),
+    '-f','null','NUL'
+  )
+  $stderr = & ffmpeg @args 2>&1 | Tee-Object -FilePath $tmp
+  $cuts = New-Object System.Collections.Generic.List[double]
+  Select-String -Path $tmp -Pattern 'pts_time:([0-9]+\.[0-9]+|[0-9]+)' | ForEach-Object {
+    $t = [double]::Parse($_.Matches[0].Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    if ($t -gt 0) { $cuts.Add($t) }
+  }
+  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+  $cuts | Sort-Object -Unique
+}
+
+function Build-FixedChunks([double]$total, [double]$chunkSec){
+  if ($chunkSec -le 0) { $chunkSec = 12.0 }
+  $ranges = New-Object System.Collections.Generic.List[pscustomobject]
+  $t = 0.0
+  while ($t -lt $total) {
+    $end = [math]::Min($total, $t + $chunkSec)
+    $ranges.Add([pscustomobject]@{ Start=$t; End=$end; Dur=($end-$t) })
+    $t = $end
+  }
+  $ranges
+}
+
 # -------------- Scene detection --------------
 function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap) {
-  # Get total duration
-  $durStr = & ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$inPath"
-  if (-not $durStr) { throw "Could not get duration with ffprobe." }
-  $total = [double]::Parse($durStr, [System.Globalization.CultureInfo]::InvariantCulture)
+  $total = Get-DurationSec $inPath
 
-  # Try scene detection via ffprobe+lavfi (can fail on Windows path quoting)
+  # 1) Try ffprobe lavfi (might fail on Windows quoting)
   $cuts = New-Object System.Collections.Generic.List[double]
   try {
     $cmd = @(
@@ -84,34 +117,38 @@ function Get-Scenes([string]$inPath, [double]$thresh, [double]$minDur, [int]$cap
         }
       }
     }
-  } catch {
-    # ignore; we'll fallback
+  } catch {}
+
+  # 2) If no cuts, try portable ffmpeg stderr parser
+  if ($cuts.Count -eq 0) {
+    try {
+      $cuts = Get-Scenes-Portable $inPath $thresh
+    } catch {}
   }
 
-  # Always prepend 0 and append total
-  $all = New-Object System.Collections.Generic.List[double]
-  $all.Add(0.0)
-  if ($cuts.Count -gt 0) { $cuts | Sort-Object -Unique | ForEach-Object { $all.Add($_) } }
-  $all.Add($total)
-
-  # If we still have no usable cuts (i.e., only [0,total]), return a single-shot fallback
-  if ($all.Count -le 2) {
-    return ,([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
-  }
-
-  # Build ranges and merge tiny shots
+  # 3) Build ranges from cuts, or fall back to fixed chunks, or single-shot
   $ranges = New-Object System.Collections.Generic.List[pscustomobject]
-  for($i=0; $i -lt ($all.Count-1); $i++){
-    $start = $all[$i]; $end = $all[$i+1]; $len = $end - $start
-    if ($len -lt $minDur -and $ranges.Count -gt 0) {
-      $prev = $ranges[$ranges.Count-1]
-      $ranges[$ranges.Count-1] = [pscustomobject]@{ Start=$prev.Start; End=$end; Dur=($end-$prev.Start) }
-    } else {
-      $ranges.Add([pscustomobject]@{ Start=$start; End=$end; Dur=$len })
+  if ($cuts.Count -gt 0) {
+    $all = New-Object System.Collections.Generic.List[double]
+    $all.Add(0.0); ($cuts | Sort-Object -Unique) | ForEach-Object { $all.Add($_) }; $all.Add($total)
+    for($i=0; $i -lt ($all.Count-1); $i++){
+      $start = $all[$i]; $end = $all[$i+1]; $len = $end - $start
+      if ($len -lt $minDur -and $ranges.Count -gt 0) {
+        $prev = $ranges[$ranges.Count-1]
+        $ranges[$ranges.Count-1] = [pscustomobject]@{ Start=$prev.Start; End=$end; Dur=($end-$prev.Start) }
+      } else {
+        $ranges.Add([pscustomobject]@{ Start=$start; End=$end; Dur=$len })
+      }
+    }
+  } else {
+    # fixed chunks → if that somehow fails, single-shot
+    $ranges = Build-FixedChunks $total 12.0
+    if (-not $ranges -or $ranges.Count -eq 0) {
+      $ranges = @([pscustomobject]@{ Start=0.0; End=$total; Dur=$total })
     }
   }
 
-  # Safety cap
+  # Cap total shots
   if ($ranges.Count -gt $cap) {
     $kept = $ranges[0..($cap-2)]
     $lastStart = $kept[-1].End
