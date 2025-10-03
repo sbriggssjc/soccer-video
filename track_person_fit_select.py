@@ -1,8 +1,11 @@
-﻿import argparse, pathlib, math, numpy as np, cv2, time
+﻿import argparse, pathlib, math, numpy as np, cv2, sys, time
 from ultralytics import YOLO
 
 def poly_fit_expr(ns, vs, deg=3):
+    ns = np.array(ns, dtype=np.float32); vs = np.array(vs, dtype=np.float32)
+    deg = max(1, min(deg, len(ns)-1))
     cs = np.polyfit(ns, vs, deg)
+    # emit up to cubic
     if deg == 3:
         c3,c2,c1,c0 = cs
         return f"(({c0:.8f})+({c1:.8f})*n+({c2:.8e})*n*n+({c3:.8e})*n*n*n)"
@@ -13,22 +16,34 @@ def poly_fit_expr(ns, vs, deg=3):
         c1,c0 = cs
         return f"(({c0:.8f})+({c1:.8f})*n)"
 
-def box_contains(box, x, y):
-    x1,y1,x2,y2 = box
-    return (x >= x1 and x <= x2 and y >= y1 and y <= y2)
-
 def center(box):
     x1,y1,x2,y2 = box
-    return (float((x1+x2)/2), float((y1+y2)/2))
+    return ((x1+x2)/2.0, (y1+y2)/2.0)
 
-def pick_id_interactively(cap, model, max_sel_frames=150):
+def area(box):
+    x1,y1,x2,y2 = box
+    return max(0.0,(x2-x1))*max(0.0,(y2-y1))
+
+def pick_largest_person(frame, model):
+    res = model.predict(frame, verbose=False, classes=[0])
+    if not res or res[0].boxes is None or res[0].boxes.xyxy is None:
+        return None, None
+    xyxy = res[0].boxes.xyxy.cpu().numpy()
+    if xyxy.shape[0] == 0: return None, None
+    # largest by area
+    areas = [area(b) for b in xyxy]
+    i = int(np.argmax(areas))
+    return i, xyxy[i]
+
+def interactive_pick(cap, model, fps, timeout_sec=5.0):
     """
-    Show first ~5s of frames with boxes/IDs; user clicks inside the target box once.
-    Returns selected track id (int) and the frame index at which it was chosen.
+    Show boxes for ~timeout_sec; user clicks any person box to select id.
+    If no click, auto-picks the largest person in the last frame.
+    Returns (track_id or None, chosen_frame_index).
     """
     n = 0
-    target_id = None
-    clicked = [None]  # mutable closure
+    clicked = [None]
+    chosen_id, chosen_n = None, None
 
     def on_mouse(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -37,80 +52,99 @@ def pick_id_interactively(cap, model, max_sel_frames=150):
     cv2.namedWindow("Select Player", cv2.WINDOW_NORMAL)
     cv2.setMouseCallback("Select Player", on_mouse)
 
-    chosen_at = None
-    while n < max_sel_frames:
+    t0 = time.time()
+    last_ids, last_boxes = [], []
+
+    while True:
         ok, frame = cap.read()
         if not ok: break
-        h, w = frame.shape[:2]
-        res = model.track(frame, persist=True, verbose=False, classes=[0])  # person
-        boxes, ids = [], []
+        res = model.track(frame, persist=True, verbose=False, classes=[0])  # track people
+        ids, boxes = [], []
         if res and res[0].boxes is not None and res[0].boxes.id is not None:
             ids  = res[0].boxes.id.cpu().numpy().astype(int).tolist()
-            xyxy = res[0].boxes.xyxy.cpu().numpy().tolist()
-            boxes = xyxy
+            boxes= res[0].boxes.xyxy.cpu().numpy().tolist()
 
-        # draw
         disp = frame.copy()
-        for i, box in enumerate(boxes):
-            x1,y1,x2,y2 = map(int, box)
+        for i, b in enumerate(boxes):
+            x1,y1,x2,y2 = map(int, b)
             tid = ids[i]
             cv2.rectangle(disp, (x1,y1), (x2,y2), (0,255,255), 2)
-            cv2.putText(disp, f"id {tid}", (x1, max(0,y1-8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2)
+            cv2.putText(disp, f"id {tid}", (x1, max(0,y1-8)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
 
-        cv2.putText(disp, "Click inside the MIC'D PLAYER box to lock target.",
-                    (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
+        msg = "Click your player's box (ESC=cancel). Auto-pick in {:.1f}s".format(
+            max(0.0, timeout_sec-(time.time()-t0))
+        )
+        cv2.putText(disp, msg, (18, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
         cv2.imshow("Select Player", disp)
         key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC to abort
+        if key == 27:  # ESC
             break
 
         if clicked[0] is not None and boxes:
             cx, cy = clicked[0]
-            # pick the FIRST box that contains the click
-            for i, box in enumerate(boxes):
-                if box_contains(box, cx, cy):
-                    target_id = ids[i]
-                    chosen_at = n
-                    break
-            # if no box contains the click, pick nearest center
-            if target_id is None:
+            # choose first box that contains click; else nearest center
+            chosen = None
+            for i, b in enumerate(boxes):
+                x1,y1,x2,y2 = b
+                if cx>=x1 and cx<=x2 and cy>=y1 and cy<=y2:
+                    chosen = i; break
+            if chosen is None:
                 dmin, best = 1e18, None
-                for i, box in enumerate(boxes):
-                    bx, by = center(box)
+                for i, b in enumerate(boxes):
+                    bx, by = center(b)
                     d = (bx-cx)**2 + (by-cy)**2
-                    if d < dmin: dmin, best = d, ids[i]
-                target_id = best
-                chosen_at = n
-            break
+                    if d < dmin: dmin, best = d, i
+                chosen = best
+            if chosen is not None:
+                chosen_id = ids[chosen]
+                chosen_n  = n
+                break
+
+        last_ids, last_boxes = ids, boxes
         n += 1
+        if (time.time()-t0) >= timeout_sec:
+            # auto-pick largest person from current frame (or last seen)
+            if boxes:
+                areas = [area(b) for b in boxes]
+                i = int(np.argmax(areas))
+                chosen_id = ids[i]
+                chosen_n  = n
+            else:
+                # attempt predict (no IDs) on this frame
+                idx, b = pick_largest_person(frame, model)
+                if idx is not None:
+                    chosen_id = -999  # synthetic
+                    chosen_n  = n
+            break
 
     cv2.destroyWindow("Select Player")
-    return target_id, (chosen_at if chosen_at is not None else 0), n
+    return chosen_id, (chosen_n if chosen_n is not None else 0)
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in",  dest="src", required=True)
     ap.add_argument("--out", dest="vars_out", required=True)
     ap.add_argument("--deg", type=int, default=3)
-    ap.add_argument("--nlead", type=int, default=10)  # predictive lead (~0.33s @30fps)
+    ap.add_argument("--nlead", type=int, default=12)
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.src)
-    if not cap.isOpened(): raise SystemExit(f"Failed to open: {args.src}")
+    if not cap.isOpened():
+        print(f"[ERR] Failed to open: {args.src}", file=sys.stderr); sys.exit(2)
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     FPS = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
     model = YOLO("yolov8n.pt")
 
-    # Interactive selection on a copy of the capture (so we can re-read from 0 afterwards)
+    # 1) Interactive (with auto fallback)
     cap_sel = cv2.VideoCapture(args.src)
-    target_id, chosen_at, seen = pick_id_interactively(cap_sel, model, max_sel_frames=int(5*FPS))
+    tid, chosen_at = interactive_pick(cap_sel, model, FPS, timeout_sec=5.0)
     cap_sel.release()
-    if target_id is None:
-        raise SystemExit("No player selected; please click on the target player's box.")
+    if tid is None:
+        print("[ERR] No player selected and no auto-pick possible.", file=sys.stderr); sys.exit(3)
 
-    # Now do the full pass, tracking ONLY that id; if it disappears briefly, re-link to nearest box
+    # 2) Full pass with re-association to keep the same person
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     ns, cxs, cys = [], [], []
     last_cx, last_cy = None, None
@@ -119,45 +153,41 @@ def main():
         ok, frame = cap.read()
         if not ok: break
         res = model.track(frame, persist=True, verbose=False, classes=[0])
+        cx, cy = None, None
         if res and res[0].boxes is not None and res[0].boxes.id is not None:
             ids  = res[0].boxes.id.cpu().numpy().astype(int).tolist()
             xyxy = res[0].boxes.xyxy.cpu().numpy()
-            # find target id
-            if target_id in ids:
-                i = ids.index(target_id)
+            if (tid in ids) and xyxy.shape[0] > 0:
+                i = ids.index(tid)
                 cx, cy = center(xyxy[i])
                 last_cx, last_cy = cx, cy
             else:
-                # re-associate: pick the detection whose center is nearest to last center
-                if last_cx is not None:
+                # re-link to nearest detection to last center
+                if last_cx is not None and xyxy.shape[0] > 0:
                     dmin, best = 1e18, None
-                    for i in range(len(ids)):
-                        cx_, cy_ = center(xyxy[i])
-                        d = (cx_-last_cx)**2 + (cy_-last_cy)**2
-                        if d < dmin:
-                            dmin, best = d, i
+                    for i in range(xyxy.shape[0]):
+                        bx, by = center(xyxy[i])
+                        d = (bx-last_cx)**2 + (by-last_cy)**2
+                        if d < dmin: dmin, best = d, i
                     if best is not None:
                         cx, cy = center(xyxy[best])
                         last_cx, last_cy = cx, cy
-                        target_id = ids[best]  # hop ids if tracker changed identity
-                    else:
-                        cx, cy = last_cx, last_cy
-                else:
-                    cx, cy = None, None
-            if cx is not None:
-                ns.append(n); cxs.append(cx); cys.append(cy)
+                        # accept ID switch
+                        if res[0].boxes.id is not None:
+                            tidc = int(res[0].boxes.id.cpu().numpy()[best])
+                            tid = tidc
+        if cx is not None:
+            ns.append(n); cxs.append(cx); cys.append(cy)
         n += 1
     cap.release()
 
-    if len(ns) < 10:  # not enough samples
-        raise SystemExit("Not enough target samples tracked; try clicking again or brighter footage.")
+    if len(ns) == 0:
+        print("[ERR] No target samples tracked; lighting/occlusion too heavy.", file=sys.stderr); sys.exit(4)
 
-    ns  = np.array(ns, dtype=np.float32)
-    cxs = np.array(cxs, dtype=np.float32)
-    cys = np.array(cys, dtype=np.float32)
-
-    cx_expr = poly_fit_expr(ns, cxs, args.deg).replace("n", f"(n+{args.nlead})")
-    cy_expr = poly_fit_expr(ns, cys, args.deg).replace("n", f"(n+{args.nlead})")
+    # 3) Fit; if samples are few, fall back to linear
+    deg = args.deg if len(ns) >= 12 else 1
+    cx_expr = poly_fit_expr(ns, cxs, deg).replace("n", f"(n+{args.nlead})")
+    cy_expr = poly_fit_expr(ns, cys, deg).replace("n", f"(n+{args.nlead})")
 
     out = pathlib.Path(args.vars_out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -166,3 +196,4 @@ def main():
         f.write(f"$cyExpr = \"= {cy_expr}\"\n")
         f.write(f"$wSrc   = {W}\n")
         f.write(f"$hSrc   = {H}\n")
+    print(f"[OK] Wrote vars -> {out}")
