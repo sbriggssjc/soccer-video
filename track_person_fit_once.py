@@ -34,8 +34,9 @@ def main():
     ap.add_argument("--in", dest="src", required=True)
     ap.add_argument("--out", dest="vars_out", required=True)
     ap.add_argument("--lead", type=int, default=12)
-    ap.add_argument("--conf", type=float, default=0.10)
+    ap.add_argument("--conf", type=float, default=0.08)
     ap.add_argument("--iou",  type=float, default=0.45)
+    ap.add_argument("--device", default="cpu")
     args=ap.parse_args()
 
     cap=cv2.VideoCapture(args.src)
@@ -45,45 +46,61 @@ def main():
     FPS=cap.get(cv2.CAP_FPS) or 30.0; N=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     print(f"[INFO] {args.src}  {W}x{H}  fps={FPS:.3f}  frames={N}")
 
-    model=YOLO("yolov8n.pt")
+    # Prefer a local weight file if present (avoids download issues)
+    weights_path = "yolov8n.pt"
+    model=YOLO(weights_path)
 
-    # Collect trajectories per ID
-    paths=defaultdict(list)      # id -> [(n,cx,cy,area_norm)]
-    score=defaultdict(float)     # id -> dwell/center/size score
+    # Collect trajectories (if IDs available) and per-frame detections (always)
+    paths=defaultdict(list)        # id -> [(n,cx,cy,a)]
+    frame_dets=defaultdict(list)   # n -> [(cx,cy,a)]
+    score=defaultdict(float)       # id -> score
     n=0
 
     while True:
         ok, frame=cap.read()
         if not ok: break
+
+        # Tracking attempt
         res=model.track(frame, persist=True, verbose=False,
                         classes=[0], conf=args.conf, iou=args.iou,
-                        tracker="bytetrack.yaml")
-        if not res or res[0].boxes is None or res[0].boxes.xyxy is None:
-            n+=1; continue
-        boxes=res[0].boxes
-        ids = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else None
-        xyxy= boxes.xyxy.cpu().numpy()
-        if ids is None: n+=1; continue
+                        tracker="bytetrack.yaml", device=args.device)
 
-        for i, tid in enumerate(ids):
-            b=xyxy[i]
+        got_boxes = (res and res[0].boxes is not None and res[0].boxes.xyxy is not None)
+        if not got_boxes:
+            n+=1; continue
+
+        boxes=res[0].boxes
+        xyxy = boxes.xyxy.cpu().numpy()
+        ids  = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else None
+
+        # Always record per-frame detections for fallback
+        for b in xyxy:
             cx,cy=center_xy(b)
             a = box_area(b)/(W*H)
-            dx=(cx-W/2)/(W/2); dy=(cy-H/2)/(H/2)
-            center_bias=max(0.0, 1.0-0.6*math.sqrt(dx*dx+dy*dy))
-            score[tid]+=a*center_bias
-            paths[tid].append((n,cx,cy,a))
+            frame_dets[n].append((cx,cy,a))
+
+        # If we have IDs, accumulate path + score
+        if ids is not None:
+            for i, tid in enumerate(ids):
+                b=xyxy[i]
+                cx,cy=center_xy(b)
+                a = box_area(b)/(W*H)
+                dx=(cx-W/2)/(W/2); dy=(cy-H/2)/(H/2)
+                center_bias=max(0.0, 1.0-0.6*math.sqrt(dx*dx+dy*dy))
+                score[tid]+=a*center_bias
+                paths[tid].append((n,cx,cy,a))
+
         n+=1
 
     cap.release()
 
-    # Pick best id by score
+    # Pick best ID if available
     best_id=None
     if score:
         best_id=max(score.items(), key=lambda kv: kv[1])[0]
         print(f"[OK] Selected ID={best_id}")
     else:
-        print("[WARN] No person IDs found; fallback to center-largest per frame")
+        print("[WARN] Tracker IDs unavailable; using detection fallback")
 
     # Build sample series
     ns=[]; cxs=[]; cys=[]
@@ -92,13 +109,10 @@ def main():
         for (n,cx,cy,a) in paths[best_id]:
             ns.append(n); cxs.append(cx); cys.append(cy)
     else:
-        # fallback: for each frame pick largest area near center
-        all_by_frame=defaultdict(list)
-        for tid, lst in paths.items():
-            for (n,cx,cy,a) in lst: all_by_frame[n].append((cx,cy,a))
-        for n in sorted(all_by_frame.keys()):
-            cand=all_by_frame[n]
-            # center-weighted size
+        # Fallback: choose the largest near-center person each frame
+        for n in sorted(frame_dets.keys()):
+            cand=frame_dets[n]
+            if not cand: continue
             best=None; best_s=-1
             for (cx,cy,a) in cand:
                 dx=(cx-W/2)/(W/2); dy=(cy-H/2)/(H/2)
@@ -108,7 +122,7 @@ def main():
                 ns.append(n); cxs.append(best[0]); cys.append(best[1])
 
     if len(ns)==0:
-        print("[ERR] Zero track samples after fallback; abort.")
+        print("[ERR] Zero samples after fallback; no vars written.")
         sys.exit(4)
 
     # Smooth + lookahead
