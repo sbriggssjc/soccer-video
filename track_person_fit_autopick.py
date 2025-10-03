@@ -15,7 +15,8 @@ def poly_fit_expr(ns, vs, max_deg=3):
     ns = np.asarray(ns, dtype=np.float64)
     vs = np.asarray(vs, dtype=np.float64)
     deg = int(min(max_deg, max(1, len(ns)-1)))
-    if len(ns) < 12: deg = 1
+    if len(ns) < 12:
+        deg = 1
     cs = np.polyfit(ns, vs, deg)
     if deg == 3:
         c3,c2,c1,c0 = cs
@@ -27,19 +28,20 @@ def poly_fit_expr(ns, vs, max_deg=3):
         c1,c0 = cs
         return f"(({c0:.8f})+({c1:.8f})*n)"
 
-def ema_smooth(vals, alpha=0.22):
-    out = []
-    s = None
+def ema(vals, alpha=0.22):
+    out, s = [], None
     for v in vals:
         s = v if s is None else (alpha*v + (1-alpha)*s)
         out.append(s)
-    return np.array(out)
+    return np.array(out, dtype=np.float64)
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in",  dest="src", required=True)
     ap.add_argument("--out", dest="vars_out", required=True)
     ap.add_argument("--lead", type=int, default=12)
+    ap.add_argument("--conf", type=float, default=0.15)
+    ap.add_argument("--iou",  type=float, default=0.45)
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.src)
@@ -55,17 +57,24 @@ def main():
 
     model = YOLO("yolov8n.pt")
 
-    # Pass 1: select the best person by (size × dwell) with center bias.
+    # ------- PASS 1: pick best person (size x dwell) with center bias -------
     scores = defaultdict(float)
     n = 0
     while True:
         ok, frame = cap.read()
         if not ok: break
-        res = model.track(frame, persist=True, verbose=False, classes=[0])
-        if not res or res[0].boxes is None or res[0].boxes.id is None or res[0].boxes.xyxy is None:
+        res = model.track(
+            frame, persist=True, verbose=False, classes=[0],
+            conf=args.conf, iou=args.iou
+        )
+        if not res or res[0].boxes is None or res[0].boxes.xyxy is None:
             n += 1; continue
-        ids  = res[0].boxes.id.cpu().numpy().astype(int)
-        xyxy = res[0].boxes.xyxy.cpu().numpy()
+        ids = res[0].boxes.id
+        xyxy = res[0].boxes.xyxy
+        if ids is None or xyxy is None: 
+            n += 1; continue
+        ids  = ids.cpu().numpy().astype(int)
+        xyxy = xyxy.cpu().numpy()
         for i, tid in enumerate(ids):
             b = xyxy[i]
             cx,cy = center_xy(b)
@@ -83,7 +92,7 @@ def main():
     best_id = max(scores.items(), key=lambda kv: kv[1])[0]
     print(f"[OK] Selected ID={best_id}")
 
-    # Pass 2: follow with nearest re-association when ID switches.
+    # ------- PASS 2: follow best subject; hold last when detection is missing -------
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     ns, cxs, cys = [], [], []
     last_cx, last_cy = None, None
@@ -92,7 +101,10 @@ def main():
     while True:
         ok, frame = cap.read()
         if not ok: break
-        res = model.track(frame, persist=True, verbose=False, classes=[0])
+        res = model.track(
+            frame, persist=True, verbose=False, classes=[0],
+            conf=args.conf, iou=args.iou
+        )
         cx, cy = None, None
         if res and res[0].boxes is not None and res[0].boxes.xyxy is not None:
             xyxy = res[0].boxes.xyxy.cpu().numpy()
@@ -103,18 +115,22 @@ def main():
                 i = list(ids).index(best_id)
                 cx, cy = center_xy(xyxy[i])
                 last_cx, last_cy = cx, cy
-            else:
-                if last_cx is not None and xyxy.shape[0] > 0:
-                    dmin, best = 1e18, None
-                    for i in range(xyxy.shape[0]):
-                        bx, by = center_xy(xyxy[i])
-                        d = (bx-last_cx)**2 + (by-last_cy)**2
-                        if d < dmin: dmin, best = d, i
-                    if best is not None:
-                        cx, cy = center_xy(xyxy[best])
-                        last_cx, last_cy = cx, cy
-                        if ids is not None:
-                            best_id = int(ids[best])
+            elif last_cx is not None and xyxy.shape[0] > 0:
+                # nearest neighbor re-association
+                dmin, best = 1e18, None
+                for i in range(xyxy.shape[0]):
+                    bx, by = center_xy(xyxy[i])
+                    d = (bx-last_cx)**2 + (by-last_cy)**2
+                    if d < dmin: dmin, best = d, i
+                if best is not None:
+                    cx, cy = center_xy(xyxy[best])
+                    last_cx, last_cy = cx, cy
+                    if ids is not None:
+                        best_id = int(ids[best])
+
+        # HOLD-LAST: if nothing detected, keep prior position so we never go empty
+        if cx is None and last_cx is not None:
+            cx, cy = last_cx, last_cy
 
         if cx is not None:
             ns.append(n); cxs.append(cx); cys.append(cy)
@@ -126,9 +142,9 @@ def main():
         print("[ERR] Zero track samples; aborting.")
         sys.exit(4)
 
-    # Smooth + fit (lead adds anticipatory pan)
-    cxs = ema_smooth(cxs, alpha=0.22)
-    cys = ema_smooth(cys, alpha=0.22)
+    # Smooth + fit with look-ahead
+    cxs = ema(cxs, alpha=0.22)
+    cys = ema(cys, alpha=0.22)
     cx_expr = poly_fit_expr(ns, cxs, max_deg=3).replace("n", f"(n+{args.lead})")
     cy_expr = poly_fit_expr(ns, cys, max_deg=3).replace("n", f"(n+{args.lead})")
 
