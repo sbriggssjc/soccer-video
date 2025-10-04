@@ -1,5 +1,4 @@
 ﻿import sys, csv, numpy as np
-# args: inCsv, outVarsPs1
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
 # load
@@ -14,24 +13,23 @@ with open(in_csv,"r",newline="") as f:
 N=np.array(N); cx=np.array(cx); cy=np.array(cy); conf=np.array(conf)
 if len(N)==0: raise SystemExit("Empty CSV")
 
-# EMA helper
 def ema(arr, alpha):
     out=np.copy(arr)
     for i in range(1,len(arr)):
         out[i]=alpha*arr[i]+(1-alpha)*out[i-1]
     return out
 
-# Fill small gaps by hold
+# fill small gaps by hold
 for i in range(1,len(cx)):
     if conf[i] < 0.15:
         cx[i] = cx[i-1]
         cy[i] = cy[i-1]
 
-# Fast + fine smoothing
+# smooth
 cx_s = ema(cx, 0.35); cy_s = ema(cy, 0.35)
 cx_s = ema(cx_s, 0.18); cy_s = ema(cy_s, 0.18)
 
-# Fit compact polynomials
+# poly fits
 deg = 4 if len(N)>=60 else 3
 Px = np.polyfit(N, cx_s, deg)
 Py = np.polyfit(N, cy_s, deg)
@@ -50,7 +48,7 @@ def poly_to_expr(P):
 cx_expr = poly_to_expr(Px)
 cy_expr = poly_to_expr(Py)
 
-# Zoom plan: keep margins so ball + nearest defender stay in frame
+# zoom from safe margins
 margin_x = 120.0; margin_y = 150.0
 dx = np.minimum(cx_s, w-cx_s) - margin_x
 dy = np.minimum(cy_s, h-cy_s) - margin_y
@@ -61,7 +59,6 @@ z_need_x = (h*9/16)/(safety*2*dx)
 z_need_y = (h)/(safety*2*dy)
 z_needed = np.maximum(1.0, np.maximum(z_need_x, z_need_y))
 
-# Bias wide slightly, smooth & cap (cinematic look)
 z = np.minimum(1.55, np.maximum(1.0, 0.8*z_needed + 0.2))
 z = ema(z, 0.20)
 Pz = np.polyfit(N, z, min(3, len(N)-1))
