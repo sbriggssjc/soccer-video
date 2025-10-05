@@ -114,7 +114,7 @@ DZx, DZy = 80.0, 95.0
 MX_rng   = [160.0, 180.0, 200.0]
 MY_rng   = [190.0, 210.0, 230.0]
 SAF_rng  = [1.06, 1.08, 1.10]
-ZCAP     = 3.0
+ZCAP     = 3.4
 
 best=None
 for it in range(MAX_ITERS):
@@ -132,11 +132,11 @@ for it in range(MAX_ITERS):
                     mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
                     my = base_my + 140.0*vsp + 110.0*(conf<0.25)
                     z_need_ball = containment_zoom_needed(cx, cy, mx, my, safety)
-                    panic = z_need_ball > (0.92*ZCAP)
+                    panic = z_need_ball > (0.85*ZCAP)
                     if np.any(panic):
                         # pull center toward ball with high slew when containment under pressure
-                        PC_GAIN = 1.6
-                        PC_SLEW = 220.0  # px/frame cap during panic
+                        PC_GAIN = 2.0
+                        PC_SLEW = 300.0  # px/frame cap during panic
                         cx2 = cx.copy(); cy2 = cy.copy()
                         for i in range(1,len(cx2)):
                             if panic[i]:
@@ -146,8 +146,8 @@ for it in range(MAX_ITERS):
                                 cx2[i] = cx2[i-1] + sx
                                 cy2[i] = cy2[i-1] + sy
                             else:
-                                cx2[i] = cx2[i]
-                                cy2[i] = cy2[i]
+                                cx2[i] = cx2[i-1] + np.clip(0.15*(bx[i]-cx2[i-1]), -120.0, 120.0)
+                                cy2[i] = cy2[i-1] + np.clip(0.15*(by[i]-cy2[i-1]), -120.0, 120.0)
                         cx, cy = cx2, cy2
 
                     score, p95, mae, viol, zf, mx, my, _ = score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=ZCAP)
@@ -201,6 +201,6 @@ z_if  = seg_if(piecewise(N,z_final,seg=12,deg=2), "1")
 with open(out_ps1,"w",encoding="utf-8") as f:
     f.write(f"$cxExpr = '={cx_if}'\n")
     f.write(f"$cyExpr = '=={cy_if}'.replace('==','=')\n")
-    f.write(f"$zExpr  = '=clip({z_if},1.0,3.00)'\n")
+    f.write(f"$zExpr  = '=clip({z_if},1.0,{ZCAP:.2f})'\n")
     f.write(f"$Safety = {safety:.3f}\n")
     f.write(f"# tuned: p95_lead={p95:.2f}, mae={mae:.2f}, viol={viol:.4f}, LA={LA_s}, ACC={ACC}, GAIN={GAIN}, SLEW={SLEW}, mx={base_mx}, my={base_my}`n")
