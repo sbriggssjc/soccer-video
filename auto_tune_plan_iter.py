@@ -42,7 +42,7 @@ def make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy, s1=0.26, s2=0.15):
     cx_s, cy_s = ema(bx, s1), ema(by, s1); cx_s, cy_s = ema(cx_s, s2), ema(cy_s, s2)
     vx = np.gradient(cx_s, dt); vy = np.gradient(cy_s, dt)
     ax = np.gradient(vx, dt);   ay = np.gradient(vy, dt)
-    A_CLAMP = 3200.0
+    A_CLAMP = 3300.0
     ax = np.clip(ax,-A_CLAMP,A_CLAMP); ay = np.clip(ay,-A_CLAMP, A_CLAMP)
     cx_pred = cx_s + vx*LA_s + 0.5*ACC*ax*(LA_s**2)
     cy_pred = cy_s + vy*LA_s + 0.5*ACC*ay*(LA_s**2)
@@ -53,8 +53,13 @@ def make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy, s1=0.26, s2=0.15):
     cy_ff = slew_follow(cy_t, cy_s, DZy, GAIN, SLEW)
     return cx_ff, cy_ff
 
+def containment_zoom_needed(cx, cy, mx, my, safety):
+    dx_ball = np.abs(bx - cx); dy_ball = np.abs(by - cy)
+    z_need_ball_x = (H*9/16)/(safety*2*(dx_ball+mx).clip(min=1))
+    z_need_ball_y = (H)/(safety*2*(dy_ball+my).clip(min=1))
+    return np.maximum(z_need_ball_x, z_need_ball_y)
+
 def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
-    # motion direction
     vx = np.gradient(bx, dt); vy = np.gradient(by, dt)
     vmag = np.hypot(vx,vy) + 1e-6; ux, uy = vx/vmag, vy/vmag
     ex = bx - cx; ey = by - cy
@@ -62,7 +67,6 @@ def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
     mae  = np.mean(np.hypot(ex,ey))
     p95  = np.percentile(np.maximum(0.0, lead), 95.0)
 
-    # dynamic margins
     spd = vmag; vsp = np.clip(spd/1000.0, 0, 1)
     mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
     my = base_my + 140.0*vsp + 110.0*(conf<0.25)
@@ -75,15 +79,12 @@ def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
     z_need_edge_y = (H)/(safety*2*dy_edge)
 
     # ball containment need
-    dx_ball = np.abs(bx - cx); dy_ball = np.abs(by - cy)
-    z_need_ball_x = (H*9/16)/(safety*2*(dx_ball+mx).clip(min=1))
-    z_need_ball_y = (H)/(safety*2*(dy_ball+my).clip(min=1))
+    z_need_ball = containment_zoom_needed(cx, cy, mx, my, safety)
 
     z_need = np.maximum.reduce([np.ones_like(dx_edge),
                                 z_need_edge_x, z_need_edge_y,
-                                z_need_ball_x, z_need_ball_y])
+                                z_need_ball])
 
-    # smooth & clamp zoom
     def ema_vec(a,alpha):
         o=a.copy()
         for i in range(1,len(a)): o[i]=alpha*a[i]+(1-alpha)*o[i-1]
@@ -95,14 +96,11 @@ def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
     z_soft = z_plan*(1-alpha) + z_need*alpha
     z_final= np.minimum(np.maximum(z_soft, np.minimum(zcap, z_need*1.17)), zcap)
 
-    # containment violations at cap
     viol = float(np.any(z_need > zcap))
-
-    # edge penalty
     edge_pen = np.mean((cx-mx<0)+(W-cx-mx<0)+(cy-my<0)+(H-cy-my<0))
 
     score = 4.0*p95 + 1.0*mae + 400.0*viol + 30.0*edge_pen
-    return score, p95, mae, viol, z_final, mx, my
+    return score, p95, mae, viol, z_final, mx, my, z_need_ball
 
 # iterative search
 TARGET_P95 = 6.0
@@ -110,12 +108,13 @@ TARGET_MAE = 10.0
 MAX_ITERS  = 7
 LA_rng   = [2.0, 2.4, 2.8, 3.0]
 ACC_rng  = [0.15, 0.25, 0.35]
-GAIN_rng = [0.65, 0.85, 1.05]
-SLEW_rng = [80.0, 110.0, 140.0, 160.0]
+GAIN_rng = [0.70, 0.90, 1.10]
+SLEW_rng = [100.0, 130.0, 160.0, 180.0]
 DZx, DZy = 80.0, 95.0
 MX_rng   = [160.0, 180.0, 200.0]
 MY_rng   = [190.0, 210.0, 230.0]
 SAF_rng  = [1.06, 1.08, 1.10]
+ZCAP     = 3.0
 
 best=None
 for it in range(MAX_ITERS):
@@ -127,7 +126,31 @@ for it in range(MAX_ITERS):
               for base_my in MY_rng:
                 for safety in SAF_rng:
                     cx, cy = make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy)
-                    score, p95, mae, viol, zf, mx, my = score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0)
+                    # ---- panic-center refinement (single pass) ----
+                    spd = np.hypot(np.gradient(bx,dt), np.gradient(by,dt))
+                    vsp = np.clip(spd/1000.0,0,1)
+                    mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
+                    my = base_my + 140.0*vsp + 110.0*(conf<0.25)
+                    z_need_ball = containment_zoom_needed(cx, cy, mx, my, safety)
+                    panic = z_need_ball > (0.92*ZCAP)
+                    if np.any(panic):
+                        # pull center toward ball with high slew when containment under pressure
+                        PC_GAIN = 1.6
+                        PC_SLEW = 220.0  # px/frame cap during panic
+                        cx2 = cx.copy(); cy2 = cy.copy()
+                        for i in range(1,len(cx2)):
+                            if panic[i]:
+                                ex = bx[i]-cx2[i-1]; ey = by[i]-cy2[i-1]
+                                sx = np.clip(PC_GAIN*ex, -PC_SLEW, PC_SLEW)
+                                sy = np.clip(PC_GAIN*ey, -PC_SLEW, PC_SLEW)
+                                cx2[i] = cx2[i-1] + sx
+                                cy2[i] = cy2[i-1] + sy
+                            else:
+                                cx2[i] = cx2[i]
+                                cy2[i] = cy2[i]
+                        cx, cy = cx2, cy2
+
+                    score, p95, mae, viol, zf, mx, my, _ = score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=ZCAP)
                     if (best is None) or (score < best[0]):
                         best = [score, p95, mae, viol, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, cx, cy, zf]
     if best[1] <= TARGET_P95 and best[2] <= TARGET_MAE and best[3] == 0.0:
@@ -139,10 +162,10 @@ for it in range(MAX_ITERS):
         for k in [1,2]:
             vals.add(max(lo, v - k*step)); vals.add(min(hi, v + k*step))
         return sorted(vals)
-    LA_rng   = span(LA_s, 1.4, 3.2, 0.2)
+    LA_rng   = span(LA_s, 1.6, 3.2, 0.2)
     ACC_rng  = span(ACC,  0.05, 0.45, 0.05)
-    GAIN_rng = span(GAIN, 0.50, 1.40, 0.10)
-    SLEW_rng = span(SLEW, 60.0, 200.0, 10.0)
+    GAIN_rng = span(GAIN, 0.60, 1.40, 0.10)
+    SLEW_rng = span(SLEW, 80.0, 220.0, 10.0)
     MX_rng   = span(base_mx, 120.0, 240.0, 20.0)
     MY_rng   = span(base_my, 150.0, 260.0, 20.0)
     SAF_rng  = span(safety, 1.04, 1.12, 0.02)

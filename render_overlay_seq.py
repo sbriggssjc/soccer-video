@@ -1,0 +1,74 @@
+﻿import sys, csv, numpy as np, cv2, os, math
+
+stable, vars_ps1, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+os.makedirs(out_dir, exist_ok=True)
+
+# --- read tuned vars ---
+def read_vars(path):
+    kv={}
+    with open(path,"r",encoding="utf-8") as f:
+        for line in f:
+            line=line.strip()
+            if not line or line.startswith("#"): continue
+            if "=" in line and line.startswith("$"):
+                k,v=line.split("=",1)
+                kv[k.strip()]=v.strip()
+    return kv
+
+V = read_vars(vars_ps1)
+def stripq(s):
+    s=s.strip()
+    if s.startswith("'") and s.endswith("'"): s=s[1:-1]
+    if s.startswith('"') and s.endswith('"'): s=s[1:-1]
+    return s
+
+cx_expr = stripq(V.get("$cxExpr","=in_w/2"))
+cy_expr = stripq(V.get("$cyExpr","=in_h/2"))
+z_expr  = stripq(V.get("$zExpr","=1"))
+if cx_expr.startswith("="): cx_expr=cx_expr[1:]
+if cy_expr.startswith("="): cy_expr=cy_expr[1:]
+if z_expr.startswith("="):  z_expr =z_expr[1:]
+safety  = float(V.get("$Safety","1.08"))
+
+# --- video io ---
+cap=cv2.VideoCapture(stable)
+if not cap.isOpened(): raise SystemExit("cannot open stable video")
+W=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); H=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+FPS=cap.get(cv2.CAP_PROP_FPS) or 60.0
+
+# --- ffmpeg-like evaluator ---
+def Between(x,a,b): return 1.0 if (x>=a and x<=b) else 0.0
+def If(cond,a,b):   return a if (cond!=0) else b
+def clip(v,a,b):    return max(a,min(b,v))
+
+def eval_expr(expr, n):
+    expr_py = expr.replace("^","**")
+    expr_py = expr_py.replace("between(","Between(").replace("if(","If(")
+    local = {"n": float(n), "in_w": float(W), "in_h": float(H),
+             "Between":Between, "If":If, "clip":clip,
+             "floor": math.floor, "ceil": math.ceil, "min": min, "max": max}
+    return float(eval(expr_py, {"__builtins__":{}}, local))
+
+def box_for_n(n):
+    cx = eval_expr(cx_expr,n); cy = eval_expr(cy_expr,n); z  = eval_expr(z_expr,n)
+    w = math.floor( min(((H*9/16)/(z*safety)), W) /2 )*2
+    h = math.floor( min((H/(z*safety)), H) /2 )*2
+    x = math.floor( max(0, min(cx - w/2, W - w)) /2 )*2
+    y = math.floor( max(0, min(cy - h/2, H - h)) /2 )*2
+    return int(x),int(y),int(w),int(h),int(round(cx)),int(round(cy))
+
+# --- render frames to PNGs ---
+idx=0
+ok,frm=cap.read()
+while ok:
+    x,y,w,h,cx,cy = box_for_n(idx)
+    cv2.rectangle(frm, (x,y), (x+w-1,y+h-1), (0,255,255), 3)  # yellow
+    cv2.line(frm, (cx-22,cy), (cx+22,cy), (0,0,255), 3)       # red
+    cv2.line(frm, (cx,cy-22), (cx,cy+22), (0,0,255), 3)
+    cv2.imwrite(os.path.join(out_dir, f"{idx:06d}.png"), frm)
+    idx+=1
+    ok,frm=cap.read()
+cap.release()
+
+# save fps so PS can pick it up
+with open(os.path.join(out_dir,"fps.txt"),"w") as f: f.write(str(int(round(FPS))))
