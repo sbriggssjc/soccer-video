@@ -38,11 +38,11 @@ def slew_follow(target, current, dz, gain, slew):
         out[i] = out[i-1] + step
     return out
 
-def make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy, smooth1=0.26, smooth2=0.15):
-    cx_s, cy_s = ema(bx, smooth1), ema(by, smooth1); cx_s, cy_s = ema(cx_s, smooth2), ema(cy_s, smooth2)
+def make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy, s1=0.26, s2=0.15):
+    cx_s, cy_s = ema(bx, s1), ema(by, s1); cx_s, cy_s = ema(cx_s, s2), ema(cy_s, s2)
     vx = np.gradient(cx_s, dt); vy = np.gradient(cy_s, dt)
     ax = np.gradient(vx, dt);   ay = np.gradient(vy, dt)
-    A_CLAMP = 3000.0
+    A_CLAMP = 3200.0
     ax = np.clip(ax,-A_CLAMP,A_CLAMP); ay = np.clip(ay,-A_CLAMP, A_CLAMP)
     cx_pred = cx_s + vx*LA_s + 0.5*ACC*ax*(LA_s**2)
     cy_pred = cy_s + vy*LA_s + 0.5*ACC*ay*(LA_s**2)
@@ -53,61 +53,71 @@ def make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy, smooth1=0.26, smooth2=0.15):
     cy_ff = slew_follow(cy_t, cy_s, DZy, GAIN, SLEW)
     return cx_ff, cy_ff
 
-def containment_violations(cx, cy, mx, my, safety):
-    # Does the ball fit inside the portrait crop if center is (cx,cy) with margins (mx,my) and safety?
-    # Compute required half-width/height at each frame to contain both margins and current center error to ball.
-    # half sizes allowed by zoom z: w_half = (H*9/16)/(2*safety*z), h_half = H/(2*safety*z)
-    # Solve for z needed to contain |dx_ball|+mx, |dy_ball|+my:
-    dx_ball = np.abs(bx - cx); dy_ball = np.abs(by - cy)
-    z_need_x_contain = (H*9/16)/(2*safety*(dx_ball+mx).clip(min=1))
-    z_need_y_contain = (H)/(2*safety*(dy_ball+my).clip(min=1))
-    z_need_contain = np.maximum(z_need_x_contain, z_need_y_contain)
-    # containment is violated if z needed exceeds a cap we allow (2.6 by default)
-    viol = (z_need_contain > 2.6).astype(np.float32)
-    return viol.mean(), z_need_contain
-
-def score_center(cx, cy, base_mx, base_my, safety):
-    # forward lead error (project onto motion direction)
+def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
+    # motion direction
     vx = np.gradient(bx, dt); vy = np.gradient(by, dt)
-    vnorm = np.hypot(vx,vy) + 1e-6
-    ux, uy = vx/vnorm, vy/vnorm
+    vmag = np.hypot(vx,vy) + 1e-6; ux, uy = vx/vmag, vy/vmag
     ex = bx - cx; ey = by - cy
     lead = ex*ux + ey*uy
     mae  = np.mean(np.hypot(ex,ey))
-    p95_lead = np.percentile(np.maximum(0.0, lead), 95.0)
+    p95  = np.percentile(np.maximum(0.0, lead), 95.0)
 
-    # base dynamic margins (mild function of speed/conf)
-    spd = np.hypot(vx,vy); vsp = np.clip(spd/1000.0, 0, 1)
+    # dynamic margins
+    spd = vmag; vsp = np.clip(spd/1000.0, 0, 1)
     mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
     my = base_my + 140.0*vsp + 110.0*(conf<0.25)
 
-    viol_rate, z_contain = containment_violations(cx, cy, mx, my, safety)
+    # edge-based need
+    dx_edge = np.minimum(cx, W-cx) - mx
+    dy_edge = np.minimum(cy, H-cy) - my
+    dx_edge = np.clip(dx_edge,1,None); dy_edge = np.clip(dy_edge,1,None)
+    z_need_edge_x = (H*9/16)/(safety*2*dx_edge)
+    z_need_edge_y = (H)/(safety*2*dy_edge)
 
-    # soft penalty: how often our planned crop would hit edges given base_mx/my (approx.)
-    left  = cx - mx; right = (W-cx) - mx; top = cy - my; bottom = (H-cy) - my
-    edge_pen = np.mean((left<0)+(right<0)+(top<0)+(bottom<0))
+    # ball containment need
+    dx_ball = np.abs(bx - cx); dy_ball = np.abs(by - cy)
+    z_need_ball_x = (H*9/16)/(safety*2*(dx_ball+mx).clip(min=1))
+    z_need_ball_y = (H)/(safety*2*(dy_ball+my).clip(min=1))
 
-    score = 4.0*p95_lead + 1.0*mae + 200.0*viol_rate + 30.0*edge_pen
-    return score, p95_lead, mae, viol_rate, mx, my
+    z_need = np.maximum.reduce([np.ones_like(dx_edge),
+                                z_need_edge_x, z_need_edge_y,
+                                z_need_ball_x, z_need_ball_y])
+
+    # smooth & clamp zoom
+    def ema_vec(a,alpha):
+        o=a.copy()
+        for i in range(1,len(a)): o[i]=alpha*a[i]+(1-alpha)*o[i-1]
+        return o
+    z_plan = np.minimum(np.maximum(1.0, 0.78*z_need + 0.36), zcap)
+    z_plan = ema_vec(z_plan, 0.10)
+    excess = np.maximum(z_need - z_plan, 0.0)
+    alpha  = np.clip(excess/0.038, 0, 1)
+    z_soft = z_plan*(1-alpha) + z_need*alpha
+    z_final= np.minimum(np.maximum(z_soft, np.minimum(zcap, z_need*1.17)), zcap)
+
+    # containment violations at cap
+    viol = float(np.any(z_need > zcap))
+
+    # edge penalty
+    edge_pen = np.mean((cx-mx<0)+(W-cx-mx<0)+(cy-my<0)+(H-cy-my<0))
+
+    score = 4.0*p95 + 1.0*mae + 400.0*viol + 30.0*edge_pen
+    return score, p95, mae, viol, z_final, mx, my
 
 # iterative search
-TARGET_P95 = 6.0   # px
-TARGET_MAE = 10.0  # px
-MAX_ITERS  = 6
-
-# initial search ranges
-LA_rng   = [1.8, 2.2, 2.6, 3.0]
+TARGET_P95 = 6.0
+TARGET_MAE = 10.0
+MAX_ITERS  = 7
+LA_rng   = [2.0, 2.4, 2.8, 3.0]
 ACC_rng  = [0.15, 0.25, 0.35]
-GAIN_rng = [0.55, 0.70, 0.85]
-SLEW_rng = [60.0, 80.0, 100.0, 120.0]
-DZx, DZy = 85.0, 100.0
+GAIN_rng = [0.65, 0.85, 1.05]
+SLEW_rng = [80.0, 110.0, 140.0, 160.0]
+DZx, DZy = 80.0, 95.0
 MX_rng   = [160.0, 180.0, 200.0]
 MY_rng   = [190.0, 210.0, 230.0]
 SAF_rng  = [1.06, 1.08, 1.10]
 
 best=None
-rngs=(LA_rng, ACC_rng, GAIN_rng, SLEW_rng, MX_rng, MY_rng, SAF_rng)
-
 for it in range(MAX_ITERS):
     for LA_s in LA_rng:
       for ACC in ACC_rng:
@@ -117,65 +127,30 @@ for it in range(MAX_ITERS):
               for base_my in MY_rng:
                 for safety in SAF_rng:
                     cx, cy = make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy)
-                    score, p95, mae, viol, mx_dyn, my_dyn = score_center(cx, cy, base_mx, base_my, safety)
+                    score, p95, mae, viol, zf, mx, my = score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0)
                     if (best is None) or (score < best[0]):
-                        best = [score, p95, mae, viol, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, cx, cy]
-    # check targets
+                        best = [score, p95, mae, viol, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, cx, cy, zf]
     if best[1] <= TARGET_P95 and best[2] <= TARGET_MAE and best[3] == 0.0:
         break
-    # expand / recentre ranges around best
-    _, _, _, _, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, _, _ = best
+    # recenter ranges around best + widen
+    _, _, _, _, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, _, _, _ = best
     def span(v, lo, hi, step):
         vals=set([v])
         for k in [1,2]:
             vals.add(max(lo, v - k*step)); vals.add(min(hi, v + k*step))
         return sorted(vals)
-    LA_rng   = span(LA_s, 1.2, 3.2, 0.2)
+    LA_rng   = span(LA_s, 1.4, 3.2, 0.2)
     ACC_rng  = span(ACC,  0.05, 0.45, 0.05)
-    GAIN_rng = span(GAIN, 0.40, 1.20, 0.10)
-    SLEW_rng = span(SLEW, 40.0, 160.0, 10.0)
+    GAIN_rng = span(GAIN, 0.50, 1.40, 0.10)
+    SLEW_rng = span(SLEW, 60.0, 200.0, 10.0)
     MX_rng   = span(base_mx, 120.0, 240.0, 20.0)
     MY_rng   = span(base_my, 150.0, 260.0, 20.0)
     SAF_rng  = span(safety, 1.04, 1.12, 0.02)
 
 # unpack best
-_, p95, mae, viol, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, cx_ff, cy_ff = best
+_, p95, mae, viol, LA_s, ACC, GAIN, SLEW, base_mx, base_my, safety, cx_ff, cy_ff, z_final = best
 
-# final zoom plan with **ball-containment enforced**
-vx = np.gradient(cx_ff, dt); vy = np.gradient(cy_ff, dt)
-spd = np.hypot(vx,vy); vsp = np.clip(spd/1000.0, 0, 1)
-mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
-my = base_my + 140.0*vsp + 110.0*(conf<0.25)
-
-# traditional edge-based need
-dx_edge = np.minimum(cx_ff, W-cx_ff) - mx
-dy_edge = np.minimum(cy_ff, H-cy_ff) - my
-dx_edge = np.clip(dx_edge,1,None); dy_edge = np.clip(dy_edge,1,None)
-z_need_edge_x = (H*9/16)/(safety*2*dx_edge)
-z_need_edge_y = (H)/(safety*2*dy_edge)
-
-# **ball containment** need (uses center error to ball)
-dx_ball = np.abs(bx - cx_ff); dy_ball = np.abs(by - cy_ff)
-z_need_ball_x = (H*9/16)/(safety*2*(dx_ball+mx).clip(min=1))
-z_need_ball_y = (H)/(safety*2*(dy_ball+my).clip(min=1))
-
-z_needed = np.maximum.reduce([np.ones_like(dx_edge),
-                              z_need_edge_x, z_need_edge_y,
-                              z_need_ball_x, z_need_ball_y])
-
-# zoom dynamics
-def ema_vec(a,alpha):
-    o=a.copy()
-    for i in range(1,len(a)): o[i]=alpha*a[i]+(1-alpha)*o[i-1]
-    return o
-z_plan = np.minimum(np.maximum(1.0, 0.78*z_needed + 0.36), 2.60)
-z_plan = ema_vec(z_plan, 0.10)
-excess = np.maximum(z_needed - z_plan, 0.0)
-alpha  = np.clip(excess/0.038, 0, 1)
-z_soft = z_plan*(1-alpha) + z_needed*alpha
-z_final= np.minimum(np.maximum(z_soft, np.minimum(2.60, z_needed*1.17)), 2.60)
-
-# ffmpeg piecewise
+# piecewise -> ffmpeg expr
 def piecewise(n,y,seg=12,deg=3):
     S=[]; i=0
     while i<len(n):
@@ -203,6 +178,6 @@ z_if  = seg_if(piecewise(N,z_final,seg=12,deg=2), "1")
 with open(out_ps1,"w",encoding="utf-8") as f:
     f.write(f"$cxExpr = '={cx_if}'\n")
     f.write(f"$cyExpr = '=={cy_if}'.replace('==','=')\n")
-    f.write(f"$zExpr  = '=clip({z_if},1.0,2.60)'\n")
+    f.write(f"$zExpr  = '=clip({z_if},1.0,3.00)'\n")
     f.write(f"$Safety = {safety:.3f}\n")
     f.write(f"# tuned: p95_lead={p95:.2f}, mae={mae:.2f}, viol={viol:.4f}, LA={LA_s}, ACC={ACC}, GAIN={GAIN}, SLEW={SLEW}, mx={base_mx}, my={base_my}`n")
