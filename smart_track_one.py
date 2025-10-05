@@ -1,5 +1,8 @@
 ﻿import sys, os, csv, cv2, numpy as np
-from numpy.lib.polynomial import RankWarning
+try:
+    from numpy import RankWarning
+except Exception:
+    class RankWarning(UserWarning): pass
 import warnings
 warnings.filterwarnings("ignore", category=RankWarning)
 

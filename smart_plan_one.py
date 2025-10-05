@@ -1,5 +1,8 @@
 ﻿import sys, csv, numpy as np
-from numpy.lib.polynomial import RankWarning
+try:
+    from numpy import RankWarning
+except Exception:
+    class RankWarning(UserWarning): pass
 import warnings
 warnings.filterwarnings("ignore", category=RankWarning)
 
@@ -19,46 +22,40 @@ def ema(a,a1):
     for i in range(1,len(a)): o[i]=a1*a[i]+(1-a1)*o[i-1]
     return o
 
-# quicker reaction (slightly less smoothing lag)
 cx2, cy2 = ema(ema(cx,0.35),0.18), ema(ema(cy,0.35),0.18)
 
-# predictive lead
 dt = 1.0/max(FPS,1.0)
-LA_s = 1.30                    # *** increased look-ahead (seconds)
+LA_s = 1.30
 LA   = int(round(LA_s*FPS))
-warm = int(round(0.15*FPS))    # shorter warm-up
+warm = int(round(0.15*FPS))
 cx_la = np.concatenate([cx2[LA:], np.repeat(cx2[-1], LA)])
 cy_la = np.concatenate([cy2[LA:], np.repeat(cy2[-1], LA)])
 cx_t  = np.where(N<warm, cx2, cx_la)
 cy_t  = np.where(N<warm, cy2, cy_la)
 
-# speed-adaptive margins (stronger) + low-confidence widening (stronger)
 vx = np.gradient(cx_t, dt); vy = np.gradient(cy_t, dt)
 spd = np.hypot(vx,vy)
-vnorm = np.clip(spd/1000.0, 0, 1)    # normalize a bit lower threshold
-base_mx, base_my = 200.0, 240.0      # *** wider baseline
+vnorm = np.clip(spd/1000.0, 0, 1)
+base_mx, base_my = 200.0, 240.0
 mx = base_mx + 200.0*vnorm + 140.0*(conf<0.30)
 my = base_my + 220.0*vnorm + 160.0*(conf<0.30)
 
-# needed zoom from margins
 dx = np.minimum(cx_t, W-cx_t) - mx
 dy = np.minimum(cy_t, H-cy_t) - my
 dx = np.clip(dx, 1, None); dy = np.clip(dy, 1, None)
-safety=1.15                            # *** stronger safety
+safety=1.15
 z_need_x = (H*9/16)/(safety*2*dx)
 z_need_y = (H)/(safety*2*dy)
 z_needed = np.maximum(1.0, np.maximum(z_need_x, z_need_y))
 
-# zoom plan + panic
-z_plan = np.minimum(np.maximum(1.0, 0.85*z_needed + 0.30), 1.95)  # bias-wide
-z_plan = ema(z_plan, 0.12)                                        # less lag
+z_plan = np.minimum(np.maximum(1.0, 0.85*z_needed + 0.30), 1.95)
+z_plan = ema(z_plan, 0.12)
 excess = np.maximum(z_needed - z_plan, 0.0)
 alpha  = np.clip(excess/0.06, 0, 1)
 z_soft = z_plan*(1-alpha) + z_needed*alpha
-z_hard = np.maximum(z_soft, np.minimum(2.20, z_needed*1.12))       # *** stronger panic + higher cap
+z_hard = np.maximum(z_soft, np.minimum(2.20, z_needed*1.12))
 z_final= np.minimum(z_hard, 2.20)
 
-# piecewise compact expressions (shorter segments → more responsive)
 def piecewise(n,y,seg=20,deg=3):
     S=[]; i=0
     while i<len(n):
