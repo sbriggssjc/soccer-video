@@ -40,7 +40,7 @@ while True:
     if use_yolo and (lost>0 or n%2==0):
         try:
             imgsz=max(640,((max(W,H)+31)//32)*32)
-            rs = yolo.predict(source=frame, conf=conf_min, stream=False, imgsz=imgsz, verbose=False)
+            rs = yolo.predict(source=frame, conf=conf_min, imgsz=imgsz, verbose=False)
             if len(rs):
                 r = rs[0]
                 if getattr(r,"boxes",None) is not None and len(r.boxes)>0:
