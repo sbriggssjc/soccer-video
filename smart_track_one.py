@@ -40,25 +40,39 @@ def mask_red(img, wide=False):
     m=cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3,3),np.uint8), iterations=1)
     return m
 
+def redness_at(img, cx, cy, rad=8):
+    x0=max(0,int(cx-rad)); x1=min(img.shape[1], int(cx+rad))
+    y0=max(0,int(cy-rad)); y1=min(img.shape[0], int(cy+rad))
+    if x1<=x0 or y1<=y0: return 0.0
+    patch=img[y0:y1,x0:x1]
+    b,g,r=cv2.split(patch)
+    R=float(r.mean()); G=float(g.mean()); B=float(b.mean())
+    return max(0.0, (R - max(G,B)) / (R+G+B + 1e-3))
+
 def color_candidates(bgr, roi=None, wide=False):
-    if roi is None: x0=y0=0; x1=bgr.shape[1]; y1=bgr.shape[0]; patch=bgr
+    Hh,Wh=bgr.shape[0],bgr.shape[1]
+    y_floor = int(0.33*Hh)   # ignore sky/stands/tents (top 1/3)
+    if roi is None: x0=y0=0; x1=Wh; y1=Hh; patch=bgr
     else: x0,y0,x1,y1=roi; patch=bgr[y0:y1, x0:x1]
     m=mask_red(patch, wide=wide)
     cnts,_=cv2.findContours(m,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     out=[]
-    if 0<len(cnts)<=120:
+    if 0<len(cnts)<=100:
         for c in cnts:
             area=cv2.contourArea(c)
-            if area<28 or area>4500: continue
+            if area<40 or area>2000: continue
             peri=cv2.arcLength(c,True);  circ=(4*np.pi*area)/(peri*peri) if peri>0 else 0
-            if circ<0.62: continue
+            if circ<0.74: continue
             (x,y),r=cv2.minEnclosingCircle(c)
-            # score ~ area*circularity
+            gy=int(y0+y)
+            if gy<y_floor or gy>Hh-4: continue
             out.append((x0+x, y0+y, float(area*circ)))
     return out
 
 def hough_candidates(bgr, roi=None, wide=False):
-    if roi is None: x0=y0=0; x1=bgr.shape[1]; y1=bgr.shape[0]; patch=bgr
+    Hh,Wh=bgr.shape[0],bgr.shape[1]
+    y_floor = int(0.33*Hh)
+    if roi is None: x0=y0=0; x1=Wh; y1=Hh; patch=bgr
     else: x0,y0,x1,y1=roi; patch=bgr[y0:y1, x0:x1]
     m=mask_red(patch, wide=wide)
     nz=cv2.countNonZero(m)
@@ -72,7 +86,9 @@ def hough_candidates(bgr, roi=None, wide=False):
     out=[]
     if cir is not None:
         for x,y,r in np.uint16(np.around(cir))[0,:]:
-            out.append((x0+float(x), y0+float(y), float(r*r)))  # score ~ r^2
+            gy=int(y0+y)
+            if gy<y_floor or gy>Hh-4: continue
+            out.append((x0+float(x), y0+float(y), float(r*r)))
     return out
 
 def yolo_candidates(bgr, roi=None, lost=0):
@@ -123,19 +139,50 @@ def roi_from(cx,cy, lost):
     y0=int(clamp((cy if cy is not None else H/2)-rad,0,H-1)); y1=int(clamp(y0+2*rad,1,H))
     return (x0,y0,x1,y1)
 
-def score_and_pick(props, px,py,vx,vy):
+def score_and_pick(frame, props, px,py,vx,vy, roi=None):
     best=None; bestS=-1.0
+    x0=y0=x1=y1=None
+    if roi is not None: x0,y0,x1,y1 = roi
     for cx,cy,raws in props:
         yolo_c = raws if raws<=1.0 else 0.0
         color  = raws if raws> 1.0 else 0.0
         hough  = raws if raws> 1e3 else 0.0
+
+        # motion agreement (strong)
         ex = px + vx*dt; ey = py + vy*dt
         d2 = (cx-ex)**2 + (cy-ey)**2
-        mot = 1.0/(1.0 + d2/(180.0**2))
-        S = 2.2*min(1.0,yolo_c) + 0.9*math.log1p(color/250.0) + 0.6*min(1.0,hough/2500.0) + 0.85*mot
+        mot = 1.0/(1.0 + d2/(140.0**2))   # tighter falloff
+
+        # redness
+        red = redness_at(frame, cx, cy, 8)
+
+        # ROI bonus
+        roi_bonus = 0.0
+        if roi is not None and x0<=cx<=x1 and y0<=cy<=y1:
+            roi_bonus = 0.6
+
+        S = 2.0*min(1.0,yolo_c) + 0.8*math.log1p(color/250.0) + 0.55*min(1.0,hough/2500.0) \
+            + 2.2*mot + 1.0*red + roi_bonus
+
+        conf = max(min(1.0,yolo_c), 0.55*(color>0) + 0.35*(hough>0))
         if S>bestS:
-            bestS=S; best=(cx,cy, max(min(1.0,yolo_c), 0.55*(color>0) + 0.35*(hough>0)))
+            bestS=S; best=(cx,cy, conf)
     return best
+
+def propose(frame, px, py, lost, n):
+    roi = roi_from(px,py,lost)
+    wide = lost >= 6
+    props=[]
+    # ROI first, always
+    props += yolo_candidates(frame, roi, lost)
+    props += color_candidates(frame, roi, wide=wide)
+    props += hough_candidates(frame, roi, wide=wide)
+    # Global only when very lost (every 2 frames)
+    if lost>=6 and (n%2==0):
+        props += yolo_candidates(frame, None, lost)
+        props += color_candidates(frame, None, wide=True)
+        props += hough_candidates(frame, None, wide=True)
+    return roi, props
 
 rows=[]; n=0; lost=999
 prev_gray=None; prev_pt=None
@@ -165,21 +212,14 @@ while True:
         props += hough_candidates(frame, roi, wide=False)
         # gentle YOLO use too
         props += yolo_candidates(frame, roi, lost=0)
-        pick = score_and_pick(props, px,py,vx,vy)
+        pick = score_and_pick(frame, props, px,py,vx,vy, roi=roi)
         if pick is not None: det=(pick[0],pick[1]); conf=pick[2]
 
     # --- Normal / lost-mode proposals ---
     if det is None:
-        roi = roi_from(px,py,lost)
-        props  = yolo_candidates(frame, roi, lost)
-        props += color_candidates(frame, roi, wide=wide)
-        props += hough_candidates(frame, roi, wide=wide)
-        # global re-detect every 2 frames while very lost
-        if lost>=6 and (n%2==0):
-            props += yolo_candidates(frame, None, lost)
-            props += color_candidates(frame, None, wide=True)
-            props += hough_candidates(frame, None, wide=True)
-        pick = score_and_pick(props, px,py,vx,vy)
+        # proposals & pick
+        roi, props = propose(frame, px, py, lost, n)
+        pick = score_and_pick(frame, props, px,py,vx,vy, roi=roi)
         if pick is not None: det=(pick[0],pick[1]); conf=max(conf,pick[2])
 
     # LK nudge if still none
