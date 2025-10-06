@@ -148,7 +148,7 @@ while True:
         p1, st, _ = cv2.calcOpticalFlowPyrLK(prev_gray, gray, prev_pt, None, winSize=(21,21), maxLevel=3, criteria=lk_crit)
         if st is not None and int(st.ravel()[0])==1:
             p0r, st2, _ = cv2.calcOpticalFlowPyrLK(gray, prev_gray, p1, None, winSize=(21,21), maxLevel=3, criteria=lk_crit)
-            fb = float(np.linalg.norm(prev_pt - p0r)) if (st2 is not None and int(st2.ravel()[0])==1) else 9e9)
+            fb = float(np.linalg.norm(prev_pt - p0r)) if (st2 is not None and int(st2.ravel()[0])==1) else 9e9
             if fb < 2.0:
                 x=float(p1[0,0,0]); y=float(p1[0,0,1])
                 if 0<=x<W and 0<=y<H:
