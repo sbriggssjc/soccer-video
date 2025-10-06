@@ -1,4 +1,53 @@
-﻿import sys, os, csv, cv2, numpy as np, math
+﻿import sys, os, csv
+import numpy as np, cv2, math, time
+
+
+def hsv_orange_score(bgr):
+    if bgr is None or bgr.size == 0:
+        return 0.0
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    masks = []
+    masks.append(cv2.inRange(hsv, (5, 90, 70), (25, 255, 255)))
+    masks.append(cv2.inRange(hsv, (0, 80, 60), (5, 255, 255)))
+    masks.append(cv2.inRange(hsv, (170, 80, 60), (180, 255, 255)))
+    mask = masks[0]
+    for m in masks[1:]:
+        mask = cv2.bitwise_or(mask, m)
+    return float(np.mean(mask > 0))
+
+
+def box_size_score(w, h, expect_min=10, expect_max=60):
+    s = max(w, h)
+    if s < expect_min:
+        return s / expect_min * 0.6
+    if s > expect_max:
+        return max(0.0, 1.0 - (s - expect_max) / (2.0 * expect_max))
+    m = 0.5 * (expect_min + expect_max)
+    return max(0.0, 1.0 - abs(s - m) / (m))
+
+
+def motion_score(cx, cy, px, py):
+    if px is None or py is None:
+        return 0.5
+    d = math.hypot(cx - px, cy - py)
+    return max(0.0, 1.0 - d / 140.0)
+
+
+class RunningVar:
+    def __init__(self, k=20):
+        self.k = k
+        self.buf = []
+
+    def push(self, v):
+        self.buf.append(float(v))
+        if len(self.buf) > self.k:
+            self.buf.pop(0)
+
+    def var(self):
+        if len(self.buf) < 3:
+            return 1e3
+        a = np.array(self.buf)
+        return float(np.var(a))
 
 # --- argv / io ---
 args=sys.argv[1:]
@@ -159,6 +208,57 @@ def propose(frame, px, py, lost, n):
 
 rows=[]; n=0; lost=999
 prev_gray=None; prev_pt=None
+
+# Scoring weights (tuneable)
+W_DET, W_MO, W_SIZE, W_CLR, W_DYN = 0.55, 0.20, 0.10, 0.12, 0.03
+
+# Track vertical dynamics to avoid flat-line decoys
+cy_dyn = RunningVar(k=24)
+last_choice = None
+
+
+def select_best_detection_from_boxes(boxes, frame, offset=(0, 0), prev_pt=None, last_choice=None, cy_dyn=None):
+    best = None
+    ox, oy = offset
+    px = None
+    py = None
+    if last_choice is not None:
+        px, py = last_choice
+    elif prev_pt is not None:
+        px = float(prev_pt[0, 0, 0])
+        py = float(prev_pt[0, 0, 1])
+    for i in range(len(boxes)):
+        conf_det = float(boxes.conf[i].item())
+        x0, y0, x1, y1 = boxes.xyxy[i].cpu().numpy().astype(float)
+        x0 += ox
+        y0 += oy
+        x1 += ox
+        y1 += oy
+        w = max(1.0, x1 - x0)
+        h = max(1.0, y1 - y0)
+        cx_cand = 0.5 * (x0 + x1)
+        cy_cand = 0.5 * (y0 + y1)
+        xi0 = int(max(0, min(W, x0)))
+        yi0 = int(max(0, min(H, y0)))
+        xi1 = int(max(0, min(W, x1)))
+        yi1 = int(max(0, min(H, y1)))
+        crop = frame[yi0:yi1, xi0:xi1] if (yi1 > yi0 and xi1 > xi0) else None
+        clr = hsv_orange_score(crop) if crop is not None else 0.0
+        sz = box_size_score(w, h, expect_min=10, expect_max=60)
+        mo = motion_score(cx_cand, cy_cand, px, py)
+        dyn_pen = 0.0
+        if cy_dyn is not None and cy_dyn.var() < 2.0:
+            mean_cy = sum(cy_dyn.buf) / len(cy_dyn.buf) if cy_dyn.buf else None
+            if mean_cy is not None and abs(cy_cand - mean_cy) < 6.0:
+                dyn_pen = 0.2
+        score = (W_DET * conf_det + W_MO * mo + W_SIZE * sz + W_CLR * clr) - W_DYN * dyn_pen
+        if best is None or score > best[0]:
+            best = (score, cx_cand, cy_cand, conf_det)
+    if best is not None and best[0] > 0.25:
+        return best
+    return None
+
+
 lk_crit=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT,30,0.03)
 last_meas=None
 bad_run = 0
@@ -199,33 +299,41 @@ while True:
         det_local=None; best_conf=0.0
         try:
             if use_roi and have_prior and not need_force:
-                x0 = max(0, prior[0]-ROI_R); y0 = max(0, prior[1]-ROI_R)
-                x1 = min(W, prior[0]+ROI_R); y1 = min(H, prior[1]+ROI_R)
-                crop = frame[y0:y1, x0:x1]
-                imgsz=max(640,((max(x1-x0,y1-y0)+31)//32)*32)
+                roi_x0 = max(0, prior[0]-ROI_R); roi_y0 = max(0, prior[1]-ROI_R)
+                roi_x1 = min(W, prior[0]+ROI_R); roi_y1 = min(H, prior[1]+ROI_R)
+                crop = frame[roi_y0:roi_y1, roi_x0:roi_x1]
+                imgsz=max(640,((max(roi_x1-roi_x0,roi_y1-roi_y0)+31)//32)*32)
                 rs = yolo.predict(source=crop, conf=conf_min*0.8, stream=False, imgsz=imgsz, verbose=False)
                 if len(rs):
                     b=rs[0].boxes
-                    det_roi=None
                     if b is not None and len(b)>0:
-                        for i in range(len(b)):
-                            c=float(b.conf[i].item())
-                            if c>best_conf:
-                                xyxy=b.xyxy[i].cpu().numpy()
-                                cxr=0.5*(float(xyxy[0])+float(xyxy[2])); cyr=0.5*(float(xyxy[1])+float(xyxy[3]))
-                                det_roi=(x0+cxr, y0+cyr); best_conf=c
-                    if det_roi is not None:
-                        det_local=det_roi
+                        pick = select_best_detection_from_boxes(
+                            b,
+                            frame,
+                            offset=(roi_x0, roi_y0),
+                            prev_pt=prev_pt,
+                            last_choice=last_choice,
+                            cy_dyn=cy_dyn,
+                        )
+                        if pick is not None:
+                            det_local=(pick[1], pick[2])
+                            best_conf=pick[3]
             if det_local is None:
                 imgsz=max(640,((max(W,H)+31)//32)*32)
                 rs = yolo.predict(source=frame, conf=conf_min*0.8, stream=False, imgsz=imgsz, verbose=False)
                 if len(rs) and getattr(rs[0],"boxes",None) is not None and len(rs[0].boxes)>0:
                     b=rs[0].boxes
-                    i=int(np.argmax(b.conf.cpu().numpy()))
-                    xyxy=b.xyxy[i].cpu().numpy()
-                    best_conf=float(b.conf[i].item())
-                    cx=0.5*(float(xyxy[0])+float(xyxy[2])); cy=0.5*(float(xyxy[1])+float(xyxy[3]))
-                    det_local=(cx,cy)
+                    pick = select_best_detection_from_boxes(
+                        b,
+                        frame,
+                        offset=(0, 0),
+                        prev_pt=prev_pt,
+                        last_choice=last_choice,
+                        cy_dyn=cy_dyn,
+                    )
+                    if pick is not None:
+                        det_local=(pick[1], pick[2])
+                        best_conf=pick[3]
         except Exception:
             det_local=None
         if det_local is not None:
@@ -265,6 +373,8 @@ while True:
         bad_run = 0 if conf>=BAD_THRESH else (bad_run+1)
 
     if det is not None:
+        cy_dyn.push(det[1])
+        last_choice = (det[0], det[1])
         kf.update([det[0],det[1]])
         last_meas=(det[0],det[1])
     else:
@@ -280,7 +390,8 @@ while True:
         else:
             cx_out, cy_out = W/2.0, H/2.0
     rows.append([n, f"{cx_out:.4f}", f"{cy_out:.4f}", f"{conf:.4f}", f"{vx:.4f}", f"{vy:.4f}", W, H, FPS])
-    prev_gray=gray; prev_pt=np.array([[[cx_out,cy_out]]],dtype=np.float32); n+=1
+    seed_cx, seed_cy = (last_choice if last_choice is not None else (cx_out, cy_out))
+    prev_gray=gray; prev_pt=np.array([[[seed_cx,seed_cy]]],dtype=np.float32); n+=1
 
 cap.release()
 with open(out_csv,"w",newline="") as f:
