@@ -94,23 +94,6 @@ def hough_candidates(bgr, roi=None, wide=False):
             out.append((x0+float(x), y0+float(y), float(r*r)))
     return out
 
-def yolo_candidates(bgr, roi=None, lost=0):
-    if not use_yolo: return []
-    if roi is None: crop=bgr; x0=y0=0
-    else: x0,y0,x1,y1=roi; crop=bgr[y0:y1, x0:x1]
-    try:
-        thr = max(0.16, conf_min - 0.10*min(lost,6))
-        rs=yolo.predict(source=crop, conf=thr, imgsz=640, verbose=False)
-        out=[]
-        if len(rs) and getattr(rs[0],"boxes",None) is not None:
-            for box in rs[0].boxes:
-                x1,y1,x2,y2=box.xyxy[0].cpu().numpy()
-                conf=float(box.conf[0].item()); cx=0.5*(x1+x2); cy=0.5*(y1+y2)
-                out.append((x0+cx,y0+cy,conf))
-        return out
-    except Exception:
-        return []
-
 # --- Kalman (constant-velocity) ---
 class KCV:
     def __init__(self, dt, q=14.0, r=16.0):
@@ -167,11 +150,9 @@ def propose(frame, px, py, lost, n):
     roi = roi_from(px,py,lost)
     wide = lost >= 6
     props=[]
-    props += yolo_candidates(frame, roi, lost)
     props += color_candidates(frame, roi, wide=wide)
     props += hough_candidates(frame, roi, wide=wide)
     if lost>=6 and (n%2==0):
-        props += yolo_candidates(frame, None, lost)
         props += color_candidates(frame, None, wide=True)
         props += hough_candidates(frame, None, wide=True)
     return roi, props
@@ -180,6 +161,12 @@ rows=[]; n=0; lost=999
 prev_gray=None; prev_pt=None
 lk_crit=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT,30,0.03)
 last_meas=None
+bad_run = 0
+REDETECT_EVERY = 1      # force YOLO every frame while bad
+BAD_THRESH = 0.22       # confidence threshold
+BAD_MAX = 5             # frames under threshold to consider "bad"
+ROI_R = 140             # local ROI radius for YOLO when we have a prior
+use_roi = True
 
 while True:
     ok, frame = cap.read()
@@ -193,12 +180,62 @@ while True:
 
     det=None; conf=0.0
 
+    have_prior = (prev_pt is not None)
+    prior = (int(prev_pt[0,0,0]), int(prev_pt[0,0,1])) if have_prior else (W//2, H//2)
+
+    need_force = (bad_run >= BAD_MAX)
+    bad_mode = (bad_run > 0)
+    do_yolo = False
+    if use_yolo:
+        if need_force or lost>0:
+            do_yolo = True
+        elif bad_mode:
+            every = max(1, REDETECT_EVERY)
+            do_yolo = ((n % every) == 0)
+        else:
+            do_yolo = (n % 2 == 0)
+
+    if do_yolo:
+        det_local=None; best_conf=0.0
+        try:
+            if use_roi and have_prior and not need_force:
+                x0 = max(0, prior[0]-ROI_R); y0 = max(0, prior[1]-ROI_R)
+                x1 = min(W, prior[0]+ROI_R); y1 = min(H, prior[1]+ROI_R)
+                crop = frame[y0:y1, x0:x1]
+                imgsz=max(640,((max(x1-x0,y1-y0)+31)//32)*32)
+                rs = yolo.predict(source=crop, conf=conf_min*0.8, stream=False, imgsz=imgsz, verbose=False)
+                if len(rs):
+                    b=rs[0].boxes
+                    det_roi=None
+                    if b is not None and len(b)>0:
+                        for i in range(len(b)):
+                            c=float(b.conf[i].item())
+                            if c>best_conf:
+                                xyxy=b.xyxy[i].cpu().numpy()
+                                cxr=0.5*(float(xyxy[0])+float(xyxy[2])); cyr=0.5*(float(xyxy[1])+float(xyxy[3]))
+                                det_roi=(x0+cxr, y0+cyr); best_conf=c
+                    if det_roi is not None:
+                        det_local=det_roi
+            if det_local is None:
+                imgsz=max(640,((max(W,H)+31)//32)*32)
+                rs = yolo.predict(source=frame, conf=conf_min*0.8, stream=False, imgsz=imgsz, verbose=False)
+                if len(rs) and getattr(rs[0],"boxes",None) is not None and len(rs[0].boxes)>0:
+                    b=rs[0].boxes
+                    i=int(np.argmax(b.conf.cpu().numpy()))
+                    xyxy=b.xyxy[i].cpu().numpy()
+                    best_conf=float(b.conf[i].item())
+                    cx=0.5*(float(xyxy[0])+float(xyxy[2])); cy=0.5*(float(xyxy[1])+float(xyxy[3]))
+                    det_local=(cx,cy)
+        except Exception:
+            det_local=None
+        if det_local is not None:
+            det=det_local; conf=best_conf
+
     # Bootstrap small window 0..8
     if n<9:
         roi=(int(W*0.25), int(H*0.25), int(W*0.75), int(H*0.80))
         props  = color_candidates(frame, roi, wide=False)
         props += hough_candidates(frame, roi, wide=False)
-        props += yolo_candidates(frame, roi, lost=0)
         pick = score_and_pick(frame, props, px,py,vx,vy, roi=roi)
         if pick is not None: det=(pick[0],pick[1]); conf=pick[2]
 
@@ -219,18 +256,31 @@ while True:
                 x=float(p1[0,0,0]); y=float(p1[0,0,1])
                 if 0<=x<W and 0<=y<H: det=(x,y); conf=max(conf,0.45)
 
+    if det is None:
+        conf=0.0
+        lost+=1
+        bad_run += 1
+    else:
+        lost=0
+        bad_run = 0 if conf>=BAD_THRESH else (bad_run+1)
+
     if det is not None:
         kf.update([det[0],det[1]])
-        lost=0; last_meas=(det[0],det[1])
+        last_meas=(det[0],det[1])
     else:
-        lost+=1
         if last_meas is not None:
             kf.x[0] = 0.92*kf.x[0] + 0.08*last_meas[0]
             kf.x[1] = 0.92*kf.x[1] + 0.08*last_meas[1]
 
     x,y,vx,vy = float(kf.x[0]),float(kf.x[1]),float(kf.x[2]),float(kf.x[3])
-    rows.append([n, f"{clamp(x,0,W-1):.4f}", f"{clamp(y,0,H-1):.4f}", f"{conf:.4f}", f"{vx:.4f}", f"{vy:.4f}", W, H, FPS])
-    prev_gray=gray; prev_pt=np.array([[[x,y]]],dtype=np.float32); n+=1
+    cx_out=clamp(x,0,W-1); cy_out=clamp(y,0,H-1)
+    if det is None:
+        if rows:
+            cx_out=float(rows[-1][1]); cy_out=float(rows[-1][2])
+        else:
+            cx_out, cy_out = W/2.0, H/2.0
+    rows.append([n, f"{cx_out:.4f}", f"{cy_out:.4f}", f"{conf:.4f}", f"{vx:.4f}", f"{vy:.4f}", W, H, FPS])
+    prev_gray=gray; prev_pt=np.array([[[cx_out,cy_out]]],dtype=np.float32); n+=1
 
 cap.release()
 with open(out_csv,"w",newline="") as f:

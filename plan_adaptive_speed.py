@@ -1,4 +1,4 @@
-﻿import sys, csv, math, numpy as np
+﻿import sys, csv, numpy as np
 if len(sys.argv) < 3: raise SystemExit("usage: plan_adaptive_speed.py <track_csv> <out_ps1>")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -15,6 +15,13 @@ N=np.array(N); CX=np.array(CX); CY=np.array(CY); CONF=np.array(CONF)
 T=len(N);  fps = fps if fps and fps>1e-6 else 24.0
 dt = 1.0/fps
 if T < 8: raise SystemExit("track too short")
+
+# Exponential moving average helper
+def ema(a,alpha):
+    o=np.copy(a)
+    for i in range(1,len(a)):
+        o[i] = alpha*a[i] + (1-alpha)*o[i-1]
+    return o
 
 # --- Constant-velocity Kalman smooth ---
 def kalman_cv(cx, cy, conf, dt, q=6.5, r_base=7.0):
@@ -35,7 +42,11 @@ def kalman_cv(cx, cy, conf, dt, q=6.5, r_base=7.0):
     return xs,ys,vx,vy
 
 xs,ys,vx,vy = kalman_cv(CX,CY,CONF,dt)
+ax = np.gradient(vx, dt)
+ay = np.gradient(vy, dt)
 spd = np.hypot(vx,vy)
+vnorm = np.clip(spd/260.0, 0, 1)
+conf_s = ema(CONF,0.35)
 
 # --- Curvature (anticipate reversals) ---
 # finite difference of heading
@@ -47,13 +58,22 @@ curv  = np.abs(dhead)/(dt+1e-9)            # rad/s
 # --- Speed/curvature-based lookahead ---
 lead_s = 0.35 + np.clip((spd-160.0)/240.0,0,1)*0.30 - np.clip(curv/6.0,0,1)*0.18
 lead_s = np.clip(lead_s, 0.20, 0.75)
-kfrm   = np.round(lead_s/dt).astype(int)
+LA_s = lead_s
+cx_s, cy_s = xs, ys
+q = np.clip((conf_s - 0.20)/0.40, 0, 1)
+
+# Motion-follow target for jittery detections
+LA_motion = np.clip(0.45 + 0.35*vnorm, 0.3, 0.9)
+cx_m = cx_s + vx*LA_motion
+cy_m = cy_s + vy*LA_motion
+
+# Blend detection lead vs motion-follow by confidence
+cx_p = q*(cx_s + vx*LA_s + 0.5*ax*(LA_s**2)) + (1-q)*cx_m
+cy_p = q*(cy_s + vy*LA_s + 0.5*ay*(LA_s**2)) + (1-q)*cy_m
 
 # Predict target (ball) ahead
-px_targ = xs + vx*(kfrm*dt)
-py_targ = ys + vy*(kfrm*dt)
-px_targ = np.clip(px_targ, 1, w-2)
-py_targ = np.clip(py_targ, 1, h-2)
+px_targ = np.clip(cx_p, 1, w-2)
+py_targ = np.clip(cy_p, 1, h-2)
 
 # --- Adaptive velocity/accel limits (gain schedule on error & speed) ---
 def make_limits(err_norm, spd):
@@ -103,24 +123,58 @@ def s_curve_follow(target, width, dt):
 cx_cam = s_curve_follow(px_targ, w, dt)
 cy_cam = s_curve_follow(py_targ, h, dt)
 
+# Confidence-aware failsafe margins
+mx_sym = np.full(T, 170.0, dtype=float)
+my_sym = np.full(T, 210.0, dtype=float)
+wide_boost = 1 + 0.45*(1-q)          # up to +45% wider when q is low
+mx_sym *= wide_boost
+my_sym *= wide_boost
+mx_sym = np.clip(mx_sym, 1.0, 0.5*w-2.0)
+my_sym = np.clip(my_sym, 1.0, 0.5*h-2.0)
+
+for i in range(T):
+    cx_cam[i] = np.clip(cx_cam[i], mx_sym[i], w - mx_sym[i])
+    cy_cam[i] = np.clip(cy_cam[i], my_sym[i], h - my_sym[i])
+
 # gentle finishing smooth (keeps path clean but responsive)
-def ema(a,alpha):
-    o=np.copy(a)
-    for i in range(1,len(a)): o[i] = alpha*a[i] + (1-alpha)*o[i-1]
-    return o
 cx_cam = ema(cx_cam,0.22); cy_cam = ema(cy_cam,0.22)
 
+# Re-apply failsafe after smoothing to honor widened margins
+for i in range(T):
+    cx_cam[i] = np.clip(cx_cam[i], mx_sym[i], w - mx_sym[i])
+    cy_cam[i] = np.clip(cy_cam[i], my_sym[i], h - my_sym[i])
+
+emergency_idx = None
+if T > 0:
+    fail_frames = int(round(6.0/dt)) if dt>0 else T
+    sustain = max(1, int(round(0.8/dt))) if dt>0 else 1
+    low_conf = conf_s < 0.12
+    limit = max(0, T - sustain)
+    for i in range(min(T, max(fail_frames,0)), limit):
+        if np.all(low_conf[i:i+sustain]):
+            emergency_idx = i
+            break
+    if emergency_idx is not None:
+        center_x = w/2.0
+        center_y = h/2.0
+        blend = np.linspace(0.0, 1.0, T-emergency_idx, endpoint=True)
+        cx_seg = cx_cam[emergency_idx:]
+        cy_seg = cy_cam[emergency_idx:]
+        cx_cam[emergency_idx:] = cx_seg*(1.0-blend) + center_x*blend
+        cy_cam[emergency_idx:] = cy_seg*(1.0-blend) + center_y*blend
+        for i in range(emergency_idx, T):
+            cx_cam[i] = np.clip(cx_cam[i], mx_sym[i], w - mx_sym[i])
+            cy_cam[i] = np.clip(cy_cam[i], my_sym[i], h - my_sym[i])
+
 # --- Zoom plan: widen when fast, uncertain, or near edge ---
-mx,my = 170.0, 210.0
-dx = np.minimum(cx_cam, w-cx_cam) - mx
-dy = np.minimum(cy_cam, h-cy_cam) - my
+dx = np.minimum(cx_cam, w-cx_cam) - mx_sym
+dy = np.minimum(cy_cam, h-cy_cam) - my_sym
 dx = np.clip(dx,1,None); dy = np.clip(dy,1,None)
 safety=1.08
 z_need = np.maximum(1.0, np.maximum((h*9/16)/(safety*2*dx), (h)/(safety*2*dy)))
 
 errx = np.abs(CX-cx_cam)/(0.5*w); erry = np.abs(CY-cy_cam)/(0.5*h)
 errn = np.maximum(errx,erry)
-conf_s = ema(CONF,0.35)
 
 wide_bias = 0.18 + 0.50*np.clip((errn-0.08)/0.20,0,1) \
                   + 0.28*np.clip((0.55-conf_s)/0.55,0,1) \
@@ -129,6 +183,10 @@ wide_bias = np.clip(wide_bias,0,0.95)
 
 z = (1.0*wide_bias) + ((1.0-wide_bias)*z_need)
 z = np.clip(ema(z,0.28),1.0,1.35)
+
+if emergency_idx is not None:
+    base_zoom = np.clip(1.10 + 0.35*(1 - q[emergency_idx:]), 1.0, 1.35)
+    z[emergency_idx:] = np.maximum(z[emergency_idx:], base_zoom)
 
 # limit tighten speed, allow quick widen
 for i in range(1,T):
