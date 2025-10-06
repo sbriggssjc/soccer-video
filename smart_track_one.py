@@ -1,5 +1,6 @@
-# smart_track_one.py — Kalman + robust re-detect w/ velocity decay
 import sys, os, csv, cv2, numpy as np, math
+
+# --- argv / io ---
 args=sys.argv[1:]
 if len(args)<2: raise SystemExit("usage: smart_track_one.py <in> <out_csv> [weights_or_NONE] [conf]")
 in_path,out_csv=args[0],args[1]
@@ -11,7 +12,7 @@ if not cap.isOpened(): raise SystemExit("Cannot open "+in_path)
 W=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); H=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 FPS=cap.get(cv2.CAP_PROP_FPS) or 24.0; dt=1.0/max(FPS,1.0)
 
-# Optional YOLO
+# --- YOLO (optional) ---
 use_yolo=False
 if weights and weights.upper()!="NONE" and os.path.exists(weights):
     try:
@@ -22,7 +23,7 @@ if weights and weights.upper()!="NONE" and os.path.exists(weights):
 
 def clamp(v,a,b): return max(a,min(b,v))
 
-# Tight band (normal) + wide band (lost-mode)
+# --- color masks: tight + wide (lost-mode) ---
 RED1=((0,120,80),(8,255,255)); RED2=((165,120,80),(179,255,255)); ORNG=((8,120,80),(20,255,255))
 RED1W=((0,100,70),(8,255,255)); RED2W=((165,100,70),(179,255,255)); ORNGW=((8,100,70),(22,255,255))
 GREEN=((35,25,40),(95,255,255))
@@ -52,6 +53,7 @@ def color_candidates(bgr, roi=None, wide=False):
             peri=cv2.arcLength(c,True);  circ=(4*np.pi*area)/(peri*peri) if peri>0 else 0
             if circ<0.62: continue
             (x,y),r=cv2.minEnclosingCircle(c)
+            # score ~ area*circularity
             out.append((x0+x, y0+y, float(area*circ)))
     return out
 
@@ -64,14 +66,13 @@ def hough_candidates(bgr, roi=None, wide=False):
     gry=cv2.cvtColor(patch,cv2.COLOR_BGR2GRAY)
     gry=cv2.bitwise_and(gry, gry, mask=m)
     gry=cv2.GaussianBlur(gry,(7,7),1.4)
-    # looser when wide=True
     param2 = 26 if not wide else 22
     cir=cv2.HoughCircles(gry, cv2.HOUGH_GRADIENT, dp=1.3, minDist=24,
                          param1=140, param2=param2, minRadius=6, maxRadius=34)
     out=[]
     if cir is not None:
         for x,y,r in np.uint16(np.around(cir))[0,:]:
-            out.append((x0+float(x), y0+float(y), float(r*r)))
+            out.append((x0+float(x), y0+float(y), float(r*r)))  # score ~ r^2
     return out
 
 def yolo_candidates(bgr, roi=None, lost=0):
@@ -79,7 +80,7 @@ def yolo_candidates(bgr, roi=None, lost=0):
     if roi is None: crop=bgr; x0=y0=0
     else: x0,y0,x1,y1=roi; crop=bgr[y0:y1, x0:x1]
     try:
-        thr = max(0.18, conf_min - 0.10*min(lost,5))  # lower threshold as we stay lost
+        thr = max(0.16, conf_min - 0.10*min(lost,6))  # lower thr while lost
         rs=yolo.predict(source=crop, conf=thr, imgsz=640, verbose=False)
         out=[]
         if len(rs) and getattr(rs[0],"boxes",None) is not None:
@@ -90,17 +91,13 @@ def yolo_candidates(bgr, roi=None, lost=0):
         return out
     except Exception: return []
 
-# Kalman (CV)
+# --- Kalman (constant-velocity) ---
 class KCV:
-    def __init__(self, dt, q=12.0, r=14.0):
+    def __init__(self, dt, q=14.0, r=16.0):
         self.x=np.array([[W/2],[H/2],[0],[0]], dtype=np.float32)
-        self.F=np.array([[1,0,dt,0],
-                         [0,1,0,dt],
-                         [0,0,1,0],
-                         [0,0,0,1]], dtype=np.float32)
-        self.H=np.array([[1,0,0,0],
-                         [0,1,0,0]], dtype=np.float32)
-        self.P=np.eye(4, dtype=np.float32)*100.0
+        self.F=np.array([[1,0,dt,0],[0,1,0,dt],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+        self.H=np.array([[1,0,0,0],[0,1,0,0]], dtype=np.float32)
+        self.P=np.eye(4, dtype=np.float32)*120.0
         self.Q=np.array([[dt**4/4,0,dt**3/2,0],
                          [0,dt**4/4,0,dt**3/2],
                          [dt**3/2,0,dt**2,0],
@@ -119,62 +116,73 @@ class KCV:
         self.P=(I-K@self.H)@self.P
 
 kf=KCV(dt)
-rows=[]; n=0
-prev_gray=None; prev_pt=None
-lk_crit=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT,30,0.03)
 
-lost=999
-last_meas=None
-
-def propose(frame, cx, cy, lost):
-    # ROI grows with 'lost'; periodic global scans when very lost
-    rad = int(min(260, 140 + 40*min(lost,6)))
+def roi_from(cx,cy, lost):
+    rad = int(min(280, 140 + 40*min(lost,7)))
     x0=int(clamp((cx if cx is not None else W/2)-rad,0,W-1)); x1=int(clamp(x0+2*rad,1,W))
     y0=int(clamp((cy if cy is not None else H/2)-rad,0,H-1)); y1=int(clamp(y0+2*rad,1,H))
-    roi=(x0,y0,x1,y1)
-    wide = lost >= 6
-    props=[]
-    props += yolo_candidates(frame, roi, lost)
-    props += color_candidates(frame, roi, wide=wide)
-    props += hough_candidates(frame, roi, wide=wide)
-    # every 4 frames while lost >=6, also try a global re-detect with wide mask/hough
-    if lost>=6 and (n % 4 == 0):
-        props += yolo_candidates(frame, None, lost)
-        props += color_candidates(frame, None, wide=True)
-        props += hough_candidates(frame, None, wide=True)
-    return props
+    return (x0,y0,x1,y1)
+
+def score_and_pick(props, px,py,vx,vy):
+    best=None; bestS=-1.0
+    for cx,cy,raws in props:
+        yolo_c = raws if raws<=1.0 else 0.0
+        color  = raws if raws> 1.0 else 0.0
+        hough  = raws if raws> 1e3 else 0.0
+        ex = px + vx*dt; ey = py + vy*dt
+        d2 = (cx-ex)**2 + (cy-ey)**2
+        mot = 1.0/(1.0 + d2/(180.0**2))
+        S = 2.2*min(1.0,yolo_c) + 0.9*math.log1p(color/250.0) + 0.6*min(1.0,hough/2500.0) + 0.85*mot
+        if S>bestS:
+            bestS=S; best=(cx,cy, max(min(1.0,yolo_c), 0.55*(color>0) + 0.35*(hough>0)))
+    return best
+
+rows=[]; n=0; lost=999
+prev_gray=None; prev_pt=None
+lk_crit=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT,30,0.03)
+last_meas=None
 
 while True:
     ok, frame = cap.read()
     if not ok: break
     gray=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Kalman predict (with velocity decay when blind)
+    # Prediction; decay velocity strongly while blind
     if lost>0:
-        kf.x[2]*=0.85; kf.x[3]*=0.85  # vx,vy decay
+        kf.x[2]*=0.75; kf.x[3]*=0.75
     kf.predict()
     px,py,vx,vy = float(kf.x[0]),float(kf.x[1]),float(kf.x[2]),float(kf.x[3])
 
     det=None; conf=0.0
+    wide = lost>=6
 
-    # measurement / proposals
-    props=propose(frame, px, py, lost)
-    if props:
-        best=None; bestS=-1.0
-        for cx,cy,raws in props:
-            yolo_c = raws if raws<=1.0 else 0.0
-            color  = raws if raws> 1.0 else 0.0
-            hough  = raws if raws> 1e3 else 0.0
-            ex = px + vx*dt; ey = py + vy*dt
-            d2 = (cx-ex)**2 + (cy-ey)**2
-            mot = 1.0/(1.0 + d2/(180.0**2))
-            S = 2.2*min(1.0,yolo_c) + 0.9*math.log1p(color/250.0) + 0.6*min(1.0,hough/2500.0) + 0.8*mot
-            if S>bestS:
-                bestS=S; best=(cx,cy, max(min(1.0,yolo_c), 0.55*(color>0) + 0.35*(hough>0)))
-        if best is not None:
-            det=(best[0],best[1]); conf=best[2]
+    # --- Bootstrap: frames 0..8 force a central measurement ---
+    if n<9:
+        cx0,cy0 = W//2, int(H*0.55)
+        cx1,cy1 = W//2, int(H*0.35)
+        roi = (int(W*0.25), int(H*0.25), int(W*0.75), int(H*0.80))
+        props  = color_candidates(frame, roi, wide=False)
+        props += hough_candidates(frame, roi, wide=False)
+        # gentle YOLO use too
+        props += yolo_candidates(frame, roi, lost=0)
+        pick = score_and_pick(props, px,py,vx,vy)
+        if pick is not None: det=(pick[0],pick[1]); conf=pick[2]
 
-    # LK nudge
+    # --- Normal / lost-mode proposals ---
+    if det is None:
+        roi = roi_from(px,py,lost)
+        props  = yolo_candidates(frame, roi, lost)
+        props += color_candidates(frame, roi, wide=wide)
+        props += hough_candidates(frame, roi, wide=wide)
+        # global re-detect every 2 frames while very lost
+        if lost>=6 and (n%2==0):
+            props += yolo_candidates(frame, None, lost)
+            props += color_candidates(frame, None, wide=True)
+            props += hough_candidates(frame, None, wide=True)
+        pick = score_and_pick(props, px,py,vx,vy)
+        if pick is not None: det=(pick[0],pick[1]); conf=max(conf,pick[2])
+
+    # LK nudge if still none
     if det is None and prev_gray is not None and prev_pt is not None:
         p1,st,_=cv2.calcOpticalFlowPyrLK(prev_gray, gray, prev_pt, None,
                                          winSize=(21,21), maxLevel=3, criteria=lk_crit)
@@ -187,19 +195,17 @@ while True:
                 x=float(p1[0,0,0]); y=float(p1[0,0,1])
                 if 0<=x<W and 0<=y<H: det=(x,y); conf=max(conf,0.45)
 
-    # Kalman update / soft clamp toward last measurement when blind
+    # Update / tether toward last good position when blind
     if det is not None:
         kf.update([det[0],det[1]])
         lost=0; last_meas=(det[0],det[1])
     else:
         lost+=1
         if last_meas is not None:
-            # pull position 5% toward last good point to keep it inside field
-            kf.x[0] = 0.95*kf.x[0] + 0.05*last_meas[0]
-            kf.x[1] = 0.95*kf.x[1] + 0.05*last_meas[1]
+            kf.x[0] = 0.92*kf.x[0] + 0.08*last_meas[0]
+            kf.x[1] = 0.92*kf.x[1] + 0.08*last_meas[1]
 
     x,y,vx,vy = float(kf.x[0]),float(kf.x[1]),float(kf.x[2]),float(kf.x[3])
-
     rows.append([n, f"{clamp(x,0,W-1):.4f}", f"{clamp(y,0,H-1):.4f}", f"{conf:.4f}", f"{vx:.4f}", f"{vy:.4f}", W, H, FPS])
     prev_gray=gray; prev_pt=np.array([[[x,y]]],dtype=np.float32); n+=1
 
@@ -207,3 +213,12 @@ cap.release()
 with open(out_csv,"w",newline="") as f:
     wr=csv.writer(f); wr.writerow(["n","cx","cy","conf","vx","vy","w","h","fps"]); wr.writerows(rows)
 print("wrote", out_csv)
+
+
+Why this should help
+
+We force a real measurement right at the start (the red ball is clearly visible early in your frames), so the state doesn’t begin on grass.
+
+When detections drop, we don’t sprint to the edge: velocity is damped, prediction is gently pulled toward the last measured ball, and re-detect runs frequently with a looser mask.
+
+Once re-acquired, the Kalman snaps back quickly (higher process noise q=14).
