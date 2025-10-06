@@ -1,3 +1,4 @@
+﻿# render_overlay_seq.py  — robust ffmpeg-expr parser + PNG sequence output
 import sys, csv, numpy as np, cv2, os, math, re
 
 stable, vars_ps1, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -21,41 +22,23 @@ def strip_quotes(s:str)->str:
     return s
 
 def normalize_ffmpeg_expr(raw:str)->str:
-    """Make a PowerShell-written ffmpeg expr executable in Python:
-       - strip quotes
-       - remove literal .replace('==','=') tails
-       - collapse any '==...' to a single leading '='
-       - drop leading '=' (ffmpeg style)
-       - map 'between('->'Between(', 'if('->'If('
-       - map '^' -> '**'
-    """
     s = strip_quotes(raw)
-    # Remove any literal .replace('==','=') that we wrote in PS vars
     s = re.sub(r"\.replace\(\s*'=='\s*,\s*'='\s*\)\s*$","", s)
-    # Collapse multiple leading '=' (sometimes we wrote '==expr')
-    while s.startswith("=="):
-        s = s[1:]
-    if s.startswith("="):
-        s = s[1:]
-    # ffmpeg fn names & power
+    while s.startswith("=="): s = s[1:]
+    if s.startswith("="): s = s[1:]
     s = s.replace("between(","Between(").replace("if(","If(")
     s = s.replace("^","**")
     return s
 
-# safe helpers for eval
 def Between(x,a,b): return 1.0 if (x>=a and x<=b) else 0.0
 def If(cond,a,b):   return a if (cond!=0) else b
 def clip(v,a,b):    return max(a,min(b,v))
 
 V = read_vars(vars_ps1)
-cx_raw = V.get("$cxExpr","=in_w/2")
-cy_raw = V.get("$cyExpr","=in_h/2")
-z_raw  = V.get("$zExpr","=1")
-safety = float(V.get("$Safety","1.08"))
-
-cx_expr = normalize_ffmpeg_expr(cx_raw)
-cy_expr = normalize_ffmpeg_expr(cy_raw)
-z_expr  = normalize_ffmpeg_expr(z_raw)
+cx_expr = normalize_ffmpeg_expr(V.get("$cxExpr","=in_w/2"))
+cy_expr = normalize_ffmpeg_expr(V.get("$cyExpr","=in_h/2"))
+z_expr  = normalize_ffmpeg_expr(V.get("$zExpr","=1"))
+safety  = float(V.get("$Safety","1.08"))
 
 cap=cv2.VideoCapture(stable)
 if not cap.isOpened(): raise SystemExit("cannot open stable video")
@@ -67,7 +50,6 @@ def eval_expr(expr:str, n:int)->float:
              "Between":Between, "If":If, "clip":clip,
              "floor": math.floor, "ceil": math.ceil, "min": min, "max": max}
     val = eval(expr, {"__builtins__":{}}, local)
-    # If any stray '=' snuck in, try once more after stripping
     if isinstance(val,str):
         val = float(eval(normalize_ffmpeg_expr(val), {"__builtins__":{}}, local))
     return float(val)
@@ -84,12 +66,11 @@ idx=0
 ok,frm=cap.read()
 while ok:
     x,y,w,h,cx,cy = box_for_n(idx)
-    cv2.rectangle(frm, (x,y), (x+w-1,y+h-1), (0,255,255), 3)  # yellow
-    cv2.line(frm, (cx-22,cy), (cx+22,cy), (0,0,255), 3)       # red
+    cv2.rectangle(frm, (x,y), (x+w-1,y+h-1), (0,255,255), 3)  # yellow box
+    cv2.line(frm, (cx-22,cy), (cx+22,cy), (0,0,255), 3)       # red crosshair
     cv2.line(frm, (cx,cy-22), (cx,cy+22), (0,0,255), 3)
     cv2.imwrite(os.path.join(out_dir, f"{idx:06d}.png"), frm)
     idx+=1
     ok,frm=cap.read()
 cap.release()
-
 with open(os.path.join(out_dir,"fps.txt"),"w") as f: f.write(str(int(round(FPS))))

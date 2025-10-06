@@ -24,8 +24,7 @@ dt = 1.0/max(FPS,1.0)
 
 def ema(a,alpha):
     o=a.copy()
-    for i in range(1,len(a)):
-        o[i]=alpha*a[i]+(1-alpha)*o[i-1]
+    for i in range(1,len(a)): o[i]=alpha*a[i]+(1-alpha)*o[i-1]
     return o
 
 def slew_follow(target, current, dz, gain, slew):
@@ -59,7 +58,7 @@ def containment_zoom_needed(cx, cy, mx, my, safety):
     z_need_ball_y = (H)/(safety*2*(dy_ball+my).clip(min=1))
     return np.maximum(z_need_ball_x, z_need_ball_y)
 
-def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
+def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap):
     vx = np.gradient(bx, dt); vy = np.gradient(by, dt)
     vmag = np.hypot(vx,vy) + 1e-6; ux, uy = vx/vmag, vy/vmag
     ex = bx - cx; ey = by - cy
@@ -71,7 +70,7 @@ def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
     mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
     my = base_my + 140.0*vsp + 110.0*(conf<0.25)
 
-    # edge-based need
+    # edge-based zoom need
     dx_edge = np.minimum(cx, W-cx) - mx
     dy_edge = np.minimum(cy, H-cy) - my
     dx_edge = np.clip(dx_edge,1,None); dy_edge = np.clip(dy_edge,1,None)
@@ -98,13 +97,15 @@ def score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=3.0):
 
     viol = float(np.any(z_need > zcap))
     edge_pen = np.mean((cx-mx<0)+(W-cx-mx<0)+(cy-my<0)+(H-cy-my<0))
-
     score = 4.0*p95 + 1.0*mae + 400.0*viol + 30.0*edge_pen
     return score, p95, mae, viol, z_final, mx, my, z_need_ball
 
-# iterative search
+# targets & caps
 TARGET_P95 = 6.0
 TARGET_MAE = 10.0
+ZCAP       = 3.4
+
+# initial ranges
 MAX_ITERS  = 7
 LA_rng   = [2.0, 2.4, 2.8, 3.0]
 ACC_rng  = [0.15, 0.25, 0.35]
@@ -114,7 +115,6 @@ DZx, DZy = 80.0, 95.0
 MX_rng   = [160.0, 180.0, 200.0]
 MY_rng   = [190.0, 210.0, 230.0]
 SAF_rng  = [1.06, 1.08, 1.10]
-ZCAP     = 3.4
 
 best=None
 for it in range(MAX_ITERS):
@@ -126,28 +126,27 @@ for it in range(MAX_ITERS):
               for base_my in MY_rng:
                 for safety in SAF_rng:
                     cx, cy = make_center(LA_s, ACC, GAIN, SLEW, DZx, DZy)
-                    # ---- panic-center refinement (single pass) ----
+                    # ---- panic-center refinement ----
                     spd = np.hypot(np.gradient(bx,dt), np.gradient(by,dt))
                     vsp = np.clip(spd/1000.0,0,1)
                     mx = base_mx + 120.0*vsp + 110.0*(conf<0.25)
                     my = base_my + 140.0*vsp + 110.0*(conf<0.25)
                     z_need_ball = containment_zoom_needed(cx, cy, mx, my, safety)
-                    panic = z_need_ball > (0.85*ZCAP)
+                    panic = z_need_ball > (0.85*ZCAP)  # earlier trigger
                     if np.any(panic):
-                        # pull center toward ball with high slew when containment under pressure
                         PC_GAIN = 2.0
-                        PC_SLEW = 300.0  # px/frame cap during panic
+                        PC_SLEW = 300.0
                         cx2 = cx.copy(); cy2 = cy.copy()
                         for i in range(1,len(cx2)):
+                            ex = bx[i]-cx2[i-1]; ey = by[i]-cy2[i-1]
                             if panic[i]:
-                                ex = bx[i]-cx2[i-1]; ey = by[i]-cy2[i-1]
                                 sx = np.clip(PC_GAIN*ex, -PC_SLEW, PC_SLEW)
                                 sy = np.clip(PC_GAIN*ey, -PC_SLEW, PC_SLEW)
-                                cx2[i] = cx2[i-1] + sx
-                                cy2[i] = cy2[i-1] + sy
                             else:
-                                cx2[i] = cx2[i-1] + np.clip(0.15*(bx[i]-cx2[i-1]), -120.0, 120.0)
-                                cy2[i] = cy2[i-1] + np.clip(0.15*(by[i]-cy2[i-1]), -120.0, 120.0)
+                                sx = np.clip(0.15*ex, -120.0, 120.0)
+                                sy = np.clip(0.15*ey, -120.0, 120.0)
+                            cx2[i] = cx2[i-1] + sx
+                            cy2[i] = cy2[i-1] + sy
                         cx, cy = cx2, cy2
 
                     score, p95, mae, viol, zf, mx, my, _ = score_and_zoom(cx, cy, base_mx, base_my, safety, zcap=ZCAP)
