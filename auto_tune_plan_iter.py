@@ -34,7 +34,7 @@ vx_s, vy_s = ema(vx,0.25), ema(vy,0.25)
 
 # confidence-adaptive look-ahead (short if low conf; long if high)
 conf_s = ema(conf, 0.2)
-LA_lo, LA_hi = 0.25, 1.10     # seconds
+LA_lo, LA_hi = 0.10, 0.50     # seconds
 LA_s = LA_lo + (LA_hi-LA_lo)*np.clip((conf_s-0.15)/0.6, 0, 1)
 lead_x = cx_s + vx_s*LA_s
 lead_y = cy_s + vy_s*LA_s
@@ -42,9 +42,9 @@ lead_y = cy_s + vy_s*LA_s
 # gap-aware widening: if conf<0.25, widen margins; also clamp within frame
 spd = np.hypot(vx_s, vy_s)
 vnorm = np.clip(spd/1200.0, 0, 1)
-base_mx, base_my = 180.0, 220.0
-mx = base_mx + 220.0*vnorm + 200.0*(conf_s<0.25)
-my = base_my + 260.0*vnorm + 220.0*(conf_s<0.25)
+base_mx, base_my = 160.0, 200.0
+mx = base_mx + 180.0*vnorm + 200.0*(conf_s<0.25)
+my = base_my + 220.0*vnorm + 220.0*(conf_s<0.25)
 
 cx_t = np.clip(lead_x, 0, W-1)
 cy_t = np.clip(lead_y, 0, H-1)
@@ -53,17 +53,17 @@ cy_t = np.clip(lead_y, 0, H-1)
 dx = np.minimum(cx_t, W-cx_t) - mx
 dy = np.minimum(cy_t, H-cy_t) - my
 dx = np.clip(dx, 1, None); dy = np.clip(dy, 1, None)
-safety = 1.12
+safety = 1.08
 z_need_x = (H*9/16)/(safety*2*dx)
 z_need_y = (H)/(safety*2*dy)
 z_needed = np.maximum(1.0, np.maximum(z_need_x, z_need_y))
 
 # smoother zoom, with panic if needed
-z_plan = np.minimum(np.maximum(1.0, 0.85*z_needed + 0.25), 2.00)
-z_plan = ema(z_plan, 0.10)
+z_plan = np.minimum(np.maximum(1.0, 0.85*z_needed + 0.20), 1.95)
+z_plan = ema(z_plan, 0.08)
 excess = np.maximum(z_needed - z_plan, 0.0)
 alpha  = np.clip(excess/0.06, 0, 1)
-z_final= np.minimum(z_plan*(1-alpha) + z_needed*alpha, 2.10)
+z_final= np.minimum(z_plan*(1-alpha) + z_needed*alpha, 2.05)
 
 # piecewise compact expressions for ffmpeg eval (poly per 20 frames)
 def piecewise(n,y,seg=20,deg=3):
@@ -94,4 +94,4 @@ with open(out_ps1,"w",encoding="utf-8") as f:
     f.write(f"$cxExpr = '={cx_if}'\n")
     f.write(f"$cyExpr = '={cy_if}'\n")
     f.write(f"$zExpr  = '=clip({z_if},1.0,2.10)'\n")
-    f.write(f"$Safety = 1.12\n")
+    f.write(f"$Safety = 1.08\n")
