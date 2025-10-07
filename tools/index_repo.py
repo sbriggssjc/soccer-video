@@ -815,25 +815,33 @@ def compute_duplicates(records: Sequence[FileRecord]) -> List[Dict[str, object]]
         )
         cluster_id += 1
 
-    # Near-duplicates: similar name and size ±2%
-    size_index: Dict[str, List[FileRecord]] = defaultdict(list)
-    for record in records:
-        size_index[Path(record.repo_relpath).name.lower()].append(record)
+    # Near-duplicates: normalize names (_BRAND/_POLISHED/_POST/_CLEAN etc.) and compare size ±2% or short Levenshtein
 
-    for name, group in size_index.items():
+    def _normalize_name(p: str) -> str:
+        stem = Path(p).stem.lower()
+        stem = re.sub(r'(__WITH_OPENER|_BRAND|_POLISHED|_POST|_CLEAN.*)$', '', stem)
+        stem = re.sub(r'(\bshot\b|\bclip\b|\breel\b)', '', stem)
+        stem = re.sub(r'[^a-z0-9]+', '', stem)
+        return stem
+
+    # Bucket by normalized name to keep comparisons tractable
+    buckets: Dict[str, List[FileRecord]] = defaultdict(list)
+    for r in records:
+        buckets[_normalize_name(r.repo_relpath)].append(r)
+
+    for group in buckets.values():
         if len(group) < 2:
             continue
+        group = sorted(group, key=lambda r: r.size_bytes)
         for i in range(len(group)):
             for j in range(i + 1, len(group)):
                 a, b = group[i], group[j]
-                if a.size_bytes == 0 and b.size_bytes == 0:
+                if max(a.size_bytes, b.size_bytes) == 0:
                     size_close = True
                 else:
                     diff = abs(a.size_bytes - b.size_bytes) / max(a.size_bytes, b.size_bytes)
                     size_close = diff <= 0.02
-                lev = levenshtein_distance(
-                    Path(a.repo_relpath).name, Path(b.repo_relpath).name
-                )
+                lev = levenshtein_distance(Path(a.repo_relpath).name, Path(b.repo_relpath).name)
                 if size_close or lev <= 3:
                     clusters.append(
                         {
