@@ -1,10 +1,10 @@
 cinematic:
   fps: 30
   portrait: "1080x1920"
-  lookahead: 18
-  smoothing: 0.65
+  lookahead: 24
+  smoothing: 0.45
   pad: 0.22
-  speed_limit: 480
+  speed_limit: 900
   zoom_min: 1.0
   zoom_max: 2.2
   crf: 19
