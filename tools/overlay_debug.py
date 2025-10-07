@@ -58,18 +58,31 @@ def _sample_frame(frames: List[np.ndarray], fps_in: float, fps_out: float, index
 
 def _draw(frame: np.ndarray, telemetry: dict, label_point: Optional[np.ndarray]) -> np.ndarray:
     output = frame.copy()
-    cx = telemetry.get("cx", 0.0)
-    cy = telemetry.get("cy", 0.0)
-    crop_w = telemetry.get("crop_w", 0.0)
-    crop_h = telemetry.get("crop_h", 0.0)
 
-    x1 = int(round(cx - crop_w / 2.0))
-    y1 = int(round(cy - crop_h / 2.0))
-    x2 = int(round(cx + crop_w / 2.0))
-    y2 = int(round(cy + crop_h / 2.0))
-    cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    crop = telemetry.get("crop")
+    if crop and len(crop) >= 4:
+        x0, y0, crop_w, crop_h = crop[:4]
+    else:
+        cx = telemetry.get("cx", 0.0)
+        cy = telemetry.get("cy", 0.0)
+        crop_w = telemetry.get("crop_w", 0.0)
+        crop_h = telemetry.get("crop_h", 0.0)
+        x0 = cx - crop_w / 2.0
+        y0 = cy - crop_h / 2.0
 
-    if label_point is not None and not np.isnan(label_point).any():
+    cv2.rectangle(
+        output,
+        (int(x0), int(y0)),
+        (int(x0 + crop_w), int(y0 + crop_h)),
+        (0, 255, 0),
+        2,
+    )
+
+    ball = telemetry.get("ball")
+    if ball and len(ball) >= 2:
+        bx, by = ball[:2]
+        cv2.circle(output, (int(bx), int(by)), 6, (0, 0, 255), -1)
+    elif label_point is not None and not np.isnan(label_point).any():
         cv2.circle(output, (int(label_point[0]), int(label_point[1])), 8, (0, 0, 255), -1)
 
     used = telemetry.get("used_label", False)

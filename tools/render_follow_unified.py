@@ -385,6 +385,7 @@ class CamState:
     y0: float
     used_label: bool
     clamp_flags: List[str]
+    ball: Optional[Tuple[float, float]] = None
 
 
 class CameraPlanner:
@@ -537,6 +538,7 @@ class CameraPlanner:
                     y0=y0,
                     used_label=bool(has_position),
                     clamp_flags=clamp_flags,
+                    ball=(float(pos[0]), float(pos[1])) if has_position else None,
                 )
             )
 
@@ -691,6 +693,13 @@ class Renderer:
                     "crop_h": float(state.crop_h),
                     "x0": float(state.x0),
                     "y0": float(state.y0),
+                    "crop": [
+                        float(state.x0),
+                        float(state.y0),
+                        float(state.crop_w),
+                        float(state.crop_h),
+                    ],
+                    "ball": [float(state.ball[0]), float(state.ball[1])] if state.ball else None,
                     "used_label": bool(state.used_label),
                     "clamp_flags": list(state.clamp_flags)
                     if isinstance(state.clamp_flags, (set, tuple))
