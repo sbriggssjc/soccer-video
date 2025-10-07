@@ -20,3 +20,10 @@ __pycache__/**
 
 # notebooks & temp
 *.ipynb_checkpoints/**
+
+# ML weights
+*.pt
+*.onnx
+*.engine
+models/**/weights/**
+
