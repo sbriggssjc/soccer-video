@@ -112,14 +112,13 @@ def run(args: argparse.Namespace) -> None:
 
     frames = _load_frames(input_path, args.flip180)
 
-    labels_root = Path(args.labels_root) if args.labels_root else None
     label_points = None
-    if labels_root is not None:
-        labels_root = labels_root.expanduser()
+    if args.labels_root:
         labels = load_labels(
-            find_label_files(input_path.stem, labels_root),
+            find_label_files(input_path.stem, args.labels_root),
             frames[0].shape[1],
             frames[0].shape[0],
+            fps_in,
         )
         positions, _ = interp_labels_to_fps(labels, len(frames), fps_in, fps_out)
         label_points = positions

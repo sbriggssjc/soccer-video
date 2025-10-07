@@ -13,9 +13,11 @@ Windows behaviour rather than raw performance.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import logging
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -216,13 +218,10 @@ def parse_portrait(value: Optional[str]) -> Optional[Tuple[int, int]]:
     return width, height
 
 
-def find_label_files(stem: str, labels_root: Path) -> List[Path]:
-    """Discover YOLO label shards matching ``<stem>_*.txt``."""
-
-    if not labels_root.exists():
-        return []
-    pattern = f"**/labels/{stem}_*.txt"
-    return sorted(labels_root.glob(pattern))
+def find_label_files(stem: str, labels_root: str) -> List[Path]:
+    root = Path(labels_root or "out/yolo").expanduser()
+    # Match ANY depth .../labels/<stem>_*.txt
+    return sorted(Path(p) for p in glob.glob(str(root / "**" / "labels" / f"{stem}_*.txt"), recursive=True))
 
 
 
@@ -330,8 +329,9 @@ def labels_to_positions(
     label_pts: Sequence[Tuple[float, float, float]],
     render_fps: float,
     duration_s: float,
+    source_pts: Optional[Sequence[Tuple[float, float, float]]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Convert sparse label points into per-frame positions and usage mask."""
+    """Convert per-frame label points into arrays for planning."""
 
     total_frames = int(round(max(duration_s, 0.0) * float(render_fps)))
     if total_frames <= 0:
@@ -344,16 +344,17 @@ def labels_to_positions(
         used = np.zeros(total_frames, dtype=bool)
         return positions, used
 
-    resampled = resample_labels_by_time(label_pts, render_fps, duration_s)
-    if len(resampled) != total_frames:
+    resampled = list(label_pts)
+    if len(resampled) > total_frames:
         resampled = resampled[:total_frames]
-        while len(resampled) < total_frames:
-            t_value = len(resampled) / float(render_fps) if render_fps else 0.0
-            resampled.append((t_value, resampled[-1][1], resampled[-1][2]))
+    while len(resampled) < total_frames and resampled:
+        t_value = len(resampled) / float(render_fps) if render_fps else 0.0
+        resampled.append((t_value, resampled[-1][1], resampled[-1][2]))
 
     positions = np.array([[x, y] for _, x, y in resampled], dtype=np.float32)
 
-    times = [point[0] for point in label_pts]
+    reference = source_pts if source_pts is not None else resampled
+    times = [point[0] for point in reference]
     import bisect
 
     used = np.zeros(len(resampled), dtype=bool)
@@ -861,8 +862,10 @@ def run(args: argparse.Namespace) -> None:
     output_path = Path(args.out) if args.out else _default_output_path(input_path, preset_key)
     output_path = output_path.expanduser().resolve()
 
-    labels_root = Path(args.labels_root or "out/yolo").expanduser()
+    labels_root = args.labels_root or "out/yolo"
     label_files = find_label_files(input_path.stem, labels_root)
+
+    log_dict: dict[str, object] = {}
 
     capture = cv2.VideoCapture(str(input_path))
     if not capture.isOpened():
@@ -878,13 +881,25 @@ def run(args: argparse.Namespace) -> None:
         fallback_fps = fps_in if fps_in > 0 else 30.0
         duration_s = frame_count / float(fallback_fps)
 
-    label_pts = load_labels(label_files, width, height, fps_in)
-    if label_pts:
-        max_label_time = max(point[0] for point in label_pts)
+    raw_points = load_labels(label_files, width, height, fps_in)
+    log_dict["labels_raw_count"] = len(raw_points)
+    if raw_points:
+        max_label_time = max(point[0] for point in raw_points)
         if duration_s <= max_label_time:
             frame_step = 1.0 / float(fps_in) if fps_in > 0 else 0.0
             duration_s = max_label_time + frame_step
-    positions, used_mask = labels_to_positions(label_pts, fps_out, duration_s)
+
+    label_pts = resample_labels_by_time(raw_points, fps_out, duration_s)
+
+    def _rng(arr):
+        xs = [a[1] for a in arr]
+        ys = [a[2] for a in arr]
+        return (min(xs), max(xs), min(ys), max(ys)) if arr else None
+
+    log_dict["labels_resampled_count"] = len(label_pts)
+    log_dict["labels_resampled_range"] = _rng(label_pts)
+
+    positions, used_mask = labels_to_positions(label_pts, fps_out, duration_s, raw_points)
 
     if len(positions) == 0 and frame_count > 0 and fps_out > 0:
         target_frames = int(round(frame_count * (fps_out / float(fps_in if fps_in > 0 else fps_out))))
@@ -944,14 +959,15 @@ def run(args: argparse.Namespace) -> None:
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         summary = {
-            "input": input_path,
-            "output": output_path,
+            "input": os.fspath(input_path),
+            "output": os.fspath(output_path),
             "fps_in": float(fps_in),
             "fps_out": float(fps_out),
-            "labels_found": int(len(label_pts)),
+            "labels_found": int(len(raw_points)),
             "preset": preset_key,
             "ffmpeg_command": renderer.last_ffmpeg_command,
         }
+        summary.update(log_dict)
         with log_path.open("w", encoding="utf-8") as handle:
             json.dump(to_jsonable(summary), handle, ensure_ascii=False, indent=2)
             handle.write("\n")

@@ -122,9 +122,8 @@ def run(args: argparse.Namespace) -> None:
 
     meta = _video_metadata(input_path)
 
-    labels_root = Path(args.labels_root or "out/yolo").expanduser()
-    label_files = find_label_files(input_path.stem, labels_root)
-    labels = load_labels(label_files, meta["width"], meta["height"])
+    label_files = find_label_files(input_path.stem, args.labels_root)
+    labels = load_labels(label_files, meta["width"], meta["height"], fps_in)
     positions, used_mask = interp_labels_to_fps(labels, meta["frame_count"], fps_in, fps)
 
     base_config = {
