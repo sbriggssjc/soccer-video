@@ -1,72 +1,85 @@
 param(
-  [Parameter(Mandatory=$true)] [string]$In,
-  [string]$Out,
-  [ValidateSet("Cinematic","Gentle","RealZoom")]
-  [string]$Preset = "Cinematic",
-  [switch]$Flip180,
-  [switch]$Portrait,
-  [int]$Fps = 30,
-  [string]$ExtraArgs = ""
+    [Parameter(Mandatory = $true)]
+    [string]$In,
+    [string]$Out,
+    [ValidateSet('Cinematic','Gentle','RealZoom')]
+    [string]$Preset = 'Cinematic',
+    [switch]$Portrait,
+    [string]$PortraitSize,
+    [double]$Fps,
+    [switch]$Flip180,
+    [string[]]$ExtraArgs,
+    [switch]$CleanTemp,
+    [switch]$Legacy
 )
 
-$ErrorActionPreference = "Stop"
-$root = (Resolve-Path ".").Path
+$ErrorActionPreference = 'Stop'
 
-function Find-Python {
-  $py = Get-Command python -ErrorAction SilentlyContinue
-  if (-not $py) { $py = Get-Command py -ErrorAction SilentlyContinue }
-  if (-not $py) { throw "Python not found. Install Python 3.10+ or add it to PATH." }
-  return $py.Source
+function Resolve-FullPath {
+    param([string]$Path)
+    return [System.IO.Path]::GetFullPath($Path)
 }
 
-function Find-Script([string]$name) {
-  $candidates = @(
-    (Join-Path $root $name),
-    (Join-Path $root ("scripts\" + $name)),
-    (Join-Path $root ("archive\scripts\2025-10-07\" + $name))
-  )
-  foreach ($p in $candidates) { if (Test-Path $p) { return $p } }
-  return $null
+$clipPath = (Resolve-Path -LiteralPath $In).Path
+$outPath = $null
+if ($Out) {
+    $outPath = Resolve-FullPath $Out
 }
 
-$map = @{
-  "Cinematic" = @("render_follow_autoz_cinematic.py","render_follow_cinematic.py","render_follow.py")
-  "Gentle"    = @("render_follow_autoz_gentle.py","render_follow_gentle.py","render_follow.py")
-  "RealZoom"  = @("render_follow_autoz_realzoom.py","render_follow_realzoom.py","render_follow.py")
+$portraitValue = $null
+if ($PortraitSize) {
+    $portraitValue = $PortraitSize
+} elseif ($Portrait.IsPresent) {
+    $portraitValue = '1080x1920'
 }
 
-$chosen = $null
-foreach ($cand in $map[$Preset]) {
-  $p = Find-Script $cand
-  if ($p) { $chosen = $p; break }
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$repoRoot = Split-Path -Parent $scriptRoot
+$pythonCmd = Get-Command python -ErrorAction Stop
+$unifiedScript = Join-Path $scriptRoot 'render_follow_unified.py'
+$unifiedArgs = @($unifiedScript, '--in', $clipPath, '--src', $clipPath)
+if ($outPath) { $unifiedArgs += @('--out', $outPath) }
+if ($Preset) { $unifiedArgs += @('--preset', $Preset.ToLowerInvariant()) }
+if ($portraitValue) { $unifiedArgs += @('--portrait', $portraitValue) }
+if ($PSBoundParameters.ContainsKey('Fps')) { $unifiedArgs += @('--fps', [string]$Fps) }
+if ($Flip180) { $unifiedArgs += '--flip180' }
+if ($CleanTemp) { $unifiedArgs += '--clean-temp' }
+if ($ExtraArgs) { $unifiedArgs += $ExtraArgs }
+
+if (-not $Legacy.IsPresent) {
+    Write-Host ('Invoking unified renderer: {0} {1}' -f $pythonCmd.Path, ($unifiedArgs -join ' '))
+    & $pythonCmd.Path @unifiedArgs
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) {
+        exit 0
+    }
+    Write-Warning "Unified renderer failed (exit code $exitCode); attempting legacy fallback."
+} else {
+    Write-Host 'Legacy mode requested; skipping unified renderer.'
 }
-if (-not $chosen) {
-  throw "Could not find any render_follow script for preset '$Preset'. Looked for: $($map[$Preset] -join ', ')"
+
+$presetKey = $Preset.ToLowerInvariant()
+$legacyMap = @{
+    'cinematic' = Join-Path $scriptRoot 'render_follow_autoz_cinematic_patched.py'
+    'gentle'    = Join-Path $repoRoot 'render_follow_autoz_gentle.py'
+    'realzoom'  = Join-Path $repoRoot 'render_follow_autoz_realzoom.py'
+}
+$legacyScript = $legacyMap[$presetKey]
+if (-not $legacyScript -or -not (Test-Path $legacyScript)) {
+    throw "Legacy script for preset '$Preset' not found."
 }
 
-$py = Find-Python
-$inAbs = (Resolve-Path $In).Path
-if (-not $Out) {
-  $Out = [IO.Path]::ChangeExtension($inAbs, $null) + ("__{0}.mp4" -f $Preset.ToUpper())
+$legacyArgs = @($legacyScript, '--in', $clipPath, '--src', $clipPath)
+if ($outPath) { $legacyArgs += @('--out', $outPath) }
+if ($portraitValue -and $presetKey -eq 'cinematic') {
+    $parts = $portraitValue -split 'x'
+    if ($parts.Length -eq 2) {
+        $legacyArgs += @('--width', $parts[0], '--height', $parts[1])
+    }
 }
-$outAbs = $Out
+if ($CleanTemp -and $presetKey -eq 'cinematic') { $legacyArgs += '--clean-temp' }
+if ($ExtraArgs) { $legacyArgs += $ExtraArgs }
 
-$flags = @()
-if ($Flip180) { $flags += @("--flip180") }
-if ($Portrait){ $flags += @("--portrait", "1080x1920") }
-$flags += @("--fps", "$Fps")
-
-if ($ExtraArgs) {
-  $flags += $ExtraArgs.Split(' ')
-}
-
-Write-Host "Preset: $Preset"
-Write-Host "Script: $chosen"
-Write-Host "In    : $inAbs"
-Write-Host "Out   : $outAbs"
-Write-Host "Args  : $($flags -join ' ')"
-
-& $py $chosen --in "$inAbs" --out "$outAbs" @flags
-if ($LASTEXITCODE -ne 0) { throw "Render failed (exit $LASTEXITCODE)" }
-
-Write-Host "Done -> $outAbs"
+Write-Host ('Invoking legacy renderer: {0} {1}' -f $pythonCmd.Path, ($legacyArgs -join ' '))
+& $pythonCmd.Path @legacyArgs
+exit $LASTEXITCODE
