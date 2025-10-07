@@ -30,3 +30,9 @@ python tools\overlay_debug.py --in "<clip>" --telemetry "out/render_logs/<stem>.
 ```
 
 Telemetry JSONL files include one record per rendered frame (with camera centres, zoom, and clamp flags). The debug overlay helper burns that information into a copy of the clip for quick QC sweeps.
+
+## Safer portrait composition
+
+Portrait masters lean on the computed crop window for each frame. When we render with OpenCV the crop is applied directly to the decoded frame, so the portrait safe area always reflects the planner output. Recreating the same behaviour with an FFmpeg-only filtergraph is trickier because the crop expression has to change per-frame; it is easy to miss clamps and reintroduce ringing or jitter.
+
+Until there is a dedicated FFmpeg composition path that can consume the telemetry safely, keep the default OpenCV composition. It has been reliable in production and still feeds FFmpeg for the final encode. Teams that must stay FFmpeg-only should plan to revisit a dynamic filtergraph once the expressions can be injected per frame without losing the safety checks provided by the current pipeline.
