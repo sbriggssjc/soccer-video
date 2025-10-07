@@ -2,7 +2,9 @@
 # tools/overlay_debug.py — self-contained overlay from JSONL telemetry
 import argparse, json, os
 from pathlib import Path
+from typing import List
 import cv2
+import numpy as np
 
 def read_jsonl(p):
     recs = []
