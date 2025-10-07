@@ -381,6 +381,8 @@ class CamState:
     zoom: float
     crop_w: float
     crop_h: float
+    x0: float
+    y0: float
     used_label: bool
     clamp_flags: List[str]
 
@@ -414,8 +416,12 @@ class CameraPlanner:
 
         base_side = min(self.width, self.height)
         base_side = max(1.0, base_side)
-        desired_side = max(base_side * (1.0 - 2.0 * self.pad), base_side * 0.35)
-        desired_zoom = base_side / desired_side
+        target_final_side = max(base_side * (1.0 - 2.0 * self.pad), base_side * 0.35)
+        shrink_factor = 1.0
+        if self.pad > 0.0:
+            shrink_factor = max(0.05, 1.0 - 2.0 * self.pad)
+        pre_pad_target = target_final_side / shrink_factor
+        desired_zoom = base_side / max(pre_pad_target, 1.0)
         self.base_zoom = float(np.clip(desired_zoom, self.zoom_min, self.zoom_max))
 
     def plan(self, positions: np.ndarray, used_mask: np.ndarray) -> List[CamState]:
@@ -429,8 +435,10 @@ class CameraPlanner:
         px_per_frame = self.speed_limit / max(self.fps, 0.001)
 
         aspect_target = None
+        aspect_ratio = self.width / max(self.height, 1e-6)
         if self.portrait:
             aspect_target = float(self.portrait[0]) / float(self.portrait[1])
+            aspect_ratio = aspect_target
 
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
@@ -480,41 +488,38 @@ class CameraPlanner:
 
             smoothed_zoom = float(np.clip(smoothed_zoom, self.zoom_min, self.zoom_max))
 
-            crop_w = self.width / smoothed_zoom
             crop_h = self.height / smoothed_zoom
+            crop_w = crop_h * aspect_ratio
+            if crop_w > self.width:
+                crop_w = self.width
+                crop_h = crop_w / max(aspect_ratio, 1e-6)
 
-            if aspect_target:
-                current_aspect = crop_w / crop_h
-                if current_aspect > aspect_target:
-                    crop_w = crop_h * aspect_target
-                else:
-                    crop_h = crop_w / aspect_target
+            if self.pad > 0.0:
+                pad_scale = max(0.0, 1.0 - 2.0 * self.pad)
+                crop_w *= pad_scale
+                crop_h *= pad_scale
+
+            crop_w = float(np.clip(crop_w, 1.0, self.width))
+            crop_h = float(np.clip(crop_h, 1.0, self.height))
 
             # Bias the framing so the ball sits lower in portrait compositions.
             if aspect_target:
-                desired_center_y = smoothed_cy + 0.10 * crop_h
-                smoothed_cy = desired_center_y
+                smoothed_cy = smoothed_cy + 0.10 * crop_h
 
-            half_w = crop_w / 2.0
-            half_h = crop_h / 2.0
+            desired_x0 = smoothed_cx - crop_w / 2.0
+            desired_y0 = smoothed_cy - crop_h / 2.0
+            max_x0 = max(0.0, self.width - crop_w)
+            max_y0 = max(0.0, self.height - crop_h)
+            x0 = float(np.clip(desired_x0, 0.0, max_x0))
+            y0 = float(np.clip(desired_y0, 0.0, max_y0))
 
-            min_cx = half_w
-            max_cx = self.width - half_w
-            min_cy = half_h
-            max_cy = self.height - half_h
+            if not math.isclose(x0, desired_x0, rel_tol=1e-6, abs_tol=1e-3) or not math.isclose(
+                y0, desired_y0, rel_tol=1e-6, abs_tol=1e-3
+            ):
+                clamp_flags.append("bounds")
 
-            if smoothed_cx < min_cx:
-                smoothed_cx = min_cx
-                clamp_flags.append("bounds")
-            if smoothed_cx > max_cx:
-                smoothed_cx = max_cx
-                clamp_flags.append("bounds")
-            if smoothed_cy < min_cy:
-                smoothed_cy = min_cy
-                clamp_flags.append("bounds")
-            if smoothed_cy > max_cy:
-                smoothed_cy = max_cy
-                clamp_flags.append("bounds")
+            smoothed_cx = x0 + crop_w / 2.0
+            smoothed_cy = y0 + crop_h / 2.0
 
             prev_cx = smoothed_cx
             prev_cy = smoothed_cy
@@ -528,6 +533,8 @@ class CameraPlanner:
                     zoom=smoothed_zoom,
                     crop_w=crop_w,
                     crop_h=crop_h,
+                    x0=x0,
+                    y0=y0,
                     used_label=bool(has_position),
                     clamp_flags=clamp_flags,
                 )
@@ -619,12 +626,12 @@ class Renderer:
         height, width = frame.shape[:2]
         crop_w = min(state.crop_w, float(width))
         crop_h = min(state.crop_h, float(height))
-        x1 = int(round(state.cx - crop_w / 2.0))
-        y1 = int(round(state.cy - crop_h / 2.0))
-        x1 = max(0, min(x1, width - int(round(crop_w))))
-        y1 = max(0, min(y1, height - int(round(crop_h))))
-        x2 = int(round(x1 + crop_w))
-        y2 = int(round(y1 + crop_h))
+        clamped_x0 = min(max(state.x0, 0.0), max(0.0, width - crop_w))
+        clamped_y0 = min(max(state.y0, 0.0), max(0.0, height - crop_h))
+        x1 = int(round(clamped_x0))
+        y1 = int(round(clamped_y0))
+        x2 = int(round(min(clamped_x0 + crop_w, width)))
+        y2 = int(round(min(clamped_y0 + crop_h, height)))
         x2 = max(x1 + 1, min(x2, width))
         y2 = max(y1 + 1, min(y2, height))
 
@@ -682,6 +689,8 @@ class Renderer:
                     "zoom": float(state.zoom),
                     "crop_w": float(state.crop_w),
                     "crop_h": float(state.crop_h),
+                    "x0": float(state.x0),
+                    "y0": float(state.y0),
                     "used_label": bool(state.used_label),
                     "clamp_flags": list(state.clamp_flags)
                     if isinstance(state.clamp_flags, (set, tuple))
@@ -841,6 +850,14 @@ def run(args: argparse.Namespace) -> None:
         target_frames = max(target_frames, frame_count)
         positions = np.full((target_frames, 2), np.nan, dtype=np.float32)
         used_mask = np.zeros(target_frames, dtype=bool)
+
+    if args.flip180 and len(positions) > 0:
+        flipped_positions = positions.copy()
+        valid_mask = ~np.isnan(flipped_positions).any(axis=1)
+        if valid_mask.any():
+            flipped_positions[valid_mask, 0] = float(width) - flipped_positions[valid_mask, 0]
+            flipped_positions[valid_mask, 1] = float(height) - flipped_positions[valid_mask, 1]
+        positions = flipped_positions
 
     planner = CameraPlanner(
         width=width,

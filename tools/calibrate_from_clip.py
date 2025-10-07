@@ -46,8 +46,8 @@ def _cost(states, positions: np.ndarray, used_mask: np.ndarray) -> float:
     for state, pos, used in zip(states, positions, used_mask):
         if not used or np.isnan(pos).any():
             continue
-        crop_left = state.cx - state.crop_w / 2.0
-        crop_top = state.cy - state.crop_h / 2.0
+        crop_left = state.x0
+        crop_top = state.y0
         rel_x = (pos[0] - crop_left) / max(state.crop_w, 1e-6)
         rel_y = (pos[1] - crop_top) / max(state.crop_h, 1e-6)
         vertical_errors.append((rel_y - 0.4) ** 2)
