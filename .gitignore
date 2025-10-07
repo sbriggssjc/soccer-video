@@ -1,32 +1,22 @@
-recordings/
-output/
-video/
-frames/
-clips/
-livestream_logs/
+﻿# build artifacts & media
+out/**
+runs/**
 *.mp4
-!recipes/compare/samples/clip.mp4
-*.mkv
 *.mov
-*.png
-!brand/tsc/*.png
+*.mkv
+*.avi
+*.webm
 *.jpg
-*.wav
+*.jpeg
+*.png
+*.tif
+*.psd
+*.srt
+*.ffconcat
 
-*.trf
-# outputs & media
-out/
-GameFilm/
-videos/
-*.zip
-yolov8x.pt
+# python caches / venv
+__pycache__/**
+.venv/**
 
-runs/
-
-*.avi
-
-runs/
-
-*.avi
-
-*.pt
+# notebooks & temp
+*.ipynb_checkpoints/**
