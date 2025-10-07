@@ -372,6 +372,95 @@ def labels_to_positions(
     return positions, used
 
 
+def _positions_range(positions: np.ndarray) -> Optional[Tuple[float, float, float, float]]:
+    """Return ``(min_x, max_x, min_y, max_y)`` for valid position samples."""
+
+    if positions.size == 0:
+        return None
+    valid_mask = ~np.isnan(positions).any(axis=1)
+    if not np.any(valid_mask):
+        return None
+    xs = positions[valid_mask, 0]
+    ys = positions[valid_mask, 1]
+    if xs.size == 0 or ys.size == 0:
+        return None
+    return (
+        float(np.min(xs)),
+        float(np.max(xs)),
+        float(np.min(ys)),
+        float(np.max(ys)),
+    )
+
+
+def rough_motion_path(
+    video_path: str, fps: float, duration_s: float, sample_every: int = 2
+) -> List[Tuple[float, float, float]]:
+    """Estimate a coarse (t, x, y) path from optical flow as a labels fallback."""
+
+    if fps <= 0.0 or duration_s <= 0.0:
+        return []
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
+
+    total = int(round(duration_s * fps))
+    ok, prev = cap.read()
+    if not ok:
+        cap.release()
+        return []
+
+    prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
+    height, width = prev_gray.shape[:2]
+    centers: List[Tuple[float, float, float]] = []
+    cx, cy = width / 2.0, height / 2.0
+    frame_idx = 1
+
+    while len(centers) < total:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if frame_idx % max(1, sample_every) != 0:
+            frame_idx += 1
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        flow = cv2.calcOpticalFlowFarneback(
+            prev_gray, gray, None, 0.5, 2, 15, 3, 5, 1.2, 0
+        )
+        fx = float(np.median(flow[..., 0]))
+        fy = float(np.median(flow[..., 1]))
+        cx = float(np.clip(cx + fx, 0, width - 1))
+        cy = float(np.clip(cy + fy, 0, height - 1))
+        centers.append((len(centers) / float(fps), cx, cy))
+        prev_gray = gray
+        frame_idx += 1
+
+    cap.release()
+
+    if not centers:
+        return []
+
+    times = [t for t, _, _ in centers]
+    xs = [x for _, x, _ in centers]
+    ys = [y for _, _, y in centers]
+
+    out: List[Tuple[float, float, float]] = []
+    for frame in range(total):
+        t_value = frame / float(fps)
+        pos = np.searchsorted(times, t_value)
+        if pos <= 0:
+            x_value, y_value = xs[0], ys[0]
+        elif pos >= len(times):
+            x_value, y_value = xs[-1], ys[-1]
+        else:
+            t0, t1 = times[pos - 1], times[pos]
+            weight = 0.0 if t1 == t0 else (t_value - t0) / (t1 - t0)
+            x_value = xs[pos - 1] * (1.0 - weight) + xs[pos] * weight
+            y_value = ys[pos - 1] * (1.0 - weight) + ys[pos] * weight
+        out.append((t_value, float(x_value), float(y_value)))
+
+    return out
+
 
 @dataclass
 class CamState:
@@ -847,12 +936,51 @@ def run(args: argparse.Namespace) -> None:
         duration_s = frame_count / float(fallback_fps)
 
     label_pts = load_labels(label_files, width, height, fps_in)
+    log_dict: dict = {
+        "labels_found_raw": int(len(label_pts)),
+        "labels_source": "yolo_labels",
+        "labels_resampled_range": None,
+    }
+
     if label_pts:
         max_label_time = max(point[0] for point in label_pts)
         if duration_s <= max_label_time:
             frame_step = 1.0 / float(fps_in) if fps_in > 0 else 0.0
             duration_s = max_label_time + frame_step
-    positions, used_mask = labels_to_positions(label_pts, fps_out, duration_s)
+
+    def _compute_positions_and_range(
+        points: Sequence[Tuple[float, float, float]]
+    ) -> Tuple[np.ndarray, np.ndarray, Optional[Tuple[float, float, float, float]]]:
+        pos, mask = labels_to_positions(points, fps_out, duration_s)
+        return pos, mask, _positions_range(pos)
+
+    positions, used_mask, resampled_range = _compute_positions_and_range(label_pts)
+    log_dict["labels_resampled_range_raw"] = resampled_range
+    log_dict["labels_resampled_range"] = resampled_range
+
+    use_motion = False
+    if not label_pts:
+        use_motion = True
+    elif resampled_range:
+        x_min, x_max, y_min, y_max = resampled_range
+        if math.isclose(x_min, x_max, rel_tol=0.0, abs_tol=1e-2) or math.isclose(
+            y_min, y_max, rel_tol=0.0, abs_tol=1e-2
+        ):
+            use_motion = True
+
+    if use_motion:
+        fps_for_motion = fps_out if fps_out > 0 else (fps_in if fps_in > 0 else 30.0)
+        motion_pts = rough_motion_path(str(input_path), fps_for_motion, duration_s)
+        if motion_pts:
+            label_pts = motion_pts
+            positions, used_mask, resampled_range = _compute_positions_and_range(label_pts)
+            log_dict["labels_source"] = "motion_fallback"
+            log_dict["labels_resampled_range"] = resampled_range
+        else:
+            log_dict["labels_source"] = "motion_fallback_failed"
+
+    log_dict["motion_fallback_used"] = log_dict["labels_source"] == "motion_fallback"
+    log_dict["labels_found"] = int(len(label_pts))
 
     if len(positions) == 0 and frame_count > 0 and fps_out > 0:
         target_frames = int(round(frame_count * (fps_out / float(fps_in if fps_in > 0 else fps_out))))
@@ -911,17 +1039,18 @@ def run(args: argparse.Namespace) -> None:
 
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        summary = {
-            "input": input_path,
-            "output": output_path,
-            "fps_in": float(fps_in),
-            "fps_out": float(fps_out),
-            "labels_found": int(len(label_pts)),
-            "preset": preset_key,
-            "ffmpeg_command": renderer.last_ffmpeg_command,
-        }
+        log_dict.update(
+            {
+                "input": input_path,
+                "output": output_path,
+                "fps_in": float(fps_in),
+                "fps_out": float(fps_out),
+                "preset": preset_key,
+                "ffmpeg_command": renderer.last_ffmpeg_command,
+            }
+        )
         with log_path.open("w", encoding="utf-8") as handle:
-            json.dump(to_jsonable(summary), handle, ensure_ascii=False, indent=2)
+            json.dump(to_jsonable(log_dict), handle, ensure_ascii=False, indent=2)
             handle.write("\n")
 
 
