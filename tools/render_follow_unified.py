@@ -20,12 +20,48 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import cv2  # type: ignore
-import numpy as np
+
+try:  # pragma: no cover - fallback for environments without numpy
+    import numpy as np
+except Exception:  # pragma: no cover - keep script importable without numpy
+    class _NPStub:  # type: ignore[too-few-public-methods]
+        generic = ()
+        ndarray = ()
+
+        def __getattr__(self, name: str) -> "_NPStub":
+            raise ImportError("NumPy is required for render_follow_unified")
+
+    np = _NPStub()  # type: ignore[assignment]
+
 import yaml
+
+
+def to_jsonable(obj):
+    """Recursively convert numpy/Path/datetime objects into JSON-serialisable types."""
+
+    if isinstance(obj, dict):
+        return {k: to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [to_jsonable(v) for v in obj]
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if hasattr(np, "generic") and isinstance(obj, np.generic):
+        return obj.item()
+    if hasattr(np, "ndarray") and isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (float, int, bool, str)) or obj is None:
+        return obj
+    try:
+        return float(obj)
+    except Exception:
+        return str(obj)
 
 
 PRESETS_PATH = Path(__file__).resolve().parent / "render_presets.yaml"
@@ -464,6 +500,7 @@ class Renderer:
         self.brand_overlay_path = brand_overlay
         self.endcard_path = endcard
         self.telemetry_path = telemetry_path
+        self.last_ffmpeg_command: Optional[List[str]] = None
 
     def _read_frames(self) -> List[np.ndarray]:
         capture = cv2.VideoCapture(str(self.input_path))
@@ -556,15 +593,17 @@ class Renderer:
             if telemetry_file:
                 record = {
                     "t": float(state.frame) / float(self.fps_out),
-                    "cx": state.cx,
-                    "cy": state.cy,
-                    "zoom": state.zoom,
-                    "crop_w": state.crop_w,
-                    "crop_h": state.crop_h,
-                    "used_label": state.used_label,
-                    "clamp_flags": state.clamp_flags,
+                    "cx": float(state.cx),
+                    "cy": float(state.cy),
+                    "zoom": float(state.zoom),
+                    "crop_w": float(state.crop_w),
+                    "crop_h": float(state.crop_h),
+                    "used_label": bool(state.used_label),
+                    "clamp_flags": list(state.clamp_flags)
+                    if isinstance(state.clamp_flags, (set, tuple))
+                    else state.clamp_flags,
                 }
-                telemetry_file.write(json.dumps(record) + "\n")
+                telemetry_file.write(json.dumps(to_jsonable(record)) + "\n")
 
         if telemetry_file:
             telemetry_file.close()
@@ -628,10 +667,8 @@ class Renderer:
         except subprocess.CalledProcessError as exc:
             raise RuntimeError("ffmpeg failed during stitching.") from exc
 
-        if log_path:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as handle:
-                handle.write(" ".join(command) + "\n")
+        self.last_ffmpeg_command = list(command)
+
 
 
 def _prepare_temp_dir(temp_dir: Path, clean: bool) -> None:
@@ -666,20 +703,20 @@ def run(args: argparse.Namespace) -> None:
 
     preset_config = presets[preset_key]
 
-    fps_in = ffprobe_fps(input_path)
-    fps_out = float(args.fps) if args.fps else float(preset_config.get("fps", fps_in))
+    fps_in = float(ffprobe_fps(input_path))
+    fps_out = float(args.fps) if args.fps is not None else float(preset_config.get("fps", fps_in))
     if fps_out <= 0:
         fps_out = fps_in if fps_in > 0 else 30.0
 
     portrait_str = args.portrait or preset_config.get("portrait")
     portrait = parse_portrait(portrait_str) if portrait_str else None
 
-    lookahead = args.lookahead if args.lookahead is not None else preset_config.get("lookahead", 18)
-    smoothing = args.smoothing if args.smoothing is not None else preset_config.get("smoothing", 0.65)
-    pad = args.pad if args.pad is not None else preset_config.get("pad", 0.22)
-    speed_limit = args.speed_limit if args.speed_limit is not None else preset_config.get("speed_limit", 480)
-    zoom_min = args.zoom_min if args.zoom_min is not None else preset_config.get("zoom_min", 1.0)
-    zoom_max = args.zoom_max if args.zoom_max is not None else preset_config.get("zoom_max", 2.2)
+    lookahead = int(args.lookahead) if args.lookahead is not None else int(preset_config.get("lookahead", 18))
+    smoothing = float(args.smoothing) if args.smoothing is not None else float(preset_config.get("smoothing", 0.65))
+    pad = float(args.pad) if args.pad is not None else float(preset_config.get("pad", 0.22))
+    speed_limit = float(args.speed_limit) if args.speed_limit is not None else float(preset_config.get("speed_limit", 480))
+    zoom_min = float(args.zoom_min) if args.zoom_min is not None else float(preset_config.get("zoom_min", 1.0))
+    zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
     crf = int(args.crf) if args.crf is not None else int(preset_config.get("crf", 19))
     keyint_factor = int(args.keyint_factor) if args.keyint_factor is not None else int(preset_config.get("keyint_factor", 4))
 
@@ -737,25 +774,24 @@ def run(args: argparse.Namespace) -> None:
 
     renderer.write_frames(states)
 
-    keyint = max(1, int(round(keyint_factor * fps_out)))
+    keyint = max(1, int(round(float(keyint_factor) * float(fps_out))))
     log_path = Path(args.log).expanduser() if args.log else None
     renderer.ffmpeg_stitch(crf=crf, keyint=keyint, log_path=log_path)
 
     if log_path:
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "input": str(input_path),
-                        "output": str(output_path),
-                        "fps_in": fps_in,
-                        "fps_out": fps_out,
-                        "labels_found": len(labels),
-                        "preset": preset_key,
-                    }
-                )
-                + "\n"
-            )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "input": input_path,
+            "output": output_path,
+            "fps_in": float(fps_in),
+            "fps_out": float(fps_out),
+            "labels_found": int(len(labels)),
+            "preset": preset_key,
+            "ffmpeg_command": renderer.last_ffmpeg_command,
+        }
+        with log_path.open("w", encoding="utf-8") as handle:
+            json.dump(to_jsonable(summary), handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
