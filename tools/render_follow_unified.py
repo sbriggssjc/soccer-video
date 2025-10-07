@@ -13,9 +13,11 @@ Windows behaviour rather than raw performance.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import logging
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -216,13 +218,10 @@ def parse_portrait(value: Optional[str]) -> Optional[Tuple[int, int]]:
     return width, height
 
 
-def find_label_files(stem: str, labels_root: Path) -> List[Path]:
-    """Discover YOLO label shards matching ``<stem>_*.txt``."""
-
-    if not labels_root.exists():
-        return []
-    pattern = f"**/labels/{stem}_*.txt"
-    return sorted(labels_root.glob(pattern))
+def find_label_files(stem: str, labels_root: str) -> List[Path]:
+    root = Path(labels_root or "out/yolo").expanduser()
+    # Match ANY depth .../labels/<stem>_*.txt
+    return sorted(Path(p) for p in glob.glob(str(root / "**" / "labels" / f"{stem}_*.txt"), recursive=True))
 
 
 
@@ -330,8 +329,9 @@ def labels_to_positions(
     label_pts: Sequence[Tuple[float, float, float]],
     render_fps: float,
     duration_s: float,
+    source_pts: Optional[Sequence[Tuple[float, float, float]]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Convert sparse label points into per-frame positions and usage mask."""
+    """Convert per-frame label points into arrays for planning."""
 
     total_frames = int(round(max(duration_s, 0.0) * float(render_fps)))
     if total_frames <= 0:
@@ -344,16 +344,17 @@ def labels_to_positions(
         used = np.zeros(total_frames, dtype=bool)
         return positions, used
 
-    resampled = resample_labels_by_time(label_pts, render_fps, duration_s)
-    if len(resampled) != total_frames:
+    resampled = list(label_pts)
+    if len(resampled) > total_frames:
         resampled = resampled[:total_frames]
-        while len(resampled) < total_frames:
-            t_value = len(resampled) / float(render_fps) if render_fps else 0.0
-            resampled.append((t_value, resampled[-1][1], resampled[-1][2]))
+    while len(resampled) < total_frames and resampled:
+        t_value = len(resampled) / float(render_fps) if render_fps else 0.0
+        resampled.append((t_value, resampled[-1][1], resampled[-1][2]))
 
     positions = np.array([[x, y] for _, x, y in resampled], dtype=np.float32)
 
-    times = [point[0] for point in label_pts]
+    reference = source_pts if source_pts is not None else resampled
+    times = [point[0] for point in reference]
     import bisect
 
     used = np.zeros(len(resampled), dtype=bool)
@@ -713,29 +714,59 @@ class Renderer:
         state: CamState,
         output_size: Tuple[int, int],
         overlay_image: Optional[np.ndarray],
-    ) -> np.ndarray:
+    ) -> Tuple[np.ndarray, Tuple[float, float, float, float]]:
         height, width = frame.shape[:2]
-        crop_w = min(state.crop_w, float(width))
-        crop_h = min(state.crop_h, float(height))
-        clamped_x0 = min(max(state.x0, 0.0), max(0.0, width - crop_w))
-        clamped_y0 = min(max(state.y0, 0.0), max(0.0, height - crop_h))
+        target_ar = 0.0
+        if output_size[0] > 0 and output_size[1] > 0:
+            target_ar = float(output_size[0]) / float(output_size[1])
+
+        crop_w = float(np.clip(state.crop_w, 1.0, float(width)))
+        crop_h = float(np.clip(state.crop_h, 1.0, float(height)))
+
+        if target_ar > 0.0 and crop_h > 0.0:
+            desired_w = crop_h * target_ar
+            desired_h = crop_w / target_ar if target_ar > 0.0 else crop_h
+            if desired_w <= width and not math.isclose(desired_w, crop_w, rel_tol=1e-4, abs_tol=1e-3):
+                crop_w = float(desired_w)
+            elif desired_h <= height and not math.isclose(desired_h, crop_h, rel_tol=1e-4, abs_tol=1e-3):
+                crop_h = float(desired_h)
+
+        max_x0 = max(0.0, float(width) - crop_w)
+        max_y0 = max(0.0, float(height) - crop_h)
+        clamped_x0 = float(np.clip(state.x0, 0.0, max_x0))
+        clamped_y0 = float(np.clip(state.y0, 0.0, max_y0))
+
+        x2_f = clamped_x0 + crop_w
+        y2_f = clamped_y0 + crop_h
+        if x2_f > width:
+            clamped_x0 = max(0.0, float(width) - crop_w)
+            x2_f = clamped_x0 + crop_w
+        if y2_f > height:
+            clamped_y0 = max(0.0, float(height) - crop_h)
+            y2_f = clamped_y0 + crop_h
+
         x1 = int(round(clamped_x0))
         y1 = int(round(clamped_y0))
-        x2 = int(round(min(clamped_x0 + crop_w, width)))
-        y2 = int(round(min(clamped_y0 + crop_h, height)))
+        x2 = int(round(min(x2_f, float(width))))
+        y2 = int(round(min(y2_f, float(height))))
+        x1 = max(0, min(x1, width - 1))
+        y1 = max(0, min(y1, height - 1))
         x2 = max(x1 + 1, min(x2, width))
         y2 = max(y1 + 1, min(y2, height))
 
         cropped = frame[y1:y2, x1:x2]
         if cropped.size == 0:
             cropped = frame
+            x1, y1 = 0, 0
+            x2, y2 = width, height
 
         resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
 
         if overlay_image is not None:
             resized = _apply_overlay(resized, overlay_image)
 
-        return resized
+        actual_crop = (float(x1), float(y1), float(x2 - x1), float(y2 - y1))
+        return resized, actual_crop
 
     def _append_endcard(self, output_size: Tuple[int, int]) -> List[np.ndarray]:
         if not self.endcard_path:
@@ -767,28 +798,30 @@ class Renderer:
 
         for state in states:
             frame = self._sample_frame(frames, state.frame)
-            composed = self._compose_frame(frame, state, output_size, overlay_image)
+            composed, actual_crop = self._compose_frame(frame, state, output_size, overlay_image)
             out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
             success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             if not success:
                 raise RuntimeError(f"Failed to write frame to {out_path}")
             if telemetry_file:
+                x0_used, y0_used, crop_w_used, crop_h_used = actual_crop
+                ball_pt = state.ball if state.ball else None
                 record = {
                     "t": float(state.frame) / float(self.fps_out),
                     "cx": float(state.cx),
                     "cy": float(state.cy),
                     "zoom": float(state.zoom),
-                    "crop_w": float(state.crop_w),
-                    "crop_h": float(state.crop_h),
-                    "x0": float(state.x0),
-                    "y0": float(state.y0),
+                    "crop_w": float(crop_w_used),
+                    "crop_h": float(crop_h_used),
+                    "x0": float(x0_used),
+                    "y0": float(y0_used),
                     "crop": [
-                        float(state.x0),
-                        float(state.y0),
-                        float(state.crop_w),
-                        float(state.crop_h),
+                        float(x0_used),
+                        float(y0_used),
+                        float(crop_w_used),
+                        float(crop_h_used),
                     ],
-                    "ball": [float(state.ball[0]), float(state.ball[1])] if state.ball else None,
+                    "ball": [float(ball_pt[0]), float(ball_pt[1])] if ball_pt else None,
                     "used_label": bool(state.used_label),
                     "clamp_flags": list(state.clamp_flags)
                     if isinstance(state.clamp_flags, (set, tuple))
@@ -918,8 +951,10 @@ def run(args: argparse.Namespace) -> None:
     output_path = Path(args.out) if args.out else _default_output_path(input_path, preset_key)
     output_path = output_path.expanduser().resolve()
 
-    labels_root = Path(args.labels_root or "out/yolo").expanduser()
+    labels_root = args.labels_root or "out/yolo"
     label_files = find_label_files(input_path.stem, labels_root)
+
+    log_dict: dict[str, object] = {}
 
     capture = cv2.VideoCapture(str(input_path))
     if not capture.isOpened():
@@ -935,52 +970,25 @@ def run(args: argparse.Namespace) -> None:
         fallback_fps = fps_in if fps_in > 0 else 30.0
         duration_s = frame_count / float(fallback_fps)
 
-    label_pts = load_labels(label_files, width, height, fps_in)
-    log_dict: dict = {
-        "labels_found_raw": int(len(label_pts)),
-        "labels_source": "yolo_labels",
-        "labels_resampled_range": None,
-    }
-
-    if label_pts:
-        max_label_time = max(point[0] for point in label_pts)
+    raw_points = load_labels(label_files, width, height, fps_in)
+    log_dict["labels_raw_count"] = len(raw_points)
+    if raw_points:
+        max_label_time = max(point[0] for point in raw_points)
         if duration_s <= max_label_time:
             frame_step = 1.0 / float(fps_in) if fps_in > 0 else 0.0
             duration_s = max_label_time + frame_step
 
-    def _compute_positions_and_range(
-        points: Sequence[Tuple[float, float, float]]
-    ) -> Tuple[np.ndarray, np.ndarray, Optional[Tuple[float, float, float, float]]]:
-        pos, mask = labels_to_positions(points, fps_out, duration_s)
-        return pos, mask, _positions_range(pos)
+    label_pts = resample_labels_by_time(raw_points, fps_out, duration_s)
 
-    positions, used_mask, resampled_range = _compute_positions_and_range(label_pts)
-    log_dict["labels_resampled_range_raw"] = resampled_range
-    log_dict["labels_resampled_range"] = resampled_range
+    def _rng(arr):
+        xs = [a[1] for a in arr]
+        ys = [a[2] for a in arr]
+        return (min(xs), max(xs), min(ys), max(ys)) if arr else None
 
-    use_motion = False
-    if not label_pts:
-        use_motion = True
-    elif resampled_range:
-        x_min, x_max, y_min, y_max = resampled_range
-        if math.isclose(x_min, x_max, rel_tol=0.0, abs_tol=1e-2) or math.isclose(
-            y_min, y_max, rel_tol=0.0, abs_tol=1e-2
-        ):
-            use_motion = True
+    log_dict["labels_resampled_count"] = len(label_pts)
+    log_dict["labels_resampled_range"] = _rng(label_pts)
 
-    if use_motion:
-        fps_for_motion = fps_out if fps_out > 0 else (fps_in if fps_in > 0 else 30.0)
-        motion_pts = rough_motion_path(str(input_path), fps_for_motion, duration_s)
-        if motion_pts:
-            label_pts = motion_pts
-            positions, used_mask, resampled_range = _compute_positions_and_range(label_pts)
-            log_dict["labels_source"] = "motion_fallback"
-            log_dict["labels_resampled_range"] = resampled_range
-        else:
-            log_dict["labels_source"] = "motion_fallback_failed"
-
-    log_dict["motion_fallback_used"] = log_dict["labels_source"] == "motion_fallback"
-    log_dict["labels_found"] = int(len(label_pts))
+    positions, used_mask = labels_to_positions(label_pts, fps_out, duration_s, raw_points)
 
     if len(positions) == 0 and frame_count > 0 and fps_out > 0:
         target_frames = int(round(frame_count * (fps_out / float(fps_in if fps_in > 0 else fps_out))))
@@ -1039,16 +1047,16 @@ def run(args: argparse.Namespace) -> None:
 
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_dict.update(
-            {
-                "input": input_path,
-                "output": output_path,
-                "fps_in": float(fps_in),
-                "fps_out": float(fps_out),
-                "preset": preset_key,
-                "ffmpeg_command": renderer.last_ffmpeg_command,
-            }
-        )
+        summary = {
+            "input": os.fspath(input_path),
+            "output": os.fspath(output_path),
+            "fps_in": float(fps_in),
+            "fps_out": float(fps_out),
+            "labels_found": int(len(raw_points)),
+            "preset": preset_key,
+            "ffmpeg_command": renderer.last_ffmpeg_command,
+        }
+        summary.update(log_dict)
         with log_path.open("w", encoding="utf-8") as handle:
             json.dump(to_jsonable(log_dict), handle, ensure_ascii=False, indent=2)
             handle.write("\n")

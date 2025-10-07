@@ -1,41 +1,55 @@
-"""Overlay telemetry visualisations for QC."""
-
-from __future__ import annotations
-
-import argparse
-import json
+﻿#!/usr/bin/env python
+# tools/overlay_debug.py — self-contained overlay from JSONL telemetry
+import argparse, json, os
 from pathlib import Path
-from typing import List, Optional
+import cv2
 
-import cv2  # type: ignore
-import numpy as np
-
-from render_follow_unified import (
-    ffprobe_fps,
-    find_label_files,
-    interp_labels_to_fps,
-    load_labels,
-)
-
-
-def _read_telemetry(path: Path) -> List[dict]:
-    records: List[dict] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if not stripped:
+def read_jsonl(p):
+    recs = []
+    with open(p, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
                 continue
-            records.append(json.loads(stripped))
-    if not records:
-        raise RuntimeError(f"Telemetry file {path} is empty")
-    return records
+            try:
+                recs.append(json.loads(line))
+            except Exception:
+                pass
+    return recs
 
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--in", dest="inp", required=True, help="input mp4 used for render")
+    ap.add_argument("--telemetry", required=True, help="JSONL written by unified renderer")
+    ap.add_argument("--out", default=None, help="output debug mp4")
+    ap.add_argument("--thickness", type=int, default=2)
+    ap.add_argument("--ball-radius", type=int, default=6)
+    args = ap.parse_args()
 
-def _load_frames(path: Path, flip: bool) -> List[np.ndarray]:
-    cap = cv2.VideoCapture(str(path))
+    inp = os.path.abspath(args.inp)
+    tel = os.path.abspath(args.telemetry)
+    out = os.path.abspath(args.out) if args.out else os.path.splitext(inp)[0] + ".__DEBUG.mp4"
+
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    recs = read_jsonl(tel)
+    if not recs:
+        print("[ERROR] no telemetry records found"); return 2
+
+    cap = cv2.VideoCapture(inp)
     if not cap.isOpened():
-        raise RuntimeError(f"Unable to open video {path}")
-    frames: List[np.ndarray] = []
+        print(f"[ERROR] cannot open input video: {inp}"); return 3
+
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    vw = cv2.VideoWriter(out, fourcc, fps, (W, H), True)
+    if not vw.isOpened():
+        print(f"[ERROR] cannot open writer: {out}"); return 4
+
+    idx = 0
+    ok = True
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -112,14 +126,13 @@ def run(args: argparse.Namespace) -> None:
 
     frames = _load_frames(input_path, args.flip180)
 
-    labels_root = Path(args.labels_root) if args.labels_root else None
     label_points = None
-    if labels_root is not None:
-        labels_root = labels_root.expanduser()
+    if args.labels_root:
         labels = load_labels(
-            find_label_files(input_path.stem, labels_root),
+            find_label_files(input_path.stem, args.labels_root),
             frames[0].shape[1],
             frames[0].shape[0],
+            fps_in,
         )
         positions, _ = interp_labels_to_fps(labels, len(frames), fps_in, fps_out)
         label_points = positions
@@ -162,4 +175,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
