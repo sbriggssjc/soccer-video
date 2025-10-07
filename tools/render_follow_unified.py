@@ -69,10 +69,10 @@ DEFAULT_PRESETS = {
     "cinematic": {
         "fps": 30,
         "portrait": "1080x1920",
-        "lookahead": 18,
-        "smoothing": 0.65,
+        "lookahead": 24,
+        "smoothing": 0.45,
         "pad": 0.22,
-        "speed_limit": 480,
+        "speed_limit": 900,
         "zoom_min": 1.0,
         "zoom_max": 2.2,
         "crf": 19,
@@ -426,7 +426,7 @@ class CameraPlanner:
         prev_zoom = self.base_zoom
         fallback_center = np.array([prev_cx, self.height * 0.45], dtype=np.float32)
         fallback_alpha = 0.05
-        per_frame_speed = self.speed_limit / max(self.fps, 0.001)
+        px_per_frame = self.speed_limit / max(self.fps, 0.001)
 
         aspect_target = None
         if self.portrait:
@@ -457,20 +457,25 @@ class CameraPlanner:
 
             target_zoom = self.base_zoom
 
+            speed_limited = False
+            if px_per_frame > 0:
+                dx = float(target[0]) - prev_cx
+                dy = float(target[1]) - prev_cy
+                mag = math.hypot(dx, dy)
+                if mag > px_per_frame:
+                    scale = px_per_frame / mag
+                    target_cx = prev_cx + dx * scale
+                    target_cy = prev_cy + dy * scale
+                    target = np.array([target_cx, target_cy], dtype=np.float32)
+                    speed_limited = True
+
             smoothed_cx = self.smoothing * target[0] + (1.0 - self.smoothing) * prev_cx
             smoothed_cy = self.smoothing * target[1] + (1.0 - self.smoothing) * prev_cy
             smoothed_zoom = self.smoothing * target_zoom + (1.0 - self.smoothing) * prev_zoom
 
             clamp_flags: List[str] = []
 
-            # Limit the camera speed.
-            dx = smoothed_cx - prev_cx
-            dy = smoothed_cy - prev_cy
-            distance = math.hypot(dx, dy)
-            if per_frame_speed > 0 and distance > per_frame_speed:
-                ratio = per_frame_speed / distance
-                smoothed_cx = prev_cx + dx * ratio
-                smoothed_cy = prev_cy + dy * ratio
+            if speed_limited:
                 clamp_flags.append("speed")
 
             smoothed_zoom = float(np.clip(smoothed_zoom, self.zoom_min, self.zoom_max))
