@@ -165,6 +165,42 @@ def ffprobe_fps(path: Path) -> float:
     return float(value)
 
 
+def ffprobe_duration(path: Path) -> float:
+    """Return the media duration in seconds using ffprobe."""
+
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - depends on environment
+        raise RuntimeError(
+            "Failed to read duration using ffprobe. Ensure ffmpeg is installed and on PATH."
+        ) from exc
+
+    value = result.stdout.strip()
+    if not value:
+        raise RuntimeError("ffprobe did not return a duration value.")
+
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise RuntimeError(f"Unable to parse ffprobe duration output: {value}") from exc
+
+
 def parse_portrait(value: Optional[str]) -> Optional[Tuple[int, int]]:
     """Convert a WxH string into integers."""
 
@@ -189,109 +225,152 @@ def find_label_files(stem: str, labels_root: Path) -> List[Path]:
     return sorted(labels_root.glob(pattern))
 
 
-def load_labels(paths: Sequence[Path], frame_width: int, frame_height: int) -> np.ndarray:
-    """Load and merge labels from one or more shards.
 
-    Returns a numpy array with columns ``frame_idx``, ``x`` and ``y`` in pixel space.
-    Outliers (z-score > 3) are discarded.
-    """
+def _detect_normalized(x: float, y: float, width: int, height: int) -> bool:
+    """Return ``True`` when coordinates appear to be normalised."""
 
-    records: List[Tuple[int, float, float]] = []
+    return (0.0 <= x <= 1.0) and (0.0 <= y <= 1.0) and (width > 2 and height > 2)
+
+
+def load_labels(
+    paths: Sequence[Path],
+    frame_width: int,
+    frame_height: int,
+    input_fps: float,
+) -> List[Tuple[float, float, float]]:
+    """Load label shards and return time-stamped positions in pixel space."""
+
+    pts: List[Tuple[float, float, float]] = []
+    fps = float(input_fps) if input_fps else 30.0
+
     for file_path in paths:
-        with file_path.open("r", encoding="utf-8") as handle:
+        with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
             for line in handle:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
-                parts = stripped.split()
+                parts = stripped.replace(",", " ").split()
                 if len(parts) < 3:
                     continue
                 try:
                     frame_idx = int(float(parts[0]))
                     x_value = float(parts[1])
                     y_value = float(parts[2])
-                except ValueError:
+                except Exception:
                     continue
-                records.append((frame_idx, x_value, y_value))
 
-    if not records:
-        return np.empty((0, 3), dtype=np.float32)
+                if _detect_normalized(x_value, y_value, frame_width, frame_height):
+                    x_value *= float(frame_width)
+                    y_value *= float(frame_height)
 
-    data = np.array(records, dtype=np.float32)
-    xs = data[:, 1]
-    ys = data[:, 2]
-    if np.nanmax(xs) <= 1.5 and np.nanmax(ys) <= 1.5:
-        data[:, 1] = xs * float(frame_width)
-        data[:, 2] = ys * float(frame_height)
+                t_value = frame_idx / fps if fps else 0.0
+                pts.append((t_value, x_value, y_value))
 
-    # Sort and drop duplicates (keeping the highest frame index entry first in chronological order)
-    order = np.argsort(data[:, 0])
-    data = data[order]
-    _, unique_indices = np.unique(data[:, 0], return_index=True)
-    data = data[np.sort(unique_indices)]
+    pts.sort(key=lambda record: record[0])
+    if not pts:
+        return []
 
-    mean_x = float(np.mean(data[:, 1]))
-    std_x = float(np.std(data[:, 1]))
-    mean_y = float(np.mean(data[:, 2]))
-    std_y = float(np.std(data[:, 2]))
-    keep_mask = np.ones(len(data), dtype=bool)
-    if std_x > 1e-6:
-        keep_mask &= np.abs((data[:, 1] - mean_x) / std_x) <= 3.0
-    if std_y > 1e-6:
-        keep_mask &= np.abs((data[:, 2] - mean_y) / std_y) <= 3.0
-    filtered = data[keep_mask]
+    import statistics
+
+    dx = [pts[i + 1][1] - pts[i][1] for i in range(len(pts) - 1)]
+    dy = [pts[i + 1][2] - pts[i][2] for i in range(len(pts) - 1)]
+
+    def _trim(values: List[float]) -> set[int]:
+        if len(values) < 8:
+            return set()
+        mean_value = statistics.mean(values)
+        stdev_value = statistics.pstdev(values) or 1.0
+        bad_indices: set[int] = set()
+        for idx, value in enumerate(values):
+            if abs((value - mean_value) / stdev_value) > 3.0:
+                bad_indices.add(idx)
+                bad_indices.add(idx + 1)
+        return bad_indices
+
+    bad_idx = _trim(dx) | _trim(dy)
+    filtered = [record for idx, record in enumerate(pts) if idx not in bad_idx]
     return filtered
 
 
-def _interpolate(values: np.ndarray, times: np.ndarray, target_times: np.ndarray) -> np.ndarray:
-    """Helper performing linear interpolation with edge clamping."""
+def resample_labels_by_time(
+    label_pts: Sequence[Tuple[float, float, float]],
+    render_fps: float,
+    duration_s: float,
+) -> List[Tuple[float, float, float]]:
+    """Return per-frame (t, x, y) aligned to render frames by time."""
 
-    if len(values) == 0:
-        return np.full_like(target_times, np.nan, dtype=np.float32)
-    left = values[0]
-    right = values[-1]
-    return np.interp(target_times, times, values, left=left, right=right)
+    if not label_pts:
+        return []
+
+    import bisect
+
+    ts = [point[0] for point in label_pts]
+    xs = [point[1] for point in label_pts]
+    ys = [point[2] for point in label_pts]
+
+    out: List[Tuple[float, float, float]] = []
+    total_frames = int(round(max(duration_s, 0.0) * float(render_fps)))
+    for frame_idx in range(total_frames):
+        t_value = frame_idx / float(render_fps) if render_fps else 0.0
+        pos = bisect.bisect_left(ts, t_value)
+        if pos <= 0:
+            x_value, y_value = xs[0], ys[0]
+        elif pos >= len(ts):
+            x_value, y_value = xs[-1], ys[-1]
+        else:
+            t0, t1 = ts[pos - 1], ts[pos]
+            weight = 0.0 if t1 == t0 else (t_value - t0) / (t1 - t0)
+            x_value = xs[pos - 1] * (1.0 - weight) + xs[pos] * weight
+            y_value = ys[pos - 1] * (1.0 - weight) + ys[pos] * weight
+        out.append((t_value, x_value, y_value))
+    return out
 
 
-def interp_labels_to_fps(
-    labels: np.ndarray,
-    frame_count: int,
-    src_fps: float,
-    dst_fps: float,
+def labels_to_positions(
+    label_pts: Sequence[Tuple[float, float, float]],
+    render_fps: float,
+    duration_s: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Resample label positions to the render FPS.
+    """Convert sparse label points into per-frame positions and usage mask."""
 
-    Returns ``(positions, used_mask)`` where ``positions`` is ``Nx2`` with NaNs for
-    missing data and ``used_mask`` marks frames that were close to a labelled
-    position.
-    """
+    total_frames = int(round(max(duration_s, 0.0) * float(render_fps)))
+    if total_frames <= 0:
+        empty_positions = np.empty((0, 2), dtype=np.float32)
+        empty_used = np.zeros(0, dtype=bool)
+        return empty_positions, empty_used
 
-    if len(labels) == 0 or frame_count <= 0:
-        positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
-        used = np.zeros(frame_count, dtype=bool)
+    if not label_pts:
+        positions = np.full((total_frames, 2), np.nan, dtype=np.float32)
+        used = np.zeros(total_frames, dtype=bool)
         return positions, used
 
-    times = labels[:, 0] / float(src_fps)
-    xs = labels[:, 1]
-    ys = labels[:, 2]
+    resampled = resample_labels_by_time(label_pts, render_fps, duration_s)
+    if len(resampled) != total_frames:
+        resampled = resampled[:total_frames]
+        while len(resampled) < total_frames:
+            t_value = len(resampled) / float(render_fps) if render_fps else 0.0
+            resampled.append((t_value, resampled[-1][1], resampled[-1][2]))
 
-    duration = float(frame_count) / float(src_fps)
-    target_count = max(1, int(round(duration * float(dst_fps))))
-    target_times = np.arange(target_count, dtype=np.float32) / float(dst_fps)
+    positions = np.array([[x, y] for _, x, y in resampled], dtype=np.float32)
 
-    interp_x = _interpolate(xs, times, target_times)
-    interp_y = _interpolate(ys, times, target_times)
+    times = [point[0] for point in label_pts]
+    import bisect
 
-    positions = np.stack([interp_x, interp_y], axis=1).astype(np.float32)
-
-    used = np.zeros(target_count, dtype=bool)
-    threshold = 1.5 / float(dst_fps)
-    for idx, t_value in enumerate(target_times):
-        diff = np.abs(times - t_value)
-        if diff.size and float(np.min(diff)) <= threshold:
-            used[idx] = True
+    used = np.zeros(len(resampled), dtype=bool)
+    if times:
+        threshold = 1.5 / float(render_fps) if render_fps else 0.0
+        for idx, (t_value, _, _) in enumerate(resampled):
+            insert_pos = bisect.bisect_left(times, t_value)
+            best = float("inf")
+            if insert_pos < len(times):
+                best = min(best, abs(times[insert_pos] - t_value))
+            if insert_pos > 0:
+                best = min(best, abs(times[insert_pos - 1] - t_value))
+            if best <= threshold:
+                used[idx] = True
 
     return positions, used
+
 
 
 @dataclass
@@ -704,6 +783,10 @@ def run(args: argparse.Namespace) -> None:
     preset_config = presets[preset_key]
 
     fps_in = float(ffprobe_fps(input_path))
+    try:
+        duration_s = float(ffprobe_duration(input_path))
+    except RuntimeError:
+        duration_s = 0.0
     fps_out = float(args.fps) if args.fps is not None else float(preset_config.get("fps", fps_in))
     if fps_out <= 0:
         fps_out = fps_in if fps_in > 0 else 30.0
@@ -734,8 +817,25 @@ def run(args: argparse.Namespace) -> None:
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     capture.release()
 
-    labels = load_labels(label_files, width, height)
-    positions, used_mask = interp_labels_to_fps(labels, frame_count, fps_in, fps_out)
+    if duration_s <= 0 and frame_count > 0 and fps_in > 0:
+        duration_s = frame_count / float(fps_in)
+    if duration_s <= 0 and frame_count > 0:
+        fallback_fps = fps_in if fps_in > 0 else 30.0
+        duration_s = frame_count / float(fallback_fps)
+
+    label_pts = load_labels(label_files, width, height, fps_in)
+    if label_pts:
+        max_label_time = max(point[0] for point in label_pts)
+        if duration_s <= max_label_time:
+            frame_step = 1.0 / float(fps_in) if fps_in > 0 else 0.0
+            duration_s = max_label_time + frame_step
+    positions, used_mask = labels_to_positions(label_pts, fps_out, duration_s)
+
+    if len(positions) == 0 and frame_count > 0 and fps_out > 0:
+        target_frames = int(round(frame_count * (fps_out / float(fps_in if fps_in > 0 else fps_out))))
+        target_frames = max(target_frames, frame_count)
+        positions = np.full((target_frames, 2), np.nan, dtype=np.float32)
+        used_mask = np.zeros(target_frames, dtype=bool)
 
     planner = CameraPlanner(
         width=width,
@@ -785,7 +885,7 @@ def run(args: argparse.Namespace) -> None:
             "output": output_path,
             "fps_in": float(fps_in),
             "fps_out": float(fps_out),
-            "labels_found": int(len(labels)),
+            "labels_found": int(len(label_pts)),
             "preset": preset_key,
             "ffmpeg_command": renderer.last_ffmpeg_command,
         }
