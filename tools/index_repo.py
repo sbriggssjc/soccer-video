@@ -1072,21 +1072,23 @@ def main() -> None:
 
     effective_excludes = list(DEFAULT_EXCLUDES)
     if args.include_outputs:
+        strip_prefixes = ("out/**", "runs/**")
+        strip_exts = (
+            "**/*.mp4",
+            "**/*.mov",
+            "**/*.mkv",
+            "**/*.avi",
+            "**/*.webm",
+            "**/*.png",
+            "**/*.jpg",
+            "**/*.jpeg",
+            "**/*.tif",
+            "**/*.psd",
+        )
         effective_excludes = [
-            pattern
-            for pattern in effective_excludes
-            if not (
-                pattern.startswith("out/")
-                or pattern.startswith("runs/")
-                or "*.mp" in pattern
-                or "*.mov" in pattern
-                or "*.mkv" in pattern
-                or "*.avi" in pattern
-                or "*.webm" in pattern
-                or "*.png" in pattern
-                or "*.jpg" in pattern
-                or "*.jpeg" in pattern
-            )
+            p
+            for p in effective_excludes
+            if (p not in strip_prefixes and p not in strip_exts)
         ]
     effective_excludes.extend(exclude_patterns)
 
