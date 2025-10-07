@@ -624,29 +624,59 @@ class Renderer:
         state: CamState,
         output_size: Tuple[int, int],
         overlay_image: Optional[np.ndarray],
-    ) -> np.ndarray:
+    ) -> Tuple[np.ndarray, Tuple[float, float, float, float]]:
         height, width = frame.shape[:2]
-        crop_w = min(state.crop_w, float(width))
-        crop_h = min(state.crop_h, float(height))
-        clamped_x0 = min(max(state.x0, 0.0), max(0.0, width - crop_w))
-        clamped_y0 = min(max(state.y0, 0.0), max(0.0, height - crop_h))
+        target_ar = 0.0
+        if output_size[0] > 0 and output_size[1] > 0:
+            target_ar = float(output_size[0]) / float(output_size[1])
+
+        crop_w = float(np.clip(state.crop_w, 1.0, float(width)))
+        crop_h = float(np.clip(state.crop_h, 1.0, float(height)))
+
+        if target_ar > 0.0 and crop_h > 0.0:
+            desired_w = crop_h * target_ar
+            desired_h = crop_w / target_ar if target_ar > 0.0 else crop_h
+            if desired_w <= width and not math.isclose(desired_w, crop_w, rel_tol=1e-4, abs_tol=1e-3):
+                crop_w = float(desired_w)
+            elif desired_h <= height and not math.isclose(desired_h, crop_h, rel_tol=1e-4, abs_tol=1e-3):
+                crop_h = float(desired_h)
+
+        max_x0 = max(0.0, float(width) - crop_w)
+        max_y0 = max(0.0, float(height) - crop_h)
+        clamped_x0 = float(np.clip(state.x0, 0.0, max_x0))
+        clamped_y0 = float(np.clip(state.y0, 0.0, max_y0))
+
+        x2_f = clamped_x0 + crop_w
+        y2_f = clamped_y0 + crop_h
+        if x2_f > width:
+            clamped_x0 = max(0.0, float(width) - crop_w)
+            x2_f = clamped_x0 + crop_w
+        if y2_f > height:
+            clamped_y0 = max(0.0, float(height) - crop_h)
+            y2_f = clamped_y0 + crop_h
+
         x1 = int(round(clamped_x0))
         y1 = int(round(clamped_y0))
-        x2 = int(round(min(clamped_x0 + crop_w, width)))
-        y2 = int(round(min(clamped_y0 + crop_h, height)))
+        x2 = int(round(min(x2_f, float(width))))
+        y2 = int(round(min(y2_f, float(height))))
+        x1 = max(0, min(x1, width - 1))
+        y1 = max(0, min(y1, height - 1))
         x2 = max(x1 + 1, min(x2, width))
         y2 = max(y1 + 1, min(y2, height))
 
         cropped = frame[y1:y2, x1:x2]
         if cropped.size == 0:
             cropped = frame
+            x1, y1 = 0, 0
+            x2, y2 = width, height
 
         resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
 
         if overlay_image is not None:
             resized = _apply_overlay(resized, overlay_image)
 
-        return resized
+        actual_crop = (float(x1), float(y1), float(x2 - x1), float(y2 - y1))
+        return resized, actual_crop
 
     def _append_endcard(self, output_size: Tuple[int, int]) -> List[np.ndarray]:
         if not self.endcard_path:
@@ -678,28 +708,30 @@ class Renderer:
 
         for state in states:
             frame = self._sample_frame(frames, state.frame)
-            composed = self._compose_frame(frame, state, output_size, overlay_image)
+            composed, actual_crop = self._compose_frame(frame, state, output_size, overlay_image)
             out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
             success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             if not success:
                 raise RuntimeError(f"Failed to write frame to {out_path}")
             if telemetry_file:
+                x0_used, y0_used, crop_w_used, crop_h_used = actual_crop
+                ball_pt = state.ball if state.ball else None
                 record = {
                     "t": float(state.frame) / float(self.fps_out),
                     "cx": float(state.cx),
                     "cy": float(state.cy),
                     "zoom": float(state.zoom),
-                    "crop_w": float(state.crop_w),
-                    "crop_h": float(state.crop_h),
-                    "x0": float(state.x0),
-                    "y0": float(state.y0),
+                    "crop_w": float(crop_w_used),
+                    "crop_h": float(crop_h_used),
+                    "x0": float(x0_used),
+                    "y0": float(y0_used),
                     "crop": [
-                        float(state.x0),
-                        float(state.y0),
-                        float(state.crop_w),
-                        float(state.crop_h),
+                        float(x0_used),
+                        float(y0_used),
+                        float(crop_w_used),
+                        float(crop_h_used),
                     ],
-                    "ball": [float(state.ball[0]), float(state.ball[1])] if state.ball else None,
+                    "ball": [float(ball_pt[0]), float(ball_pt[1])] if ball_pt else None,
                     "used_label": bool(state.used_label),
                     "clamp_flags": list(state.clamp_flags)
                     if isinstance(state.clamp_flags, (set, tuple))
