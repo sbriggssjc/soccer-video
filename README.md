@@ -143,3 +143,13 @@ The defaults mirror the values we previously documented, so you can omit the
 flags when using the recommended directory layout. Extra knobs like
 `--track-yolo-conf`, `--plan-zoom-max`, or `--overwrite` expose the same
 tuning options without tripping over PowerShell's line continuation rules.
+
+### Unified Render (Preset Wrapper)
+
+One entrypoint for all follow/zoom variants:
+
+    pwsh -File tools\render_follow.ps1 -In "C:\path\clip.mp4" -Preset Cinematic -Portrait
+    pwsh -File tools\render_follow.ps1 -In "C:\path\clip.mp4" -Preset Gentle   -Flip180
+    pwsh -File tools\render_follow.ps1 -In "C:\path\clip.mp4" -Preset RealZoom -ExtraArgs "--margin 0.22 --lookahead 24"
+
+The wrapper locates existing `render_follow_*` scripts (current or archived) and passes through common flags.
