@@ -872,7 +872,11 @@ def detect_used_by(records: Sequence[FileRecord], texts: Dict[str, str]) -> None
 
     for record in records:
         used_by: Set[str] = set()
-        target_name = Path(record.repo_relpath).name.lower()
+        target_path = Path(record.repo_relpath)
+        if len(target_path.stem) <= 3:
+            record.used_by_signals = []
+            continue
+        target_name = target_path.name.lower()
         for source_path, text in texts.items():
             if target_name in text.lower() and source_path != record.repo_relpath:
                 used_by.add(source_path)
@@ -904,6 +908,7 @@ def detect_orphans(records: Sequence[FileRecord], texts: Dict[str, str]) -> List
             reasons.append("non-core category")
         if reasons and record.file_type in {"script_py", "script_ps1"}:
             record.suspect_orphan = True
+            record.notes.extend(reasons)
             orphan_rows.append(
                 {
                     "repo_relpath": record.repo_relpath,
