@@ -10,9 +10,11 @@ $ErrorActionPreference = "Stop"
 $Root   = (Resolve-Path ".").Path
 $OutDir = Join-Path $Root "out"
 $LogPath = Join-Path $OutDir ("cleanup_actions_{0:yyyyMMdd_HHmmss}.csv" -f (Get-Date))
-$MovedBytes = 0
-$MovedCount = 0
-$Plan = @()
+
+# Use a strong, append-safe list for the plan (PS 5.1 friendly)
+$script:Plan = New-Object System.Collections.Generic.List[object]
+$script:MovedBytes = 0
+$script:MovedCount = 0
 
 function Ensure-Dir($p) {
   $d = Split-Path -Parent $p
@@ -25,7 +27,8 @@ function RelPath($abs) {
 function AbsPath($rel) { return (Join-Path $Root ($rel -replace '/','\')) }
 function Safe-Move($absSrc, $absDst) { if ($Mode -ne "DryRun") { Ensure-Dir $absDst; Move-Item -Force -LiteralPath $absSrc -Destination $absDst } }
 function Add-Plan($action,$relSrc,$relDst,$bytes,$reason) {
-  $global:Plan += [PSCustomObject]@{ action=$action; src=$relSrc; dst=$relDst; bytes=$bytes; reason=$reason }
+  $obj = [PSCustomObject]@{ action=$action; src=$relSrc; dst=$relDst; bytes=[int64]$bytes; reason=$reason }
+  $script:Plan.Add($obj) | Out-Null
 }
 function Get-Col($row, [string[]]$names) {
   foreach ($n in $names) {
@@ -35,11 +38,13 @@ function Get-Col($row, [string[]]$names) {
   return ""
 }
 
-# Load inputs
+# Load inputs (no ternary/??)
 $DupCsvPath    = Join-Path $OutDir "duplicates.csv"
 $OrphanCsvPath = Join-Path $OutDir "orphan_signals.csv"
-$DupRows    = (Test-Path $DupCsvPath)    ? (Import-Csv $DupCsvPath)    : @()
-$OrphanRows = (Test-Path $OrphanCsvPath) ? (Import-Csv $OrphanCsvPath) : @()
+$DupRows    = @()
+$OrphanRows = @()
+if (Test-Path $DupCsvPath)    { $DupRows    = Import-Csv $DupCsvPath }
+if (Test-Path $OrphanCsvPath) { $OrphanRows = Import-Csv $OrphanCsvPath }
 
 # Keep set
 $KeepSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -54,7 +59,7 @@ foreach ($row in $DupRows) {
   if ($type -ne "exact") { continue }
 
   $repRel = $rep.Trim().Replace('\','/')
-  $members = ($mems -split ';|,') | % { $_.Trim() } | ? { $_ }
+  $members = ($mems -split ';|,') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
   foreach ($m in $members) {
     $rel = $m.Replace('\','/')
     if ($rel -eq $repRel) { continue }
@@ -75,8 +80,10 @@ foreach ($row in $OrphanRows) {
   $rel = $rel.Trim().Replace('\','/')
   if ($KeepSet.Contains($rel)) { continue }
   $reasonsStr = Get-Col $row @('reasons','reason','Reasons','Reason')
-  $reasons = @(); if ($reasonsStr) { $reasons = ($reasonsStr -split ';|,') | % { $_.Trim().ToLower() } | ? { $_ } }
-  $hasStrong = $false; foreach ($r in $reasons) { if ($strongSignals -contains $r) { $hasStrong = $true; break } }
+  $reasons = @()
+  if ($reasonsStr) { $reasons = ($reasonsStr -split ';|,') | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ } }
+  $hasStrong = $false
+  foreach ($r in $reasons) { if ($strongSignals -contains $r) { $hasStrong = $true; break } }
   if (-not $hasStrong) { continue }
   $abs = AbsPath $rel
   if (Test-Path $abs) {
@@ -87,7 +94,7 @@ foreach ($row in $OrphanRows) {
 }
 
 # Rule C: de-version clip families (keep highest __vN)
-$roots = $DevVersionRoots -split ';' | % { $_.Trim() } | ? { $_ }
+$roots = $DevVersionRoots -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
 foreach ($rootRel in $roots) {
   $rootAbs = AbsPath $rootRel
   if (-not (Test-Path $rootAbs)) { continue }
@@ -111,24 +118,27 @@ foreach ($rootRel in $roots) {
 }
 
 # Execute
-if ($Plan.Count -eq 0) { Write-Host "No actions planned. Nothing to do."; return }
+if ($script:Plan.Count -eq 0) { Write-Host "No actions planned. Nothing to do."; return }
 if ($Mode -eq "Execute" -and -not (Test-Path $Trash)) { New-Item -ItemType Directory -Force -Path $Trash | Out-Null }
 
-("{0} planned actions -> Mode: {1}" -f $Plan.Count, $Mode) | Write-Host
-foreach ($item in $Plan) {
+("{0} planned actions -> Mode: {1}" -f $script:Plan.Count, $Mode) | Write-Host
+foreach ($item in $script:Plan) {
   $srcAbs = AbsPath $item.src
   $dstAbs = Join-Path $Trash $item.dst
   if (Test-Path $srcAbs) {
     Write-Host ("{0}: {1} -> {2} [{3}] {4} bytes" -f $Mode, $item.src, ("$Trash\" + $item.dst), $item.reason, $item.bytes)
     Safe-Move $srcAbs $dstAbs
-    if ($Mode -eq "Execute") { $global:MovedBytes += [int64]$item.bytes; $global:MovedCount += 1 }
+    if ($Mode -eq "Execute") {
+      $script:MovedBytes += [int64]$item.bytes
+      $script:MovedCount += 1
+    }
   }
 }
 
 Ensure-Dir $LogPath
-$Plan | Export-Csv -NoTypeInformation -Path $LogPath -Encoding UTF8
+$script:Plan | Export-Csv -NoTypeInformation -Path $LogPath -Encoding UTF8
 if ($Mode -eq "Execute") {
-  Write-Host ("Moved files: {0}   Reclaimed: {1:N2} MB" -f $MovedCount, ($MovedBytes/1MB))
+  Write-Host ("Moved files: {0}   Reclaimed: {1:N2} MB" -f $script:MovedCount, ($script:MovedBytes/1MB))
   Write-Host ("Log written: {0}" -f $LogPath)
   Write-Host ("Trash dir  : {0}" -f (Resolve-Path $Trash))
 } else {
