@@ -14,7 +14,7 @@ def draw_circ(img, x, y, color, r=12, thick=2):
 
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--in", required=True)
+ap.add_argument("--in", dest="input_path", required=True)
 ap.add_argument("--planner", default="out\\render_logs\\tester_022__SHOT.ball.jsonl")
 ap.add_argument("--telemetry", default="out\\render_logs\\tester_022__SHOT.jsonl")
 ap.add_argument("--anchors", default="out\\render_logs\\tester_022__SHOT.anchors.jsonl")
@@ -41,7 +41,7 @@ if os.path.exists(args.anchors):
         d = json.loads(line)
         anchors[int(round(d["t"] * (30.0)))] = (d["bx"], d["by"])  # rough fps, ok for overlay
 
-cap = cv2.VideoCapture(args.in)
+cap = cv2.VideoCapture(args.input_path)
 assert cap.isOpened()
 for s in [int(x.strip()) for x in args.frames.split(",") if x.strip()]:
     cap.set(cv2.CAP_PROP_POS_FRAMES, s)
