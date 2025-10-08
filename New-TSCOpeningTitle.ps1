@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)] [string]$PlayerImg,
   [Parameter(Mandatory=$true)] [string]$PlayerName,
@@ -19,7 +19,7 @@ param(
 $BG    = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
 $Badge = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 
-# Fonts (Montserrat ExtraBold preferred; fall back to Arial Bold)
+# Fonts (Montserrat ExtraBold preferred; fallback Arial Bold)
 $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\Montserrat-ExtraBold.ttf')
 if (!(Test-Path $BoldFontFF)) { $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\arialbd.ttf') }
 $BoldFontFF = $BoldFontFF.Replace('\','/') -replace ':','\:'
@@ -33,11 +33,11 @@ foreach ($p in @($PlayerImg, $BG, $Badge)) {
   if (!(Test-Path $p)) { throw "Missing required file: $p" }
 }
 
-$DurFrames   = [int]([math]::Round($Dur * $FPS))
-$FadeInFace  = 0.8
-$FadeOutFace = 0.7
-$FadeInBadge = 0.6
-$FadeOutBadge= 0.6
+$DurFrames    = [int]([math]::Round($Dur * $FPS))
+$FadeInFace   = 0.8
+$FadeOutFace  = 0.7
+$FadeInBadge  = 0.6
+$FadeOutBadge = 0.6
 
 $NameY = [int]($BadgeY + $BadgeSize/2 + 60)
 $NumY  = [int]($BadgeY + $BadgeSize/2 + 140)
@@ -67,9 +67,9 @@ ffmpeg -y `
    [0][face] overlay=x='(W-w)/2 + ${FaceOffsetX}':y='${BadgeY} - h/2 + ${FaceOffsetY}':shortest=1 [bgface];
 
    [bgface][badge] overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1,
-     drawtext=fontfile=${BoldFontFF}:text='${PlayerName.ToUpper()}':fontsize=72:fontcolor=${White}:
+     drawtext=fontfile=${BoldFontFF}:text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:
               x='(w-text_w)/2':y=${NameY},
-     drawtext=fontfile=${BoldFontFF}:text='#${PlayerNo}':fontsize=66:fontcolor=${Red}:
+     drawtext=fontfile=${BoldFontFF}:text='#$($PlayerNo)':fontsize=66:fontcolor=${Red}:
               x='(w-text_w)/2':y=${NumY}
  " `
  -map 3:a -c:a aac -shortest `
