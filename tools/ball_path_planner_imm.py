@@ -1,6 +1,5 @@
-import os
-import argparse, csv, json, math
-import cv2, numpy as np
+import os, json, math, cv2, numpy as np
+import argparse, csv
 from math import hypot
 
 def to_gray(bgr): return cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
@@ -334,7 +333,7 @@ def main():
     prev_g = eq(to_gray(fr1))
     prev_stab = warp_affine(fr1, np.eye(3, dtype=np.float32), W, H)
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
-    path_xy=[]; speeds=[]; records=[]
+    measurements=[]; smooth_path=[]; speeds=[]; records=[]
     trace = None; w = None
     n=0
     while True:
@@ -394,8 +393,8 @@ def main():
         if best is not None:
             bx, by = best
             # update vel
-            if path_xy:
-                vx,vy = bx-path_xy[-1][0], by-path_xy[-1][1]
+            if measurements:
+                vx,vy = bx-measurements[-1][0], by-measurements[-1][1]
             else:
                 vx,vy = 0.0,0.0
             vel = (0.6*vel[0]+0.4*vx, 0.6*vel[1]+0.4*vy)
@@ -412,12 +411,12 @@ def main():
             # sr = min(420, sr + 30)
 
         # spike check on raw pred displacement (before IMM)
-        if len(path_xy) >= 3:
-            vx = pred[0] - path_xy[-1][0]
-            vy = pred[1] - path_xy[-1][1]
+        if len(measurements) >= 3:
+            vx = pred[0] - measurements[-1][0]
+            vy = pred[1] - measurements[-1][1]
             s  = (vx*vx + vy*vy)**0.5
             if s > 20.0:
-                lx, ly = path_xy[-1]
+                lx, ly = measurements[-1]
                 tiny = 36
                 sx0 = int(max(0, lx - 60)); sy0 = int(max(0, ly - 60))
                 sx1 = int(min(W, lx + 60)); sy1 = int(min(H, ly + 60))
@@ -430,43 +429,40 @@ def main():
                         pred = (sx0 + ml[0] + t.shape[1]/2.0, sy0 + ml[1] + t.shape[0]/2.0)
                         miss = 0
 
-        # IMM smoothing online (acts like look-ahead when combined with anchors)
-        if n==0:
-            imm=IMM(dt=1.0/fps, p_switch=0.04); imm.init(pred[0], pred[1])
-        x,y,v = imm.step(np.array([pred[0],pred[1]],dtype=np.float32))
+        # chosen ball point in STABILIZED coords:
+        bx_s, by_s = float(pred[0]), float(pred[1])
 
-        bx_s = float(x)
-        by_s = float(y)
-
-        A_affine = A[:2, :]
+        # map STAB -> RAW using inverse affine (use H inverse if you use homography)
         try:
-            A_inv = cv2.invertAffineTransform(A_affine.astype(np.float32))
+            A_inv = cv2.invertAffineTransform(A[:2, :].astype(np.float64))
         except cv2.error:
-            A_inv = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+            A_inv = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
+        bx_r = float(A_inv[0,0]*bx_s + A_inv[0,1]*by_s + A_inv[0,2])
+        by_r = float(A_inv[1,0]*bx_s + A_inv[1,1]*by_s + A_inv[1,2])
 
-        bx_r = float(A_inv[0, 0] * bx_s + A_inv[0, 1] * by_s + A_inv[0, 2])
-        by_r = float(A_inv[1, 0] * bx_s + A_inv[1, 1] * by_s + A_inv[1, 2])
-
-        stab_W = float(stab.shape[1])
-        stab_H = float(stab.shape[0])
-        raw_W = float(fr.shape[1])
-        raw_H = float(fr.shape[0])
-
-        bx_s = float(np.clip(bx_s, 0.0, max(0.0, stab_W - 1.0)))
-        by_s = float(np.clip(by_s, 0.0, max(0.0, stab_H - 1.0)))
-        bx_r = float(np.clip(bx_r, 0.0, max(0.0, raw_W - 1.0)))
-        by_r = float(np.clip(by_r, 0.0, max(0.0, raw_H - 1.0)))
+        W = stab.shape[1]; H = stab.shape[0]
+        def clamp(v, lo, hi): return max(lo, min(hi, v))
+        bx_s = float(clamp(bx_s, 0.0, W-1.0)); by_s = float(clamp(by_s, 0.0, H-1.0))
+        bx_r = float(clamp(bx_r, 0.0, W-1.0)); by_r = float(clamp(by_r, 0.0, H-1.0))
 
         records.append({
             "t": float(n / fps),
             "f": int(n),
             "bx_stab": bx_s,
             "by_stab": by_s,
-            "bx_raw": bx_r,
-            "by_raw": by_r,
+            "bx_raw": float(bx_r),
+            "by_raw": float(by_r),
         })
 
-        path_xy.append((bx_s, by_s)); speeds.append(v*fps)  # v is px/frame; convert to px/s
+        measurements.append((bx_s, by_s))
+
+        # IMM smoothing online (acts like look-ahead when combined with anchors)
+        if n==0:
+            imm=IMM(dt=1.0/fps, p_switch=0.04); imm.init(bx_s, by_s)
+        x,y,v = imm.step(np.array([bx_s,by_s],dtype=np.float32))
+
+        smooth_path.append((float(x), float(y)))
+        speeds.append(v*fps)  # v is px/frame; convert to px/s
         prev_g=cur_g; prev_stab=stab; n+=1
     cap.release()
 
@@ -474,7 +470,7 @@ def main():
         trace.close()
 
     # planned zoom from smoothed speed
-    z = plan_zoom([p[0] for p in path_xy], [p[1] for p in path_xy], speeds, fps, W,H,
+    z = plan_zoom([p[0] for p in smooth_path], [p[1] for p in smooth_path], speeds, fps, W,H,
                   zmin=1.10, zmax=1.76, v0=480, k=0.0070, edge_m=0.14, edge_gain=0.18, rate=0.030)
 
     with open(args.out,"w",encoding="utf-8") as f:
