@@ -65,13 +65,26 @@ def main():
 
         # draw ball (red)
         bx = by = None
-        ball = rec.get("ball")
-        if ball and len(ball) == 2:
-            bx, by = float(ball[0]), float(ball[1])
+        if "ball" in rec:
+            ball_val = rec.get("ball")
+            if isinstance(ball_val, (list, tuple)) and len(ball_val) >= 2:
+                try:
+                    bx = float(ball_val[0])
+                    by = float(ball_val[1])
+                except (TypeError, ValueError):
+                    bx = by = None
         elif "bx_stab" in rec and "by_stab" in rec:
-            bx, by = float(rec["bx_stab"]), float(rec["by_stab"])
+            try:
+                bx = float(rec["bx_stab"])
+                by = float(rec["by_stab"])
+            except (TypeError, ValueError):
+                bx = by = None
         elif "bx_raw" in rec and "by_raw" in rec:
-            bx, by = float(rec["bx_raw"]), float(rec["by_raw"])
+            try:
+                bx = float(rec["bx_raw"])
+                by = float(rec["by_raw"])
+            except (TypeError, ValueError):
+                bx = by = None
 
         if bx is not None and by is not None:
             bx_i, by_i = int(round(bx)), int(round(by))

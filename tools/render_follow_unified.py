@@ -24,7 +24,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Sequence, TextIO, Tuple
+from typing import List, Mapping, Optional, Sequence, TextIO, Tuple, Union
 
 from math import hypot
 
@@ -56,6 +56,10 @@ class CamFollow2O:
 
 
 # --- Simple constant-velocity tracker (EMA-based Kalman-lite) ---
+
+BallPathEntry = Union[Tuple[float, float, float], Mapping[str, float]]
+
+
 class CV2DKalman:
     def __init__(self, bx, by):
         self.bx = float(bx)
@@ -1129,7 +1133,7 @@ class Renderer:
         telemetry: Optional[TextIO],
         init_manual: bool,
         init_t: float,
-        ball_path: Optional[Sequence[Tuple[float, float, float]]],
+        ball_path: Optional[Sequence[BallPathEntry]],
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -1148,7 +1152,29 @@ class Renderer:
         self.last_ffmpeg_command: Optional[List[str]] = None
         self.init_manual = bool(init_manual)
         self.init_t = float(init_t)
-        self.offline_ball_path = list(ball_path) if ball_path else None
+
+        normalized_ball_path: Optional[List[dict[str, float]]] = None
+        if ball_path:
+            normalized_ball_path = []
+            for entry in ball_path:
+                if isinstance(entry, Mapping):
+                    sanitized: dict[str, float] = {}
+                    for key, value in entry.items():
+                        if isinstance(value, (int, float)):
+                            sanitized[key] = float(value)
+                    if "z" not in sanitized:
+                        z_value = entry.get("z", 1.30) if hasattr(entry, "get") else 1.30
+                        try:
+                            sanitized["z"] = float(z_value)
+                        except (TypeError, ValueError):
+                            sanitized["z"] = 1.30
+                    normalized_ball_path.append(sanitized)
+                else:
+                    bx_val, by_val, z_val = entry
+                    normalized_ball_path.append(
+                        {"bx": float(bx_val), "by": float(by_val), "z": float(z_val)}
+                    )
+        self.offline_ball_path = normalized_ball_path
 
     def _compose_frame(
         self,
@@ -1388,27 +1414,71 @@ class Renderer:
                 cam_center_override: Optional[Tuple[float, float]] = None
 
                 ball_path_entry: Optional[Tuple[float, float]] = None
+                ball_path_space: Optional[str] = None
 
                 if offline_ball_path and n < len(offline_ball_path):
-                    path_xyz = offline_ball_path[n]
-                    if path_xyz is not None:
-                        bx = float(path_xyz[0])
-                        by = float(path_xyz[1])
-                        z_planned = float(path_xyz[2])
-                        ball_path_entry = (bx, by)
-                        ball_available = True
-                        used_tag = "offline_path"
-                        planned_zoom = float(np.clip(z_planned, zoom_min, zoom_max))
-                        zoom = planned_zoom
-                        if follower is not None:
-                            cam_center_override = follower.step(bx, by)
+                    path_rec = offline_ball_path[n]
+                    if path_rec is not None:
+                        entry_bx: Optional[float] = None
+                        entry_by: Optional[float] = None
+                        entry_space: Optional[str] = None
+                        z_planned_val: float = zoom
+
+                        if isinstance(path_rec, Mapping):
+                            stab_x = path_rec.get("bx_stab")
+                            stab_y = path_rec.get("by_stab")
+                            raw_x = path_rec.get("bx_raw")
+                            raw_y = path_rec.get("by_raw")
+                            generic_x = path_rec.get("bx")
+                            generic_y = path_rec.get("by")
+
+                            if stab_x is not None and stab_y is not None:
+                                entry_bx = float(stab_x)
+                                entry_by = float(stab_y)
+                                entry_space = "stab"
+                            elif raw_x is not None and raw_y is not None:
+                                entry_bx = float(raw_x)
+                                entry_by = float(raw_y)
+                                entry_space = "raw"
+                            elif generic_x is not None and generic_y is not None:
+                                entry_bx = float(generic_x)
+                                entry_by = float(generic_y)
+                                entry_space = "generic"
+
+                            z_candidate = path_rec.get("z")
+                            if z_candidate is not None:
+                                try:
+                                    z_planned_val = float(z_candidate)
+                                except (TypeError, ValueError):
+                                    z_planned_val = zoom
                         else:
-                            cam_center_override = (bx, by)
-                        if kal is None:
-                            kal = CV2DKalman(bx, by)
-                        else:
-                            kal.bx, kal.by = bx, by
-                        _refresh_template(bx, by)
+                            entry_vals = tuple(path_rec)
+                            if len(entry_vals) >= 2:
+                                entry_bx = float(entry_vals[0])
+                                entry_by = float(entry_vals[1])
+                                entry_space = "generic"
+                                if len(entry_vals) >= 3:
+                                    z_planned_val = float(entry_vals[2])
+
+                        if entry_bx is not None and entry_by is not None:
+                            bx = entry_bx
+                            by = entry_by
+                            z_planned = float(np.clip(z_planned_val, zoom_min, zoom_max))
+                            ball_path_entry = (bx, by)
+                            ball_path_space = entry_space
+                            ball_available = True
+                            used_tag = "offline_path"
+                            planned_zoom = z_planned
+                            zoom = planned_zoom
+                            if follower is not None:
+                                cam_center_override = follower.step(bx, by)
+                            else:
+                                cam_center_override = (bx, by)
+                            if kal is None:
+                                kal = CV2DKalman(bx, by)
+                            else:
+                                kal.bx, kal.by = bx, by
+                            _refresh_template(bx, by)
                 else:
                     if state.ball:
                         label_bx, label_by = state.ball
@@ -1628,7 +1698,19 @@ class Renderer:
                         "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
                     }
                     if ball_path_entry is not None:
-                        telemetry_rec["ball"] = [float(ball_path_entry[0]), float(ball_path_entry[1])]
+                        ball_log_x = float(ball_path_entry[0])
+                        ball_log_y = float(ball_path_entry[1])
+                        telemetry_rec["ball"] = [ball_log_x, ball_log_y]
+                        if ball_path_space == "stab":
+                            telemetry_rec["bx_stab"] = ball_log_x
+                            telemetry_rec["by_stab"] = ball_log_y
+                            telemetry_rec["ball_space"] = "stab"
+                        elif ball_path_space == "raw":
+                            telemetry_rec["bx_raw"] = ball_log_x
+                            telemetry_rec["by_raw"] = ball_log_y
+                            telemetry_rec["ball_space"] = "raw"
+                        elif ball_path_space:
+                            telemetry_rec["ball_space"] = ball_path_space
                     else:
                         ball_log_x = float(bx) if bx is not None else float("nan")
                         ball_log_y = float(by) if by is not None else float("nan")
@@ -1855,7 +1937,7 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
-    offline_ball_path: Optional[List[Tuple[float, float, float]]] = None
+    offline_ball_path: Optional[List[dict[str, float]]] = None
     if getattr(args, "ball_path", None):
         ball_path_file = Path(args.ball_path).expanduser()
         if not ball_path_file.exists():
@@ -1867,21 +1949,42 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
                 line = line.strip()
                 if not line:
                     continue
-                data = json.loads(line)
-                bx_val = data.get("bx_raw")
-                by_val = data.get("by_raw")
-                if bx_val is None or by_val is None:
-                    bx_val = data.get("bx") if bx_val is None else bx_val
-                    by_val = data.get("by") if by_val is None else by_val
-                if bx_val is None or by_val is None:
-                    bx_val = data.get("bx_stab")
-                    by_val = data.get("by_stab")
-                if bx_val is None or by_val is None:
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
                     continue
-                bx = float(bx_val)
-                by = float(by_val)
-                bz = float(data.get("z", default_zoom))
-                offline_ball_path.append((bx, by, bz))
+                if not isinstance(data, dict):
+                    continue
+
+                rec: dict[str, float] = {}
+                for key in ("bx_stab", "by_stab", "bx_raw", "by_raw", "bx", "by"):
+                    value = data.get(key)
+                    if value is None:
+                        continue
+                    try:
+                        rec[key] = float(value)
+                    except (TypeError, ValueError):
+                        continue
+
+                has_x = any(key in rec for key in ("bx_stab", "bx_raw", "bx"))
+                has_y = any(key in rec for key in ("by_stab", "by_raw", "by"))
+                if not (has_x and has_y):
+                    continue
+
+                z_value = data.get("z", default_zoom)
+                try:
+                    rec["z"] = float(z_value)
+                except (TypeError, ValueError):
+                    rec["z"] = float(default_zoom)
+
+                t_value = data.get("t")
+                if isinstance(t_value, (int, float)):
+                    rec["t"] = float(t_value)
+                frame_value = data.get("f")
+                if isinstance(frame_value, (int, float)):
+                    rec["f"] = float(frame_value)
+
+                offline_ball_path.append(rec)
     renderer = Renderer(
         input_path=input_path,
         output_path=output_path,
