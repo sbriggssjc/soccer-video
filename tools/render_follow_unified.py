@@ -30,6 +30,54 @@ import cv2
 import numpy as np
 
 
+def grab_frame_at_time(path, t_sec, fps_hint=30.0):
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        return None, None
+    fps = cap.get(cv2.CAP_PROP_FPS) or fps_hint
+    idx = max(0, int(round(t_sec * fps)))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+    ok, frame = cap.read()
+    cap.release()
+    return (frame if ok else None), fps
+
+
+def manual_select_ball(frame_bgr, window="Select ball"):
+    # Fallback if selectROI is missing: simple click-to-center
+    if not hasattr(cv2, "selectROI"):
+        clicked = {"pt": None}
+
+        def _cb(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN:
+                clicked["pt"] = (x, y)
+
+        cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+        cv2.imshow(window, frame_bgr)
+        cv2.setMouseCallback(window, _cb)
+        print("Click the ball; press ENTER to confirm.")
+        while True:
+            k = cv2.waitKey(20) & 0xFF
+            if k in (13, 32):
+                break
+            if k == 27:
+                clicked["pt"] = None
+                break
+        cv2.destroyWindow(window)
+        if clicked["pt"] is None:
+            return None
+        x, y = clicked["pt"]
+        side = 56
+        return (int(x - side // 2), int(y - side // 2), side, side)
+
+    # Preferred: drag a rectangle
+    cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+    r = cv2.selectROI(window, frame_bgr, showCrosshair=True, fromCenter=False)
+    cv2.destroyWindow(window)
+    if r is None or len(r) != 4 or r[2] <= 0 or r[3] <= 0:
+        return None
+    return tuple(int(v) for v in r)  # (x, y, w, h)
+
+
 def _clamp(v, lo, hi):
     return lo if v < lo else (hi if v > hi else v)
 
@@ -930,6 +978,8 @@ class Renderer:
         zoom_max: float,
         speed_limit: float,
         telemetry: Optional[TextIO],
+        init_manual: bool,
+        init_t: float,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -946,6 +996,8 @@ class Renderer:
         self.speed_limit = float(speed_limit)
         self.telemetry = telemetry
         self.last_ffmpeg_command: Optional[List[str]] = None
+        self.init_manual = bool(init_manual)
+        self.init_t = float(init_t)
 
     def _compose_frame(
         self,
@@ -1089,17 +1141,56 @@ class Renderer:
         tracker = BallTracker(
             width,
             height,
-            tpl_side=56,
-            search_radius=220,
-            min_r=6,
-            max_r=18,
-            max_speed_px=90,
-            conf_ncc=0.45,
-            conf_hough=20,
+            tpl_side=64,
+            search_radius=260,
+            min_r=7,
+            max_r=22,
+            max_speed_px=140,
+            conf_ncc=0.38,
+            conf_hough=22,
         )
         tracker_ready = False
         prev_cx = src_w_f / 2.0
         prev_cy = src_h_f / 2.0
+
+        if self.init_manual:
+            frame0, _fps0 = grab_frame_at_time(
+                input_mp4, max(0.0, self.init_t), fps_hint=src_fps or 30.0
+            )
+            if frame0 is not None:
+                roi = manual_select_ball(frame0, window="Drag around the BALL, press Enter")
+                if roi:
+                    x, y, w, h = roi
+                    bx0 = x + w / 2.0
+                    by0 = y + h / 2.0
+                    tracker_ready = tracker.init_from_label(frame0, bx0, by0)
+                    prev_cx, prev_cy = float(bx0), float(by0)
+                    if tf:
+                        tf.write(
+                            json.dumps(
+                                to_jsonable(
+                                    {
+                                        "t": float(self.init_t),
+                                        "used": "manual_bootstrap",
+                                        "cx": float(prev_cx),
+                                        "cy": float(prev_cy),
+                                        "zoom": 1.2,
+                                        "crop": [
+                                            float(max(0, bx0 - 240)),
+                                            float(max(0, by0 - 432)),
+                                            480.0,
+                                            864.0,
+                                        ],
+                                        "ball": [float(bx0), float(by0)],
+                                    }
+                                )
+                            )
+                            + "\n"
+                        )
+                else:
+                    print("[WARN] Manual init skipped (no ROI selected).")
+            else:
+                print(f"[WARN] Could not grab frame for manual init at t={self.init_t:.2f} s")
 
         try:
             for state in states:
@@ -1450,6 +1541,8 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         zoom_max=zoom_max,
         speed_limit=speed_limit,
         telemetry=telemetry,
+        init_manual=getattr(args, "init_manual", False),
+        init_t=getattr(args, "init_t", 0.8),
     )
 
     renderer.write_frames(states)
@@ -1498,6 +1591,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", dest="log", help="Optional render log path")
     parser.add_argument("--crf", dest="crf", type=int, help="Override CRF value")
     parser.add_argument("--keyint-factor", dest="keyint_factor", type=int, help="Override keyint factor")
+    parser.add_argument(
+        "--init-manual",
+        dest="init_manual",
+        action="store_true",
+        help="Manually select the ball ROI at the start of the clip.",
+    )
+    parser.add_argument(
+        "--init-t",
+        dest="init_t",
+        type=float,
+        default=0.8,
+        help="Time in seconds to show for manual init (default 0.8).",
+    )
     return parser
 
 
