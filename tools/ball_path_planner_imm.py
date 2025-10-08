@@ -334,7 +334,7 @@ def main():
     prev_g = eq(to_gray(fr1))
     prev_stab = warp_affine(fr1, np.eye(3, dtype=np.float32), W, H)
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
-    path_xy=[]; speeds=[]
+    path_xy=[]; speeds=[]; records=[]
     trace = None; w = None
     n=0
     while True:
@@ -434,7 +434,39 @@ def main():
         if n==0:
             imm=IMM(dt=1.0/fps, p_switch=0.04); imm.init(pred[0], pred[1])
         x,y,v = imm.step(np.array([pred[0],pred[1]],dtype=np.float32))
-        path_xy.append((x,y)); speeds.append(v*fps)  # v is px/frame; convert to px/s
+
+        bx_s = float(x)
+        by_s = float(y)
+
+        A_affine = A[:2, :]
+        try:
+            A_inv = cv2.invertAffineTransform(A_affine.astype(np.float32))
+        except cv2.error:
+            A_inv = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+
+        bx_r = float(A_inv[0, 0] * bx_s + A_inv[0, 1] * by_s + A_inv[0, 2])
+        by_r = float(A_inv[1, 0] * bx_s + A_inv[1, 1] * by_s + A_inv[1, 2])
+
+        stab_W = float(stab.shape[1])
+        stab_H = float(stab.shape[0])
+        raw_W = float(fr.shape[1])
+        raw_H = float(fr.shape[0])
+
+        bx_s = float(np.clip(bx_s, 0.0, max(0.0, stab_W - 1.0)))
+        by_s = float(np.clip(by_s, 0.0, max(0.0, stab_H - 1.0)))
+        bx_r = float(np.clip(bx_r, 0.0, max(0.0, raw_W - 1.0)))
+        by_r = float(np.clip(by_r, 0.0, max(0.0, raw_H - 1.0)))
+
+        records.append({
+            "t": float(n / fps),
+            "f": int(n),
+            "bx_stab": bx_s,
+            "by_stab": by_s,
+            "bx_raw": bx_r,
+            "by_raw": by_r,
+        })
+
+        path_xy.append((bx_s, by_s)); speeds.append(v*fps)  # v is px/frame; convert to px/s
         prev_g=cur_g; prev_stab=stab; n+=1
     cap.release()
 
@@ -446,9 +478,10 @@ def main():
                   zmin=1.10, zmax=1.76, v0=480, k=0.0070, edge_m=0.14, edge_gain=0.18, rate=0.030)
 
     with open(args.out,"w",encoding="utf-8") as f:
-        for i,(x,y) in enumerate(path_xy):
-            t=i/float(fps)
-            f.write(json.dumps({"t":t,"bx":float(x),"by":float(y),"z":float(z[i])})+"\n")
+        for i, rec in enumerate(records):
+            out = dict(rec)
+            out["z"] = float(z[i])
+            f.write(json.dumps(out)+"\n")
 
 if __name__=="__main__":
     main()
