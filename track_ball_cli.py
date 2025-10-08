@@ -1,6 +1,7 @@
 # track_ball_cli.py
 import argparse
 import csv
+import io
 import json
 import math
 import os
@@ -381,6 +382,8 @@ def main() -> None:
     maha_gate_base = 9.21  # ~99% for 2 DoF
 
     frame = 0
+    trace_file: Optional[io.TextIOBase] = None
+    trace_writer: Optional[csv.writer] = None
     while True:
         ok, bgr = cap.read()
         if not ok:
@@ -573,6 +576,22 @@ def main() -> None:
                 best_score = score
                 best = (mx, my, str(cand.get("src", "")))
 
+        if trace_writer is None:
+            os.makedirs("out\\diag_trace", exist_ok=True)
+            trace_file = open("out\\diag_trace\\cands.csv", "w", encoding="utf-8", newline="")
+            trace_writer = csv.writer(trace_file)
+            trace_writer.writerow(["frame", "num_cands", "top_score", "pred_x", "pred_y", "miss_streak"])
+        if trace_writer is not None:
+            top_score = "" if best is None else best_score
+            trace_writer.writerow([
+                frame,
+                len(candidates),
+                top_score,
+                pred_xy[0],
+                pred_xy[1],
+                miss,
+            ])
+
         if best is not None:
             jump = math.hypot(best[0] - pred_xy[0], best[1] - pred_xy[1])
             if jump > jump_gate:
@@ -650,6 +669,8 @@ def main() -> None:
             w = csv.writer(f)
             w.writerow(["frame", "time", "cx", "cy", "visible", "conf", "miss_streak"])
         print(f"Saved {args.out_csv}")
+        if trace_file is not None:
+            trace_file.close()
         return
 
     # RTS smoother
@@ -697,6 +718,9 @@ def main() -> None:
             )
 
     print(f"Saved {args.out_csv}")
+
+    if trace_file is not None:
+        trace_file.close()
 
 
 if __name__ == "__main__":
