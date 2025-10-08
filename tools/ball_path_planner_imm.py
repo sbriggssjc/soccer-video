@@ -365,6 +365,23 @@ def main():
             max_r=max_r,
         )
 
+        best = None
+        if cands:
+            px, py = pred
+
+            def score(c):
+                bx, by, base = c
+                dist = ((bx - px) ** 2 + (by - py) ** 2) ** 0.5
+                center_bias = -0.002 * abs(bx - (W * 0.5))
+                return base - 0.03 * dist + center_bias
+
+            cands.sort(key=score, reverse=True)
+            bx, by, _ = cands[0]
+            dist = ((bx - px) ** 2 + (by - py) ** 2) ** 0.5
+            max_jump = 18.0
+            if dist <= max_jump:
+                best = (bx, by)
+
         if n==0:
             os.makedirs("out\\diag_trace", exist_ok=True)
             trace = open("out\\diag_trace\\cands.csv","w",encoding="utf-8",newline="")
@@ -374,8 +391,8 @@ def main():
         if w is not None:
             w.writerow([n, len(cands), top, pred[0], pred[1], miss])
 
-        if cands:
-            bx,by,_ = cands[0]
+        if best is not None:
+            bx, by = best
             # update vel
             if path_xy:
                 vx,vy = bx-path_xy[-1][0], by-path_xy[-1][1]
@@ -391,6 +408,27 @@ def main():
         else:
             # widen globally if long miss
             miss += 1
+            # optionally enlarge `search_r` on miss
+            # sr = min(420, sr + 30)
+
+        # spike check on raw pred displacement (before IMM)
+        if len(path_xy) >= 3:
+            vx = pred[0] - path_xy[-1][0]
+            vy = pred[1] - path_xy[-1][1]
+            s  = (vx*vx + vy*vy)**0.5
+            if s > 20.0:
+                lx, ly = path_xy[-1]
+                tiny = 36
+                sx0 = int(max(0, lx - 60)); sy0 = int(max(0, ly - 60))
+                sx1 = int(min(W, lx + 60)); sy1 = int(min(H, ly + 60))
+                win = cv2.cvtColor(stab[sy0:sy1, sx0:sx1], cv2.COLOR_BGR2GRAY)
+                t   = tpl
+                if win.size and t.size and win.shape[0] >= t.shape[0] and win.shape[1] >= t.shape[1]:
+                    res = cv2.matchTemplate(eq(win), eq(t), cv2.TM_CCOEFF_NORMED)
+                    _min, m, _minl, ml = cv2.minMaxLoc(res)
+                    if m > 0.45:
+                        pred = (sx0 + ml[0] + t.shape[1]/2.0, sy0 + ml[1] + t.shape[0]/2.0)
+                        miss = 0
 
         # IMM smoothing online (acts like look-ahead when combined with anchors)
         if n==0:
