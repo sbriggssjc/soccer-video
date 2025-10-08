@@ -30,73 +30,184 @@ import cv2
 import numpy as np
 
 
-class TemplateTracker:
-    """
-    Simple ball tracker: bootstraps from labeled (bx,by) with a small template,
-    then uses cv2.matchTemplate in a search window around the last position.
-    """
+def _clamp(x, a, b):
+    return max(a, min(b, x))
 
-    def __init__(self, src_w, src_h, tpl_side=48, search_radius=160, conf_drop=0.35):
-        self.W, self.H = src_w, src_h
+
+def _clamp_roi(x, y, w, h, W, H):
+    x = _clamp(int(round(x)), 0, max(0, W - 1))
+    y = _clamp(int(round(y)), 0, max(0, H - 1))
+    w = _clamp(int(round(w)), 2, max(2, W - x))
+    h = _clamp(int(round(h)), 2, max(2, H - y))
+    return x, y, w, h
+
+
+def _roi_around_point(bx, by, W, H, side):
+    return _clamp_roi(bx - side / 2, by - side / 2, side, side, W, H)
+
+
+def make_ball_mask(bgr, grass_h_low=35, grass_h_high=95, min_v=175, max_s=110):
+    """Mask favoring bright, low-saturation, non-green pixels likely to be the ball."""
+
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    H, S, V = cv2.split(hsv)
+
+    non_grass = (H < grass_h_low) | (H > grass_h_high)
+    bright = V >= min_v
+    low_sat = S <= max_s
+
+    mask = (non_grass & bright) | (bright & low_sat)
+    mask = (mask.astype(np.uint8)) * 255
+    mask = cv2.medianBlur(mask, 5)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    return mask
+
+
+class BallTracker:
+    """Ball-aware tracker using masked NCC + Hough circles with motion gating."""
+
+    def __init__(
+        self,
+        W,
+        H,
+        tpl_side=48,
+        search_radius=180,
+        min_r=6,
+        max_r=18,
+        max_speed_px=80,
+        conf_ncc=0.45,
+        conf_hough=20,
+    ):
+        self.W, self.H = W, H
         self.tpl_side = int(tpl_side)
         self.search_r = int(search_radius)
-        self.conf_drop = float(conf_drop)
+        self.min_r = int(min_r)
+        self.max_r = int(max_r)
+        self.max_speed = float(max_speed_px)
+        self.conf_ncc = float(conf_ncc)
+        self.conf_hough = float(conf_hough)
+
         self.template = None
         self.pos = None
-        self.last_conf = 0.0
+        self.last_ncc = 0.0
 
-    def _extract_roi(self, frame, cx, cy, side):
-        x0 = int(round(cx - side / 2))
-        y0 = int(round(cy - side / 2))
-        x0 = max(0, min(x0, self.W - side))
-        y0 = max(0, min(y0, self.H - side))
-        roi = frame[y0 : y0 + side, x0 : x0 + side]
-        return roi, x0, y0
+    def _extract_tpl(self, gray, bx, by):
+        x0, y0, w, h = _roi_around_point(bx, by, self.W, self.H, self.tpl_side)
+        tpl = gray[y0 : y0 + h, x0 : x0 + w]
+        return tpl if tpl.size else None
 
-    def init_from_label(self, frame, bx, by):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        tpl, x0, y0 = self._extract_roi(gray, bx, by, self.tpl_side)
-        if tpl.size == 0:
+    def init_from_label(self, frame_bgr, bx, by):
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        tpl = self._extract_tpl(gray, bx, by)
+        if tpl is None or tpl.size == 0:
             return False
         self.template = tpl
         self.pos = (float(bx), float(by))
-        self.last_conf = 1.0
+        self.last_ncc = 1.0
         return True
 
-    def update(self, frame):
-        """Returns (bx, by, conf, used) where used is 'tm' or 'tm_reinit_failed'."""
+    def _search_window(self, gray, mask, cx, cy):
+        sr = self.search_r
+        x0 = _clamp(cx - sr, 0, self.W - 1)
+        y0 = _clamp(cy - sr, 0, self.H - 1)
+        x1 = _clamp(cx + sr, x0 + 1, self.W)
+        y1 = _clamp(cy + sr, y0 + 1, self.H)
+        g = gray[y0:y1, x0:x1]
+        m = mask[y0:y1, x0:x1] if mask is not None else None
+        return (x0, y0, g, m)
 
+    def _masked_ncc(self, search_gray, tpl_gray, search_mask):
+        if (
+            search_gray.shape[0] < tpl_gray.shape[0]
+            or search_gray.shape[1] < tpl_gray.shape[1]
+        ):
+            return None, -1.0, (0, 0)
+        if search_mask is not None:
+            sg = cv2.bitwise_and(search_gray, search_gray, mask=search_mask)
+            tg = tpl_gray.copy()
+            sg = cv2.equalizeHist(sg)
+            tg = cv2.equalizeHist(tg)
+            res = cv2.matchTemplate(sg, tg, cv2.TM_CCOEFF_NORMED)
+        else:
+            res = cv2.matchTemplate(search_gray, tpl_gray, cv2.TM_CCOEFF_NORMED)
+        _, ncc, _, max_loc = cv2.minMaxLoc(res)
+        return max_loc, float(ncc), res.shape
+
+    def _hough_ball(self, search_gray, search_mask):
+        if search_mask is not None:
+            sg = cv2.bitwise_and(search_gray, search_gray, mask=search_mask)
+        else:
+            sg = search_gray
+        sg = cv2.GaussianBlur(sg, (5, 5), 1.2)
+        circles = cv2.HoughCircles(
+            sg,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=self.min_r,
+            param1=120,
+            param2=self.conf_hough,
+            minRadius=self.min_r,
+            maxRadius=self.max_r,
+        )
+        cand = None
+        if circles is not None:
+            circles = np.uint16(np.around(circles[0]))
+            cand = max(
+                circles,
+                key=lambda c: -abs(int(c[2]) - (self.min_r + self.max_r) / 2),
+            )
+        return cand
+
+    def update(self, frame_bgr):
         if self.template is None or self.pos is None:
-            return None, None, 0.0, "tm_reinit_failed"
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            return None, None, 0.0, "tm_not_ready"
+
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        mask = make_ball_mask(frame_bgr)
 
         cx_prev, cy_prev = self.pos
-        sr = self.search_r
-        x0 = int(round(cx_prev - sr))
-        y0 = int(round(cy_prev - sr))
-        x0 = max(0, min(x0, self.W - 1))
-        y0 = max(0, min(y0, self.H - 1))
-        x1 = int(round(cx_prev + sr))
-        y1 = int(round(cy_prev + sr))
-        x1 = max(x0 + 1, min(x1, self.W))
-        y1 = max(y0 + 1, min(y1, self.H))
+        x0, y0, win, win_mask = self._search_window(gray, mask, cx_prev, cy_prev)
+        if win.size == 0:
+            return None, None, 0.0, "tm_empty"
 
-        search = gray[y0:y1, x0:x1]
-        if (
-            search.size == 0
-            or search.shape[0] < self.template.shape[0]
-            or search.shape[1] < self.template.shape[1]
-        ):
-            return None, None, 0.0, "tm_reinit_failed"
+        hough = self._hough_ball(win, win_mask)
+        max_loc, ncc, _ = self._masked_ncc(win, self.template, win_mask)
 
-        res = cv2.matchTemplate(search, self.template, cv2.TM_CCOEFF_NORMED)
-        _, conf, _, max_loc = cv2.minMaxLoc(res)
-        px = x0 + max_loc[0] + self.template.shape[1] / 2.0
-        py = y0 + max_loc[1] + self.template.shape[0] / 2.0
+        best_bx = best_by = None
+        used = "tm"
 
-        self.pos = (px, py)
-        self.last_conf = conf
-        return px, py, float(conf), "tm"
+        if max_loc is not None:
+            cand_ncc = (
+                x0 + (max_loc[0] + self.template.shape[1] / 2.0),
+                y0 + (max_loc[1] + self.template.shape[0] / 2.0),
+            )
+        else:
+            cand_ncc = (None, None)
+
+        cand_hgh = (
+            (x0 + hough[0], y0 + hough[1]) if hough is not None else (None, None)
+        )
+
+        if ncc >= self.conf_ncc and cand_ncc[0] is not None:
+            best_bx, best_by = cand_ncc
+            used = "tm_ncc"
+        elif hough is not None:
+            best_bx, best_by = cand_hgh
+            used = "tm_hough"
+            tpl = self._extract_tpl(gray, best_bx, best_by)
+            if tpl is not None:
+                self.template = tpl
+        else:
+            return None, None, ncc, "tm_fail"
+
+        dx = best_bx - cx_prev
+        dy = best_by - cy_prev
+        if (dx * dx + dy * dy) ** 0.5 > self.max_speed:
+            return None, None, ncc, "tm_speed_gate"
+
+        self.pos = (best_bx, best_by)
+        self.last_ncc = ncc
+        return best_bx, best_by, ncc, used
 import yaml
 
 
@@ -957,10 +1068,21 @@ class Renderer:
         src_h_f = float(height)
         speed_px_sec = float(self.speed_limit or 3000.0)
 
-        tracker = TemplateTracker(width, height, tpl_side=56, search_radius=200, conf_drop=0.35)
+        tracker = BallTracker(
+            width,
+            height,
+            tpl_side=56,
+            search_radius=220,
+            min_r=6,
+            max_r=18,
+            max_speed_px=90,
+            conf_ncc=0.45,
+            conf_hough=20,
+        )
         tracker_ready = False
         prev_cx = src_w_f / 2.0
         prev_cy = src_h_f / 2.0
+        prev_label_available = False
 
         try:
             for state in states:
@@ -986,12 +1108,11 @@ class Renderer:
                     label_available = True
 
                 used_tag = "planner"
-                just_bootstrapped = False
-                if label_available and not tracker_ready:
+                label_reappeared = label_available and not prev_label_available
+                if label_available and (label_reappeared or not tracker_ready):
                     tracker_ready = tracker.init_from_label(frame, bx, by)
                     if tracker_ready:
                         used_tag = "label_bootstrap"
-                        just_bootstrapped = True
                     else:
                         used_tag = "label"
 
@@ -1000,20 +1121,18 @@ class Renderer:
                     if tbx is not None and tby is not None:
                         bx, by = tbx, tby
                         ball_available = True
-                        if not just_bootstrapped:
-                            used_tag = used
-                        if label_available and tracker.last_conf < tracker.conf_drop:
-                            tracker_ready = tracker.init_from_label(frame, label_bx, label_by) or tracker_ready
+                        used_tag = used
                     else:
                         bx = by = None
                         ball_available = False
                         used_tag = used
-                        tracker_ready = False
+                        if used in {"tm_fail", "tm_empty", "tm_not_ready"}:
+                            tracker_ready = False
 
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
-                    cx = 0.90 * bx + 0.10 * prev_cx
-                    cy = 0.45 * by + 0.55 * (0.62 * src_h_f)
+                    cx = 0.92 * bx + 0.08 * prev_cx
+                    cy = 0.45 * by + 0.55 * (0.60 * src_h_f)
                 else:
                     cx, cy = pcx, pcy
 
@@ -1058,6 +1177,7 @@ class Renderer:
                         )
 
                 prev_cx, prev_cy = float(cx), float(cy)
+                prev_label_available = label_available
 
                 if tf:
                     tf.write(
