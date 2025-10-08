@@ -23,14 +23,55 @@ def warp_affine(img, A, W, H):
 
 # ---------- masks & motion ----------
 def field_mask_bgr(bgr):
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV); H,S,V = cv2.split(hsv)
-    grass = (H>=35)&(H<=95)&(S>=40)&(V>=40)
-    m = (grass.astype(np.uint8))*255
-    m = cv2.medianBlur(m,5)
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((5,5),np.uint8))
-    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((7,7),np.uint8))
-    m = cv2.erode(m, np.ones((9,9),np.uint8),1)
-    return m
+    H, W = bgr.shape[:2]
+    pixels = bgr.reshape(-1, 3).astype(np.float32)
+    if pixels.size == 0:
+        return np.zeros((H, W), dtype=np.uint8)
+
+    sample_size = min(20000, pixels.shape[0])
+    if sample_size < 3:
+        return np.zeros((H, W), dtype=np.uint8)
+
+    if sample_size < pixels.shape[0]:
+        rng = np.random.default_rng(12345)
+        idx = rng.choice(pixels.shape[0], size=sample_size, replace=False)
+        sample = pixels[idx]
+    else:
+        sample = pixels
+
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_MAX_ITER, 25, 0.5)
+    try:
+        _, labels, centers = cv2.kmeans(sample, 3, None, criteria, 4, cv2.KMEANS_PP_CENTERS)
+    except cv2.error:
+        return np.zeros((H, W), dtype=np.uint8)
+
+    centers = centers.astype(np.float32)
+    counts = np.bincount(labels.flatten(), minlength=3).astype(np.float32)
+    area_ratios = counts / max(counts.sum(), 1.0)
+
+    def green_score(center, area_ratio):
+        b, g, r = center
+        hsv = cv2.cvtColor(center.reshape(1, 1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV)[0, 0]
+        hue = hsv[0] / 180.0
+        sat = hsv[1] / 255.0
+        hue_dist = min(abs(hue - 1/3), abs(hue - 1/3 + 1), abs(hue - 1/3 - 1))
+        hue_score = max(0.0, 1.0 - hue_dist / 0.25)
+        green_ratio = g / (r + b + 1.0)
+        green_diff = (g - max(r, b)) / 255.0
+        return (0.6 * green_ratio + 0.6 * green_diff + 0.4 * sat + 0.4 * hue_score + 0.2 * area_ratio)
+
+    scores = [green_score(c, area_ratios[i]) for i, c in enumerate(centers)]
+    green_idx = int(np.argmax(scores))
+
+    dists = np.linalg.norm(pixels[:, None, :] - centers[None, :, :], axis=2)
+    labels_full = np.argmin(dists, axis=1)
+    mask = (labels_full.reshape(H, W) == green_idx).astype(np.uint8) * 255
+
+    mask = cv2.medianBlur(mask,5)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5,5),np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7,7),np.uint8))
+    mask = cv2.erode(mask, np.ones((9,9),np.uint8),1)
+    return mask
 
 def motion_strength(prev_stab, cur_stab):
     d = cv2.absdiff(prev_stab, cur_stab)
