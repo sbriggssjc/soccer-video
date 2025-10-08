@@ -873,6 +873,13 @@ class CameraPlanner:
         px_per_sec_y = self.speed_limit * 0.90
         pxpf_x = px_per_sec_x / render_fps if render_fps > 0 else 0.0
         pxpf_y = px_per_sec_y / render_fps if render_fps > 0 else 0.0
+        center_alpha = float(np.clip(self.smoothing, 0.0, 1.0))
+        if math.isclose(center_alpha, 0.0, abs_tol=1e-6):
+            center_alpha = 0.28
+        zoom_slew = 0.02
+        speed_norm_px = 24.0 * (render_fps / 24.0 if render_fps > 0 else 1.0)
+        prev_target_x = prev_cx
+        prev_target_y = prev_cy
 
         aspect_target = None
         aspect_ratio = self.width / max(self.height, 1e-6)
@@ -953,21 +960,23 @@ class CameraPlanner:
                     future_mean = valid_future.mean(axis=0)
                     target = 0.65 * target + 0.35 * future_mean
 
-            target_zoom = self.base_zoom
+            bx_used = float(target[0])
+            by_used = float(target[1])
 
-            cx = self.smoothing * float(target[0]) + (1.0 - self.smoothing) * prev_cx
-            cy = self.smoothing * float(target[1]) + (1.0 - self.smoothing) * prev_cy
-            zoom = self.smoothing * target_zoom + (1.0 - self.smoothing) * prev_zoom
+            speed_pf = math.hypot(bx_used - prev_target_x, by_used - prev_target_y)
+            norm = 0.0
+            if speed_norm_px > 1e-6:
+                norm = min(1.0, speed_pf / speed_norm_px)
+            zoom_target = self.zoom_min + (self.zoom_max - self.zoom_min) * (1.0 - norm)
+            zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
+            zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
+
+            cx = center_alpha * bx_used + (1.0 - center_alpha) * prev_cx
+            cy = center_alpha * by_used + (1.0 - center_alpha) * prev_cy
 
             ball_point: Optional[Tuple[float, float]] = None
             if has_position:
-                bx = float(pos[0])
-                by = float(pos[1])
-                ball_point = (bx, by)
-                follow_gain_x = 0.55
-                follow_gain_y = 0.35
-                cx = cx * (1.0 - follow_gain_x) + bx * follow_gain_x
-                cy = cy * (1.0 - follow_gain_y) + by * follow_gain_y
+                ball_point = (float(pos[0]), float(pos[1]))
 
             clamp_flags: List[str] = []
 
@@ -999,12 +1008,62 @@ class CameraPlanner:
                     )
                     bounds_clamped = bounds_clamped or bounds_again
 
+                max_x0 = max(0.0, self.width - crop_w)
+                max_y0 = max(0.0, self.height - crop_h)
+
+                def _rounded_bounds(x_start: float, y_start: float) -> Tuple[int, int, int, int]:
+                    x1_i = int(round(x_start))
+                    y1_i = int(round(y_start))
+                    x2_i = int(round(min(x_start + crop_w, self.width)))
+                    y2_i = int(round(min(y_start + crop_h, self.height)))
+                    return x1_i, y1_i, x2_i, y2_i
+
+                for _ in range(3):
+                    x1_i, y1_i, x2_i, y2_i = _rounded_bounds(x0, y0)
+                    moved = False
+                    if bx < x1_i:
+                        shift = x1_i - bx
+                        new_x0 = max(0.0, min(max_x0, x0 - shift))
+                        moved = moved or not math.isclose(new_x0, x0, rel_tol=1e-6, abs_tol=1e-3)
+                        x0 = new_x0
+                    elif bx > x2_i - 1:
+                        shift = bx - (x2_i - 1)
+                        new_x0 = max(0.0, min(max_x0, x0 + shift))
+                        moved = moved or not math.isclose(new_x0, x0, rel_tol=1e-6, abs_tol=1e-3)
+                        x0 = new_x0
+
+                    if by < y1_i:
+                        shift = y1_i - by
+                        new_y0 = max(0.0, min(max_y0, y0 - shift))
+                        moved = moved or not math.isclose(new_y0, y0, rel_tol=1e-6, abs_tol=1e-3)
+                        y0 = new_y0
+                    elif by > y2_i - 1:
+                        shift = by - (y2_i - 1)
+                        new_y0 = max(0.0, min(max_y0, y0 + shift))
+                        moved = moved or not math.isclose(new_y0, y0, rel_tol=1e-6, abs_tol=1e-3)
+                        y0 = new_y0
+
+                    if not moved:
+                        break
+
+                actual_cx = x0 + crop_w / 2.0
+                actual_cy = y0 + crop_h / 2.0
+                if (
+                    math.isclose(x0, 0.0, rel_tol=1e-6, abs_tol=1e-3)
+                    or math.isclose(y0, 0.0, rel_tol=1e-6, abs_tol=1e-3)
+                    or math.isclose(x0, max_x0, rel_tol=1e-6, abs_tol=1e-3)
+                    or math.isclose(y0, max_y0, rel_tol=1e-6, abs_tol=1e-3)
+                ):
+                    bounds_clamped = True
+
             if bounds_clamped:
                 clamp_flags.append("bounds")
 
             prev_cx = actual_cx
             prev_cy = actual_cy
             prev_zoom = zoom
+            prev_target_x = bx_used
+            prev_target_y = by_used
 
             states.append(
                 CamState(
