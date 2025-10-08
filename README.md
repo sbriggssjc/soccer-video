@@ -39,6 +39,25 @@ All examples use Windows PowerShell syntax without line continuations. The
 commands are idempotent—rerun them to resume processing, and add `--overwrite`
 to regenerate clips when needed.
 
+### PowerShell helper scripts
+
+When you need a quick throwaway helper script during the workflow, stick to
+PowerShell here-strings so the file lands on disk before invoking Python:
+
+```powershell
+@'
+import csv, sys
+path = r"out\render_logs\tester_022__SHOT.ball.jsonl"
+n = sum(1 for _ in open(path, "r", encoding="utf-8"))
+print("ballpath lines:", n)
+'@ | Set-Content -Encoding UTF8 tools\check_ballpath.py
+
+python tools\check_ballpath.py
+```
+
+Avoid Bash-style heredocs such as `python - <<'PY'` inside PowerShell—they are
+always parsed as literal arguments and will fail before Python ever runs.
+
 ## Pipeline Summary
 
 1. **detect** – merges motion and audio scores per second, applies hysteresis
