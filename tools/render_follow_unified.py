@@ -740,6 +740,8 @@ class Renderer:
         brand_overlay: Optional[Path],
         endcard: Optional[Path],
         pad: float,
+        zoom_min: float,
+        zoom_max: float,
         telemetry: Optional[TextIO],
     ) -> None:
         self.input_path = input_path
@@ -752,6 +754,8 @@ class Renderer:
         self.brand_overlay_path = brand_overlay
         self.endcard_path = endcard
         self.pad = float(pad)
+        self.zoom_min = float(zoom_min)
+        self.zoom_max = float(zoom_max)
         self.telemetry = telemetry
         self.last_ffmpeg_command: Optional[List[str]] = None
 
@@ -895,15 +899,49 @@ class Renderer:
             cam = cam[:frame_count]
 
         render_fps = float(self.fps_out)
-        for idx, state in enumerate(states):
+        zoom_min = float(self.zoom_min)
+        zoom_max = float(self.zoom_max)
+        src_w = float(width)
+        src_h = float(height)
+        prev_cx = src_w / 2.0
+        prev_cy = src_h / 2.0
+
+        for state in states:
             frame = self._sample_frame(frames, state.frame)
-            cx, cy, zoom = cam[idx] if idx < len(cam) else (state.cx, state.cy, state.zoom)
-            zoom = max(float(zoom), 1e-3)
-            cx = float(cx)
-            cy = float(cy)
+            n = state.frame
+            bx = by = None
+            ball_available = False
+            if state.ball:
+                bx, by = state.ball
+                bx = float(bx)
+                by = float(by)
+                ball_available = True
+
+            # === FOLLOW + SAFETY (paste inside per-frame loop) ===
+            # Start from planner suggestion (or center)
+            cx, cy, zoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
+
+            def lerp(a, b, t):
+                return a * (1.0 - t) + b * t
+
+            if ball_available:
+                # Horizontal: follow strongly
+                cx = lerp(prev_cx, bx, 0.75)
+
+                # Vertical: target ~60% of height; mix a bit of the ball to avoid drift
+                y_target = 0.62 * src_h
+                cy = lerp(prev_cy, lerp(y_target, by, 0.35), 0.65)
+            else:
+                # No labels -> keep whatever planner suggested (or very light drift)
+                cx = lerp(prev_cx, cx, 0.50)
+                cy = lerp(prev_cy, cy, 0.40)
+
+            zoom = float(np.clip(float(zoom), zoom_min, zoom_max))
+
+            # --- preliminary crop at current zoom ---
             x0, y0, crop_w, crop_h = compute_portrait_crop(
-                cx,
-                cy,
+                float(cx),
+                float(cy),
                 zoom,
                 width,
                 height,
@@ -911,33 +949,51 @@ class Renderer:
                 portrait_h,
                 self.pad,
             )
-            bx = by = None
-            if state.ball:
-                bx, by = state.ball
-            ball_available = ("bx" in locals() and "by" in locals() and bx is not None and by is not None)
-            ball_list = [float(bx), float(by)] if ball_available else None
 
+            # --- edge-safety zoom-out (if ball is near an edge) ---
+            if ball_available and crop_w > 1 and crop_h > 1:
+                dl = (bx - x0) / crop_w
+                dr = (x0 + crop_w - bx) / crop_w
+                dt = (by - y0) / crop_h
+                db = (y0 + crop_h - by) / crop_h
+                edge_thr = 0.12        # inside outer 12% ring is "risky"
+                if min(dl, dr, dt, db) < edge_thr:
+                    zoom = max(zoom_min, min(zoom_max, zoom * 0.90))  # zoom OUT 10%
+                    x0, y0, crop_w, crop_h = compute_portrait_crop(
+                        float(cx),
+                        float(cy),
+                        zoom,
+                        width,
+                        height,
+                        portrait_w,
+                        portrait_h,
+                        self.pad,
+                    )
+
+            # Save center for next frame
+            prev_cx, prev_cy = float(cx), float(cy)
+
+            # --- write telemetry (safe) ---
             if tf:
-                n = state.frame
                 rec = {
                     "t": float(n / render_fps) if render_fps else 0.0,
                     "cx": float(cx),
                     "cy": float(cy),
                     "zoom": float(zoom),
                     "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                    "ball": ball_list,
+                    "ball": [float(bx), float(by)] if ball_available else None,
                 }
                 tf.write(json.dumps(to_jsonable(rec)) + "\n")
             clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
             frame_state = CamState(
                 frame=state.frame,
-                cx=cx,
-                cy=cy,
-                zoom=zoom,
-                crop_w=crop_w,
-                crop_h=crop_h,
-                x0=x0,
-                y0=y0,
+                cx=float(cx),
+                cy=float(cy),
+                zoom=float(zoom),
+                crop_w=float(crop_w),
+                crop_h=float(crop_h),
+                x0=float(x0),
+                y0=float(y0),
                 used_label=state.used_label,
                 clamp_flags=clamp_flags,
                 ball=state.ball,
@@ -1152,6 +1208,8 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         brand_overlay=brand_overlay_path,
         endcard=endcard_path,
         pad=pad,
+        zoom_min=zoom_min,
+        zoom_max=zoom_max,
         telemetry=telemetry,
     )
 

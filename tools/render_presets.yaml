@@ -2,11 +2,11 @@ cinematic:
   fps: 30                 # or match source fps if you prefer
   portrait: "1080x1920"
   lookahead: 20
-  smoothing: 0.30         # was 0.65 → much snappier
-  pad: 0.12               # was 0.22 → wider crop horizontally
-  speed_limit: 1400       # was 480 → allow real tracking speed
+  smoothing: 0.25     # less lag
+  pad: 0.10           # wider horizontal view
+  speed_limit: 3000   # effectively disables clamp for testing
   zoom_min: 1.00
-  zoom_max: 1.80          # was 2.20 → avoid overly tight vertical crop
+  zoom_max: 1.90      # keep some range to breathe
   crf: 19
   keyint_factor: 4
 gentle:
