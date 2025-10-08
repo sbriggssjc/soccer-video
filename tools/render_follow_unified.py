@@ -26,54 +26,35 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, TextIO, Tuple
 
-import cv2, numpy as np
+import cv2
+import numpy as np
 
 
-def _read_gray_at_time(cap: cv2.VideoCapture, t_sec: float, src_fps: float):
-    """Random-access a gray frame at time t (sec)."""
-    if not cap or not cap.isOpened():
-        return None
-    # snap to frame index
-    idx = max(0, int(round(t_sec * (src_fps or 30.0))))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-    ok, frame = cap.read()
-    if not ok or frame is None:
-        return None
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+def _make_csrt():
+    """Create a CSRT tracker using legacy/non-legacy OpenCV factories."""
+
+    maker = None
+    if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
+        maker = cv2.legacy.TrackerCSRT_create
+    elif hasattr(cv2, "TrackerCSRT_create"):
+        maker = cv2.TrackerCSRT_create
+    else:
+        maker = None
+    return maker() if maker else None
 
 
-class FlowFollower:
-    """Optical-flow center based on consecutive time-indexed frames."""
+def _clamp_roi(x, y, w, h, W, H):
+    x = max(0, min(x, W - 1))
+    y = max(0, min(y, H - 1))
+    w = max(2, min(w, W - x))
+    h = max(2, min(h, H - y))
+    return int(x), int(y), int(w), int(h)
 
-    def __init__(self, src_w, src_h, cap: cv2.VideoCapture, src_fps: float):
-        self.cx = src_w / 2.0
-        self.cy = src_h / 2.0
-        self.cap = cap
-        self.src_fps = src_fps
-        self.prev_gray = None
-        self.prev_t = None
 
-    def update(self, t_sec: float, gain: float = 1.0):
-        # read current gray at time t; also ensure prev is t-1/fps
-        g_now = _read_gray_at_time(self.cap, t_sec, self.src_fps)
-        if g_now is None:
-            return self.cx, self.cy
-        if self.prev_gray is None or self.prev_t is None or abs(t_sec - self.prev_t) > 0.001:
-            g_prev = _read_gray_at_time(
-                self.cap,
-                max(0.0, t_sec - 1.0 / max(self.src_fps, 1.0)),
-                self.src_fps,
-            )
-            self.prev_gray = g_prev if g_prev is not None else g_now
-        # Farneback flow (robust median)
-        flow = cv2.calcOpticalFlowFarneback(self.prev_gray, g_now, None, 0.5, 2, 15, 3, 5, 1.2, 0)
-        fx = float(np.median(flow[..., 0])) * gain
-        fy = float(np.median(flow[..., 1])) * gain
-        self.cx += fx
-        self.cy += fy
-        self.prev_gray = g_now
-        self.prev_t = t_sec
-        return self.cx, self.cy
+def _roi_around_point(bx, by, W, H, side=96):
+    x = int(round(bx - side / 2))
+    y = int(round(by - side / 2))
+    return _clamp_roi(x, y, side, side, W, H)
 
 import yaml
 
@@ -796,29 +777,6 @@ class Renderer:
         self.telemetry = telemetry
         self.last_ffmpeg_command: Optional[List[str]] = None
 
-    def _read_frames(self) -> List[np.ndarray]:
-        capture = cv2.VideoCapture(str(self.input_path))
-        if not capture.isOpened():
-            raise RuntimeError(f"Failed to open input video: {self.input_path}")
-        frames: List[np.ndarray] = []
-        while True:
-            ok, frame = capture.read()
-            if not ok:
-                break
-            if self.flip180:
-                frame = cv2.rotate(frame, cv2.ROTATE_180)
-            frames.append(frame)
-        capture.release()
-        if not frames:
-            raise RuntimeError("No frames decoded from the input video.")
-        return frames
-
-    def _sample_frame(self, frames: Sequence[np.ndarray], index: int) -> np.ndarray:
-        time_sec = float(index) / float(self.fps_out)
-        source_index = int(round(time_sec * float(self.fps_in)))
-        source_index = max(0, min(source_index, len(frames) - 1))
-        return frames[source_index]
-
     def _compose_frame(
         self,
         frame: np.ndarray,
@@ -894,8 +852,24 @@ class Renderer:
         return [resized for _ in range(frame_count)]
 
     def write_frames(self, states: Sequence[CamState]) -> None:
-        frames = self._read_frames()
-        height, width = frames[0].shape[:2]
+        input_mp4 = str(self.input_path)
+        cap = cv2.VideoCapture(input_mp4)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {input_mp4}")
+
+        src_fps = cap.get(cv2.CAP_PROP_FPS) or float(self.fps_in) or 30.0
+        src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if src_w <= 0 or src_h <= 0:
+            ok, _first_frame = cap.read()
+            if not ok or _first_frame is None:
+                cap.release()
+                raise RuntimeError("No frames decoded from the input video.")
+            src_h, src_w = _first_frame.shape[:2]
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        width = int(src_w)
+        height = int(src_h)
         if self.portrait:
             output_size = self.portrait
         else:
@@ -938,24 +912,29 @@ class Renderer:
         render_fps = float(self.fps_out)
         zoom_min = float(self.zoom_min)
         zoom_max = float(self.zoom_max)
-        src_w = float(width)
-        src_h = float(height)
-        prev_cx = src_w / 2.0
-        prev_cy = src_h / 2.0
-        input_mp4 = str(self.input_path)
-        src_fps = float(self.fps_in)
-        flow_cap = cv2.VideoCapture(input_mp4)
-        if not flow_cap.isOpened():
-            flow_cap = None
-        flow_follower = FlowFollower(src_w, src_h, flow_cap, src_fps)
-        last_label_time = -1.0
-        STALE_SEC = 0.5
+        src_w_f = float(width)
+        src_h_f = float(height)
+        prev_cx = src_w_f / 2.0
+        prev_cy = src_h_f / 2.0
         speed_px_sec = float(self.speed_limit or 3000.0)
+
+        tracker = None
+        tracker_live = False
+        lost_count = 0
+        MAX_LOST = 15
+        last_label_time = -1.0
 
         try:
             for state in states:
-                frame = self._sample_frame(frames, state.frame)
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
+                if self.flip180:
+                    frame = cv2.rotate(frame, cv2.ROTATE_180)
+
                 n = state.frame
+                t = n / float(render_fps) if render_fps else 0.0
+
                 bx = by = None
                 ball_available = False
                 if state.ball:
@@ -963,24 +942,44 @@ class Renderer:
                     bx = float(bx)
                     by = float(by)
                     ball_available = True
-
-                t = n / float(render_fps) if render_fps else 0.0
-                pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
+                    last_label_time = t
 
                 if ball_available:
-                    last_label_time = t
-                    cx = 0.75 * bx + 0.25 * prev_cx
-                    cy = 0.35 * by + 0.65 * (0.62 * src_h)
-                    used_tag = "label"
-                else:
-                    if last_label_time < 0 or (t - last_label_time) > STALE_SEC:
-                        cx, cy = flow_follower.update(t, gain=1.0)
-                        cx = 0.85 * cx + 0.15 * pcx
-                        cy = 0.85 * cy + 0.15 * pcy
-                        used_tag = "flow"
+                    if not tracker:
+                        tracker = _make_csrt()
+                    if tracker and not tracker_live:
+                        roi = _roi_around_point(bx, by, width, height, side=96)
+                        tracker_live = tracker.init(frame, tuple(roi))
+                        lost_count = 0
+
+                used_tag = None
+                had_label = ball_available
+                if tracker and tracker_live:
+                    tracker_ok, box = tracker.update(frame)
+                    if tracker_ok:
+                        x, y, w, h = box
+                        bx = x + w / 2.0
+                        by = y + h / 2.0
+                        ball_available = True
+                        used_tag = "tracker"
+                        lost_count = 0
                     else:
-                        cx, cy = pcx, pcy
-                        used_tag = "planner"
+                        lost_count += 1
+                        ball_available = had_label
+                        used_tag = "tracker_lost"
+                        if lost_count >= MAX_LOST:
+                            tracker = _make_csrt()
+                            tracker_live = False
+                            lost_count = 0
+
+                pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
+                if ball_available and bx is not None and by is not None:
+                    cx = 0.80 * bx + 0.20 * prev_cx
+                    cy = 0.40 * by + 0.60 * (0.62 * src_h_f)
+                    used_tag = used_tag or "label"
+                else:
+                    cx, cy = pcx, pcy
+                    used_tag = used_tag or "planner"
 
                 if render_fps > 0:
                     max_dx = (speed_px_sec * 1.4) / render_fps
@@ -1004,13 +1003,13 @@ class Renderer:
                     self.pad,
                 )
 
-                if ball_available and crop_w > 1 and crop_h > 1:
+                if ball_available and bx is not None and by is not None and crop_w > 1 and crop_h > 1:
                     dl = (bx - x0) / crop_w
                     dr = (x0 + crop_w - bx) / crop_w
                     dt = (by - y0) / crop_h
                     db = (y0 + crop_h - by) / crop_h
                     if min(dl, dr, dt, db) < 0.12:
-                        zoom = max(zoom_min, min(zoom_max, zoom * 0.90))
+                        zoom = max(zoom_min, zoom * 0.90)
                         x0, y0, crop_w, crop_h = compute_portrait_crop(
                             float(cx),
                             float(cy),
@@ -1025,16 +1024,23 @@ class Renderer:
                 prev_cx, prev_cy = float(cx), float(cy)
 
                 if tf:
-                    rec = {
-                        "t": float(t),
-                        "cx": float(cx),
-                        "cy": float(cy),
-                        "zoom": float(zoom),
-                        "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                        "ball": [float(bx), float(by)] if ball_available else None,
-                        "used": used_tag,
-                    }
-                    tf.write(json.dumps(to_jsonable(rec)) + "\n")
+                    tf.write(
+                        json.dumps(
+                            to_jsonable(
+                                {
+                                    "t": float(t),
+                                    "used": used_tag,
+                                    "cx": float(cx),
+                                    "cy": float(cy),
+                                    "zoom": float(zoom),
+                                    "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
+                                    "ball": [float(bx), float(by)] if ball_available and bx is not None and by is not None else None,
+                                }
+                            )
+                        )
+                        + "\n"
+                    )
+
                 clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
                 frame_state = CamState(
                     frame=state.frame,
@@ -1057,8 +1063,7 @@ class Renderer:
                 if not success:
                     raise RuntimeError(f"Failed to write frame to {out_path}")
         finally:
-            if flow_cap:
-                flow_cap.release()
+            cap.release()
 
         endcard_frames = self._append_endcard(output_size)
         if endcard_frames:
