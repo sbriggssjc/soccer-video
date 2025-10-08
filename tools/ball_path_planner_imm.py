@@ -324,7 +324,8 @@ def main():
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     ok, fr1 = cap.read(); 
     if not ok: raise SystemExit("Empty video")
-    prev_g = eq(to_gray(fr1)); prev_stab = fr1.copy()
+    prev_g = eq(to_gray(fr1))
+    prev_stab = warp_affine(fr1, np.eye(3, dtype=np.float32), W, H)
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
     path_xy=[]; speeds=[]
     trace = None; w = None
