@@ -66,6 +66,29 @@ def to_jsonable(obj):
         return str(obj)
 
 
+def compute_portrait_crop(cx, cy, zoom, src_w, src_h, portrait_w, portrait_h, pad):
+    # target aspect (w/h)
+    t_aspect = float(portrait_w) / float(portrait_h) if portrait_w and portrait_h else (src_w / float(src_h))
+
+    # derive crop size from zoom while honoring aspect
+    crop_h = src_h / float(zoom)
+    crop_w = crop_h * t_aspect
+    if crop_w > src_w:  # bound if too wide
+        crop_w = float(src_w)
+        crop_h = crop_w / t_aspect
+
+    # pad shrinks the box a bit to keep safety margins around ball
+    if pad and pad > 0:
+        crop_w *= (1.0 - 2 * pad)
+        crop_h *= (1.0 - 2 * pad)
+
+    # clamp center so the crop stays inside the source
+    x0 = max(0.0, min(cx - crop_w / 2.0, src_w - crop_w))
+    y0 = max(0.0, min(cy - crop_h / 2.0, src_h - crop_h))
+
+    return x0, y0, crop_w, crop_h
+
+
 PRESETS_PATH = Path(__file__).resolve().parent / "render_presets.yaml"
 DEFAULT_PRESETS = {
     "cinematic": {
@@ -716,6 +739,7 @@ class Renderer:
         portrait: Optional[Tuple[int, int]],
         brand_overlay: Optional[Path],
         endcard: Optional[Path],
+        pad: float,
         telemetry_path: Optional[Path],
     ) -> None:
         self.input_path = input_path
@@ -727,6 +751,7 @@ class Renderer:
         self.portrait = portrait
         self.brand_overlay_path = brand_overlay
         self.endcard_path = endcard
+        self.pad = float(pad)
         self.telemetry_path = telemetry_path
         self.last_ffmpeg_command: Optional[List[str]] = None
 
@@ -835,41 +860,104 @@ class Renderer:
         else:
             output_size = (width, height)
 
+        portrait_w = output_size[0]
+        portrait_h = output_size[1]
+
         overlay_image = _load_overlay(self.brand_overlay_path, output_size)
         telemetry_file = None
         if self.telemetry_path:
             self.telemetry_path.parent.mkdir(parents=True, exist_ok=True)
             telemetry_file = self.telemetry_path.open("w", encoding="utf-8")
 
-        for state in states:
+        cam = [(state.cx, state.cy, state.zoom) for state in states]
+        if cam:
+            cx_values = [value[0] for value in cam]
+            cy_values = [value[1] for value in cam]
+        else:
+            cx_values = []
+            cy_values = []
+
+        frame_count = len(states)
+        duration_s = frame_count / float(self.fps_out) if self.fps_out else 0.0
+        if not cam or (
+            (max(cx_values) - min(cx_values) if cx_values else 0.0) < 1.0
+            and (max(cy_values) - min(cy_values) if cy_values else 0.0) < 1.0
+        ):
+            fallback_path = rough_motion_path(str(self.input_path), float(self.fps_out), duration_s)
+            if fallback_path:
+                default_zoom = cam[0][2] if cam else 1.2
+                cam = [(x, y, default_zoom) for _, x, y in fallback_path]
+            else:
+                default_zoom = cam[0][2] if cam else 1.2
+                cam = [(width / 2.0, height / 2.0, default_zoom) for _ in range(frame_count)]
+
+        if frame_count and len(cam) < frame_count:
+            last = cam[-1]
+            cam.extend([last] * (frame_count - len(cam)))
+        elif frame_count and len(cam) > frame_count:
+            cam = cam[:frame_count]
+
+        for idx, state in enumerate(states):
             frame = self._sample_frame(frames, state.frame)
-            composed, actual_crop = self._compose_frame(frame, state, output_size, overlay_image)
-            out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
-            success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-            if not success:
-                raise RuntimeError(f"Failed to write frame to {out_path}")
+            cx, cy, zoom = cam[idx] if idx < len(cam) else (state.cx, state.cy, state.zoom)
+            zoom = max(float(zoom), 1e-3)
+            cx = float(cx)
+            cy = float(cy)
+            x0, y0, crop_w, crop_h = compute_portrait_crop(
+                cx,
+                cy,
+                zoom,
+                width,
+                height,
+                portrait_w,
+                portrait_h,
+                self.pad,
+            )
+            clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
+            frame_state = CamState(
+                frame=state.frame,
+                cx=cx,
+                cy=cy,
+                zoom=zoom,
+                crop_w=crop_w,
+                crop_h=crop_h,
+                x0=x0,
+                y0=y0,
+                used_label=state.used_label,
+                clamp_flags=clamp_flags,
+                ball=state.ball,
+            )
+
+            composed, actual_crop = self._compose_frame(frame, frame_state, output_size, overlay_image)
             if telemetry_file:
                 x0_used, y0_used, crop_w_used, crop_h_used = actual_crop
-                ball_available = state.ball is not None
-                telemetry_rec = {
-                    "t": float(state.frame) / float(self.fps_out),
-                    "cx": float(state.cx),
-                    "cy": float(state.cy),
-                    "zoom": float(state.zoom),
-                    "crop": [
+                ball_pt = state.ball if state.ball else None
+                record = {
+                    "t": float(state.frame) / float(self.fps_out) if self.fps_out else 0.0,
+                    "cx": float(cx),
+                    "cy": float(cy),
+                    "zoom": float(zoom),
+                    "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
+                    "crop_w": float(crop_w_used),
+                    "crop_h": float(crop_h_used),
+                    "x0": float(x0_used),
+                    "y0": float(y0_used),
+                    "crop_actual": [
                         float(x0_used),
                         float(y0_used),
                         float(crop_w_used),
                         float(crop_h_used),
                     ],
-                    "ball": [
-                        float(state.ball[0]),
-                        float(state.ball[1]),
-                    ]
-                    if ball_available
-                    else None,
+                    "ball": [float(ball_pt[0]), float(ball_pt[1])] if ball_pt else None,
+                    "used_label": bool(state.used_label),
+                    "clamp_flags": list(frame_state.clamp_flags),
                 }
                 telemetry_file.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
+
+            out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
+            success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+            if not success:
+                raise RuntimeError(f"Failed to write frame to {out_path}")
 
         if telemetry_file:
             telemetry_file.close()
@@ -1078,6 +1166,7 @@ def run(args: argparse.Namespace) -> None:
         portrait=portrait,
         brand_overlay=brand_overlay_path,
         endcard=endcard_path,
+        pad=pad,
         telemetry_path=telemetry_path,
     )
 
