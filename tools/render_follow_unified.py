@@ -30,20 +30,35 @@ import cv2
 import numpy as np
 
 
-def _clamp(x, a, b):
-    return max(a, min(b, x))
+def _clamp(v, lo, hi):
+    return lo if v < lo else (hi if v > hi else v)
+
+
+def _round_i(x):  # robust int rounding
+    try:
+        return int(round(float(x)))
+    except Exception:
+        return int(x)
 
 
 def _clamp_roi(x, y, w, h, W, H):
-    x = _clamp(int(round(x)), 0, max(0, W - 1))
-    y = _clamp(int(round(y)), 0, max(0, H - 1))
-    w = _clamp(int(round(w)), 2, max(2, W - x))
-    h = _clamp(int(round(h)), 2, max(2, H - y))
+    x = _round_i(x)
+    y = _round_i(y)
+    w = _round_i(w)
+    h = _round_i(h)
+    x = _clamp(x, 0, max(0, W - 1))
+    y = _clamp(y, 0, max(0, H - 1))
+    w = _clamp(w, 2, max(2, W - x))
+    h = _clamp(h, 2, max(2, H - y))
     return x, y, w, h
 
 
 def _roi_around_point(bx, by, W, H, side):
-    return _clamp_roi(bx - side / 2, by - side / 2, side, side, W, H)
+    # side may be float → force int and keep odd size for better centering
+    side_i = max(3, _round_i(side) | 1)
+    x = _round_i(bx) - side_i // 2
+    y = _round_i(by) - side_i // 2
+    return _clamp_roi(x, y, side_i, side_i, W, H)
 
 
 def make_ball_mask(bgr, grass_h_low=35, grass_h_high=95, min_v=175, max_s=110):
@@ -108,12 +123,16 @@ class BallTracker:
 
     def _search_window(self, gray, mask, cx, cy):
         sr = self.search_r
-        x0 = _clamp(cx - sr, 0, self.W - 1)
-        y0 = _clamp(cy - sr, 0, self.H - 1)
-        x1 = _clamp(cx + sr, x0 + 1, self.W)
-        y1 = _clamp(cy + sr, y0 + 1, self.H)
-        g = gray[y0:y1, x0:x1]
-        m = mask[y0:y1, x0:x1] if mask is not None else None
+        x0, y0, w, h = _clamp_roi(
+            cx - sr,
+            cy - sr,
+            2 * sr,
+            2 * sr,
+            self.W,
+            self.H,
+        )
+        g = gray[y0 : y0 + h, x0 : x0 + w]
+        m = mask[y0 : y0 + h, x0 : x0 + w] if mask is not None else None
         return (x0, y0, g, m)
 
     def _masked_ncc(self, search_gray, tpl_gray, search_mask):
@@ -121,15 +140,13 @@ class BallTracker:
             search_gray.shape[0] < tpl_gray.shape[0]
             or search_gray.shape[1] < tpl_gray.shape[1]
         ):
-            return None, -1.0, (0, 0)
+            return None, -1.0, None
+        sg = search_gray
         if search_mask is not None:
             sg = cv2.bitwise_and(search_gray, search_gray, mask=search_mask)
-            tg = tpl_gray.copy()
-            sg = cv2.equalizeHist(sg)
-            tg = cv2.equalizeHist(tg)
-            res = cv2.matchTemplate(sg, tg, cv2.TM_CCOEFF_NORMED)
-        else:
-            res = cv2.matchTemplate(search_gray, tpl_gray, cv2.TM_CCOEFF_NORMED)
+        sg = cv2.equalizeHist(sg)
+        tg = cv2.equalizeHist(tpl_gray)
+        res = cv2.matchTemplate(sg, tg, cv2.TM_CCOEFF_NORMED)
         _, ncc, _, max_loc = cv2.minMaxLoc(res)
         return max_loc, float(ncc), res.shape
 
@@ -205,6 +222,7 @@ class BallTracker:
         if (dx * dx + dy * dy) ** 0.5 > self.max_speed:
             return None, None, ncc, "tm_speed_gate"
 
+        best_bx, best_by = float(best_bx), float(best_by)
         self.pos = (best_bx, best_by)
         self.last_ncc = ncc
         return best_bx, best_by, ncc, used
@@ -1082,7 +1100,6 @@ class Renderer:
         tracker_ready = False
         prev_cx = src_w_f / 2.0
         prev_cy = src_h_f / 2.0
-        prev_label_available = False
 
         try:
             for state in states:
@@ -1098,7 +1115,6 @@ class Renderer:
                 bx = by = None
                 ball_available = False
                 label_available = False
-                label_bx = label_by = None
                 if state.ball:
                     label_bx, label_by = state.ball
                     label_bx = float(label_bx)
@@ -1107,14 +1123,12 @@ class Renderer:
                     ball_available = True
                     label_available = True
 
-                used_tag = "planner"
-                label_reappeared = label_available and not prev_label_available
-                if label_available and (label_reappeared or not tracker_ready):
+                used_tag = "label" if label_available else "planner"
+
+                if ball_available and not tracker_ready and bx is not None and by is not None:
                     tracker_ready = tracker.init_from_label(frame, bx, by)
                     if tracker_ready:
                         used_tag = "label_bootstrap"
-                    else:
-                        used_tag = "label"
 
                 if tracker_ready:
                     tbx, tby, conf, used = tracker.update(frame)
@@ -1123,11 +1137,18 @@ class Renderer:
                         ball_available = True
                         used_tag = used
                     else:
-                        bx = by = None
-                        ball_available = False
                         used_tag = used
                         if used in {"tm_fail", "tm_empty", "tm_not_ready"}:
                             tracker_ready = False
+
+                if (
+                    ball_available
+                    and tracker_ready
+                    and bx is not None
+                    and by is not None
+                    and getattr(tracker, "last_ncc", 0.0) < tracker.conf_ncc
+                ):
+                    tracker_ready = tracker.init_from_label(frame, bx, by) or tracker_ready
 
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
@@ -1177,8 +1198,6 @@ class Renderer:
                         )
 
                 prev_cx, prev_cy = float(cx), float(cy)
-                prev_label_available = label_available
-
                 if tf:
                     tf.write(
                         json.dumps(
