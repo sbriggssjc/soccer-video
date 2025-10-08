@@ -1007,6 +1007,7 @@ class Renderer:
         telemetry: Optional[TextIO],
         init_manual: bool,
         init_t: float,
+        ball_path: Optional[Sequence[Tuple[float, float]]],
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -1025,6 +1026,7 @@ class Renderer:
         self.last_ffmpeg_command: Optional[List[str]] = None
         self.init_manual = bool(init_manual)
         self.init_t = float(init_t)
+        self.offline_ball_path = list(ball_path) if ball_path else None
 
     def _compose_frame(
         self,
@@ -1130,6 +1132,8 @@ class Renderer:
         overlay_image = _load_overlay(self.brand_overlay_path, output_size)
         tf = self.telemetry
 
+        offline_ball_path = self.offline_ball_path
+
         cam = [(state.cx, state.cy, state.zoom) for state in states]
         if cam:
             cx_values = [value[0] for value in cam]
@@ -1231,18 +1235,6 @@ class Renderer:
                 ball_available = False
                 label_available = False
                 used_tag = "planner"
-                if state.ball:
-                    label_bx, label_by = state.ball
-                    label_bx = float(label_bx)
-                    label_by = float(label_by)
-                    bx, by = label_bx, label_by
-                    ball_available = True
-                    label_available = True
-                    used_tag = "label"
-
-                pred_x = pred_y = None
-                if kal is not None:
-                    pred_x, pred_y = kal.predict()
 
                 def _refresh_template(cx_val: float, cy_val: float) -> None:
                     nonlocal template
@@ -1259,40 +1251,65 @@ class Renderer:
                     else:
                         template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
 
-                if label_available and bx is not None and by is not None:
-                    if kal is None:
-                        kal = CV2DKalman(bx, by)
-                    else:
-                        kal.correct(bx, by)
-                    _refresh_template(bx, by)
-                elif kal is not None and pred_x is not None and pred_y is not None:
-                    cand = find_ball_candidate(
-                        frame,
-                        (pred_x, pred_y),
-                        tpl=template,
-                        search_r=280,
-                        min_r=7,
-                        max_r=22,
-                        min_circ=0.58,
-                    )
-                    if cand is not None:
-                        cbx, cby, _circ, ncc, dist = cand
-                        if dist < 140 or ncc >= 0.36:
-                            bx, by = float(cbx), float(cby)
+                if offline_ball_path and n < len(offline_ball_path):
+                    path_xy = offline_ball_path[n]
+                    if path_xy is not None:
+                        bx, by = float(path_xy[0]), float(path_xy[1])
+                        ball_available = True
+                        used_tag = "offline_path"
+                        if kal is None:
+                            kal = CV2DKalman(bx, by)
+                        else:
+                            kal.bx, kal.by = bx, by
+                        _refresh_template(bx, by)
+                else:
+                    if state.ball:
+                        label_bx, label_by = state.ball
+                        label_bx = float(label_bx)
+                        label_by = float(label_by)
+                        bx, by = label_bx, label_by
+                        ball_available = True
+                        label_available = True
+                        used_tag = "label"
+
+                    pred_x = pred_y = None
+                    if kal is not None:
+                        pred_x, pred_y = kal.predict()
+
+                    if label_available and bx is not None and by is not None:
+                        if kal is None:
+                            kal = CV2DKalman(bx, by)
+                        else:
                             kal.correct(bx, by)
-                            _refresh_template(bx, by)
-                            ball_available = True
-                            used_tag = "model_cand"
+                        _refresh_template(bx, by)
+                    elif kal is not None and pred_x is not None and pred_y is not None:
+                        cand = find_ball_candidate(
+                            frame,
+                            (pred_x, pred_y),
+                            tpl=template,
+                            search_r=280,
+                            min_r=7,
+                            max_r=22,
+                            min_circ=0.58,
+                        )
+                        if cand is not None:
+                            cbx, cby, _circ, ncc, dist = cand
+                            if dist < 140 or ncc >= 0.36:
+                                bx, by = float(cbx), float(cby)
+                                kal.correct(bx, by)
+                                _refresh_template(bx, by)
+                                ball_available = True
+                                used_tag = "model_cand"
+                            else:
+                                bx, by = float(pred_x), float(pred_y)
+                                kal.bx, kal.by = bx, by
+                                ball_available = True
+                                used_tag = "model_pred"
                         else:
                             bx, by = float(pred_x), float(pred_y)
                             kal.bx, kal.by = bx, by
                             ball_available = True
                             used_tag = "model_pred"
-                    else:
-                        bx, by = float(pred_x), float(pred_y)
-                        kal.bx, kal.by = bx, by
-                        ball_available = True
-                        used_tag = "model_pred"
 
                 if label_available and kal is not None:
                     ball_available = True
@@ -1581,6 +1598,19 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
+    offline_ball_path: Optional[List[Tuple[float, float]]] = None
+    if getattr(args, "ball_path", None):
+        ball_path_file = Path(args.ball_path).expanduser()
+        if not ball_path_file.exists():
+            raise FileNotFoundError(f"Ball path file not found: {ball_path_file}")
+        with open(ball_path_file, "r", encoding="utf-8") as f:
+            offline_ball_path = []
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                offline_ball_path.append((float(data["bx"]), float(data["by"])))
     renderer = Renderer(
         input_path=input_path,
         output_path=output_path,
@@ -1598,6 +1628,7 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         telemetry=telemetry,
         init_manual=getattr(args, "init_manual", False),
         init_t=getattr(args, "init_t", 0.8),
+        ball_path=offline_ball_path,
     )
 
     renderer.write_frames(states)
@@ -1658,6 +1689,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.8,
         help="Time in seconds to show for manual init (default 0.8).",
+    )
+    parser.add_argument(
+        "--ball-path",
+        dest="ball_path",
+        help="JSONL from ball_path_offline.py",
     )
     return parser
 
