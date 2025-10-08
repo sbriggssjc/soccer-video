@@ -284,9 +284,24 @@ def main():
 
     # anchors
     anchors={}
+    warn_bad_frame=False
     with open(args.anchors,"r",encoding="utf-8") as f:
         for line in f:
-            d=json.loads(line); anchors[int(round(d["t"]*fps))]=(float(d["bx"]), float(d["by"]))
+            d=json.loads(line)
+            frame_from_time=int(round(float(d["t"])*fps))
+            stored=d.get("frame")
+            if stored is not None:
+                try:
+                    frame_from_file=int(round(float(stored)))
+                except (TypeError, ValueError):
+                    frame_from_file=None
+                else:
+                    if abs(frame_from_file-frame_from_time)>1:
+                        warn_bad_frame=True
+            anchors[frame_from_time]=(float(d["bx"]), float(d["by"]))
+
+    if warn_bad_frame:
+        print("[WARN] Anchor frames differed from time-based index; using t*fps to align.")
 
     # init frame + template
     idx0=max(0,int(round(args.init_t*fps))); cap.set(cv2.CAP_PROP_POS_FRAMES, idx0)
