@@ -1,4 +1,4 @@
-import argparse, json, math, cv2, numpy as np
+import argparse, json, math, os, cv2, numpy as np
 from collections import namedtuple
 from math import hypot
 
@@ -230,6 +230,8 @@ def main():
 
     tpl = eq(to_gray(f0))[int(by0-32):int(by0+32), int(bx0-32):int(bx0+32)].copy()
     if tpl.size==0: tpl = eq(to_gray(f0))
+    os.makedirs("out/diag_templates", exist_ok=True)
+    cv2.imwrite("out/diag_templates/tpl_init.png", tpl)
 
     # pass 1: stabilize and collect candidates
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
