@@ -71,8 +71,8 @@ ffmpeg -y `
    [0][face]overlay=x='(W-w)/2+${FaceOffsetX}':y='${BadgeY}-h/2+${FaceOffsetY}':shortest=1[bgface];
 
    [bgface][badgecut]overlay=x='(W-w)/2':y='${BadgeY}-h/2':shortest=1,
-     drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY}:alpha='if(lt(t,${TextFade}),(t/${TextFade}),if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade}))))',
-     drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}:alpha='if(lt(t,${TextFade}),(t/${TextFade}),if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade}))))'
+     drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY}:alpha='if(lt(t,${TextFade}),t/${TextFade},if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade})))',
+     drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}:alpha='if(lt(t,${TextFade}),t/${TextFade},if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade})))'
  " `
  -map 3:a -c:a aac -shortest `
  -c:v libx264 -r $FPS -pix_fmt yuv420p "$OutOpener"
