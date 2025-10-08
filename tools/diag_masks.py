@@ -28,13 +28,13 @@ def motion_strength(prev, cur):
 
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--in", required=True)
+ap.add_argument("--in", dest="input_path", required=True)
 ap.add_argument("--frames", default="0,60,120,180")
 ap.add_argument("--outdir", default="out\\diag_masks")
 args = ap.parse_args()
 
 os.makedirs(args.outdir, exist_ok=True)
-cap = cv2.VideoCapture(args.in)
+cap = cv2.VideoCapture(args.input_path)
 assert cap.isOpened()
 fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
