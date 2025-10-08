@@ -1,4 +1,5 @@
-import argparse, json, math, os
+import os
+import argparse, csv, json, math
 import cv2, numpy as np
 from math import hypot
 
@@ -365,7 +366,6 @@ def main():
         )
 
         if n==0:
-            import os, csv
             os.makedirs("out\\diag_trace", exist_ok=True)
             trace = open("out\\diag_trace\\cands.csv","w",encoding="utf-8",newline="")
             w = csv.writer(trace); w.writerow(["frame","num_cands","top_score","pred_x","pred_y","miss_streak"])
