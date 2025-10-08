@@ -8,12 +8,15 @@ param(
   [string]$OutOpener = "C:\Users\scott\soccer-video\out\opener\TSC_Opener__${PlayerNo}_${PlayerName}.mp4",
   [int]$FPS = 30,
   [double]$Dur = 3.5,
-  [int]$BadgeSize = 720,
-  [int]$BadgeY = 420,
+  [int]$BadgeSize = 900,
+  [int]$BadgeY = 520,
   [int]$FaceBox = 1080,
   [int]$FaceOffsetX = 0,
   [int]$FaceOffsetY = 0
 )
+
+# If FaceBox wasn't passed, match the badge size by default
+if (-not $PSBoundParameters.ContainsKey('FaceBox')) { $FaceBox = $BadgeSize }
 
 # Brand assets
 $BG    = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
@@ -22,7 +25,7 @@ $Badge = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 # Fonts (Montserrat ExtraBold preferred; fallback Arial Bold)
 $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\Montserrat-ExtraBold.ttf')
 if (!(Test-Path $BoldFontFF)) { $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\arialbd.ttf') }
-$BoldFontFF = $BoldFontFF.Replace('\\','/') -replace ':','\:'  # e.g., C\:/Windows/Fonts/arialbd.ttf
+$BoldFontFF = $BoldFontFF.Replace('\','/') -replace ':','\:'  # e.g., C\:/Windows/Fonts/arialbd.ttf
 
 # Brand colors
 $White = "0xFFFFFF"
@@ -41,6 +44,7 @@ $FadeOutBadge = 0.6
 
 $NameY = [int]($BadgeY + $BadgeSize/2 + 60)
 $NumY  = [int]($BadgeY + $BadgeSize/2 + 140)
+$TextFade = 0.35
 
 $null = New-Item -ItemType Directory -Force -Path (Split-Path $OutOpener)
 
@@ -51,9 +55,11 @@ ffmpeg -y `
  -f lavfi -t $Dur -i anullsrc=channel_layout=stereo:sample_rate=48000 `
  -filter_complex "
    [1]scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=increase,crop=${FaceBox}:${FaceBox},fps=${FPS},zoompan=z='min(1.10,1.0+0.03*on/${DurFrames})':d=${DurFrames}:s=${FaceBox}x${FaceBox},format=rgba,fade=t=in:st=0:d=${FadeInFace}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutFace)):d=${FadeOutFace}:alpha=1[face];
-   [2]scale=${BadgeSize}:-1,format=rgba,fade=t=in:st=0:d=${FadeInBadge}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutBadge)):d=${FadeOutBadge}:alpha=1[badge];
+   [2]scale=${BadgeSize}:-1,format=rgba,colorkey=0xFFFFFF:0.12:0.02,fade=t=in:st=0:d=${FadeInBadge}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutBadge)):d=${FadeOutBadge}:alpha=1[badgecut];
    [0][face]overlay=x='(W-w)/2+${FaceOffsetX}':y='${BadgeY}-h/2+${FaceOffsetY}':shortest=1[bgface];
-   [bgface][badge]overlay=x='(W-w)/2':y='${BadgeY}-h/2':shortest=1,drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY},drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}
+   [bgface][badgecut]overlay=x='(W-w)/2':y='${BadgeY}-h/2':shortest=1,
+     drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY}:alpha='if(lt(t,${TextFade}),(t/${TextFade}),if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade}))))',
+     drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}:alpha='if(lt(t,${TextFade}),(t/${TextFade}),if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade}))))'
  " `
  -map 3:a -c:a aac -shortest `
  -c:v libx264 -r $FPS -pix_fmt yuv420p "$OutOpener"
