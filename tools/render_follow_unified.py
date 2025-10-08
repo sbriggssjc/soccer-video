@@ -30,32 +30,73 @@ import cv2
 import numpy as np
 
 
-def _make_csrt():
-    """Create a CSRT tracker using legacy/non-legacy OpenCV factories."""
+class TemplateTracker:
+    """
+    Simple ball tracker: bootstraps from labeled (bx,by) with a small template,
+    then uses cv2.matchTemplate in a search window around the last position.
+    """
 
-    maker = None
-    if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
-        maker = cv2.legacy.TrackerCSRT_create
-    elif hasattr(cv2, "TrackerCSRT_create"):
-        maker = cv2.TrackerCSRT_create
-    else:
-        maker = None
-    return maker() if maker else None
+    def __init__(self, src_w, src_h, tpl_side=48, search_radius=160, conf_drop=0.35):
+        self.W, self.H = src_w, src_h
+        self.tpl_side = int(tpl_side)
+        self.search_r = int(search_radius)
+        self.conf_drop = float(conf_drop)
+        self.template = None
+        self.pos = None
+        self.last_conf = 0.0
 
+    def _extract_roi(self, frame, cx, cy, side):
+        x0 = int(round(cx - side / 2))
+        y0 = int(round(cy - side / 2))
+        x0 = max(0, min(x0, self.W - side))
+        y0 = max(0, min(y0, self.H - side))
+        roi = frame[y0 : y0 + side, x0 : x0 + side]
+        return roi, x0, y0
 
-def _clamp_roi(x, y, w, h, W, H):
-    x = max(0, min(x, W - 1))
-    y = max(0, min(y, H - 1))
-    w = max(2, min(w, W - x))
-    h = max(2, min(h, H - y))
-    return int(x), int(y), int(w), int(h)
+    def init_from_label(self, frame, bx, by):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        tpl, x0, y0 = self._extract_roi(gray, bx, by, self.tpl_side)
+        if tpl.size == 0:
+            return False
+        self.template = tpl
+        self.pos = (float(bx), float(by))
+        self.last_conf = 1.0
+        return True
 
+    def update(self, frame):
+        """Returns (bx, by, conf, used) where used is 'tm' or 'tm_reinit_failed'."""
 
-def _roi_around_point(bx, by, W, H, side=96):
-    x = int(round(bx - side / 2))
-    y = int(round(by - side / 2))
-    return _clamp_roi(x, y, side, side, W, H)
+        if self.template is None or self.pos is None:
+            return None, None, 0.0, "tm_reinit_failed"
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+        cx_prev, cy_prev = self.pos
+        sr = self.search_r
+        x0 = int(round(cx_prev - sr))
+        y0 = int(round(cy_prev - sr))
+        x0 = max(0, min(x0, self.W - 1))
+        y0 = max(0, min(y0, self.H - 1))
+        x1 = int(round(cx_prev + sr))
+        y1 = int(round(cy_prev + sr))
+        x1 = max(x0 + 1, min(x1, self.W))
+        y1 = max(y0 + 1, min(y1, self.H))
+
+        search = gray[y0:y1, x0:x1]
+        if (
+            search.size == 0
+            or search.shape[0] < self.template.shape[0]
+            or search.shape[1] < self.template.shape[1]
+        ):
+            return None, None, 0.0, "tm_reinit_failed"
+
+        res = cv2.matchTemplate(search, self.template, cv2.TM_CCOEFF_NORMED)
+        _, conf, _, max_loc = cv2.minMaxLoc(res)
+        px = x0 + max_loc[0] + self.template.shape[1] / 2.0
+        py = y0 + max_loc[1] + self.template.shape[0] / 2.0
+
+        self.pos = (px, py)
+        self.last_conf = conf
+        return px, py, float(conf), "tm"
 import yaml
 
 
@@ -914,15 +955,12 @@ class Renderer:
         zoom_max = float(self.zoom_max)
         src_w_f = float(width)
         src_h_f = float(height)
-        prev_cx = src_w_f / 2.0
-        prev_cy = src_h_f / 2.0
         speed_px_sec = float(self.speed_limit or 3000.0)
 
-        tracker = None
-        tracker_live = False
-        lost_count = 0
-        MAX_LOST = 15
-        last_label_time = -1.0
+        tracker = TemplateTracker(width, height, tpl_side=56, search_radius=200, conf_drop=0.35)
+        tracker_ready = False
+        prev_cx = src_w_f / 2.0
+        prev_cy = src_h_f / 2.0
 
         try:
             for state in states:
@@ -937,53 +975,51 @@ class Renderer:
 
                 bx = by = None
                 ball_available = False
+                label_available = False
+                label_bx = label_by = None
                 if state.ball:
-                    bx, by = state.ball
-                    bx = float(bx)
-                    by = float(by)
+                    label_bx, label_by = state.ball
+                    label_bx = float(label_bx)
+                    label_by = float(label_by)
+                    bx, by = label_bx, label_by
                     ball_available = True
-                    last_label_time = t
+                    label_available = True
 
-                if ball_available:
-                    if not tracker:
-                        tracker = _make_csrt()
-                    if tracker and not tracker_live:
-                        roi = _roi_around_point(bx, by, width, height, side=96)
-                        tracker_live = tracker.init(frame, tuple(roi))
-                        lost_count = 0
-
-                used_tag = None
-                had_label = ball_available
-                if tracker and tracker_live:
-                    tracker_ok, box = tracker.update(frame)
-                    if tracker_ok:
-                        x, y, w, h = box
-                        bx = x + w / 2.0
-                        by = y + h / 2.0
-                        ball_available = True
-                        used_tag = "tracker"
-                        lost_count = 0
+                used_tag = "planner"
+                just_bootstrapped = False
+                if label_available and not tracker_ready:
+                    tracker_ready = tracker.init_from_label(frame, bx, by)
+                    if tracker_ready:
+                        used_tag = "label_bootstrap"
+                        just_bootstrapped = True
                     else:
-                        lost_count += 1
-                        ball_available = had_label
-                        used_tag = "tracker_lost"
-                        if lost_count >= MAX_LOST:
-                            tracker = _make_csrt()
-                            tracker_live = False
-                            lost_count = 0
+                        used_tag = "label"
+
+                if tracker_ready:
+                    tbx, tby, conf, used = tracker.update(frame)
+                    if tbx is not None and tby is not None:
+                        bx, by = tbx, tby
+                        ball_available = True
+                        if not just_bootstrapped:
+                            used_tag = used
+                        if label_available and tracker.last_conf < tracker.conf_drop:
+                            tracker_ready = tracker.init_from_label(frame, label_bx, label_by) or tracker_ready
+                    else:
+                        bx = by = None
+                        ball_available = False
+                        used_tag = used
+                        tracker_ready = False
 
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
-                    cx = 0.80 * bx + 0.20 * prev_cx
-                    cy = 0.40 * by + 0.60 * (0.62 * src_h_f)
-                    used_tag = used_tag or "label"
+                    cx = 0.90 * bx + 0.10 * prev_cx
+                    cy = 0.45 * by + 0.55 * (0.62 * src_h_f)
                 else:
                     cx, cy = pcx, pcy
-                    used_tag = used_tag or "planner"
 
                 if render_fps > 0:
-                    max_dx = (speed_px_sec * 1.4) / render_fps
-                    max_dy = (speed_px_sec * 0.9) / render_fps
+                    max_dx = (speed_px_sec * 1.5) / render_fps
+                    max_dy = (speed_px_sec * 1.0) / render_fps
                     dx = cx - prev_cx
                     dy = cy - prev_cy
                     if abs(dx) > max_dx:
@@ -1064,6 +1100,9 @@ class Renderer:
                     raise RuntimeError(f"Failed to write frame to {out_path}")
         finally:
             cap.release()
+            if tf:
+                tf.close()
+                self.telemetry = None
 
         endcard_frames = self._append_endcard(output_size)
         if endcard_frames:
