@@ -7,6 +7,30 @@ import cv2
 import numpy as np
 
 
+def lk_refine(prev_gray, cur_gray, prev_xy):
+    if prev_xy is None:
+        return None, 0.0
+    p0 = np.array([[prev_xy]], dtype=np.float32)
+    p1, st, err = cv2.calcOpticalFlowPyrLK(
+        prev_gray,
+        cur_gray,
+        p0,
+        None,
+        winSize=(21, 21),
+        maxLevel=3,
+        criteria=(
+            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+            30,
+            0.01,
+        ),
+    )
+    if st is None or st[0][0] == 0:
+        return None, 0.0
+    x, y = p1[0][0]
+    conf = 1.0 / float(1.0 + (err[0][0] if err is not None else 20.0))
+    return (float(x), float(y)), conf
+
+
 # ---- basic helpers ----
 def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
@@ -114,54 +138,31 @@ def gen_candidates(
 
 
 # ---- dynamic programming over time ----
-def solve_path(
-    cand_lists,
-    start_xy,
-    lam_vel=0.06,
-    lam_acc=0.02,
-    miss_penalty=1.5,
-    max_jump=220.0,
-):
-    """Solve best ball path over candidate lists via dynamic programming."""
-
+def solve_path(cand_lists, start_xy, lam_vel=0.06, lam_acc=0.02, miss_penalty=1.2, max_jump=220.0):
     N = len(cand_lists)
     MISS = Cand(np.nan, np.nan, -999.0, 0.0, 0.0, 0.0)
     C = [c + [MISS] for c in cand_lists]
     K = [len(c) for c in C]
-
     INF = 1e15
-    dp = [np.full(k, INF, dtype=np.float64) for k in K]
-    prv = [np.full(k, -1, dtype=np.int32) for k in K]
+    dp = [np.full(k, INF, np.float64) for k in K]
+    prv = [np.full(k, -1, np.int32) for k in K]
 
     sx, sy = start_xy
     for j, c in enumerate(C[0]):
-        if np.isnan(c.x):
-            dp[0][j] = miss_penalty
-        else:
-            jump = math.hypot(c.x - sx, c.y - sy)
-            dp[0][j] = -c.score + lam_vel * jump
+        dp[0][j] = miss_penalty if np.isnan(c.x) else (-c.score + lam_vel * math.hypot(c.x - sx, c.y - sy))
 
     for t in range(1, N):
-        cand_t = C[t]
-        cand_p = C[t - 1]
-        for j, cj in enumerate(cand_t):
-            for i, ci in enumerate(cand_p):
-                if np.isnan(cj.x) and np.isnan(ci.x):
-                    cost = dp[t - 1][i] + miss_penalty
-                else:
-                    xj, yj = (cj.x, cj.y) if not np.isnan(cj.x) else (ci.x, ci.y)
-                    xi, yi = (ci.x, ci.y) if not np.isnan(ci.x) else (xj, yj)
-                    if not np.isnan(xi) and not np.isnan(xj):
-                        jump = math.hypot(xj - xi, yj - yi)
-                        if jump > max_jump:
-                            continue
-                    unary = miss_penalty if np.isnan(cj.x) else (-cj.score)
-                    pair = (
-                        0
-                        if np.isnan(xi) or np.isnan(xj)
-                        else lam_vel * math.hypot(xj - xi, yj - yi)
-                    )
-                    cost = dp[t - 1][i] + unary + pair
+        for j, cj in enumerate(C[t]):
+            for i, ci in enumerate(C[t - 1]):
+                xj, yj = (cj.x, cj.y) if not np.isnan(cj.x) else (ci.x, ci.y)
+                xi, yi = (ci.x, ci.y) if not np.isnan(ci.x) else (xj, yj)
+                if not (np.isnan(xi) or np.isnan(xj)):
+                    jump = math.hypot(xj - xi, yj - yi)
+                    if jump > max_jump:
+                        continue
+                unary = miss_penalty if np.isnan(cj.x) else (-cj.score)
+                pair = 0.0 if (np.isnan(xi) or np.isnan(xj)) else lam_vel * math.hypot(xj - xi, yj - yi)
+                cost = dp[t - 1][i] + unary + pair
                 if cost < dp[t][j]:
                     dp[t][j] = cost
                     prv[t][j] = i
@@ -178,10 +179,17 @@ def solve_path(
         x, y, src = path[t]
         if np.isnan(x) or np.isnan(y):
             if last is None:
-                last = (sx, sy)
+                last = start_xy
             path[t] = (last[0], last[1], "pred")
         else:
             last = (x, y)
+    nxt = None
+    for t in range(N - 1, -1, -1):
+        x, y, src = path[t]
+        if src == "pred" and nxt is not None:
+            path[t] = (0.5 * x + 0.5 * nxt[0], 0.5 * y + 0.5 * nxt[1], "pred")
+        else:
+            nxt = (x, y)
     return path
 
 
@@ -256,30 +264,57 @@ def main():
     positions = []
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     n = 0
+    prev_gray = None
+    pred = (bx0, by0)
+    miss_streak = 0
+
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        if n == 0:
-            pred = (bx0, by0)
-        else:
-            pred = positions[-1] if positions else (bx0, by0)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        if prev_gray is not None and positions:
+            flow_xy, flow_conf = lk_refine(prev_gray, gray, positions[-1])
+            if flow_xy is not None and flow_conf > 0.02:
+                px = 0.7 * flow_xy[0] + 0.3 * positions[-1][0]
+                py = 0.7 * flow_xy[1] + 0.3 * positions[-1][1]
+                pred = (px, py)
+            else:
+                pred = positions[-1]
+
+        sr = args.search_r + min(200, 40 * miss_streak)
+
         cands = gen_candidates(
             frame,
             pred,
             tpl,
-            search_r=args.search_r,
+            search_r=sr,
             max_cands=args.max_cands,
         )
-        cand_lists.append(cands)
+
+        if miss_streak >= 12 and not cands:
+            full_pred = (frame.shape[1] / 2.0, frame.shape[0] / 2.0)
+            cands = gen_candidates(
+                frame,
+                full_pred,
+                tpl,
+                search_r=max(frame.shape[0], frame.shape[1]),
+                max_cands=args.max_cands * 2,
+            )
+
         if cands:
             positions.append((cands[0].x, cands[0].y))
-            g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            cur = extract_tpl(g, int(cands[0].x), int(cands[0].y), 64, W, H)
+            miss_streak = 0
+            cur = extract_tpl(gray, int(cands[0].x), int(cands[0].y), 64, frame.shape[1], frame.shape[0])
             if cur.size and tpl.size and cur.shape == tpl.shape:
                 tpl = cv2.addWeighted(tpl, 0.9, cur, 0.1, 0)
         else:
             positions.append(positions[-1] if positions else (bx0, by0))
+            miss_streak += 1
+
+        cand_lists.append(cands)
+        prev_gray = gray
         n += 1
     cap.release()
 
