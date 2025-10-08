@@ -269,6 +269,7 @@ def main():
     field_m = field_mask_bgr(fr1)
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
     path_xy=[]; speeds=[]
+    trace = None; w = None
     n=0
     while True:
         ok, fr = cap.read()
@@ -286,6 +287,16 @@ def main():
 
         sr = 240 + min(200, 40*miss)
         cands = gen_candidates(stab, fr, field_m, mot, pred, tpl, search_r=sr, cone_dir=cone_dir, cone_deg=26)
+
+        if n==0:
+            import os, csv
+            os.makedirs("out\\diag_trace", exist_ok=True)
+            trace = open("out\\diag_trace\\cands.csv","w",encoding="utf-8",newline="")
+            w = csv.writer(trace); w.writerow(["frame","num_cands","top_score","pred_x","pred_y","miss_streak"])
+
+        top = cands[0][2] if cands else ""
+        if w is not None:
+            w.writerow([n, len(cands), top, pred[0], pred[1], miss])
 
         if cands:
             bx,by,_ = cands[0]
@@ -312,6 +323,9 @@ def main():
         path_xy.append((x,y)); speeds.append(v*fps)  # v is px/frame; convert to px/s
         prev_g=cur_g; prev_stab=stab; n+=1
     cap.release()
+
+    if trace is not None:
+        trace.close()
 
     # planned zoom from smoothed speed
     z = plan_zoom([p[0] for p in path_xy], [p[1] for p in path_xy], speeds, fps, W,H,
