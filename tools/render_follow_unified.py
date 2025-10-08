@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, TextIO, Tuple
 
-import cv2  # type: ignore
+import cv2
 
 try:  # pragma: no cover - fallback for environments without numpy
     import numpy as np
@@ -41,6 +41,35 @@ except Exception:  # pragma: no cover - keep script importable without numpy
     np = _NPStub()  # type: ignore[assignment]
 
 import yaml
+
+
+class FlowFollower:
+    """Keeps a running camera center using coarse optical flow when labels are absent/stale."""
+
+    def __init__(self, start_cx, start_cy):
+        self.cx = float(start_cx)
+        self.cy = float(start_cy)
+        self.prev_gray = None
+
+    def update(self, frame_bgr, gain=1.0):
+        # Farneback flow on downscaled frames for stability/speed
+        if frame_bgr is None:
+            return self.cx, self.cy
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        if self.prev_gray is None:
+            self.prev_gray = gray
+            return self.cx, self.cy
+        # Compute flow
+        flow = cv2.calcOpticalFlowFarneback(
+            self.prev_gray, gray, None, 0.5, 2, 15, 3, 5, 1.2, 0
+        )
+        self.prev_gray = gray
+        # Median flow is robust
+        fx = float(np.median(flow[..., 0])) * gain
+        fy = float(np.median(flow[..., 1])) * gain
+        self.cx += fx
+        self.cy += fy
+        return self.cx, self.cy
 
 
 def to_jsonable(obj):
@@ -742,6 +771,7 @@ class Renderer:
         pad: float,
         zoom_min: float,
         zoom_max: float,
+        speed_limit: float,
         telemetry: Optional[TextIO],
     ) -> None:
         self.input_path = input_path
@@ -756,6 +786,7 @@ class Renderer:
         self.pad = float(pad)
         self.zoom_min = float(zoom_min)
         self.zoom_max = float(zoom_max)
+        self.speed_limit = float(speed_limit)
         self.telemetry = telemetry
         self.last_ffmpeg_command: Optional[List[str]] = None
 
@@ -906,105 +937,130 @@ class Renderer:
         prev_cx = src_w / 2.0
         prev_cy = src_h / 2.0
 
-        for state in states:
-            frame = self._sample_frame(frames, state.frame)
-            n = state.frame
-            bx = by = None
-            ball_available = False
-            if state.ball:
-                bx, by = state.ball
-                bx = float(bx)
-                by = float(by)
-                ball_available = True
+        flow_cap = cv2.VideoCapture(str(self.input_path))
+        if not flow_cap.isOpened():
+            flow_cap = None
+        flow_follower = FlowFollower(src_w / 2.0, src_h / 2.0)
+        last_label_time = -1.0
+        STALE_SEC = 0.5
+        base_speed = self.speed_limit if self.speed_limit else 3000.0
+        speed_px_sec_x = float(base_speed) * 1.2
+        speed_px_sec_y = float(base_speed) * 0.9
 
-            # === FOLLOW + SAFETY (paste inside per-frame loop) ===
-            # Start from planner suggestion (or center)
-            cx, cy, zoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
+        try:
+            for state in states:
+                frame = self._sample_frame(frames, state.frame)
+                n = state.frame
+                bx = by = None
+                ball_available = False
+                if state.ball:
+                    bx, by = state.ball
+                    bx = float(bx)
+                    by = float(by)
+                    ball_available = True
 
-            def lerp(a, b, t):
-                return a * (1.0 - t) + b * t
+                t = n / float(render_fps) if render_fps else 0.0
+                pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
+                have_frame, src_frame = (flow_cap.read() if flow_cap else (False, None))
+                if not have_frame:
+                    src_frame = None
 
-            if ball_available:
-                # Horizontal: follow strongly
-                cx = lerp(prev_cx, bx, 0.75)
+                used_mode = "planner"
+                if ball_available:
+                    last_label_time = t
+                    flow_follower.update(src_frame, gain=0.0)
+                    cx = 0.75 * bx + 0.25 * prev_cx
+                    cy = 0.35 * by + 0.65 * (0.62 * src_h)
+                    used_mode = "label"
+                else:
+                    if last_label_time < 0 or (t - last_label_time) > STALE_SEC:
+                        cx, cy = flow_follower.update(src_frame, gain=1.0)
+                        cx = 0.85 * cx + 0.15 * pcx
+                        cy = 0.85 * cy + 0.15 * pcy
+                        used_mode = "flow"
+                    else:
+                        flow_follower.update(src_frame, gain=0.0)
+                        cx, cy = pcx, pcy
+                        used_mode = "planner"
 
-                # Vertical: target ~60% of height; mix a bit of the ball to avoid drift
-                y_target = 0.62 * src_h
-                cy = lerp(prev_cy, lerp(y_target, by, 0.35), 0.65)
-            else:
-                # No labels -> keep whatever planner suggested (or very light drift)
-                cx = lerp(prev_cx, cx, 0.50)
-                cy = lerp(prev_cy, cy, 0.40)
+                if render_fps > 0:
+                    max_dx = speed_px_sec_x / render_fps
+                    max_dy = speed_px_sec_y / render_fps
+                    dx = cx - prev_cx
+                    dy = cy - prev_cy
+                    if abs(dx) > max_dx:
+                        cx = prev_cx + (max_dx if dx > 0 else -max_dx)
+                    if abs(dy) > max_dy:
+                        cy = prev_cy + (max_dy if dy > 0 else -max_dy)
 
-            zoom = float(np.clip(float(zoom), zoom_min, zoom_max))
+                zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
+                x0, y0, crop_w, crop_h = compute_portrait_crop(
+                    float(cx),
+                    float(cy),
+                    zoom,
+                    width,
+                    height,
+                    portrait_w,
+                    portrait_h,
+                    self.pad,
+                )
 
-            # --- preliminary crop at current zoom ---
-            x0, y0, crop_w, crop_h = compute_portrait_crop(
-                float(cx),
-                float(cy),
-                zoom,
-                width,
-                height,
-                portrait_w,
-                portrait_h,
-                self.pad,
-            )
+                if ball_available and crop_w > 1 and crop_h > 1:
+                    dl = (bx - x0) / crop_w
+                    dr = (x0 + crop_w - bx) / crop_w
+                    dt = (by - y0) / crop_h
+                    db = (y0 + crop_h - by) / crop_h
+                    if min(dl, dr, dt, db) < 0.12:
+                        zoom = max(zoom_min, min(zoom_max, zoom * 0.90))
+                        x0, y0, crop_w, crop_h = compute_portrait_crop(
+                            float(cx),
+                            float(cy),
+                            zoom,
+                            width,
+                            height,
+                            portrait_w,
+                            portrait_h,
+                            self.pad,
+                        )
 
-            # --- edge-safety zoom-out (if ball is near an edge) ---
-            if ball_available and crop_w > 1 and crop_h > 1:
-                dl = (bx - x0) / crop_w
-                dr = (x0 + crop_w - bx) / crop_w
-                dt = (by - y0) / crop_h
-                db = (y0 + crop_h - by) / crop_h
-                edge_thr = 0.12        # inside outer 12% ring is "risky"
-                if min(dl, dr, dt, db) < edge_thr:
-                    zoom = max(zoom_min, min(zoom_max, zoom * 0.90))  # zoom OUT 10%
-                    x0, y0, crop_w, crop_h = compute_portrait_crop(
-                        float(cx),
-                        float(cy),
-                        zoom,
-                        width,
-                        height,
-                        portrait_w,
-                        portrait_h,
-                        self.pad,
-                    )
+                prev_cx, prev_cy = float(cx), float(cy)
 
-            # Save center for next frame
-            prev_cx, prev_cy = float(cx), float(cy)
+                if tf:
+                    rec = {
+                        "t": float(t),
+                        "cx": float(cx),
+                        "cy": float(cy),
+                        "zoom": float(zoom),
+                        "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
+                        "ball": [float(bx), float(by)] if ball_available else None,
+                        "used": used_mode,
+                    }
+                    tf.write(json.dumps(to_jsonable(rec)) + "\n")
+                clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
+                frame_state = CamState(
+                    frame=state.frame,
+                    cx=float(cx),
+                    cy=float(cy),
+                    zoom=float(zoom),
+                    crop_w=float(crop_w),
+                    crop_h=float(crop_h),
+                    x0=float(x0),
+                    y0=float(y0),
+                    used_label=state.used_label,
+                    clamp_flags=clamp_flags,
+                    ball=state.ball,
+                )
 
-            # --- write telemetry (safe) ---
-            if tf:
-                rec = {
-                    "t": float(n / render_fps) if render_fps else 0.0,
-                    "cx": float(cx),
-                    "cy": float(cy),
-                    "zoom": float(zoom),
-                    "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                    "ball": [float(bx), float(by)] if ball_available else None,
-                }
-                tf.write(json.dumps(to_jsonable(rec)) + "\n")
-            clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
-            frame_state = CamState(
-                frame=state.frame,
-                cx=float(cx),
-                cy=float(cy),
-                zoom=float(zoom),
-                crop_w=float(crop_w),
-                crop_h=float(crop_h),
-                x0=float(x0),
-                y0=float(y0),
-                used_label=state.used_label,
-                clamp_flags=clamp_flags,
-                ball=state.ball,
-            )
+                composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
 
-            composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
+                out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
+                success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                if not success:
+                    raise RuntimeError(f"Failed to write frame to {out_path}")
+        finally:
+            if flow_cap:
+                flow_cap.release()
 
-            out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
-            success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-            if not success:
-                raise RuntimeError(f"Failed to write frame to {out_path}")
         endcard_frames = self._append_endcard(output_size)
         if endcard_frames:
             start_index = len(states)
@@ -1210,6 +1266,7 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         pad=pad,
         zoom_min=zoom_min,
         zoom_max=zoom_max,
+        speed_limit=speed_limit,
         telemetry=telemetry,
     )
 
