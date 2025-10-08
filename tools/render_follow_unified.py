@@ -350,6 +350,44 @@ def compute_portrait_crop(cx, cy, zoom, src_w, src_h, portrait_w, portrait_h, pa
     return x0, y0, crop_w, crop_h
 
 
+def dynamic_zoom(
+    prev_zoom,
+    bx,
+    by,
+    x0,
+    y0,
+    cw,
+    ch,
+    src_w,
+    src_h,
+    speed_px,
+    target_zoom_min,
+    target_zoom_max,
+    k_speed_out=0.0006,
+    edge_margin=0.14,
+    edge_gain=0.08,
+    z_rate=0.06,
+):
+    """Return a smoothed zoom that reacts to ball speed and proximity to edges."""
+
+    z_target = max(
+        target_zoom_min,
+        min(target_zoom_max, target_zoom_max - k_speed_out * speed_px),
+    )
+
+    if cw > 1 and ch > 1:
+        dl = (bx - x0) / cw
+        dr = (x0 + cw - bx) / cw
+        dt = (by - y0) / ch
+        db = (y0 + ch - by) / ch
+        proximity = max(0.0, edge_margin - min(dl, dr, dt, db)) / max(edge_margin, 1e-6)
+        z_target = max(target_zoom_min, z_target - edge_gain * proximity)
+
+    z_next = prev_zoom + (z_target - prev_zoom) * 0.20
+    z_next = max(prev_zoom - z_rate, min(prev_zoom + z_rate, z_next))
+    return z_next
+
+
 PRESETS_PATH = Path(__file__).resolve().parent / "render_presets.yaml"
 DEFAULT_PRESETS = {
     "cinematic": {
@@ -1174,6 +1212,11 @@ class Renderer:
         tpl_side = 64
         prev_cx = src_w_f / 2.0
         prev_cy = src_h_f / 2.0
+        initial_zoom = cam[0][2] if cam else 1.2
+        zoom = float(np.clip(float(initial_zoom), zoom_min, zoom_max))
+        prev_zoom = float(zoom)
+        prev_ball_x: Optional[float] = None
+        prev_ball_y: Optional[float] = None
 
         if self.init_manual:
             frame0, _fps0 = grab_frame_at_time(
@@ -1331,7 +1374,8 @@ class Renderer:
                     if abs(dy) > max_dy:
                         cy = prev_cy + (max_dy if dy > 0 else -max_dy)
 
-                zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
+                plan_zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
+                zoom = plan_zoom
                 x0, y0, crop_w, crop_h = compute_portrait_crop(
                     float(cx),
                     float(cy),
@@ -1344,13 +1388,50 @@ class Renderer:
                 )
 
                 if ball_available and bx is not None and by is not None and crop_w > 1 and crop_h > 1:
+                    cur_bx = float(bx)
+                    cur_by = float(by)
+                    if prev_ball_x is None or prev_ball_y is None:
+                        prev_ball_x, prev_ball_y = cur_bx, cur_by
+                    speed_px = math.hypot(cur_bx - prev_ball_x, cur_by - prev_ball_y)
+                    prev_ball_x, prev_ball_y = cur_bx, cur_by
+
+                    zoom = dynamic_zoom(
+                        prev_zoom=prev_zoom,
+                        bx=cur_bx,
+                        by=cur_by,
+                        x0=x0,
+                        y0=y0,
+                        cw=crop_w,
+                        ch=crop_h,
+                        src_w=float(width),
+                        src_h=float(height),
+                        speed_px=speed_px,
+                        target_zoom_min=zoom_min,
+                        target_zoom_max=zoom_max,
+                        k_speed_out=0.0007,
+                        edge_margin=0.14,
+                        edge_gain=0.10,
+                        z_rate=0.07,
+                    )
+
+                    x0, y0, crop_w, crop_h = compute_portrait_crop(
+                        float(cx),
+                        float(cy),
+                        float(zoom),
+                        width,
+                        height,
+                        portrait_w,
+                        portrait_h,
+                        self.pad,
+                    )
+
                     x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
                         x0,
                         y0,
                         crop_w,
                         crop_h,
-                        float(bx),
-                        float(by),
+                        cur_bx,
+                        cur_by,
                         float(width),
                         float(height),
                         float(zoom),
@@ -1359,8 +1440,12 @@ class Renderer:
                         margin=0.12,
                         step_zoom=0.92,
                     )
+                else:
+                    prev_ball_x = None
+                    prev_ball_y = None
 
                 prev_cx, prev_cy = float(cx), float(cy)
+                prev_zoom = float(zoom)
                 if tf:
                     tf.write(
                         json.dumps(
