@@ -1364,8 +1364,8 @@ class Renderer:
 
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
-                    cx = 0.92 * bx + 0.08 * prev_cx
-                    cy = 0.45 * by + 0.55 * (0.60 * src_h_f)
+                    cx = 0.90 * bx + 0.10 * prev_cx
+                    cy = 0.55 * by + 0.45 * (0.60 * src_h_f)
                 else:
                     cx, cy = pcx, pcy
 
@@ -1395,6 +1395,9 @@ class Renderer:
                     self.pad,
                 )
 
+                cur_bx: Optional[float] = None
+                cur_by: Optional[float] = None
+                speed_px = 0.0
                 if ball_available and bx is not None and by is not None and crop_w > 1 and crop_h > 1:
                     x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
                         x0,
@@ -1417,7 +1420,17 @@ class Renderer:
                         prev_ball_x, prev_ball_y = cur_bx, cur_by
                     speed_px = math.hypot(cur_bx - prev_ball_x, cur_by - prev_ball_y)
                     prev_ball_x, prev_ball_y = cur_bx, cur_by
+                else:
+                    prev_ball_x = None
+                    prev_ball_y = None
 
+                if (
+                    used_tag != "offline_path"
+                    and cur_bx is not None
+                    and cur_by is not None
+                    and crop_w > 1
+                    and crop_h > 1
+                ):
                     zoom = dynamic_zoom(
                         prev_zoom=prev_zoom,
                         bx=cur_bx,
@@ -1463,9 +1476,6 @@ class Renderer:
                         margin=0.12,
                         step_zoom=0.94,
                     )
-                else:
-                    prev_ball_x = None
-                    prev_ball_y = None
 
                 prev_cx, prev_cy = float(cx), float(cy)
                 prev_zoom = float(zoom)
@@ -1715,7 +1725,7 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
             raise FileNotFoundError(f"Ball path file not found: {ball_path_file}")
         with open(ball_path_file, "r", encoding="utf-8") as f:
             offline_ball_path = []
-            default_zoom = float(preset_config.get("zoom_init", 1.3))
+            default_zoom = 1.30
             for line in f:
                 line = line.strip()
                 if not line:
@@ -1807,7 +1817,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ball-path",
         dest="ball_path",
-        help="JSONL from ball_path_offline.py",
+        help="JSONL from ball_path_planner_v2.py",
     )
     return parser
 
