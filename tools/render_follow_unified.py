@@ -24,7 +24,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, TextIO, Tuple
 
 import cv2  # type: ignore
 
@@ -740,7 +740,7 @@ class Renderer:
         brand_overlay: Optional[Path],
         endcard: Optional[Path],
         pad: float,
-        telemetry_path: Optional[Path],
+        telemetry: Optional[TextIO],
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -752,7 +752,7 @@ class Renderer:
         self.brand_overlay_path = brand_overlay
         self.endcard_path = endcard
         self.pad = float(pad)
-        self.telemetry_path = telemetry_path
+        self.telemetry = telemetry
         self.last_ffmpeg_command: Optional[List[str]] = None
 
     def _read_frames(self) -> List[np.ndarray]:
@@ -864,10 +864,7 @@ class Renderer:
         portrait_h = output_size[1]
 
         overlay_image = _load_overlay(self.brand_overlay_path, output_size)
-        telemetry_file = None
-        if self.telemetry_path:
-            self.telemetry_path.parent.mkdir(parents=True, exist_ok=True)
-            telemetry_file = self.telemetry_path.open("w", encoding="utf-8")
+        tf = self.telemetry
 
         cam = [(state.cx, state.cy, state.zoom) for state in states]
         if cam:
@@ -897,6 +894,7 @@ class Renderer:
         elif frame_count and len(cam) > frame_count:
             cam = cam[:frame_count]
 
+        render_fps = float(self.fps_out)
         for idx, state in enumerate(states):
             frame = self._sample_frame(frames, state.frame)
             cx, cy, zoom = cam[idx] if idx < len(cam) else (state.cx, state.cy, state.zoom)
@@ -913,6 +911,23 @@ class Renderer:
                 portrait_h,
                 self.pad,
             )
+            bx = by = None
+            if state.ball:
+                bx, by = state.ball
+            ball_available = ("bx" in locals() and "by" in locals() and bx is not None and by is not None)
+            ball_list = [float(bx), float(by)] if ball_available else None
+
+            if tf:
+                n = state.frame
+                rec = {
+                    "t": float(n / render_fps) if render_fps else 0.0,
+                    "cx": float(cx),
+                    "cy": float(cy),
+                    "zoom": float(zoom),
+                    "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
+                    "ball": ball_list,
+                }
+                tf.write(json.dumps(to_jsonable(rec)) + "\n")
             clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
             frame_state = CamState(
                 frame=state.frame,
@@ -928,40 +943,12 @@ class Renderer:
                 ball=state.ball,
             )
 
-            composed, actual_crop = self._compose_frame(frame, frame_state, output_size, overlay_image)
-            if telemetry_file:
-                x0_used, y0_used, crop_w_used, crop_h_used = actual_crop
-                ball_pt = state.ball if state.ball else None
-                record = {
-                    "t": float(state.frame) / float(self.fps_out) if self.fps_out else 0.0,
-                    "cx": float(cx),
-                    "cy": float(cy),
-                    "zoom": float(zoom),
-                    "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                    "crop_w": float(crop_w_used),
-                    "crop_h": float(crop_h_used),
-                    "x0": float(x0_used),
-                    "y0": float(y0_used),
-                    "crop_actual": [
-                        float(x0_used),
-                        float(y0_used),
-                        float(crop_w_used),
-                        float(crop_h_used),
-                    ],
-                    "ball": [float(ball_pt[0]), float(ball_pt[1])] if ball_pt else None,
-                    "used_label": bool(state.used_label),
-                    "clamp_flags": list(frame_state.clamp_flags),
-                }
-                telemetry_file.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
+            composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
 
             out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
             success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             if not success:
                 raise RuntimeError(f"Failed to write frame to {out_path}")
-
-        if telemetry_file:
-            telemetry_file.close()
-
         endcard_frames = self._append_endcard(output_size)
         if endcard_frames:
             start_index = len(states)
@@ -1043,7 +1030,7 @@ def _default_output_path(input_path: Path, preset: str) -> Path:
     return input_path.with_name(input_path.stem + suffix)
 
 
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     input_path = Path(args.in_path).expanduser().resolve()
@@ -1154,8 +1141,6 @@ def run(args: argparse.Namespace) -> None:
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
-    telemetry_path = Path(args.telemetry).expanduser() if args.telemetry else None
-
     renderer = Renderer(
         input_path=input_path,
         output_path=output_path,
@@ -1167,7 +1152,7 @@ def run(args: argparse.Namespace) -> None:
         brand_overlay=brand_overlay_path,
         endcard=endcard_path,
         pad=pad,
-        telemetry_path=telemetry_path,
+        telemetry=telemetry,
     )
 
     renderer.write_frames(states)
@@ -1222,7 +1207,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    run(args)
+    tf = None
+    if getattr(args, "telemetry", None):
+        telemetry_path = Path(args.telemetry).expanduser()
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        args.telemetry = os.fspath(telemetry_path)
+        tf = open(args.telemetry, "w", encoding="utf-8")
+    try:
+        run(args, telemetry=tf)
+    finally:
+        if tf:
+            tf.close()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
