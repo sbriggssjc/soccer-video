@@ -312,6 +312,11 @@ def main():
     cv2.destroyWindow("Select ball")
     if r is None or r[2]<=0 or r[3]<=0: raise SystemExit("Use --init-manual to seed")
     bx0=r[0]+r[2]/2.0; by0=r[1]+r[3]/2.0
+    r_est = 0.25 * math.sqrt(r[2]*r[3])
+    min_r = max(3, int(0.6 * r_est))
+    max_r = min(30, int(2.2 * r_est))
+    if max_r <= min_r:
+        max_r = min(30, min_r + 2)
     g0 = eq(to_gray(f0))
     _, A0 = stabilize_step(g0, f0)
     stab0 = warp_affine(f0, A0, W, H)
@@ -337,15 +342,25 @@ def main():
         field_m = field_mask_bgr(stab)
         mot = motion_strength(prev_stab, stab)
 
-        # pass-handoff: if speed high recently, use a cone
-        speed = hypot(*vel)
-        cone_dir = vel if speed>12.0 else None  # px/frame threshold
+        # pass-handoff cone temporarily disabled during validation
 
         # anchor snap
         if n in anchors: pred = anchors[n]
 
         sr = 240 + min(200, 40*miss)
-        cands = gen_candidates(stab, fr, field_m, mot, pred, tpl, search_r=sr, cone_dir=None, cone_deg=999)
+        cands = gen_candidates(
+            stab,
+            fr,
+            field_m,
+            mot,
+            pred,
+            tpl,
+            search_r=sr,
+            cone_dir=None,
+            cone_deg=999,
+            min_r=min_r,
+            max_r=max_r,
+        )
 
         if n==0:
             import os, csv
