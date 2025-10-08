@@ -26,50 +26,56 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, TextIO, Tuple
 
-import cv2
+import cv2, numpy as np
 
-try:  # pragma: no cover - fallback for environments without numpy
-    import numpy as np
-except Exception:  # pragma: no cover - keep script importable without numpy
-    class _NPStub:  # type: ignore[too-few-public-methods]
-        generic = ()
-        ndarray = ()
 
-        def __getattr__(self, name: str) -> "_NPStub":
-            raise ImportError("NumPy is required for render_follow_unified")
-
-    np = _NPStub()  # type: ignore[assignment]
-
-import yaml
+def _read_gray_at_time(cap: cv2.VideoCapture, t_sec: float, src_fps: float):
+    """Random-access a gray frame at time t (sec)."""
+    if not cap or not cap.isOpened():
+        return None
+    # snap to frame index
+    idx = max(0, int(round(t_sec * (src_fps or 30.0))))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+    ok, frame = cap.read()
+    if not ok or frame is None:
+        return None
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
 
 class FlowFollower:
-    """Keeps a running camera center using coarse optical flow when labels are absent/stale."""
+    """Optical-flow center based on consecutive time-indexed frames."""
 
-    def __init__(self, start_cx, start_cy):
-        self.cx = float(start_cx)
-        self.cy = float(start_cy)
+    def __init__(self, src_w, src_h, cap: cv2.VideoCapture, src_fps: float):
+        self.cx = src_w / 2.0
+        self.cy = src_h / 2.0
+        self.cap = cap
+        self.src_fps = src_fps
         self.prev_gray = None
+        self.prev_t = None
 
-    def update(self, frame_bgr, gain=1.0):
-        # Farneback flow on downscaled frames for stability/speed
-        if frame_bgr is None:
+    def update(self, t_sec: float, gain: float = 1.0):
+        # read current gray at time t; also ensure prev is t-1/fps
+        g_now = _read_gray_at_time(self.cap, t_sec, self.src_fps)
+        if g_now is None:
             return self.cx, self.cy
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        if self.prev_gray is None:
-            self.prev_gray = gray
-            return self.cx, self.cy
-        # Compute flow
-        flow = cv2.calcOpticalFlowFarneback(
-            self.prev_gray, gray, None, 0.5, 2, 15, 3, 5, 1.2, 0
-        )
-        self.prev_gray = gray
-        # Median flow is robust
+        if self.prev_gray is None or self.prev_t is None or abs(t_sec - self.prev_t) > 0.001:
+            g_prev = _read_gray_at_time(
+                self.cap,
+                max(0.0, t_sec - 1.0 / max(self.src_fps, 1.0)),
+                self.src_fps,
+            )
+            self.prev_gray = g_prev if g_prev is not None else g_now
+        # Farneback flow (robust median)
+        flow = cv2.calcOpticalFlowFarneback(self.prev_gray, g_now, None, 0.5, 2, 15, 3, 5, 1.2, 0)
         fx = float(np.median(flow[..., 0])) * gain
         fy = float(np.median(flow[..., 1])) * gain
         self.cx += fx
         self.cy += fy
+        self.prev_gray = g_now
+        self.prev_t = t_sec
         return self.cx, self.cy
+
+import yaml
 
 
 def to_jsonable(obj):
@@ -936,16 +942,15 @@ class Renderer:
         src_h = float(height)
         prev_cx = src_w / 2.0
         prev_cy = src_h / 2.0
-
-        flow_cap = cv2.VideoCapture(str(self.input_path))
+        input_mp4 = str(self.input_path)
+        src_fps = float(self.fps_in)
+        flow_cap = cv2.VideoCapture(input_mp4)
         if not flow_cap.isOpened():
             flow_cap = None
-        flow_follower = FlowFollower(src_w / 2.0, src_h / 2.0)
+        flow_follower = FlowFollower(src_w, src_h, flow_cap, src_fps)
         last_label_time = -1.0
         STALE_SEC = 0.5
-        base_speed = self.speed_limit if self.speed_limit else 3000.0
-        speed_px_sec_x = float(base_speed) * 1.2
-        speed_px_sec_y = float(base_speed) * 0.9
+        speed_px_sec = float(self.speed_limit or 3000.0)
 
         try:
             for state in states:
@@ -961,31 +966,25 @@ class Renderer:
 
                 t = n / float(render_fps) if render_fps else 0.0
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
-                have_frame, src_frame = (flow_cap.read() if flow_cap else (False, None))
-                if not have_frame:
-                    src_frame = None
 
-                used_mode = "planner"
                 if ball_available:
                     last_label_time = t
-                    flow_follower.update(src_frame, gain=0.0)
                     cx = 0.75 * bx + 0.25 * prev_cx
                     cy = 0.35 * by + 0.65 * (0.62 * src_h)
-                    used_mode = "label"
+                    used_tag = "label"
                 else:
                     if last_label_time < 0 or (t - last_label_time) > STALE_SEC:
-                        cx, cy = flow_follower.update(src_frame, gain=1.0)
+                        cx, cy = flow_follower.update(t, gain=1.0)
                         cx = 0.85 * cx + 0.15 * pcx
                         cy = 0.85 * cy + 0.15 * pcy
-                        used_mode = "flow"
+                        used_tag = "flow"
                     else:
-                        flow_follower.update(src_frame, gain=0.0)
                         cx, cy = pcx, pcy
-                        used_mode = "planner"
+                        used_tag = "planner"
 
                 if render_fps > 0:
-                    max_dx = speed_px_sec_x / render_fps
-                    max_dy = speed_px_sec_y / render_fps
+                    max_dx = (speed_px_sec * 1.4) / render_fps
+                    max_dy = (speed_px_sec * 0.9) / render_fps
                     dx = cx - prev_cx
                     dy = cy - prev_cy
                     if abs(dx) > max_dx:
@@ -1033,7 +1032,7 @@ class Renderer:
                         "zoom": float(zoom),
                         "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
                         "ball": [float(bx), float(by)] if ball_available else None,
-                        "used": used_mode,
+                        "used": used_tag,
                     }
                     tf.write(json.dumps(to_jsonable(rec)) + "\n")
                 clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
