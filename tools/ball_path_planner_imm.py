@@ -297,8 +297,11 @@ def main():
     cv2.destroyWindow("Select ball")
     if r is None or r[2]<=0 or r[3]<=0: raise SystemExit("Use --init-manual to seed")
     bx0=r[0]+r[2]/2.0; by0=r[1]+r[3]/2.0
-    tpl = eq(to_gray(f0))[int(by0-32):int(by0+32), int(bx0-32):int(bx0+32)].copy()
-    if tpl.size==0: tpl = eq(to_gray(f0))
+    g0 = eq(to_gray(f0))
+    _, A0 = stabilize_step(g0, f0)
+    stab0 = warp_affine(f0, A0, W, H)
+    tpl = eq(to_gray(stab0))[int(by0-32):int(by0+32), int(bx0-32):int(bx0+32)].copy()
+    if tpl.size==0: tpl = eq(to_gray(stab0))
     os.makedirs("out/diag_templates", exist_ok=True)
     cv2.imwrite("out/diag_templates/tpl_init.png", tpl)
 
@@ -307,7 +310,6 @@ def main():
     ok, fr1 = cap.read(); 
     if not ok: raise SystemExit("Empty video")
     prev_g = eq(to_gray(fr1)); prev_stab = fr1.copy()
-    field_m = field_mask_bgr(fr1)
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
     path_xy=[]; speeds=[]
     trace = None; w = None
@@ -317,6 +319,7 @@ def main():
         if not ok: break
         cur_g, A = stabilize_step(prev_g, fr)
         stab = warp_affine(fr, A, W, H)
+        field_m = field_mask_bgr(stab)
         mot = motion_strength(prev_stab, stab)
 
         # pass-handoff: if speed high recently, use a cone
