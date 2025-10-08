@@ -1,4 +1,4 @@
-import argparse, json, math, cv2, numpy as np
+import argparse, json, math, os, cv2, numpy as np
 from math import hypot
 
 def to_gray(bgr): return cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
@@ -258,6 +258,8 @@ def main():
     bx0=r[0]+r[2]/2.0; by0=r[1]+r[3]/2.0
     tpl = eq(to_gray(f0))[int(by0-32):int(by0+32), int(bx0-32):int(bx0+32)].copy()
     if tpl.size==0: tpl = eq(to_gray(f0))
+    os.makedirs("out/diag_templates", exist_ok=True)
+    cv2.imwrite("out/diag_templates/tpl_init.png", tpl)
 
     # pass 1: stabilized candidates with motion map & cone
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
