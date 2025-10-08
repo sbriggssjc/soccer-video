@@ -1326,12 +1326,15 @@ class Renderer:
 
                 cam_center_override: Optional[Tuple[float, float]] = None
 
+                ball_path_entry: Optional[Tuple[float, float]] = None
+
                 if offline_ball_path and n < len(offline_ball_path):
                     path_xyz = offline_ball_path[n]
                     if path_xyz is not None:
                         bx = float(path_xyz[0])
                         by = float(path_xyz[1])
                         z_planned = float(path_xyz[2])
+                        ball_path_entry = (bx, by)
                         ball_available = True
                         used_tag = "offline_path"
                         planned_zoom = float(np.clip(z_planned, zoom_min, zoom_max))
@@ -1517,24 +1520,22 @@ class Renderer:
                 prev_cx, prev_cy = float(cx), float(cy)
                 prev_zoom = float(zoom)
                 if tf:
-                    ball_log_x = float(bx) if bx is not None else float("nan")
-                    ball_log_y = float(by) if by is not None else float("nan")
-                    tf.write(
-                        json.dumps(
-                            to_jsonable(
-                                {
-                                    "t": float(t),
-                                    "used": used_tag,
-                                    "cx": float(cx),
-                                    "cy": float(cy),
-                                    "zoom": float(zoom),
-                                    "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                                    "ball": [ball_log_x, ball_log_y],
-                                }
-                            )
-                        )
-                        + "\n"
-                    )
+                    telemetry_rec = {
+                        "t": float(t),
+                        "used": used_tag,
+                        "cx": float(cx),
+                        "cy": float(cy),
+                        "zoom": float(zoom),
+                        "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
+                    }
+                    if ball_path_entry is not None:
+                        telemetry_rec["ball"] = [float(ball_path_entry[0]), float(ball_path_entry[1])]
+                    else:
+                        ball_log_x = float(bx) if bx is not None else float("nan")
+                        ball_log_y = float(by) if by is not None else float("nan")
+                        telemetry_rec["ball"] = [ball_log_x, ball_log_y]
+
+                    tf.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
 
                 clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
                 frame_state = CamState(
