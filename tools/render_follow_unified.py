@@ -1045,7 +1045,7 @@ class Renderer:
         telemetry: Optional[TextIO],
         init_manual: bool,
         init_t: float,
-        ball_path: Optional[Sequence[Tuple[float, float]]],
+        ball_path: Optional[Sequence[Tuple[float, float, float]]],
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -1278,6 +1278,7 @@ class Renderer:
                 ball_available = False
                 label_available = False
                 used_tag = "planner"
+                planned_zoom: Optional[float] = None
 
                 def _refresh_template(cx_val: float, cy_val: float) -> None:
                     nonlocal template
@@ -1295,11 +1296,15 @@ class Renderer:
                         template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
 
                 if offline_ball_path and n < len(offline_ball_path):
-                    path_xy = offline_ball_path[n]
-                    if path_xy is not None:
-                        bx, by = float(path_xy[0]), float(path_xy[1])
+                    path_xyz = offline_ball_path[n]
+                    if path_xyz is not None:
+                        bx = float(path_xyz[0])
+                        by = float(path_xyz[1])
+                        z_planned = float(path_xyz[2])
                         ball_available = True
                         used_tag = "offline_path"
+                        planned_zoom = float(np.clip(z_planned, zoom_min, zoom_max))
+                        zoom = planned_zoom
                         if kal is None:
                             kal = CV2DKalman(bx, by)
                         else:
@@ -1374,7 +1379,10 @@ class Renderer:
                     if abs(dy) > max_dy:
                         cy = prev_cy + (max_dy if dy > 0 else -max_dy)
 
-                plan_zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
+                if planned_zoom is not None:
+                    plan_zoom = planned_zoom
+                else:
+                    plan_zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
                 zoom = plan_zoom
                 x0, y0, crop_w, crop_h = compute_portrait_crop(
                     float(cx),
@@ -1388,6 +1396,21 @@ class Renderer:
                 )
 
                 if ball_available and bx is not None and by is not None and crop_w > 1 and crop_h > 1:
+                    x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
+                        x0,
+                        y0,
+                        crop_w,
+                        crop_h,
+                        float(bx),
+                        float(by),
+                        float(width),
+                        float(height),
+                        float(zoom),
+                        zoom_min,
+                        zoom_max,
+                        margin=0.12,
+                        step_zoom=0.94,
+                    )
                     cur_bx = float(bx)
                     cur_by = float(by)
                     if prev_ball_x is None or prev_ball_y is None:
@@ -1438,7 +1461,7 @@ class Renderer:
                         zoom_min,
                         zoom_max,
                         margin=0.12,
-                        step_zoom=0.92,
+                        step_zoom=0.94,
                     )
                 else:
                     prev_ball_x = None
@@ -1447,6 +1470,8 @@ class Renderer:
                 prev_cx, prev_cy = float(cx), float(cy)
                 prev_zoom = float(zoom)
                 if tf:
+                    ball_log_x = float(bx) if bx is not None else float("nan")
+                    ball_log_y = float(by) if by is not None else float("nan")
                     tf.write(
                         json.dumps(
                             to_jsonable(
@@ -1457,7 +1482,7 @@ class Renderer:
                                     "cy": float(cy),
                                     "zoom": float(zoom),
                                     "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                                    "ball": [float(bx), float(by)] if ball_available and bx is not None and by is not None else None,
+                                    "ball": [ball_log_x, ball_log_y],
                                 }
                             )
                         )
@@ -1683,19 +1708,23 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
-    offline_ball_path: Optional[List[Tuple[float, float]]] = None
+    offline_ball_path: Optional[List[Tuple[float, float, float]]] = None
     if getattr(args, "ball_path", None):
         ball_path_file = Path(args.ball_path).expanduser()
         if not ball_path_file.exists():
             raise FileNotFoundError(f"Ball path file not found: {ball_path_file}")
         with open(ball_path_file, "r", encoding="utf-8") as f:
             offline_ball_path = []
+            default_zoom = float(preset_config.get("zoom_init", 1.3))
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 data = json.loads(line)
-                offline_ball_path.append((float(data["bx"]), float(data["by"])))
+                bx = float(data["bx"])
+                by = float(data["by"])
+                bz = float(data.get("z", default_zoom))
+                offline_ball_path.append((bx, by, bz))
     renderer = Renderer(
         input_path=input_path,
         output_path=output_path,
