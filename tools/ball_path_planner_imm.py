@@ -330,7 +330,7 @@ def main():
         if n in anchors: pred = anchors[n]
 
         sr = 240 + min(200, 40*miss)
-        cands = gen_candidates(stab, fr, field_m, mot, pred, tpl, search_r=sr, cone_dir=cone_dir, cone_deg=26)
+        cands = gen_candidates(stab, fr, field_m, mot, pred, tpl, search_r=sr, cone_dir=None, cone_deg=999)
 
         if n==0:
             import os, csv
