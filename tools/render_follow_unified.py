@@ -1828,8 +1828,18 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
                 if not line:
                     continue
                 data = json.loads(line)
-                bx = float(data["bx"])
-                by = float(data["by"])
+                bx_val = data.get("bx_raw")
+                by_val = data.get("by_raw")
+                if bx_val is None or by_val is None:
+                    bx_val = data.get("bx") if bx_val is None else bx_val
+                    by_val = data.get("by") if by_val is None else by_val
+                if bx_val is None or by_val is None:
+                    bx_val = data.get("bx_stab")
+                    by_val = data.get("by_stab")
+                if bx_val is None or by_val is None:
+                    continue
+                bx = float(bx_val)
+                by = float(by_val)
                 bz = float(data.get("z", default_zoom))
                 offline_ball_path.append((bx, by, bz))
     renderer = Renderer(

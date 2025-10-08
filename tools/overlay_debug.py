@@ -64,11 +64,19 @@ def main():
             cv2.rectangle(frame, (x0, y0), (x1, y1), (0,255,0), args.thickness)
 
         # draw ball (red)
+        bx = by = None
         ball = rec.get("ball")
         if ball and len(ball) == 2:
-            bx, by = int(round(ball[0])), int(round(ball[1]))
-            if 0 <= bx < W and 0 <= by < H:
-                cv2.circle(frame, (bx, by), args.ball_radius, (0,0,255), -1)
+            bx, by = float(ball[0]), float(ball[1])
+        elif "bx_stab" in rec and "by_stab" in rec:
+            bx, by = float(rec["bx_stab"]), float(rec["by_stab"])
+        elif "bx_raw" in rec and "by_raw" in rec:
+            bx, by = float(rec["bx_raw"]), float(rec["by_raw"])
+
+        if bx is not None and by is not None:
+            bx_i, by_i = int(round(bx)), int(round(by))
+            if 0 <= bx_i < W and 0 <= by_i < H:
+                cv2.circle(frame, (bx_i, by_i), args.ball_radius, (0,0,255), -1)
 
         vw.write(frame)
         idx += 1
