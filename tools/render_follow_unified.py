@@ -30,6 +30,29 @@ import cv2
 import numpy as np
 
 
+class CamFollow2O:
+    def __init__(self, zeta=0.95, wn=6.0, dt=1 / 30):
+        self.z = zeta
+        self.w = wn
+        self.dt = dt
+        self.cx = 0.0
+        self.cy = 0.0
+        self.vx = 0.0
+        self.vy = 0.0
+
+    def step(self, target_x: float, target_y: float) -> tuple[float, float]:
+        dt = self.dt
+        w = self.w
+        z = self.z
+        ax = w * w * (target_x - self.cx) - 2 * z * w * self.vx
+        ay = w * w * (target_y - self.cy) - 2 * z * w * self.vy
+        self.vx += ax * dt
+        self.vy += ay * dt
+        self.cx += self.vx * dt
+        self.cy += self.vy * dt
+        return self.cx, self.cy
+
+
 # --- Simple constant-velocity tracker (EMA-based Kalman-lite) ---
 class CV2DKalman:
     def __init__(self, bx, by):
@@ -1217,6 +1240,12 @@ class Renderer:
         prev_zoom = float(zoom)
         prev_ball_x: Optional[float] = None
         prev_ball_y: Optional[float] = None
+        follower = CamFollow2O(zeta=0.95, wn=7.0, dt=1.0 / render_fps) if render_fps else None
+        if follower is not None:
+            follower.cx = float(prev_cx)
+            follower.cy = float(prev_cy)
+            follower.vx = 0.0
+            follower.vy = 0.0
 
         if self.init_manual:
             frame0, _fps0 = grab_frame_at_time(
@@ -1295,6 +1324,8 @@ class Renderer:
                     else:
                         template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
 
+                cam_center_override: Optional[Tuple[float, float]] = None
+
                 if offline_ball_path and n < len(offline_ball_path):
                     path_xyz = offline_ball_path[n]
                     if path_xyz is not None:
@@ -1305,6 +1336,10 @@ class Renderer:
                         used_tag = "offline_path"
                         planned_zoom = float(np.clip(z_planned, zoom_min, zoom_max))
                         zoom = planned_zoom
+                        if follower is not None:
+                            cam_center_override = follower.step(bx, by)
+                        else:
+                            cam_center_override = (bx, by)
                         if kal is None:
                             kal = CV2DKalman(bx, by)
                         else:
@@ -1363,7 +1398,9 @@ class Renderer:
                     ball_available = True
 
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
-                if ball_available and bx is not None and by is not None:
+                if cam_center_override is not None:
+                    cx, cy = cam_center_override
+                elif ball_available and bx is not None and by is not None:
                     cx = 0.90 * bx + 0.10 * prev_cx
                     cy = 0.90 * by + 0.10 * prev_cy
                 else:
@@ -1411,8 +1448,8 @@ class Renderer:
                         float(zoom),
                         zoom_min,
                         zoom_max,
-                        margin=0.12,
-                        step_zoom=0.94,
+                        margin=0.10,
+                        step_zoom=0.96,
                     )
                     cur_bx = float(bx)
                     cur_by = float(by)
@@ -1473,8 +1510,8 @@ class Renderer:
                         float(zoom),
                         zoom_min,
                         zoom_max,
-                        margin=0.12,
-                        step_zoom=0.94,
+                        margin=0.10,
+                        step_zoom=0.96,
                     )
 
                 prev_cx, prev_cy = float(cx), float(cy)
