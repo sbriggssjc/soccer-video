@@ -1,4 +1,5 @@
-import argparse, json, math, os, cv2, numpy as np
+import argparse, json, math, os
+import cv2, numpy as np
 from math import hypot
 
 def to_gray(bgr): return cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
