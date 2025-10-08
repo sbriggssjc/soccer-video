@@ -13,6 +13,14 @@ import numpy as np
 from ultralytics import YOLO
 
 
+def eq(gray: np.ndarray) -> np.ndarray:
+    if gray is None or gray.size == 0:
+        return gray
+    if gray.dtype != np.uint8:
+        gray = gray.astype(np.uint8)
+    return cv2.equalizeHist(gray)
+
+
 # === ADD: robust helpers ===
 def to_float(o):
     # Convert numpy scalars/arrays to plain Python floats for JSON/logging
@@ -338,6 +346,7 @@ def main() -> None:
 
     cap = cv2.VideoCapture(args.inp)
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    clip_fps = float(fps if fps and np.isfinite(fps) and fps > 1e-3 else 24.0)
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -593,8 +602,38 @@ def main() -> None:
             ])
 
         if best is not None:
-            jump = math.hypot(best[0] - pred_xy[0], best[1] - pred_xy[1])
-            if jump > jump_gate:
+            dx = best[0] - pred_xy[0]
+            dy = best[1] - pred_xy[1]
+            jump = math.hypot(dx, dy)
+            max_jump_px = 18.0 * (clip_fps / 24.0)
+            if jump > max_jump_px:
+                recaptured = False
+                if last_good_xy is not None and last_template is not None:
+                    lx, ly = last_good_xy
+                    x0 = max(int(lx - 60), 0)
+                    y0 = max(int(ly - 60), 0)
+                    x1 = min(int(lx + 60), W)
+                    y1 = min(int(ly + 60), H)
+                    if x1 > x0 and y1 > y0:
+                        win = gray[y0:y1, x0:x1]
+                        tpl = last_template
+                        if (
+                            win.size
+                            and tpl.size
+                            and win.shape[0] >= tpl.shape[0]
+                            and win.shape[1] >= tpl.shape[1]
+                        ):
+                            res = cv2.matchTemplate(eq(win), eq(tpl), cv2.TM_CCOEFF_NORMED)
+                            _, m, _, ml = cv2.minMaxLoc(res)
+                            if m > 0.45:
+                                cx_rec = max(0.0, min(W - 1.0, x0 + ml[0] + tpl.shape[1] * 0.5))
+                                cy_rec = max(0.0, min(H - 1.0, y0 + ml[1] + tpl.shape[0] * 0.5))
+                                best = (cx_rec, cy_rec, "ncc_recover")
+                                best_score = max(float(best_score), 3.0 * float(m))
+                                recaptured = True
+                if not recaptured:
+                    best = None
+            elif jump_gate > 0 and jump > jump_gate:
                 best = None
 
         was_missing = miss > 0
