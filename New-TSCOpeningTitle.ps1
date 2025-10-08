@@ -22,7 +22,7 @@ $Badge = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 # Fonts (Montserrat ExtraBold preferred; fallback Arial Bold)
 $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\Montserrat-ExtraBold.ttf')
 if (!(Test-Path $BoldFontFF)) { $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\arialbd.ttf') }
-$BoldFontFF = $BoldFontFF.Replace('\\','/') -replace ':','\:'  # e.g., C\:/Windows/Fonts/arialbd.ttf
+$BoldFontFF = $BoldFontFF.Replace('\','/') -replace ':','\:'  # e.g., C\:/Windows/Fonts/arialbd.ttf
 
 # Brand colors
 $White = "0xFFFFFF"
