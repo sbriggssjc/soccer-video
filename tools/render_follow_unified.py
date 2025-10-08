@@ -30,6 +30,122 @@ import cv2
 import numpy as np
 
 
+# --- Simple constant-velocity tracker (EMA-based Kalman-lite) ---
+class CV2DKalman:
+    def __init__(self, bx, by):
+        self.bx = float(bx)
+        self.by = float(by)
+        self.vx = 0.0
+        self.vy = 0.0
+        self.alpha_pos = 0.35
+        self.alpha_vel = 0.25
+
+    def predict(self):
+        return self.bx + self.vx, self.by + self.vy
+
+    def correct(self, mx, my):
+        px, py = self.predict()
+        rx, ry = (mx - px), (my - py)
+        self.vx += self.alpha_vel * rx
+        self.vy += self.alpha_vel * ry
+        self.bx = (1 - self.alpha_pos) * px + self.alpha_pos * mx
+        self.by = (1 - self.alpha_pos) * py + self.alpha_pos * my
+        return self.bx, self.by
+
+
+# --- Color/shape gating to remove grass and favor white-ish round blobs ---
+def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    H, S, V = cv2.split(hsv)
+    non_grass = (H < grass_h[0]) | (H > grass_h[1])
+    bright = V >= min_v
+    low_sat = S <= max_s
+    mask = ((non_grass & bright) | (bright & low_sat)).astype(np.uint8) * 255
+    mask = cv2.medianBlur(mask, 5)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    return mask
+
+
+def _circularity(cnt):
+    a = cv2.contourArea(cnt)
+    p = cv2.arcLength(cnt, True)
+    if p <= 0 or a <= 0:
+        return 0.0
+    return float(4 * math.pi * a / (p * p))
+
+
+def ncc_score(gray_win, tpl_gray):
+    if (
+        gray_win.shape[0] < tpl_gray.shape[0]
+        or gray_win.shape[1] < tpl_gray.shape[1]
+    ):
+        return -1.0
+    g = cv2.equalizeHist(gray_win)
+    t = cv2.equalizeHist(tpl_gray)
+    r1 = cv2.matchTemplate(g, t, cv2.TM_CCOEFF_NORMED).max()
+    h, w = t.shape[:2]
+    tw, th = max(3, int(w * 0.75)), max(3, int(h * 0.75))
+    t2 = cv2.resize(t, (tw, th), interpolation=cv2.INTER_AREA)
+    r2 = cv2.matchTemplate(g, t2, cv2.TM_CCOEFF_NORMED).max()
+    return float(max(r1, r2))
+
+
+def find_ball_candidate(
+    frame_bgr,
+    pred_xy,
+    tpl=None,
+    search_r=260,
+    min_r=6,
+    max_r=22,
+    min_circ=0.58,
+):
+    H, W = frame_bgr.shape[:2]
+    px, py = pred_xy
+    x0 = int(max(0, px - search_r))
+    y0 = int(max(0, py - search_r))
+    x1 = int(min(W, px + search_r))
+    y1 = int(min(H, py + search_r))
+    if x1 <= x0 + 2 or y1 <= y0 + 2:
+        return None
+    roi = frame_bgr[y0:y1, x0:x1]
+    mask = build_ball_mask(roi)
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    best = None
+    best_score = -1e9
+
+    for c in cnts:
+        a = cv2.contourArea(c)
+        if a < (min_r * min_r * 0.6) or a > (max_r * max_r * 3.5):
+            continue
+        circ = _circularity(c)
+        if circ < min_circ:
+            continue
+        (cx, cy), rad = cv2.minEnclosingCircle(c)
+        bx = x0 + cx
+        by = y0 + cy
+        dist = math.hypot(bx - px, by - py)
+        ncc = 0.0
+        if tpl is not None:
+            side = int(max(16, min(96, rad * 6)))
+            sx0 = int(max(0, bx - side // 2))
+            sy0 = int(max(0, by - side // 2))
+            sx1 = int(min(W, sx0 + side))
+            sy1 = int(min(H, sy0 + side))
+            win = gray_roi[(sy0 - y0) : (sy1 - y0), (sx0 - x0) : (sx1 - x0)]
+            if win.size:
+                ncc = ncc_score(win, tpl)
+        score = (-0.02 * dist) + (3.0 * circ) + (1.8 * ncc)
+        if score > best_score:
+            best_score = score
+            best = (bx, by, float(circ), float(ncc), float(dist))
+
+    return best
+
+
 def grab_frame_at_time(path, t_sec, fps_hint=30.0):
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
@@ -185,171 +301,6 @@ def guarantee_ball_in_crop(
     return x0, y0, cw, ch, zoom
 
 
-def make_ball_mask(bgr, grass_h_low=35, grass_h_high=95, min_v=175, max_s=110):
-    """Mask favoring bright, low-saturation, non-green pixels likely to be the ball."""
-
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    H, S, V = cv2.split(hsv)
-
-    non_grass = (H < grass_h_low) | (H > grass_h_high)
-    bright = V >= min_v
-    low_sat = S <= max_s
-
-    mask = (non_grass & bright) | (bright & low_sat)
-    mask = (mask.astype(np.uint8)) * 255
-    mask = cv2.medianBlur(mask, 5)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    return mask
-
-
-class BallTracker:
-    """Ball-aware tracker using masked NCC + Hough circles with motion gating."""
-
-    def __init__(
-        self,
-        W,
-        H,
-        tpl_side=48,
-        search_radius=180,
-        min_r=6,
-        max_r=18,
-        max_speed_px=80,
-        conf_ncc=0.45,
-        conf_hough=20,
-    ):
-        self.W, self.H = W, H
-        self.tpl_side = int(tpl_side)
-        self.search_r = int(search_radius)
-        self.min_r = int(min_r)
-        self.max_r = int(max_r)
-        self.max_speed = float(max_speed_px)
-        self.conf_ncc = float(conf_ncc)
-        self.conf_hough = float(conf_hough)
-
-        self.template = None
-        self.pos = None
-        self.last_ncc = 0.0
-
-    def _extract_tpl(self, gray, bx, by):
-        x0, y0, w, h = _roi_around_point(bx, by, self.W, self.H, self.tpl_side)
-        tpl = gray[y0 : y0 + h, x0 : x0 + w]
-        return tpl if tpl.size else None
-
-    def init_from_label(self, frame_bgr, bx, by):
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        tpl = self._extract_tpl(gray, bx, by)
-        if tpl is None or tpl.size == 0:
-            return False
-        self.template = tpl
-        self.pos = (float(bx), float(by))
-        self.last_ncc = 1.0
-        return True
-
-    def _search_window(self, gray, mask, cx, cy):
-        sr = self.search_r
-        x0, y0, w, h = _clamp_roi(
-            cx - sr,
-            cy - sr,
-            2 * sr,
-            2 * sr,
-            self.W,
-            self.H,
-        )
-        g = gray[y0 : y0 + h, x0 : x0 + w]
-        m = mask[y0 : y0 + h, x0 : x0 + w] if mask is not None else None
-        return (x0, y0, g, m)
-
-    def _masked_ncc(self, search_gray, tpl_gray, search_mask):
-        if (
-            search_gray.shape[0] < tpl_gray.shape[0]
-            or search_gray.shape[1] < tpl_gray.shape[1]
-        ):
-            return None, -1.0, None
-        sg = search_gray
-        if search_mask is not None:
-            sg = cv2.bitwise_and(search_gray, search_gray, mask=search_mask)
-        sg = cv2.equalizeHist(sg)
-        tg = cv2.equalizeHist(tpl_gray)
-        res = cv2.matchTemplate(sg, tg, cv2.TM_CCOEFF_NORMED)
-        _, ncc, _, max_loc = cv2.minMaxLoc(res)
-        return max_loc, float(ncc), res.shape
-
-    def _hough_ball(self, search_gray, search_mask):
-        if search_mask is not None:
-            sg = cv2.bitwise_and(search_gray, search_gray, mask=search_mask)
-        else:
-            sg = search_gray
-        sg = cv2.GaussianBlur(sg, (5, 5), 1.2)
-        circles = cv2.HoughCircles(
-            sg,
-            cv2.HOUGH_GRADIENT,
-            dp=1.2,
-            minDist=self.min_r,
-            param1=120,
-            param2=self.conf_hough,
-            minRadius=self.min_r,
-            maxRadius=self.max_r,
-        )
-        cand = None
-        if circles is not None:
-            circles = np.uint16(np.around(circles[0]))
-            cand = max(
-                circles,
-                key=lambda c: -abs(int(c[2]) - (self.min_r + self.max_r) / 2),
-            )
-        return cand
-
-    def update(self, frame_bgr):
-        if self.template is None or self.pos is None:
-            return None, None, 0.0, "tm_not_ready"
-
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        mask = make_ball_mask(frame_bgr)
-
-        cx_prev, cy_prev = self.pos
-        x0, y0, win, win_mask = self._search_window(gray, mask, cx_prev, cy_prev)
-        if win.size == 0:
-            return None, None, 0.0, "tm_empty"
-
-        hough = self._hough_ball(win, win_mask)
-        max_loc, ncc, _ = self._masked_ncc(win, self.template, win_mask)
-
-        best_bx = best_by = None
-        used = "tm"
-
-        if max_loc is not None:
-            cand_ncc = (
-                x0 + (max_loc[0] + self.template.shape[1] / 2.0),
-                y0 + (max_loc[1] + self.template.shape[0] / 2.0),
-            )
-        else:
-            cand_ncc = (None, None)
-
-        cand_hgh = (
-            (x0 + hough[0], y0 + hough[1]) if hough is not None else (None, None)
-        )
-
-        if ncc >= self.conf_ncc and cand_ncc[0] is not None:
-            best_bx, best_by = cand_ncc
-            used = "tm_ncc"
-        elif hough is not None:
-            best_bx, best_by = cand_hgh
-            used = "tm_hough"
-            tpl = self._extract_tpl(gray, best_bx, best_by)
-            if tpl is not None:
-                self.template = tpl
-        else:
-            return None, None, ncc, "tm_fail"
-
-        dx = best_bx - cx_prev
-        dy = best_by - cy_prev
-        if (dx * dx + dy * dy) ** 0.5 > self.max_speed:
-            return None, None, ncc, "tm_speed_gate"
-
-        best_bx, best_by = float(best_bx), float(best_by)
-        self.pos = (best_bx, best_by)
-        self.last_ncc = ncc
-        return best_bx, best_by, ncc, used
 import yaml
 
 
@@ -1214,18 +1165,9 @@ class Renderer:
         src_h_f = float(height)
         speed_px_sec = float(self.speed_limit or 3000.0)
 
-        tracker = BallTracker(
-            width,
-            height,
-            tpl_side=64,
-            search_radius=280,
-            min_r=7,
-            max_r=22,
-            max_speed_px=180,
-            conf_ncc=0.36,
-            conf_hough=22,
-        )
-        tracker_ready = False
+        kal: Optional[CV2DKalman] = None
+        template: Optional[np.ndarray] = None
+        tpl_side = 64
         prev_cx = src_w_f / 2.0
         prev_cy = src_h_f / 2.0
 
@@ -1239,7 +1181,13 @@ class Renderer:
                     x, y, w, h = roi
                     bx0 = x + w / 2.0
                     by0 = y + h / 2.0
-                    tracker_ready = tracker.init_from_label(frame0, bx0, by0)
+                    kal = CV2DKalman(bx0, by0)
+                    frame0_gray = cv2.cvtColor(frame0, cv2.COLOR_BGR2GRAY)
+                    tx0 = int(max(0, bx0 - tpl_side // 2))
+                    ty0 = int(max(0, by0 - tpl_side // 2))
+                    tx1 = int(min(frame0.shape[1], tx0 + tpl_side))
+                    ty1 = int(min(frame0.shape[0], ty0 + tpl_side))
+                    template = frame0_gray[ty0:ty1, tx0:tx1].copy()
                     prev_cx, prev_cy = float(bx0), float(by0)
                     if tf:
                         tf.write(
@@ -1282,6 +1230,7 @@ class Renderer:
                 bx = by = None
                 ball_available = False
                 label_available = False
+                used_tag = "planner"
                 if state.ball:
                     label_bx, label_by = state.ball
                     label_bx = float(label_bx)
@@ -1289,50 +1238,64 @@ class Renderer:
                     bx, by = label_bx, label_by
                     ball_available = True
                     label_available = True
+                    used_tag = "label"
 
-                used_tag = "label" if label_available else "planner"
+                pred_x = pred_y = None
+                if kal is not None:
+                    pred_x, pred_y = kal.predict()
 
-                if ball_available and not tracker_ready and bx is not None and by is not None:
-                    tracker_ready = tracker.init_from_label(frame, bx, by)
-                    if tracker_ready:
-                        used_tag = "label_bootstrap"
-
-                if tracker_ready:
-                    tbx, tby, conf, used = tracker.update(frame)
-                    if tbx is not None and tby is not None:
-                        bx, by = tbx, tby
-                        ball_available = True
-                        used_tag = used
+                def _refresh_template(cx_val: float, cy_val: float) -> None:
+                    nonlocal template
+                    g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    sx0 = int(max(0, cx_val - tpl_side // 2))
+                    sy0 = int(max(0, cy_val - tpl_side // 2))
+                    sx1 = int(min(frame.shape[1], sx0 + tpl_side))
+                    sy1 = int(min(frame.shape[0], sy0 + tpl_side))
+                    cur_tpl = g[sy0:sy1, sx0:sx1]
+                    if cur_tpl.size < 9:
+                        return
+                    if template is None or template.shape != cur_tpl.shape:
+                        template = cur_tpl.copy()
                     else:
-                        used_tag = used
-                        if used in {"tm_fail", "tm_empty", "tm_not_ready"}:
-                            tracker_ready = False
+                        template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
 
-                if (
-                    ball_available
-                    and tracker_ready
-                    and bx is not None
-                    and by is not None
-                    and getattr(tracker, "last_ncc", 0.0) < tracker.conf_ncc
-                ):
-                    tracker_ready = tracker.init_from_label(frame, bx, by) or tracker_ready
-
-                global kal
-                if "kal" not in globals():
-                    kal = {"has": False, "bx": None, "by": None, "vx": 0.0, "vy": 0.0}
-
-                if ball_available and bx is not None and by is not None:
-                    if kal["has"]:
-                        kal["vx"] = 0.8 * kal["vx"] + 0.2 * (bx - kal["bx"])
-                        kal["vy"] = 0.8 * kal["vy"] + 0.2 * (by - kal["by"])
-                    kal["bx"], kal["by"], kal["has"] = float(bx), float(by), True
-                else:
-                    if kal["has"]:
-                        bx = kal["bx"] + kal["vx"]
-                        by = kal["by"] + kal["vy"]
-                        kal["vx"] *= 0.95
-                        kal["vy"] *= 0.95
+                if label_available and bx is not None and by is not None:
+                    if kal is None:
+                        kal = CV2DKalman(bx, by)
+                    else:
+                        kal.correct(bx, by)
+                    _refresh_template(bx, by)
+                elif kal is not None and pred_x is not None and pred_y is not None:
+                    cand = find_ball_candidate(
+                        frame,
+                        (pred_x, pred_y),
+                        tpl=template,
+                        search_r=280,
+                        min_r=7,
+                        max_r=22,
+                        min_circ=0.58,
+                    )
+                    if cand is not None:
+                        cbx, cby, _circ, ncc, dist = cand
+                        if dist < 140 or ncc >= 0.36:
+                            bx, by = float(cbx), float(cby)
+                            kal.correct(bx, by)
+                            _refresh_template(bx, by)
+                            ball_available = True
+                            used_tag = "model_cand"
+                        else:
+                            bx, by = float(pred_x), float(pred_y)
+                            kal.bx, kal.by = bx, by
+                            ball_available = True
+                            used_tag = "model_pred"
+                    else:
+                        bx, by = float(pred_x), float(pred_y)
+                        kal.bx, kal.by = bx, by
                         ball_available = True
+                        used_tag = "model_pred"
+
+                if label_available and kal is not None:
+                    ball_available = True
 
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
