@@ -409,10 +409,24 @@ def main() -> None:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     anchors_by_frame: Dict[int, Tuple[float, float]] = {}
+    warn_bad_frame = False
     with open(args.anchors, "r", encoding="utf-8") as f:
         for line in f:
             data = json.loads(line)
-            anchors_by_frame[int(round(data["t"] * fps))] = (float(data["bx"]), float(data["by"]))
+            frame_from_time = int(round(float(data["t"]) * fps))
+            stored_frame = data.get("frame")
+            if stored_frame is not None:
+                try:
+                    frame_from_file = int(round(float(stored_frame)))
+                except (TypeError, ValueError):
+                    frame_from_file = None
+                else:
+                    if abs(frame_from_file - frame_from_time) > 1:
+                        warn_bad_frame = True
+            anchors_by_frame[frame_from_time] = (float(data["bx"]), float(data["by"]))
+
+    if warn_bad_frame:
+        print("[WARN] Anchor frames differed from time-based index; using t*fps to align.")
 
     idx0 = max(0, int(round(args.init_t * fps)))
     cap.set(cv2.CAP_PROP_POS_FRAMES, idx0)
