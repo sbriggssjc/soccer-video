@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)] [string]$PlayerImg,
   [Parameter(Mandatory=$true)] [string]$PlayerName,
@@ -22,7 +22,7 @@ $Badge = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 # Fonts (Montserrat ExtraBold preferred; fallback Arial Bold)
 $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\Montserrat-ExtraBold.ttf')
 if (!(Test-Path $BoldFontFF)) { $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\arialbd.ttf') }
-$BoldFontFF = $BoldFontFF.Replace('\','/') -replace ':','\:'
+$BoldFontFF = $BoldFontFF.Replace('\\','/') -replace ':','\:'  # e.g., C\:/Windows/Fonts/arialbd.ttf
 
 # Brand colors
 $White = "0xFFFFFF"
@@ -50,30 +50,15 @@ ffmpeg -y `
  -loop 1 -t $Dur -i "$Badge" `
  -f lavfi -t $Dur -i anullsrc=channel_layout=stereo:sample_rate=48000 `
  -filter_complex "
-   [1] scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=cover,
-       crop=${FaceBox}:${FaceBox},
-       zoompan=z='min(1.10, 1.0 + 0.03*t)':d=${DurFrames}:s=${FaceBox}x${FaceBox},
-       format=rgba,
-       fade=t=in:st=0:d=${FadeInFace}:alpha=1,
-       fade=t=out:st=$(($Dur - $FadeOutFace)):d=${FadeOutFace}:alpha=1
-       [face];
-
-   [2] scale=${BadgeSize}:-1,
-       format=rgba,
-       fade=t=in:st=0:d=${FadeInBadge}:alpha=1,
-       fade=t=out:st=$(($Dur - $FadeOutBadge)):d=${FadeOutBadge}:alpha=1
-       [badge];
-
-   [0][face] overlay=x='(W-w)/2 + ${FaceOffsetX}':y='${BadgeY} - h/2 + ${FaceOffsetY}':shortest=1 [bgface];
-
-   [bgface][badge] overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1,
-     drawtext=fontfile=${BoldFontFF}:text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:
-              x='(w-text_w)/2':y=${NameY},
-     drawtext=fontfile=${BoldFontFF}:text='#$($PlayerNo)':fontsize=66:fontcolor=${Red}:
-              x='(w-text_w)/2':y=${NumY}
+   [1]scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=cover,crop=${FaceBox}:${FaceBox},zoompan=z='min(1.10,1.0+0.03*t)':d=${DurFrames}:s=${FaceBox}x${FaceBox},format=rgba,fade=t=in:st=0:d=${FadeInFace}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutFace)):d=${FadeOutFace}:alpha=1[face];
+   [2]scale=${BadgeSize}:-1,format=rgba,fade=t=in:st=0:d=${FadeInBadge}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutBadge)):d=${FadeOutBadge}:alpha=1[badge];
+   [0][face]overlay=x='(W-w)/2+${FaceOffsetX}':y='${BadgeY}-h/2+${FaceOffsetY}':shortest=1[bgface];
+   [bgface][badge]overlay=x='(W-w)/2':y='${BadgeY}-h/2':shortest=1,drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY},drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}
  " `
  -map 3:a -c:a aac -shortest `
  -c:v libx264 -r $FPS -pix_fmt yuv420p "$OutOpener"
+
+if ($LASTEXITCODE -ne 0) { throw "FFmpeg failed for $PlayerName #$PlayerNo (exit $LASTEXITCODE)" }
 
 Write-Host "Opener created -> $OutOpener"
 
@@ -84,5 +69,6 @@ if ($ReelIn) {
   }
   ffmpeg -y -i "$OutOpener" -i "$ReelIn" -filter_complex "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]" -map "[v]" -map "[a]" `
     -c:v libx264 -r $FPS -pix_fmt yuv420p -c:a aac "$ReelOut"
+  if ($LASTEXITCODE -ne 0) { throw "Concat failed: $LASTEXITCODE" }
   Write-Host "Done! Reel with opener -> $ReelOut"
 }
