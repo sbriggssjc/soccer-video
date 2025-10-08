@@ -44,6 +44,30 @@ def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
     return mask
 
 
+def field_mask_bgr(bgr):
+    """Binary mask of playable grass (exclude benches/crowd/track).
+    Tuned for daylight turf; adjust HSV ranges if needed."""
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    H, S, V = cv2.split(hsv)
+    grass = (H >= 35) & (H <= 95) & (S >= 40) & (V >= 40)
+    mask = (grass.astype(np.uint8)) * 255
+    # clean & fill holes
+    mask = cv2.medianBlur(mask, 5)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    # erode a bit to avoid lines/edge balls
+    mask = cv2.erode(mask, np.ones((9, 9), np.uint8), iterations=1)
+    return mask
+
+
+def sideline_penalty(x, y, W, H, margin_xy=(32, 40), heavy=12.0):
+    """Large penalty near image borders (where spare balls live)."""
+    mx, my = margin_xy
+    if x < mx or x > (W - mx) or y < my or y > (H - my):
+        return heavy
+    return 0.0
+
+
 def circularity(cnt):
     a = cv2.contourArea(cnt)
     p = cv2.arcLength(cnt, True)
@@ -107,6 +131,7 @@ def gen_candidates(
     if not cnts:
         return []
 
+    field = field_mask_bgr(roi)
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     out = []
     for c in cnts:
@@ -119,6 +144,15 @@ def gen_candidates(
         (cx, cy), rad = cv2.minEnclosingCircle(c)
         bx = x0 + cx
         by = y0 + cy
+        # reject/penalize if NOT on field
+        fx = int(np.clip(cx, 0, field.shape[1] - 1))
+        fy = int(np.clip(cy, 0, field.shape[0] - 1))
+        on_field = field[fy, fx] > 0
+        if not on_field:
+            continue
+
+        dist = math.hypot(bx - px, by - py)
+        # NCC window around candidate (as before)
         ncc = 0.0
         if tpl is not None:
             side = int(max(16, min(96, rad * 6)))
@@ -128,10 +162,11 @@ def gen_candidates(
             sy1 = int(min(H, sy0 + side))
             win = gray_roi[(sy0 - y0) : (sy1 - y0), (sx0 - x0) : (sx1 - x0)]
             ncc = ncc_score(win, tpl)
-        dist = math.hypot(bx - px, by - py)
-        score = (-0.02 * dist) + (3.0 * circ) + (1.8 * ncc)
+
+        base = (-0.02 * dist) + (3.0 * circ) + (1.8 * ncc)
+        base -= sideline_penalty(bx, by, W, H, margin_xy=(36, 48), heavy=14.0)
         out.append(
-            Cand(float(bx), float(by), float(score), float(ncc), float(circ), float(dist))
+            Cand(float(bx), float(by), float(base), float(ncc), float(circ), float(dist))
         )
     out.sort(key=lambda c: c.score, reverse=True)
     return out[:max_cands]
@@ -218,6 +253,67 @@ def rts_smooth(path, k_alpha_pos=0.35, k_alpha_vel=0.25, iters=1):
         ys[t] = (1 - k_alpha_pos) * py + k_alpha_pos * ys[t]
 
     return list(zip(xs, ys))
+
+
+def plan_zoom(
+    xs,
+    ys,
+    fps,
+    W,
+    H,
+    zmin=1.05,
+    zmax=1.80,
+    k_speed=0.0010,
+    edge_m=0.14,
+    edge_gain=0.14,
+    z_alpha=0.22,
+    z_rate=0.06,
+):
+    """Compute per-frame zoom from ball speed and edge proximity; 
+       then forward-backward smooth with a rate limiter."""
+    N = len(xs)
+    # per-frame raw target
+    zt = np.empty(N, dtype=np.float32)
+    z = np.empty(N, dtype=np.float32)
+    # seed
+    z[0] = (zmin + zmax) / 2.0
+    for t in range(N):
+        bx, by = xs[t], ys[t]
+        # speed in px/sec (use prev when possible)
+        if t > 0:
+            spf = math.hypot(xs[t] - xs[t - 1], ys[t] - ys[t - 1])
+            speed = spf * fps
+        else:
+            speed = 0.0
+        # base: faster → wider (smaller zoom factor → here we use wider = lower clamp of z? 
+        # we define z as "zoom factor" where higher = tighter crop; so subtract k*speed)
+        z_raw = zmax - k_speed * speed
+        z_raw = max(zmin, min(zmax, z_raw))
+        # edge pressure: nudge wider if near crop edges (approx with frame edges here; renderer refines)
+        # Distance to image edges normalized:
+        dl = bx / max(1, W)
+        dr = (W - bx) / max(1, W)
+        dt = by / max(1, H)
+        db = (H - by) / max(1, H)
+        prox = max(0.0, edge_m - min(dl, dr, dt, db)) / max(edge_m, 1e-6)
+        z_raw = max(zmin, z_raw - edge_gain * prox)
+        zt[t] = z_raw
+
+    # forward-backward EMA + rate limit
+    # forward
+    for t in range(1, N):
+        target = z[t - 1] + (zt[t] - z[t - 1]) * z_alpha
+        # rate limit
+        dz = max(-z_rate, min(z_rate, target - z[t - 1]))
+        z[t] = z[t - 1] + dz
+    # backward
+    for t in range(N - 2, -1, -1):
+        target = z[t + 1] + (z[t] - z[t + 1]) * z_alpha
+        dz = max(-z_rate, min(z_rate, target - z[t + 1]))
+        z[t] = z[t + 1] + dz
+    # clamp final
+    z = np.clip(z, zmin, zmax)
+    return z.tolist()
 
 
 def main():
@@ -324,15 +420,40 @@ def main():
         lam_vel=0.08,
         lam_acc=0.02,
         miss_penalty=1.1,
-        max_jump=240.0,
+        max_jump=280.0,
     )
     smoothed = rts_smooth(path, k_alpha_pos=0.42, k_alpha_vel=0.30, iters=1)
+
+    xs = [sx for (sx, sy) in smoothed]
+    ys = [sy for (sx, sy) in smoothed]
+    z = plan_zoom(
+        xs,
+        ys,
+        fps,
+        W,
+        H,
+        zmin=1.05,
+        zmax=1.80,
+        k_speed=0.0010,
+        edge_m=0.14,
+        edge_gain=0.14,
+        z_alpha=0.22,
+        z_rate=0.055,
+    )
 
     with open(args.out, "w", encoding="utf-8") as f:
         for i, ((x, y, src), (sx, sy)) in enumerate(zip(path, smoothed)):
             t = i / float(fps)
             f.write(
-                json.dumps({"t": t, "bx": float(sx), "by": float(sy), "src": src})
+                json.dumps(
+                    {
+                        "t": t,
+                        "bx": float(sx),
+                        "by": float(sy),
+                        "z": float(z[i]),
+                        "src": src,
+                    }
+                )
                 + "\n"
             )
 
