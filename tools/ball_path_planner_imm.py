@@ -39,8 +39,7 @@ def motion_strength(prev_stab, cur_stab):
     return g
 
 def sideline_penalty(x,y,W,H,margin_xy=(64,76),heavy=22.0):
-    mx,my=margin_xy
-    return heavy if (x<mx or x>W-mx or y<my or y>H-my) else 0.0
+    return 0.0
 
 # ---------- scores ----------
 def ncc_score(win,tpl):
@@ -63,8 +62,8 @@ def radial_grad(gray,cx,cy,r):
     return float(np.percentile(mag,80))
 
 # ---------- candidate generator with pass-cone ----------
-def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl, 
-                   search_r=280, cone_dir=None, cone_deg=28, min_r=6, max_r=22, max_cands=16):
+def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
+                   search_r=380, cone_dir=None, cone_deg=999, min_r=4, max_r=28, max_cands=16):
     H,W=stab_bgr.shape[:2]; px,py=pred_xy
     x0=int(max(0,px-search_r)); y0=int(max(0,py-search_r))
     x1=int(min(W,px+search_r)); y1=int(min(H,py+search_r))
@@ -95,7 +94,7 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
         bx=x0+cx; by=y0+cy
         if f_roi[int(np.clip(cy,0,f_roi.shape[0]-1)), int(np.clip(cx,0,f_roi.shape[1]-1))]==0: continue
         mot = float(m_roi[int(np.clip(cy,0,m_roi.shape[0]-1)), int(np.clip(cx,0,m_roi.shape[1]-1))])
-        if mot < 8.0: continue
+        if mot < 3.0: continue
         if not ok_cone(bx,by): continue
         dist = hypot(bx-px, by-py)
         side=int(max(16,min(96, rad*6)))
@@ -114,7 +113,7 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
             bx=x0+x; by=y0+y
             if f_roi[int(np.clip(y,0,f_roi.shape[0]-1)), int(np.clip(x,0,f_roi.shape[1]-1))]==0: continue
             mot = float(m_roi[int(np.clip(y,0,m_roi.shape[0]-1)), int(np.clip(x,0,m_roi.shape[1]-1))])
-            if mot < 8.0: continue
+            if mot < 3.0: continue
             if not ok_cone(bx,by): continue
             dist = hypot(bx-px, by-py)
             side=int(max(16,min(96, r*6)))
