@@ -109,6 +109,82 @@ def _roi_around_point(bx, by, W, H, side):
     return _clamp_roi(x, y, side_i, side_i, W, H)
 
 
+def guarantee_ball_in_crop(
+    x0,
+    y0,
+    cw,
+    ch,
+    bx,
+    by,
+    src_w,
+    src_h,
+    zoom,
+    zoom_min,
+    zoom_max,
+    margin=0.12,
+    step_zoom=0.90,
+):
+    """Adjust the crop so the ball remains inside with a configurable margin."""
+
+    inner_l = x0 + margin * cw
+    inner_r = x0 + cw - margin * cw
+    inner_t = y0 + margin * ch
+    inner_b = y0 + ch - margin * ch
+
+    dx = 0.0
+    dy = 0.0
+    if bx < inner_l:
+        dx = bx - inner_l
+    elif bx > inner_r:
+        dx = bx - inner_r
+    if by < inner_t:
+        dy = by - inner_t
+    elif by > inner_b:
+        dy = by - inner_b
+
+    if dx or dy:
+        x0 += dx
+        y0 += dy
+        x0 = max(0.0, min(x0, src_w - cw))
+        y0 = max(0.0, min(y0, src_h - ch))
+        inner_l = x0 + margin * cw
+        inner_r = x0 + cw - margin * cw
+        inner_t = y0 + margin * ch
+        inner_b = y0 + ch - margin * ch
+
+    tries = 0
+    while (
+        (bx < inner_l or bx > inner_r or by < inner_t or by > inner_b)
+        and tries < 12
+    ):
+        new_zoom = max(zoom_min, zoom * step_zoom)
+        if abs(new_zoom - zoom) < 1e-6 and tries > 0:
+            break
+        zoom = new_zoom
+        cx = x0 + cw / 2.0
+        cy = y0 + ch / 2.0
+        cx = 0.7 * bx + 0.3 * cx
+        cy = 0.7 * by + 0.3 * cy
+
+        aspect = cw / float(ch) if ch > 0 else 1080.0 / 1920.0
+        ch = src_h / float(zoom) if zoom else src_h
+        cw = ch * aspect
+        if cw > src_w:
+            cw = float(src_w)
+            ch = cw / aspect if aspect else src_h
+
+        x0 = max(0.0, min(cx - cw / 2.0, src_w - cw))
+        y0 = max(0.0, min(cy - ch / 2.0, src_h - ch))
+
+        inner_l = x0 + margin * cw
+        inner_r = x0 + cw - margin * cw
+        inner_t = y0 + margin * ch
+        inner_b = y0 + ch - margin * ch
+        tries += 1
+
+    return x0, y0, cw, ch, zoom
+
+
 def make_ball_mask(bgr, grass_h_low=35, grass_h_high=95, min_v=175, max_s=110):
     """Mask favoring bright, low-saturation, non-green pixels likely to be the ball."""
 
@@ -1142,11 +1218,11 @@ class Renderer:
             width,
             height,
             tpl_side=64,
-            search_radius=260,
+            search_radius=280,
             min_r=7,
             max_r=22,
-            max_speed_px=140,
-            conf_ncc=0.38,
+            max_speed_px=180,
+            conf_ncc=0.36,
             conf_hough=22,
         )
         tracker_ready = False
@@ -1241,6 +1317,23 @@ class Renderer:
                 ):
                     tracker_ready = tracker.init_from_label(frame, bx, by) or tracker_ready
 
+                global kal
+                if "kal" not in globals():
+                    kal = {"has": False, "bx": None, "by": None, "vx": 0.0, "vy": 0.0}
+
+                if ball_available and bx is not None and by is not None:
+                    if kal["has"]:
+                        kal["vx"] = 0.8 * kal["vx"] + 0.2 * (bx - kal["bx"])
+                        kal["vy"] = 0.8 * kal["vy"] + 0.2 * (by - kal["by"])
+                    kal["bx"], kal["by"], kal["has"] = float(bx), float(by), True
+                else:
+                    if kal["has"]:
+                        bx = kal["bx"] + kal["vx"]
+                        by = kal["by"] + kal["vy"]
+                        kal["vx"] *= 0.95
+                        kal["vy"] *= 0.95
+                        ball_available = True
+
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
                     cx = 0.92 * bx + 0.08 * prev_cx
@@ -1249,8 +1342,8 @@ class Renderer:
                     cx, cy = pcx, pcy
 
                 if render_fps > 0:
-                    max_dx = (speed_px_sec * 1.5) / render_fps
-                    max_dy = (speed_px_sec * 1.0) / render_fps
+                    max_dx = 9999.0
+                    max_dy = 9999.0
                     dx = cx - prev_cx
                     dy = cy - prev_cy
                     if abs(dx) > max_dx:
@@ -1271,22 +1364,21 @@ class Renderer:
                 )
 
                 if ball_available and bx is not None and by is not None and crop_w > 1 and crop_h > 1:
-                    dl = (bx - x0) / crop_w
-                    dr = (x0 + crop_w - bx) / crop_w
-                    dt = (by - y0) / crop_h
-                    db = (y0 + crop_h - by) / crop_h
-                    if min(dl, dr, dt, db) < 0.12:
-                        zoom = max(zoom_min, zoom * 0.90)
-                        x0, y0, crop_w, crop_h = compute_portrait_crop(
-                            float(cx),
-                            float(cy),
-                            zoom,
-                            width,
-                            height,
-                            portrait_w,
-                            portrait_h,
-                            self.pad,
-                        )
+                    x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
+                        x0,
+                        y0,
+                        crop_w,
+                        crop_h,
+                        float(bx),
+                        float(by),
+                        float(width),
+                        float(height),
+                        float(zoom),
+                        zoom_min,
+                        zoom_max,
+                        margin=0.12,
+                        step_zoom=0.92,
+                    )
 
                 prev_cx, prev_cy = float(cx), float(cy)
                 if tf:
