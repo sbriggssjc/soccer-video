@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, TextIO, Tuple
 
+from math import hypot
+
 import cv2
 import numpy as np
 
@@ -1459,12 +1461,38 @@ class Renderer:
                 if label_available and kal is not None:
                     ball_available = True
 
+                smoothed_cx: Optional[float] = None
+                smoothed_cy: Optional[float] = None
+                zoom_speed: Optional[float] = None
+                speed_px = 0.0
+
+                if ball_available and bx is not None and by is not None:
+                    bx = float(bx)
+                    by = float(by)
+                    prev_bx = prev_ball_x if prev_ball_x is not None else bx
+                    prev_by = prev_ball_y if prev_ball_y is not None else by
+
+                    alpha = 0.30
+                    smoothed_cx = alpha * bx + (1 - alpha) * prev_cx
+                    smoothed_cy = alpha * by + (1 - alpha) * prev_cy
+
+                    speed_px = hypot(bx - prev_bx, by - prev_by)
+                    norm = min(1.0, speed_px / 24.0)
+                    z_min = zoom_min
+                    z_max = zoom_max
+                    zoom_target = z_min + (z_max - z_min) * (1.0 - norm)
+                    dmax = 0.02
+                    zoom_step = max(-dmax, min(dmax, zoom_target - prev_zoom))
+                    zoom_speed = float(np.clip(prev_zoom + zoom_step, z_min, z_max))
+
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if cam_center_override is not None:
                     cx, cy = cam_center_override
+                elif smoothed_cx is not None and smoothed_cy is not None:
+                    cx, cy = smoothed_cx, smoothed_cy
                 elif ball_available and bx is not None and by is not None:
-                    cx = 0.90 * bx + 0.10 * prev_cx
-                    cy = 0.90 * by + 0.10 * prev_cy
+                    cx = 0.90 * float(bx) + 0.10 * prev_cx
+                    cy = 0.90 * float(by) + 0.10 * prev_cy
                 else:
                     cx, cy = pcx, pcy
 
@@ -1479,10 +1507,22 @@ class Renderer:
                         cy = prev_cy + (max_dy if dy > 0 else -max_dy)
 
                 if planned_zoom is not None:
-                    plan_zoom = planned_zoom
+                    zoom = planned_zoom
                 else:
-                    plan_zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
-                zoom = plan_zoom
+                    default_zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
+                    if zoom_speed is not None:
+                        zoom = zoom_speed
+                    else:
+                        zoom = default_zoom
+
+                if ball_available and bx is not None and by is not None and zoom > 0:
+                    view_w = width / float(zoom)
+                    view_h = height / float(zoom)
+                    x0 = min(max(cx - 0.5 * view_w, 0.0), width - view_w)
+                    y0 = min(max(cy - 0.5 * view_h, 0.0), height - view_h)
+                    cx = x0 + 0.5 * view_w
+                    cy = y0 + 0.5 * view_h
+
                 x0, y0, crop_w, crop_h = compute_portrait_crop(
                     float(cx),
                     float(cy),
