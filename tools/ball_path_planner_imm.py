@@ -281,6 +281,7 @@ def main():
     cap=cv2.VideoCapture(args.inp)
     if not cap.isOpened(): raise SystemExit("Cannot open input")
     fps=cap.get(cv2.CAP_PROP_FPS) or 30.0
+    clip_fps = float(fps if fps and np.isfinite(fps) and fps > 1e-3 else 24.0)
     W=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); H=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # anchors
@@ -376,10 +377,38 @@ def main():
 
             cands.sort(key=score, reverse=True)
             bx, by, _ = cands[0]
-            dist = ((bx - px) ** 2 + (by - py) ** 2) ** 0.5
-            max_jump = 18.0
-            if dist <= max_jump:
-                best = (bx, by)
+
+            cand_x, cand_y = bx, by
+
+            # predicted from last step:
+            px, py = pred
+            cx, cy = cand_x, cand_y  # your best candidate
+
+            dx = cx - px; dy = cy - py
+            fps_eff = clip_fps or 24.0
+            max_jump_px = 18.0 * (fps_eff / 24.0)  # ≈18 px/f @24fps
+
+            if (dx*dx + dy*dy) ** 0.5 > max_jump_px:
+                # try a tiny NCC around last good position to avoid teleport
+                lx, ly = last_good
+                sx0, sy0 = int(max(0, lx-60)), int(max(0, ly-60))
+                sx1, sy1 = int(min(W, lx+60)), int(min(H, ly+60))
+                win = cv2.cvtColor(stab[sy0:sy1, sx0:sx1], cv2.COLOR_BGR2GRAY)
+                if win.size and tpl.size and win.shape[0] >= tpl.shape[0] and win.shape[1] >= tpl.shape[1]:
+                    res = cv2.matchTemplate(win, tpl, cv2.TM_CCOEFF_NORMED)
+                    _, m, _, ml = cv2.minMaxLoc(res)
+                    if m > 0.45:
+                        cx = sx0 + ml[0] + tpl.shape[1]*0.5
+                        cy = sy0 + ml[1] + tpl.shape[0]*0.5
+                    else:
+                        cx, cy = px, py  # hold prediction this frame (no snap)
+                else:
+                    cx, cy = px, py
+
+            dist = ((cx - px) ** 2 + (cy - py) ** 2) ** 0.5
+            if dist <= max_jump_px:
+                pred = (cx, cy)
+                best = pred
 
         if n==0:
             os.makedirs("out\\diag_trace", exist_ok=True)
@@ -392,6 +421,7 @@ def main():
 
         if best is not None:
             bx, by = best
+            last_good = best
             # update vel
             if measurements:
                 vx,vy = bx-measurements[-1][0], by-measurements[-1][1]
