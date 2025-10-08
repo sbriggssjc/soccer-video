@@ -50,7 +50,7 @@ ffmpeg -y `
  -loop 1 -t $Dur -i "$Badge" `
  -f lavfi -t $Dur -i anullsrc=channel_layout=stereo:sample_rate=48000 `
  -filter_complex "
-   [1]scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=cover,crop=${FaceBox}:${FaceBox},zoompan=z='min(1.10,1.0+0.03*t)':d=${DurFrames}:s=${FaceBox}x${FaceBox},format=rgba,fade=t=in:st=0:d=${FadeInFace}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutFace)):d=${FadeOutFace}:alpha=1[face];
+   [1]scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=cover,crop=${FaceBox}:${FaceBox},fps=${FPS},zoompan=z='min(1.10,1.0+0.03*on/${DurFrames})':d=${DurFrames}:s=${FaceBox}x${FaceBox},format=rgba,fade=t=in:st=0:d=${FadeInFace}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutFace)):d=${FadeOutFace}:alpha=1[face];
    [2]scale=${BadgeSize}:-1,format=rgba,fade=t=in:st=0:d=${FadeInBadge}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutBadge)):d=${FadeOutBadge}:alpha=1[badge];
    [0][face]overlay=x='(W-w)/2+${FaceOffsetX}':y='${BadgeY}-h/2+${FaceOffsetY}':shortest=1[bgface];
    [bgface][badge]overlay=x='(W-w)/2':y='${BadgeY}-h/2':shortest=1,drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY},drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}
