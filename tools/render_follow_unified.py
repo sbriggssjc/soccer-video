@@ -71,12 +71,12 @@ DEFAULT_PRESETS = {
     "cinematic": {
         "fps": 30,
         "portrait": "1080x1920",
-        "lookahead": 24,
-        "smoothing": 0.45,
-        "pad": 0.22,
-        "speed_limit": 900,
+        "lookahead": 20,
+        "smoothing": 0.30,
+        "pad": 0.12,
+        "speed_limit": 1400,
         "zoom_min": 1.0,
-        "zoom_max": 2.2,
+        "zoom_max": 1.8,
         "crf": 19,
         "keyint_factor": 4,
     },
@@ -523,13 +523,67 @@ class CameraPlanner:
         prev_zoom = self.base_zoom
         fallback_center = np.array([prev_cx, self.height * 0.45], dtype=np.float32)
         fallback_alpha = 0.05
-        px_per_frame = self.speed_limit / max(self.fps, 0.001)
+        render_fps = self.fps if self.fps > 0 else 30.0
+        px_per_sec_x = self.speed_limit * 1.35
+        px_per_sec_y = self.speed_limit * 0.90
+        pxpf_x = px_per_sec_x / render_fps if render_fps > 0 else 0.0
+        pxpf_y = px_per_sec_y / render_fps if render_fps > 0 else 0.0
 
         aspect_target = None
         aspect_ratio = self.width / max(self.height, 1e-6)
         if self.portrait:
             aspect_target = float(self.portrait[0]) / float(self.portrait[1])
             aspect_ratio = aspect_target
+
+        def _clamp_axis(prev_value: float, current_value: float, limit: float) -> Tuple[float, bool]:
+            if limit <= 0.0:
+                if not math.isclose(current_value, prev_value, rel_tol=1e-9, abs_tol=1e-3):
+                    return prev_value, True
+                return current_value, False
+            delta = current_value - prev_value
+            if abs(delta) > limit:
+                return prev_value + (limit if delta > 0 else -limit), True
+            return current_value, False
+
+        def _compute_crop(
+            center_x: float,
+            center_y: float,
+            zoom_value: float,
+        ) -> Tuple[float, float, float, float, float, float, float, bool]:
+            zoom_clamped = float(np.clip(zoom_value, self.zoom_min, self.zoom_max))
+            crop_h = self.height / max(zoom_clamped, 1e-6)
+            crop_w = crop_h * aspect_ratio
+            if crop_w > self.width:
+                crop_w = self.width
+                crop_h = crop_w / max(aspect_ratio, 1e-6)
+
+            if self.pad > 0.0:
+                pad_scale = max(0.0, 1.0 - 2.0 * self.pad)
+                crop_w *= pad_scale
+                crop_h *= pad_scale
+
+            crop_w = float(np.clip(crop_w, 1.0, self.width))
+            crop_h = float(np.clip(crop_h, 1.0, self.height))
+
+            adjusted_cy = center_y
+            if aspect_target:
+                adjusted_cy = adjusted_cy + 0.10 * crop_h
+
+            desired_x0 = center_x - crop_w / 2.0
+            desired_y0 = adjusted_cy - crop_h / 2.0
+            max_x0 = max(0.0, self.width - crop_w)
+            max_y0 = max(0.0, self.height - crop_h)
+            x0 = float(np.clip(desired_x0, 0.0, max_x0))
+            y0 = float(np.clip(desired_y0, 0.0, max_y0))
+            bounds_clamped = not (
+                math.isclose(x0, desired_x0, rel_tol=1e-6, abs_tol=1e-3)
+                and math.isclose(y0, desired_y0, rel_tol=1e-6, abs_tol=1e-3)
+            )
+
+            actual_cx = x0 + crop_w / 2.0
+            actual_cy = y0 + crop_h / 2.0
+
+            return crop_w, crop_h, x0, y0, actual_cx, actual_cy, zoom_clamped, bounds_clamped
 
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
@@ -556,79 +610,70 @@ class CameraPlanner:
 
             target_zoom = self.base_zoom
 
-            speed_limited = False
-            if px_per_frame > 0:
-                dx = float(target[0]) - prev_cx
-                dy = float(target[1]) - prev_cy
-                mag = math.hypot(dx, dy)
-                if mag > px_per_frame:
-                    scale = px_per_frame / mag
-                    target_cx = prev_cx + dx * scale
-                    target_cy = prev_cy + dy * scale
-                    target = np.array([target_cx, target_cy], dtype=np.float32)
-                    speed_limited = True
+            cx = self.smoothing * float(target[0]) + (1.0 - self.smoothing) * prev_cx
+            cy = self.smoothing * float(target[1]) + (1.0 - self.smoothing) * prev_cy
+            zoom = self.smoothing * target_zoom + (1.0 - self.smoothing) * prev_zoom
 
-            smoothed_cx = self.smoothing * target[0] + (1.0 - self.smoothing) * prev_cx
-            smoothed_cy = self.smoothing * target[1] + (1.0 - self.smoothing) * prev_cy
-            smoothed_zoom = self.smoothing * target_zoom + (1.0 - self.smoothing) * prev_zoom
+            ball_point: Optional[Tuple[float, float]] = None
+            if has_position:
+                bx = float(pos[0])
+                by = float(pos[1])
+                ball_point = (bx, by)
+                follow_gain_x = 0.55
+                follow_gain_y = 0.35
+                cx = cx * (1.0 - follow_gain_x) + bx * follow_gain_x
+                cy = cy * (1.0 - follow_gain_y) + by * follow_gain_y
 
             clamp_flags: List[str] = []
 
+            cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x)
+            cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y)
+            speed_limited = x_clamped or y_clamped
             if speed_limited:
                 clamp_flags.append("speed")
 
-            smoothed_zoom = float(np.clip(smoothed_zoom, self.zoom_min, self.zoom_max))
+            crop_w, crop_h, x0, y0, actual_cx, actual_cy, zoom, bounds_clamped = _compute_crop(
+                cx, cy, zoom
+            )
 
-            crop_h = self.height / smoothed_zoom
-            crop_w = crop_h * aspect_ratio
-            if crop_w > self.width:
-                crop_w = self.width
-                crop_h = crop_w / max(aspect_ratio, 1e-6)
+            if ball_point and crop_w > 1.0 and crop_h > 1.0:
+                bx, by = ball_point
+                dist_left = (bx - x0) / crop_w
+                dist_right = (x0 + crop_w - bx) / crop_w
+                dist_top = (by - y0) / crop_h
+                dist_bot = (y0 + crop_h - by) / crop_h
 
-            if self.pad > 0.0:
-                pad_scale = max(0.0, 1.0 - 2.0 * self.pad)
-                crop_w *= pad_scale
-                crop_h *= pad_scale
+                edge_thr = 0.12
+                zoomout_gain = 0.10
 
-            crop_w = float(np.clip(crop_w, 1.0, self.width))
-            crop_h = float(np.clip(crop_h, 1.0, self.height))
+                edge_risk = min(dist_left, dist_right, dist_top, dist_bot)
+                if edge_risk < edge_thr:
+                    zoom = max(self.zoom_min, zoom * (1.0 - zoomout_gain))
+                    crop_w, crop_h, x0, y0, actual_cx, actual_cy, zoom, bounds_again = _compute_crop(
+                        cx, cy, zoom
+                    )
+                    bounds_clamped = bounds_clamped or bounds_again
 
-            # Bias the framing so the ball sits lower in portrait compositions.
-            if aspect_target:
-                smoothed_cy = smoothed_cy + 0.10 * crop_h
-
-            desired_x0 = smoothed_cx - crop_w / 2.0
-            desired_y0 = smoothed_cy - crop_h / 2.0
-            max_x0 = max(0.0, self.width - crop_w)
-            max_y0 = max(0.0, self.height - crop_h)
-            x0 = float(np.clip(desired_x0, 0.0, max_x0))
-            y0 = float(np.clip(desired_y0, 0.0, max_y0))
-
-            if not math.isclose(x0, desired_x0, rel_tol=1e-6, abs_tol=1e-3) or not math.isclose(
-                y0, desired_y0, rel_tol=1e-6, abs_tol=1e-3
-            ):
+            if bounds_clamped:
                 clamp_flags.append("bounds")
 
-            smoothed_cx = x0 + crop_w / 2.0
-            smoothed_cy = y0 + crop_h / 2.0
-
-            prev_cx = smoothed_cx
-            prev_cy = smoothed_cy
-            prev_zoom = smoothed_zoom
+            prev_cx = actual_cx
+            prev_cy = actual_cy
+            prev_zoom = zoom
 
             states.append(
                 CamState(
                     frame=frame_idx,
-                    cx=smoothed_cx,
-                    cy=smoothed_cy,
-                    zoom=smoothed_zoom,
+                    cx=actual_cx,
+                    cy=actual_cy,
+                    zoom=zoom,
                     crop_w=crop_w,
                     crop_h=crop_h,
                     x0=x0,
                     y0=y0,
                     used_label=bool(has_position),
                     clamp_flags=clamp_flags,
-                    ball=(float(pos[0]), float(pos[1])) if has_position else None,
+                    ball=ball_point,
                 )
             )
 
@@ -805,29 +850,26 @@ class Renderer:
                 raise RuntimeError(f"Failed to write frame to {out_path}")
             if telemetry_file:
                 x0_used, y0_used, crop_w_used, crop_h_used = actual_crop
-                ball_pt = state.ball if state.ball else None
-                record = {
+                ball_available = state.ball is not None
+                telemetry_rec = {
                     "t": float(state.frame) / float(self.fps_out),
                     "cx": float(state.cx),
                     "cy": float(state.cy),
                     "zoom": float(state.zoom),
-                    "crop_w": float(crop_w_used),
-                    "crop_h": float(crop_h_used),
-                    "x0": float(x0_used),
-                    "y0": float(y0_used),
                     "crop": [
                         float(x0_used),
                         float(y0_used),
                         float(crop_w_used),
                         float(crop_h_used),
                     ],
-                    "ball": [float(ball_pt[0]), float(ball_pt[1])] if ball_pt else None,
-                    "used_label": bool(state.used_label),
-                    "clamp_flags": list(state.clamp_flags)
-                    if isinstance(state.clamp_flags, (set, tuple))
-                    else state.clamp_flags,
+                    "ball": [
+                        float(state.ball[0]),
+                        float(state.ball[1]),
+                    ]
+                    if ball_available
+                    else None,
                 }
-                telemetry_file.write(json.dumps(to_jsonable(record)) + "\n")
+                telemetry_file.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
 
         if telemetry_file:
             telemetry_file.close()
