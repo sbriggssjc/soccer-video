@@ -1365,7 +1365,7 @@ class Renderer:
                 pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
                 if ball_available and bx is not None and by is not None:
                     cx = 0.90 * bx + 0.10 * prev_cx
-                    cy = 0.55 * by + 0.45 * (0.60 * src_h_f)
+                    cy = 0.90 * by + 0.10 * prev_cy
                 else:
                     cx, cy = pcx, pcy
 
