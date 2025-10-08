@@ -196,7 +196,7 @@ def gen_candidates(
         motion_val = float(
             motion_roi[int(np.clip(cy, 0, motion_roi.shape[0] - 1)), int(np.clip(cx, 0, motion_roi.shape[1] - 1))]
         )
-        if motion_val < 8.0:
+        if motion_val < 3.0:
             return
         dist = hypot(bx - px, by - py)
         side = int(max(16, min(96, rad * 6)))
@@ -426,6 +426,11 @@ def main() -> None:
         raise SystemExit("Use --init-manual and select ball")
     bx0 = roi[0] + roi[2] / 2.0
     by0 = roi[1] + roi[3] / 2.0
+    r_est = 0.25 * math.sqrt(roi[2] * roi[3])
+    min_r = max(args.min_r, max(3, int(0.6 * r_est)))
+    max_r = max(args.max_r, min(30, int(2.2 * r_est)))
+    if max_r <= min_r:
+        max_r = min(30, min_r + 2)
     template = eq(to_gray(frame0))[int(by0 - 32) : int(by0 + 32), int(bx0 - 32) : int(bx0 + 32)].copy()
     if template.size == 0:
         template = eq(to_gray(frame0))
@@ -462,8 +467,8 @@ def main() -> None:
             pred,
             template,
             search_r=search_radius,
-            min_r=args.min_r,
-            max_r=args.max_r,
+            min_r=min_r,
+            max_r=max_r,
             max_cands=args.max_cands,
         )
         if not candidates and misses >= 10:
@@ -475,6 +480,8 @@ def main() -> None:
                 (width / 2.0, height / 2.0),
                 template,
                 search_r=max(width, height),
+                min_r=min_r,
+                max_r=max_r,
                 max_cands=args.max_cands * 2,
             )
         if candidates:
