@@ -54,9 +54,22 @@ ffmpeg -y `
  -loop 1 -t $Dur -i "$Badge" `
  -f lavfi -t $Dur -i anullsrc=channel_layout=stereo:sample_rate=48000 `
  -filter_complex "
-   [1]scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=increase,crop=${FaceBox}:${FaceBox},fps=${FPS},zoompan=z='min(1.10,1.0+0.03*on/${DurFrames})':d=${DurFrames}:s=${FaceBox}x${FaceBox},format=rgba,fade=t=in:st=0:d=${FadeInFace}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutFace)):d=${FadeOutFace}:alpha=1[face];
-   [2]scale=${BadgeSize}:-1,format=rgba,colorkey=0xFFFFFF:0.12:0.02,fade=t=in:st=0:d=${FadeInBadge}:alpha=1,fade=t=out:st=$(($Dur-$FadeOutBadge)):d=${FadeOutBadge}:alpha=1[badgecut];
+   [1]scale=${FaceBox}:${FaceBox}:force_original_aspect_ratio=increase,
+      crop=${FaceBox}:${FaceBox},
+      fps=${FPS},
+      zoompan=z='min(1.10,1.0+0.03*on/${DurFrames})':d=${DurFrames}:s=${FaceBox}x${FaceBox},
+      format=rgba,
+      fade=t=in:st=0:d=${FadeInFace}:alpha=1,
+      fade=t=out:st=$(($Dur-$FadeOutFace)):d=${FadeOutFace}:alpha=1[face];
+
+   [2]scale=${BadgeSize}:-1,
+      format=rgba,
+      colorkey=0xFFFFFF:0.12:0.02,
+      fade=t=in:st=0:d=${FadeInBadge}:alpha=1,
+      fade=t=out:st=$(($Dur-$FadeOutBadge)):d=${FadeOutBadge}:alpha=1[badgecut];
+
    [0][face]overlay=x='(W-w)/2+${FaceOffsetX}':y='${BadgeY}-h/2+${FaceOffsetY}':shortest=1[bgface];
+
    [bgface][badgecut]overlay=x='(W-w)/2':y='${BadgeY}-h/2':shortest=1,
      drawtext=fontfile='${BoldFontFF}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=${White}:x=(w-text_w)/2:y=${NameY}:alpha='if(lt(t,${TextFade}),(t/${TextFade}),if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade}))))',
      drawtext=fontfile='${BoldFontFF}':text='\#$($PlayerNo)':fontsize=66:fontcolor=${Red}:x=(w-text_w)/2:y=${NumY}:alpha='if(lt(t,${TextFade}),(t/${TextFade}),if(lt(t,${Dur}-${TextFade}),1,max(0,(${Dur}-t)/${TextFade}))))'
