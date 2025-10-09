@@ -1805,16 +1805,19 @@ class Renderer:
                         zoom = prev_zoom + max(-slew, min(slew, zoom_target - prev_zoom))
                         zoom = float(np.clip(zoom, z_min if z_min > 0 else 1.0, z_max))
 
-                    view_h = H / float(zoom) if zoom > 0 else H
-                    view_w = view_h * target_aspect
-                    if view_w > W:
-                        view_w = float(W)
-                        view_h = view_w / target_aspect if target_aspect else view_h
-                    x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
-                    y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
+                    h = H / float(zoom) if zoom > 0 else H
+                    w = h * target_aspect
+                    if w > W:
+                        w = float(W)
+                        h = w / target_aspect if target_aspect else h
+                    x0 = min(max(cx - 0.5 * w, 0.0), W - w)
+                    y0 = min(max(cy - 0.5 * h, 0.0), H - h)
 
-                        telemetry_ball = (eff_bx, eff_by)
-                        telemetry_crop = (x0, y0, view_w, view_h)
+                    if telemetry_rec is not None:
+                        telemetry_rec["crop"] = [float(x0), float(y0), float(w), float(h)]
+                        if eff_bx is not None and eff_by is not None:
+                            telemetry_rec["ball"] = [float(eff_bx), float(eff_by)]
+                        telemetry_f.write(json.dumps(telemetry_rec) + "\n")
 
                     x0, y0, crop_w, crop_h = compute_portrait_crop(
                         float(cx),
