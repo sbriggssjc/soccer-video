@@ -86,6 +86,9 @@ def main():
                     try:
                         bx = float(ball_val[0])
                         by = float(ball_val[1])
+                        if W > 1 and H > 1 and 0.0 <= bx <= 1.0 and 0.0 <= by <= 1.0:
+                            bx = max(0.0, min(1.0, bx)) * (W - 1)
+                            by = max(0.0, min(1.0, by)) * (H - 1)
                         break
                     except (TypeError, ValueError):
                         bx = by = None
