@@ -103,6 +103,27 @@ def radial_grad(gray,cx,cy,r):
     mag=np.sqrt(gx*gx+gy*gy)
     return float(np.percentile(mag,80))
 
+def soft_color_prior(bgr_patch):
+    if bgr_patch is None or bgr_patch.size == 0:
+        return 0.8
+    hsv = cv2.cvtColor(bgr_patch, cv2.COLOR_BGR2HSV)
+    orange = cv2.inRange(hsv, (5, 70, 70), (28, 255, 255))
+    white = cv2.inRange(hsv, (0, 0, 190), (179, 60, 255))
+    ball_like = float(cv2.countNonZero(orange) + 0.7 * cv2.countNonZero(white))
+    total = float(bgr_patch.shape[0] * bgr_patch.shape[1] + 1e-6)
+    ratio = ball_like / total
+    return 0.55 + 0.9 * max(0.0, min(1.0, ratio))
+
+def soft_radius_prior(r):
+    if r is None:
+        return 0.8
+    # Encourage radii roughly in [2, 10] pixels (24fps, 1080p typical ball size)
+    r = float(max(0.5, min(36.0, r)))
+    center = 6.0
+    sigma = 3.0
+    weight = math.exp(-0.5 * ((r - center) / max(1e-3, sigma)) ** 2)
+    return 0.55 + 0.9 * weight
+
 # ---------- candidate generator with pass-cone ----------
 def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
                    search_r=380, cone_dir=None, cone_deg=999, min_r=4, max_r=28, max_cands=16):
@@ -112,7 +133,7 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
     if x1<=x0+2 or y1<=y0+2: return []
 
     roi = stab_bgr[y0:y1,x0:x1]; gray=cv2.cvtColor(roi,cv2.COLOR_BGR2GRAY)
-    f_roi = field_m[y0:y1,x0:x1]; m_roi = mot_map[y0:y1,x0:x1]
+    m_roi = mot_map[y0:y1,x0:x1]
     out=[]
 
     def ok_cone(bx,by):
@@ -125,48 +146,68 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
         ang = math.degrees(math.acos(max(-1.0,min(1.0,cosang))))
         return ang <= cone_deg
 
+    def push_candidate(bx, by, local_x, local_y, radius):
+        if not ok_cone(bx, by):
+            return
+        mot = float(m_roi[int(np.clip(local_y,0,m_roi.shape[0]-1)), int(np.clip(local_x,0,m_roi.shape[1]-1))])
+        if mot < 3.0:
+            return
+        side=int(max(16,min(96, radius*6)))
+        sx0=int(max(0,bx-side//2)); sy0=int(max(0,by-side//2))
+        sx1=int(min(W,sx0+side));    sy1=int(min(H,sy0+side))
+        if sx1<=sx0 or sy1<=sy0:
+            return
+        mask_patch = field_m[sy0:sy1,sx0:sx1]
+        if mask_patch.size == 0:
+            return
+        mask_cov = float(cv2.countNonZero(mask_patch)) / float(mask_patch.size)
+        if mask_cov < 0.60:
+            return
+        win_gray = cv2.cvtColor(stab_bgr[sy0:sy1,sx0:sx1], cv2.COLOR_BGR2GRAY)
+        ncc = ncc_score(win_gray, tpl)
+        if ncc < -0.5:
+            return
+        grad = radial_grad(gray,int(local_x),int(local_y),int(radius))
+        color_patch = raw_bgr[sy0:sy1, sx0:sx1] if raw_bgr is not None else stab_bgr[sy0:sy1, sx0:sx1]
+        color_w = soft_color_prior(color_patch)
+        radius_w = soft_radius_prior(radius)
+        match = max(0.0, ncc) * color_w * radius_w
+        base = (1.2 * match) + (0.02 * grad)
+        base -= sideline_penalty(bx,by,W,H)
+        out.append({
+            "x": float(bx),
+            "y": float(by),
+            "score": float(base),
+            "ncc": float(ncc),
+            "mask_cov": float(mask_cov),
+            "grad": float(grad),
+            "match": float(match),
+            "color_w": float(color_w),
+            "radius_w": float(radius_w),
+            "radius": float(radius),
+        })
+
     # contours
     thr = cv2.adaptiveThreshold(eq(gray),255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,31,-7)
     thr = cv2.medianBlur(thr,5)
     cnts,_=cv2.findContours(thr,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     for c in cnts:
         a=cv2.contourArea(c)
-        if a<(min_r*min_r*0.6) or a>(max_r*max_r*4.0): continue
+        if a<(min_r*min_r*0.6) or a>(max_r*max_r*4.0):
+            continue
         (cx,cy),rad = cv2.minEnclosingCircle(c)
         bx=x0+cx; by=y0+cy
-        if f_roi[int(np.clip(cy,0,f_roi.shape[0]-1)), int(np.clip(cx,0,f_roi.shape[1]-1))]==0: continue
-        mot = float(m_roi[int(np.clip(cy,0,m_roi.shape[0]-1)), int(np.clip(cx,0,m_roi.shape[1]-1))])
-        if mot < 3.0: continue
-        if not ok_cone(bx,by): continue
-        dist = hypot(bx-px, by-py)
-        side=int(max(16,min(96, rad*6)))
-        sx0=int(max(0,bx-side//2)); sy0=int(max(0,by-side//2))
-        sx1=int(min(W,sx0+side));    sy1=int(min(H,sy0+side))
-        win = cv2.cvtColor(stab_bgr[sy0:sy1,sx0:sx1], cv2.COLOR_BGR2GRAY)
-        ncc=ncc_score(win, tpl); grad=radial_grad(gray,int(cx),int(cy),int(rad))
-        base = (-0.02*dist) + (1.5*ncc) + (0.02*grad)
-        base -= sideline_penalty(bx,by,W,H)
-        out.append((bx,by,base))
+        push_candidate(bx, by, cx, cy, max(min_r, min(max_r, rad)))
+
     # hough
     hc = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1.2, minDist=14,
                           param1=110, param2=18, minRadius=min_r, maxRadius=max_r)
     if hc is not None:
         for x,y,r in np.round(hc[0,:]).astype(int):
             bx=x0+x; by=y0+y
-            if f_roi[int(np.clip(y,0,f_roi.shape[0]-1)), int(np.clip(x,0,f_roi.shape[1]-1))]==0: continue
-            mot = float(m_roi[int(np.clip(y,0,m_roi.shape[0]-1)), int(np.clip(x,0,m_roi.shape[1]-1))])
-            if mot < 3.0: continue
-            if not ok_cone(bx,by): continue
-            dist = hypot(bx-px, by-py)
-            side=int(max(16,min(96, r*6)))
-            sx0=int(max(0,bx-side//2)); sy0=int(max(0,by-side//2))
-            sx1=int(min(W,sx0+side));    sy1=int(min(H,sy0+side))
-            win = cv2.cvtColor(stab_bgr[sy0:sy1,sx0:sx1], cv2.COLOR_BGR2GRAY)
-            ncc=ncc_score(win, None if tpl is None else tpl)
-            grad=radial_grad(gray,int(x),int(y),int(r))
-            base = (-0.02*dist) + (1.5*ncc) + (0.02*grad) - sideline_penalty(bx,by,W,H)
-            out.append((bx,by,base))
-    out.sort(key=lambda t: t[2], reverse=True)
+            push_candidate(bx, by, x, y, max(min_r, min(max_r, r)))
+
+    out.sort(key=lambda d: d["score"], reverse=True)
     return out[:max_cands]
 
 # ---------- IMM smoother (CV + CA) ----------
@@ -337,6 +378,9 @@ def main():
     measurements=[]; smooth_path=[]; speeds=[]; records=[]
     trace = None; w = None
     n=0
+    last_good = pred
+    low_ncc_streak = 0
+    anchor_frames = sorted(anchors.keys())
     while True:
         ok, fr = cap.read()
         if not ok: break
@@ -365,63 +409,101 @@ def main():
             max_r=max_r,
         )
 
+        if low_ncc_streak >= 5:
+            vel_mag = math.hypot(*vel)
+            cone = vel if vel_mag > 1e-3 else None
+            reacq = gen_candidates(
+                stab,
+                fr,
+                field_m,
+                mot,
+                last_good,
+                tpl,
+                search_r=min(sr + 120, 520),
+                cone_dir=cone,
+                cone_deg=45,
+                min_r=min_r,
+                max_r=max_r,
+                max_cands=8,
+            )
+            cands.extend(reacq)
+
+            if anchor_frames:
+                nearest = min(anchor_frames, key=lambda a: abs(a - n))
+                if abs(nearest - n) <= 3:
+                    anchor_pred = anchors[nearest]
+                    anchor_cands = gen_candidates(
+                        stab,
+                        fr,
+                        field_m,
+                        mot,
+                        anchor_pred,
+                        tpl,
+                        search_r=180,
+                        cone_dir=None,
+                        cone_deg=999,
+                        min_r=min_r,
+                        max_r=max_r,
+                        max_cands=6,
+                    )
+                    cands.extend(anchor_cands)
+
+        if cands:
+            # deduplicate by coarse grid to avoid flooding
+            uniq = {}
+            for cand in cands:
+                key = (int(round(cand["x"]/3.0)), int(round(cand["y"]/3.0)))
+                if key not in uniq or cand["score"] > uniq[key]["score"]:
+                    uniq[key] = cand
+            cands = sorted(uniq.values(), key=lambda c: c["score"], reverse=True)[:24]
+
         best = None
+        best_score = -1e9
+        best_ncc = 0.0
         if cands:
             px, py = pred
 
-            def score(c):
-                bx, by, base = c
-                dist = ((bx - px) ** 2 + (by - py) ** 2) ** 0.5
+            max_jump_px = 18.0 * (clip_fps / 24.0)
+            speed_denom = max(4.0, max_jump_px * 0.75)
+
+            for cand in cands:
+                bx = cand["x"]
+                by = cand["y"]
+                base = cand["score"]
+                dist = math.hypot(bx - px, by - py)
                 center_bias = -0.002 * abs(bx - (W * 0.5))
-                return base - 0.03 * dist + center_bias
+                speed_penalty = math.exp(-0.5 * (dist / speed_denom) ** 2)
+                score = base - 0.03 * dist + center_bias
+                score *= 0.6 + 0.4 * speed_penalty
+                if score > best_score:
+                    best_score = score
+                    best = cand
+                    best_ncc = cand.get("ncc", 0.0)
 
-            cands.sort(key=score, reverse=True)
-            bx, by, _ = cands[0]
+        if best is not None:
+            pred = (best["x"], best["y"])
+            best_pt = pred
+        else:
+            best_pt = None
 
-            cand_x, cand_y = bx, by
-
-            # predicted from last step:
-            px, py = pred
-            cx, cy = cand_x, cand_y  # your best candidate
-
-            dx = cx - px; dy = cy - py
-            fps_eff = clip_fps or 24.0
-            max_jump_px = 18.0 * (fps_eff / 24.0)  # ≈18 px/f @24fps
-
-            if (dx*dx + dy*dy) ** 0.5 > max_jump_px:
-                # try a tiny NCC around last good position to avoid teleport
-                lx, ly = last_good
-                sx0, sy0 = int(max(0, lx-60)), int(max(0, ly-60))
-                sx1, sy1 = int(min(W, lx+60)), int(min(H, ly+60))
-                win = cv2.cvtColor(stab[sy0:sy1, sx0:sx1], cv2.COLOR_BGR2GRAY)
-                if win.size and tpl.size and win.shape[0] >= tpl.shape[0] and win.shape[1] >= tpl.shape[1]:
-                    res = cv2.matchTemplate(win, tpl, cv2.TM_CCOEFF_NORMED)
-                    _, m, _, ml = cv2.minMaxLoc(res)
-                    if m > 0.45:
-                        cx = sx0 + ml[0] + tpl.shape[1]*0.5
-                        cy = sy0 + ml[1] + tpl.shape[0]*0.5
-                    else:
-                        cx, cy = px, py  # hold prediction this frame (no snap)
-                else:
-                    cx, cy = px, py
-
-            dist = ((cx - px) ** 2 + (cy - py) ** 2) ** 0.5
-            if dist <= max_jump_px:
-                pred = (cx, cy)
-                best = pred
+        if best_pt is not None:
+            bx, by = best_pt
+            last_good = best_pt
+            low_ncc_streak = 0 if best_ncc >= 0.35 else (low_ncc_streak + 1)
+        else:
+            low_ncc_streak += 1
 
         if n==0:
             os.makedirs("out\\diag_trace", exist_ok=True)
             trace = open("out\\diag_trace\\cands.csv","w",encoding="utf-8",newline="")
             w = csv.writer(trace); w.writerow(["frame","num_cands","top_score","pred_x","pred_y","miss_streak"])
 
-        top = cands[0][2] if cands else ""
+        top = best_score if cands else ""
         if w is not None:
             w.writerow([n, len(cands), top, pred[0], pred[1], miss])
 
-        if best is not None:
-            bx, by = best
-            last_good = best
+        if best_pt is not None:
+            bx, by = best_pt
             # update vel
             if measurements:
                 vx,vy = bx-measurements[-1][0], by-measurements[-1][1]
