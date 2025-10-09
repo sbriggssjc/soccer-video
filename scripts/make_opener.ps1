@@ -1,8 +1,11 @@
-Param(
-    [Parameter(Mandatory=$true)] [string]$PlayerName,
-    [Parameter(Mandatory=$true)] [int]$PlayerNumber,
-    [Parameter(Mandatory=$true)] [string]$PlayerPhoto,
-    [Parameter(Mandatory=$true)] [string]$OutDir,
+param(
+    [Parameter(Mandatory=$true)] [string] $PlayerName,
+    [Parameter(Mandatory=$true)] [int]    $PlayerNumber,
+    [Parameter(Mandatory=$true)] [string] $PlayerPhoto,
+    [Parameter(Mandatory=$true)] [string] $OutDir,
+
+    # NEW: optional explicit output file path
+    [string] $OutFile,
 
     [string]$BGPath = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png",
     [string]$BadgeSolidPath = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png",
@@ -28,10 +31,15 @@ Param(
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
+if (-not $OutFile -or $OutFile.Trim() -eq "") {
+    $safeName = ($PlayerName -replace '[^\w\- ]','').Trim() -replace '\s+','_'
+    $OutFile  = Join-Path $OutDir ("{0}__{1}.mp4" -f $PlayerNumber, $safeName)
+}
+
+Write-Host "Writing -> $OutFile"
+
 $HoleBox = [int]([math]::Round($BadgeW * $HoleScale))
 $TxtOutStart = [math]::Round(($DUR - $FadeOutTxt),2)
-$SanName = ($PlayerName -replace '[^\w]+','').Trim('')
-$OUT = Join-Path $OutDir "$SanName__OPENER.mp4"
 
 # Text config (safe for drawtext)
 $FontName      = "Arial Bold"             # use font=, avoids C:\ path issues
@@ -66,8 +74,8 @@ $ff = @(
     "-loop","1","-t",$DUR,"-i",$BadgeHolePath,
     "-f","lavfi","-t",$DUR,"-i","anullsrc=channel_layout=stereo:sample_rate=48000",
     "-filter_complex",$fc,
-    "-map","[vout]","-map","4:a","-r",$FPS,"-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",$OUT
+    "-map","[vout]","-map","4:a","-r",$FPS,"-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",$OutFile
 )
 
-Write-Host "Rendering opener -> $OUT"
+Write-Host "Rendering opener -> $OutFile"
 ffmpeg @ff
