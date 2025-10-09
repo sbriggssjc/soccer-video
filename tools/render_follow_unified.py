@@ -1517,8 +1517,8 @@ class Renderer:
 
         is_portrait = target_h > target_w
         portrait_plan_state: dict[str, float] = {}
-        portrait_out_w = target_w
-        portrait_out_h = target_h
+        out_w = target_w
+        out_h = target_h
 
         offline_ball_path = self.offline_ball_path
 
@@ -1618,8 +1618,8 @@ class Renderer:
                 global FPS
                 FPS = float(fps_for_plan)
 
-                if portrait_w > 0 and portrait_h > 0:
-                    target_aspect = float(portrait_w) / float(portrait_h)
+                if out_w > 0 and out_h > 0:
+                    target_aspect = float(out_w) / float(out_h)
                 else:
                     target_aspect = (float(width) / float(height)) if height > 0 else 1.0
 
@@ -1930,8 +1930,8 @@ class Renderer:
                             eff_by,
                             width,
                             height,
-                            out_w=portrait_out_w,
-                            out_h=portrait_out_h,
+                            out_w=out_w,
+                            out_h=out_h,
                             zoom_min=zoom_min,
                             zoom_max=zoom_max,
                             pad=self.pad,
@@ -1964,11 +1964,9 @@ class Renderer:
                             float(width),
                             float(height),
                             float(zoom),
-                            width,
-                            height,
-                            portrait_w,
-                            portrait_h,
-                            self.pad,
+                            zoom_min,
+                            zoom_max,
+                            margin=self.pad,
                         )
 
                         if have_ball and crop_w > 1 and crop_h > 1:
@@ -2393,6 +2391,13 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
 
     portrait_str = args.portrait or preset_config.get("portrait")
     portrait = parse_portrait(portrait_str) if portrait_str else None
+
+    out_w, out_h = (None, None)
+    if args.portrait:
+        w, h = args.portrait.split("x")
+        out_w, out_h = int(w), int(h)
+    elif portrait:
+        out_w, out_h = portrait
 
     lookahead = int(args.lookahead) if args.lookahead is not None else int(preset_config.get("lookahead", 18))
     smoothing = float(args.smoothing) if args.smoothing is not None else float(preset_config.get("smoothing", 0.65))
