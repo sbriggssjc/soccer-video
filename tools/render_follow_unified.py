@@ -1519,6 +1519,8 @@ class Renderer:
         portrait_plan_state: dict[str, float] = {}
         out_w = target_w
         out_h = target_h
+        portrait_w = out_w if is_portrait else None
+        portrait_h = out_h if is_portrait else None
 
         offline_ball_path = self.offline_ball_path
 
@@ -1618,8 +1620,8 @@ class Renderer:
                 global FPS
                 FPS = float(fps_for_plan)
 
-                if out_w > 0 and out_h > 0:
-                    target_aspect = float(out_w) / float(out_h)
+                if portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0:
+                    target_aspect = float(portrait_w) / float(portrait_h)
                 else:
                     target_aspect = (float(width) / float(height)) if height > 0 else 1.0
 
@@ -1939,8 +1941,8 @@ class Renderer:
                             eff_by,
                             width,
                             height,
-                            out_w=out_w,
-                            out_h=out_h,
+                            out_w=portrait_w,
+                            out_h=portrait_h,
                             zoom_min=zoom_min,
                             zoom_max=zoom_max,
                             pad=self.pad,
@@ -2084,8 +2086,8 @@ class Renderer:
                             float(by),
                             width,
                             height,
-                            out_w=portrait_out_w,
-                            out_h=portrait_out_h,
+                            out_w=portrait_w,
+                            out_h=portrait_h,
                             zoom_min=zoom_min,
                             zoom_max=zoom_max,
                             pad=self.pad,
@@ -2166,8 +2168,8 @@ class Renderer:
                                 cur_by,
                                 width,
                                 height,
-                                out_w=portrait_out_w,
-                                out_h=portrait_out_h,
+                                out_w=portrait_w,
+                                out_h=portrait_h,
                                 zoom_min=zoom_min,
                                 zoom_max=zoom_max,
                                 pad=self.pad,
@@ -2413,15 +2415,20 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     if fps_out <= 0:
         fps_out = fps_in if fps_in > 0 else 30.0
 
+    portrait_w = getattr(args, "portrait_w", None)
+    portrait_h = getattr(args, "portrait_h", None)
     portrait_str = args.portrait or preset_config.get("portrait")
-    portrait = parse_portrait(portrait_str) if portrait_str else None
-
-    out_w, out_h = (None, None)
-    if args.portrait:
-        w, h = args.portrait.split("x")
-        out_w, out_h = int(w), int(h)
-    elif portrait:
-        out_w, out_h = portrait
+    portrait: Optional[Tuple[int, int]] = None
+    if portrait_w is not None and portrait_h is not None:
+        portrait = (portrait_w, portrait_h)
+    elif portrait_str:
+        portrait = parse_portrait(portrait_str)
+        if portrait:
+            portrait_w, portrait_h = portrait
+    if portrait_w is not None:
+        setattr(args, "portrait_w", portrait_w)
+    if portrait_h is not None:
+        setattr(args, "portrait_h", portrait_h)
 
     lookahead = int(args.lookahead) if args.lookahead is not None else int(preset_config.get("lookahead", 18))
     smoothing = float(args.smoothing) if args.smoothing is not None else float(preset_config.get("smoothing", 0.65))
@@ -2646,6 +2653,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # --- portrait helpers ---
+    portrait_w, portrait_h = (None, None)
+    if args.portrait:
+        try:
+            portrait_w, portrait_h = map(int, str(args.portrait).lower().split("x"))
+        except Exception:
+            raise SystemExit(
+                f"Bad --portrait '{args.portrait}'. Use e.g. 1080x1920"
+            )
+    setattr(args, "portrait_w", portrait_w)
+    setattr(args, "portrait_h", portrait_h)
     tf = None
     if getattr(args, "telemetry", None):
         telemetry_path = Path(args.telemetry).expanduser()
