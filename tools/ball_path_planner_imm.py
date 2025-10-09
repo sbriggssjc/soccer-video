@@ -2,8 +2,133 @@ import os, json, math, cv2, numpy as np
 import argparse, csv
 from math import hypot
 
+
 def to_gray(bgr): return cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+
 def eq(g): return cv2.equalizeHist(g)
+
+
+def hsv_bounds_from_roi(bgr_roi, margin=(4, 10, 10)):
+    if bgr_roi is None or bgr_roi.size == 0:
+        return None, None
+    hsv = cv2.cvtColor(bgr_roi, cv2.COLOR_BGR2HSV)
+    H, S, V = [x.reshape(-1) for x in cv2.split(hsv)]
+    if H.size == 0:
+        return None, None
+    loH, hiH = np.percentile(H, [10, 90])
+    loS, hiS = np.percentile(S, [10, 90])
+    loV, hiV = np.percentile(V, [10, 90])
+    dH, dS, dV = margin
+    lo = np.array((max(0, loH - dH), max(0, loS - dS), max(0, loV - dV)), dtype=np.int32)
+    hi = np.array((min(179, hiH + dH), min(255, hiS + dS), min(255, hiV + dV)), dtype=np.int32)
+    return lo, hi
+
+
+def sample_field_swatches(bgr_frame, n=6, box=48):
+    if bgr_frame is None or bgr_frame.size == 0:
+        return []
+    h, w = bgr_frame.shape[:2]
+    if h == 0 or w == 0:
+        return []
+    xs = [int(w * 0.25), int(w * 0.5), int(w * 0.75)]
+    ys = [int(h * 0.55), int(h * 0.7)]
+    rois = []
+    for y in ys:
+        for x in xs:
+            x0 = max(0, x - box // 2)
+            y0 = max(0, y - box // 2)
+            x1 = min(w, x0 + box)
+            y1 = min(h, y0 + box)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            roi = bgr_frame[y0:y1, x0:x1]
+            if roi.size:
+                rois.append(roi)
+            if len(rois) >= n:
+                return rois
+    return rois
+
+
+def hsv_bounds_union(rois):
+    bounds = []
+    for roi in rois or []:
+        lo, hi = hsv_bounds_from_roi(roi, margin=(6, 12, 18))
+        if lo is not None and hi is not None:
+            bounds.append((lo, hi))
+    if not bounds:
+        return None, None
+    los = np.stack([b[0] for b in bounds], axis=0)
+    his = np.stack([b[1] for b in bounds], axis=0)
+    lo = np.min(los, axis=0)
+    hi = np.max(his, axis=0)
+    return lo.astype(np.int32), hi.astype(np.int32)
+
+
+def hsv_likelihood(bgr, lo, hi):
+    if bgr is None or bgr.size == 0:
+        return np.zeros((0, 0), dtype=np.float32)
+    if lo is None or hi is None:
+        return np.ones(bgr.shape[:2], dtype=np.float32) * 0.5
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    H, S, V = cv2.split(hsv)
+    H = H.astype(np.float32)
+    S = S.astype(np.float32)
+    V = V.astype(np.float32)
+    lo = lo.astype(np.float32)
+    hi = hi.astype(np.float32)
+    dH = np.maximum(lo[0] - H, 0.0) + np.maximum(H - hi[0], 0.0)
+    dS = np.maximum(lo[1] - S, 0.0) + np.maximum(S - hi[1], 0.0)
+    dV = np.maximum(lo[2] - V, 0.0) + np.maximum(V - hi[2], 0.0)
+    dist = (dH / 12.0 + dS / 24.0 + dV / 24.0)
+    return np.clip(1.0 - dist, 0.0, 1.0).astype(np.float32)
+
+
+def ema_bounds(lo, hi, new_lo, new_hi, alpha=0.08):
+    if new_lo is None or new_hi is None:
+        return lo, hi
+    new_lo = new_lo.astype(np.float32)
+    new_hi = new_hi.astype(np.float32)
+    if lo is None or hi is None:
+        return new_lo.astype(np.int32), new_hi.astype(np.int32)
+    lo = (1 - alpha) * lo.astype(np.float32) + alpha * new_lo
+    hi = (1 - alpha) * hi.astype(np.float32) + alpha * new_hi
+    return lo.astype(np.int32), hi.astype(np.int32)
+
+
+def extract_ball_roi(frame, cx, cy, radius, max_side=72):
+    if frame is None or frame.size == 0:
+        return None
+    h, w = frame.shape[:2]
+    if h == 0 or w == 0:
+        return None
+    r = int(max(4, min(max_side // 2, radius * 1.6)))
+    x0 = int(max(0, round(cx) - r))
+    y0 = int(max(0, round(cy) - r))
+    x1 = int(min(w, x0 + 2 * r))
+    y1 = int(min(h, y0 + 2 * r))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    roi = frame[y0:y1, x0:x1]
+    return roi if roi.size else None
+
+
+def score_ball_candidate(roi_bgr, tpl, ball_bounds, field_bounds):
+    if roi_bgr is None or roi_bgr.size == 0:
+        return 0.0, -1.0, 0.0, 0.0, 0.0
+    ball_lo = ball_bounds[0] if ball_bounds is not None else None
+    ball_hi = ball_bounds[1] if ball_bounds is not None else None
+    fld_lo = field_bounds[0] if field_bounds is not None else None
+    fld_hi = field_bounds[1] if field_bounds is not None else None
+    ball_lk = hsv_likelihood(roi_bgr, ball_lo, ball_hi)
+    field_lk = hsv_likelihood(roi_bgr, fld_lo, fld_hi)
+    s_ball = float(ball_lk.mean()) if ball_lk.size else 0.5
+    s_field = float(field_lk.mean()) if field_lk.size else 0.5
+    color_score = 0.7 * s_ball + 0.3 * (1.0 - s_field)
+    roi_gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+    ncc = ncc_score(roi_gray, tpl)
+    blend = 0.55 * ncc + 0.45 * color_score
+    return float(blend), float(ncc), float(color_score), s_ball, s_field
 
 # ---------- stabilization ----------
 def stabilize_step(prev_gray, cur_bgr):
@@ -158,7 +283,8 @@ def radius_position_prior(y, r, H):
 
 # ---------- candidate generator with pass-cone ----------
 def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
-                   search_r=380, cone_dir=None, cone_deg=999, min_r=4, max_r=28, max_cands=16):
+                   search_r=380, cone_dir=None, cone_deg=999, min_r=4, max_r=28, max_cands=16,
+                   ball_bounds=None, field_bounds=None):
     H,W=stab_bgr.shape[:2]; px,py=pred_xy
     x0=int(max(0,px-search_r)); y0=int(max(0,py-search_r))
     x1=int(min(W,px+search_r)); y1=int(min(H,py+search_r))
@@ -195,19 +321,20 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
         mask_cov = float(cv2.countNonZero(mask_patch)) / float(mask_patch.size)
         if mask_cov < 0.60:
             return
-        win_gray = cv2.cvtColor(stab_bgr[sy0:sy1,sx0:sx1], cv2.COLOR_BGR2GRAY)
-        ncc = ncc_score(win_gray, tpl)
+        roi_bgr = stab_bgr[sy0:sy1, sx0:sx1]
+        blend, ncc, color_score, s_ball, s_field = score_ball_candidate(
+            roi_bgr,
+            tpl,
+            ball_bounds,
+            field_bounds,
+        )
         if ncc < -0.5:
             return
         grad = radial_grad(gray,int(local_x),int(local_y),int(radius))
-        color_patch = raw_bgr[sy0:sy1, sx0:sx1] if raw_bgr is not None else stab_bgr[sy0:sy1, sx0:sx1]
-        color_w = soft_color_prior(color_patch)
         radius_w = soft_radius_prior(radius)
-        orange = orange_score(raw_bgr if raw_bgr is not None else stab_bgr, bx, by, r=max(5, int(radius * 1.4)))
-        combined = max(0.0, 0.7 * ncc + 0.3 * orange)
         radius_pos_w = radius_position_prior(by, radius, H)
-        match = combined * color_w * radius_w * radius_pos_w
-        base = (1.2 * match) + (0.02 * grad)
+        match = max(0.0, blend) * radius_w * radius_pos_w
+        base = (1.15 * match) + (0.02 * grad)
         base -= sideline_penalty(bx,by,W,H)
         out.append({
             "x": float(bx),
@@ -217,12 +344,14 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
             "mask_cov": float(mask_cov),
             "grad": float(grad),
             "match": float(match),
-            "color_w": float(color_w),
             "radius_w": float(radius_w),
             "radius_pos_w": float(radius_pos_w),
             "radius": float(radius),
-            "orange": float(orange),
-            "combined": float(combined),
+            "blend": float(blend),
+            "combined": float(blend),
+            "color_score": float(color_score),
+            "ball_lk": float(s_ball),
+            "field_lk": float(s_field),
         })
 
     # contours
@@ -398,6 +527,15 @@ def main():
     max_r = min(30, int(2.2 * r_est))
     if max_r <= min_r:
         max_r = min(30, min_r + 2)
+    ball_lo = ball_hi = None
+    try:
+        x, y, w_roi, h_roi = map(int, r)
+        ball_roi_seed = f0[y:y+h_roi, x:x+w_roi]
+    except Exception:
+        ball_roi_seed = None
+    if ball_roi_seed is not None and ball_roi_seed.size:
+        ball_lo, ball_hi = hsv_bounds_from_roi(ball_roi_seed, margin=(6, 14, 14))
+    ball_bounds = (ball_lo, ball_hi) if ball_lo is not None and ball_hi is not None else None
     g0 = eq(to_gray(f0))
     _, A0 = stabilize_step(g0, f0)
     stab0 = warp_affine(f0, A0, W, H)
@@ -412,6 +550,12 @@ def main():
     if not ok: raise SystemExit("Empty video")
     prev_g = eq(to_gray(fr1))
     prev_stab = warp_affine(fr1, np.eye(3, dtype=np.float32), W, H)
+    field_lo = field_hi = None
+    field_rois = sample_field_swatches(fr1)
+    fld_lo, fld_hi = hsv_bounds_union(field_rois)
+    if fld_lo is not None and fld_hi is not None:
+        field_lo, field_hi = fld_lo, fld_hi
+    field_bounds = (field_lo, field_hi) if field_lo is not None and field_hi is not None else None
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
     measurements=[]; smooth_path=[]; speeds=[]; records=[]
     zoom_track=[]; raw_positions=[]
@@ -460,6 +604,8 @@ def main():
             cone_deg=999,
             min_r=min_r,
             max_r=max_r,
+            ball_bounds=ball_bounds,
+            field_bounds=field_bounds,
         )
 
         if low_ncc_streak >= 5:
@@ -478,6 +624,8 @@ def main():
                 min_r=min_r,
                 max_r=max_r,
                 max_cands=8,
+                ball_bounds=ball_bounds,
+                field_bounds=field_bounds,
             )
             cands.extend(reacq)
 
@@ -498,6 +646,8 @@ def main():
                         min_r=min_r,
                         max_r=max_r,
                         max_cands=6,
+                        ball_bounds=ball_bounds,
+                        field_bounds=field_bounds,
                     )
                     cands.extend(anchor_cands)
 
@@ -567,6 +717,8 @@ def main():
                 min_r=min_r,
                 max_r=max_r,
                 max_cands=14,
+                ball_bounds=ball_bounds,
+                field_bounds=field_bounds,
             )
             if extra:
                 cands.extend(extra)
@@ -586,6 +738,20 @@ def main():
             best_pt = None
 
         state["confidence"] = best_combined
+
+        if best is not None and best_combined > 0.35:
+            live_radius = best.get("radius", float(min_r))
+            ball_roi_live = extract_ball_roi(stab, best["x"], best["y"], live_radius)
+            if ball_roi_live is not None:
+                blo, bhi = hsv_bounds_from_roi(ball_roi_live, margin=(4, 8, 8))
+                ball_lo, ball_hi = ema_bounds(ball_lo, ball_hi, blo, bhi, alpha=0.06)
+                if ball_lo is not None and ball_hi is not None:
+                    ball_bounds = (ball_lo, ball_hi)
+            field_swatches = sample_field_swatches(stab)
+            flo, fhi = hsv_bounds_union(field_swatches)
+            field_lo, field_hi = ema_bounds(field_lo, field_hi, flo, fhi, alpha=0.04)
+            if field_lo is not None and field_hi is not None:
+                field_bounds = (field_lo, field_hi)
 
         if best_pt is not None:
             bx, by = best_pt
