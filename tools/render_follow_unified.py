@@ -482,6 +482,106 @@ def to_jsonable(obj):
         return str(obj)
 
 
+def plan_crop_from_ball(
+    bx,
+    by,
+    src_w,
+    src_h,
+    out_w=1080,
+    out_h=1920,
+    zoom_min=0.55,
+    zoom_max=0.95,
+    pad=24,
+    k_pos=0.18,
+    k_zoom=0.25,
+    state=None,
+):
+    """Return integer (x0,y0,w,h) portrait crop centered on (bx,by) with damped smoothing."""
+
+    if state is None:
+        state = {}
+
+    if src_w <= 0 or src_h <= 0:
+        return 0, 0, src_w, src_h, state
+
+    if out_w > 0 and out_h > 0:
+        ar_out = float(out_w) / float(out_h)
+    else:
+        ar_out = float(src_w) / float(src_h) if src_h else 1.0
+    ar_out = max(ar_out, 1e-6)
+
+    try:
+        zoom_value = float(state.get("zoom", zoom_max))
+    except (TypeError, ValueError):
+        zoom_value = float(zoom_max)
+
+    if zoom_max >= zoom_min:
+        zoom_value = max(zoom_min, min(zoom_max, zoom_value))
+
+    zoom_is_fraction = zoom_max <= 1.0 and zoom_min <= 1.0
+    if zoom_is_fraction:
+        crop_h_target = float(src_h) * zoom_value
+    else:
+        crop_h_target = float(src_h) / zoom_value if zoom_value > 1e-6 else float(src_h)
+    crop_w_target = crop_h_target * ar_out
+
+    pad_px = 0
+    pad_frac = 0.0
+    if pad <= 0.49:
+        pad_frac = max(0.0, min(float(pad), 0.49))
+    else:
+        pad_px = max(0, int(round(pad)))
+
+    if pad_frac > 0.0:
+        shrink = max(0.0, 1.0 - 2.0 * pad_frac)
+        crop_w_target *= shrink
+        crop_h_target *= shrink
+
+    max_crop_w = max(1.0, float(src_w) - 2.0 * pad_px)
+    crop_w_target = min(crop_w_target, max_crop_w)
+    crop_h_target = min(crop_w_target / ar_out, float(src_h) - 2.0 * pad_px)
+    crop_w_target = crop_h_target * ar_out
+
+    x = float(bx) - crop_w_target / 2.0
+    y = float(by) - crop_h_target / 2.0
+
+    if "x" not in state:
+        state.update(x=float(x), y=float(y), w=float(crop_w_target), h=float(crop_h_target))
+
+    state["x"] += k_pos * (x - state["x"])
+    state["y"] += k_pos * (y - state["y"])
+    state["w"] += k_zoom * (crop_w_target - state["w"])
+    state["h"] = float(state["w"] / ar_out)
+
+    max_x = float(src_w) - pad_px - state["w"]
+    max_y = float(src_h) - pad_px - state["h"]
+    max_x = max(float(pad_px), max_x)
+    max_y = max(float(pad_px), max_y)
+
+    x_candidate = max(float(pad_px), min(max_x, state["x"]))
+    y_candidate = max(float(pad_px), min(max_y, state["y"]))
+    w = max(1, int(round(state["w"])))
+    h = max(1, int(round(state["h"])))
+
+    if zoom_is_fraction:
+        actual_zoom = float(h) / float(src_h) if src_h else zoom_value
+    else:
+        actual_zoom = float(src_h) / float(h) if h else zoom_value
+    if zoom_max >= zoom_min:
+        actual_zoom = max(zoom_min, min(zoom_max, actual_zoom))
+    state["zoom"] = actual_zoom
+
+    state["x"] = float(x_candidate)
+    state["y"] = float(y_candidate)
+    state["w"] = float(w)
+    state["h"] = float(h)
+
+    x0 = int(round(x_candidate))
+    y0 = int(round(y_candidate))
+
+    return x0, y0, w, h, state
+
+
 def compute_portrait_crop(cx, cy, zoom, src_w, src_h, target_aspect, pad):
     # target aspect (w/h)
     if target_aspect and target_aspect > 0:
@@ -1415,6 +1515,11 @@ class Renderer:
         overlay_image = _load_overlay(self.brand_overlay_path, output_size)
         tf = self.telemetry
 
+        is_portrait = target_h > target_w
+        portrait_plan_state: dict[str, float] = {}
+        portrait_out_w = target_w
+        portrait_out_h = target_h
+
         offline_ball_path = self.offline_ball_path
 
         cam = [(state.cx, state.cy, state.zoom) for state in states]
@@ -1813,18 +1918,41 @@ class Renderer:
                     x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
                     y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
 
+                    if have_ball:
                         telemetry_ball = (eff_bx, eff_by)
                         telemetry_crop = (x0, y0, view_w, view_h)
 
-                    x0, y0, crop_w, crop_h = compute_portrait_crop(
-                        float(cx),
-                        float(cy),
-                        float(zoom),
-                        width,
-                        height,
-                        target_aspect,
-                        self.pad,
-                    )
+                    if is_portrait and have_ball:
+                        portrait_plan_state["zoom"] = float(
+                            max(zoom_min, min(zoom_max, float(zoom)))
+                        ) if zoom_max >= zoom_min else float(zoom)
+                        x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
+                            eff_bx,
+                            eff_by,
+                            width,
+                            height,
+                            out_w=portrait_out_w,
+                            out_h=portrait_out_h,
+                            zoom_min=zoom_min,
+                            zoom_max=zoom_max,
+                            pad=self.pad,
+                            state=portrait_plan_state,
+                        )
+                        zoom = float(height) / float(max(crop_h, 1.0))
+                        if zoom_max >= zoom_min:
+                            zoom = max(zoom_min, min(zoom_max, zoom))
+                        cx = float(x0 + 0.5 * crop_w)
+                        cy = float(y0 + 0.5 * crop_h)
+                    else:
+                        x0, y0, crop_w, crop_h = compute_portrait_crop(
+                            float(cx),
+                            float(cy),
+                            float(zoom),
+                            width,
+                            height,
+                            target_aspect,
+                            self.pad,
+                        )
 
                     if have_ball and crop_w > 1 and crop_h > 1:
                         x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
@@ -1941,15 +2069,37 @@ class Renderer:
                         cx = x0 + 0.5 * view_w
                         cy = y0 + 0.5 * view_h
 
-                    x0, y0, crop_w, crop_h = compute_portrait_crop(
-                        float(cx),
-                        float(cy),
-                        zoom,
-                        width,
-                        height,
-                        target_aspect,
-                        self.pad,
-                    )
+                    if is_portrait and ball_available and bx is not None and by is not None:
+                        portrait_plan_state["zoom"] = float(
+                            max(zoom_min, min(zoom_max, float(zoom)))
+                        ) if zoom_max >= zoom_min else float(zoom)
+                        x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
+                            float(bx),
+                            float(by),
+                            width,
+                            height,
+                            out_w=portrait_out_w,
+                            out_h=portrait_out_h,
+                            zoom_min=zoom_min,
+                            zoom_max=zoom_max,
+                            pad=self.pad,
+                            state=portrait_plan_state,
+                        )
+                        zoom = float(height) / float(max(crop_h, 1.0))
+                        if zoom_max >= zoom_min:
+                            zoom = max(zoom_min, min(zoom_max, zoom))
+                        cx = float(x0 + 0.5 * crop_w)
+                        cy = float(y0 + 0.5 * crop_h)
+                    else:
+                        x0, y0, crop_w, crop_h = compute_portrait_crop(
+                            float(cx),
+                            float(cy),
+                            zoom,
+                            width,
+                            height,
+                            target_aspect,
+                            self.pad,
+                        )
 
                     cur_bx: Optional[float] = None
                     cur_by: Optional[float] = None
@@ -2001,15 +2151,37 @@ class Renderer:
                             z_rate=0.07,
                         )
 
-                        x0, y0, crop_w, crop_h = compute_portrait_crop(
-                            float(cx),
-                            float(cy),
-                            float(zoom),
-                            width,
-                            height,
-                            target_aspect,
-                            self.pad,
-                        )
+                        if is_portrait:
+                            portrait_plan_state["zoom"] = float(
+                                max(zoom_min, min(zoom_max, float(zoom)))
+                            ) if zoom_max >= zoom_min else float(zoom)
+                            x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
+                                cur_bx,
+                                cur_by,
+                                width,
+                                height,
+                                out_w=portrait_out_w,
+                                out_h=portrait_out_h,
+                                zoom_min=zoom_min,
+                                zoom_max=zoom_max,
+                                pad=self.pad,
+                                state=portrait_plan_state,
+                            )
+                            zoom = float(height) / float(max(crop_h, 1.0))
+                            if zoom_max >= zoom_min:
+                                zoom = max(zoom_min, min(zoom_max, zoom))
+                            cx = float(x0 + 0.5 * crop_w)
+                            cy = float(y0 + 0.5 * crop_h)
+                        else:
+                            x0, y0, crop_w, crop_h = compute_portrait_crop(
+                                float(cx),
+                                float(cy),
+                                float(zoom),
+                                width,
+                                height,
+                                target_aspect,
+                                self.pad,
+                            )
 
                         x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
                             x0,
@@ -2138,28 +2310,37 @@ class Renderer:
             "0:v:0",
             "-map",
             "1:a:0?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            str(crf),
-            "-pix_fmt",
-            "yuv420p",
-            "-profile:v",
-            "high",
-            "-level",
-            "4.0",
-            "-x264-params",
-            f"keyint={keyint}:min-keyint={keyint}:scenecut=0",
-            "-movflags",
-            "+faststart",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            str(self.output_path),
         ]
+
+        if self.portrait and self.portrait[0] > 0 and self.portrait[1] > 0:
+            out_w, out_h = self.portrait
+            command.extend(["-vf", f"scale={int(out_w)}:{int(out_h)}"])
+
+        command.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                str(crf),
+                "-pix_fmt",
+                "yuv420p",
+                "-profile:v",
+                "high",
+                "-level",
+                "4.0",
+                "-x264-params",
+                f"keyint={keyint}:min-keyint={keyint}:scenecut=0",
+                "-movflags",
+                "+faststart",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                str(self.output_path),
+            ]
+        )
 
         try:
             subprocess.run(command, check=True)
