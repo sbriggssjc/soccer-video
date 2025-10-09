@@ -1796,6 +1796,8 @@ class Renderer:
         prev_ball_x: Optional[float] = None
         prev_ball_y: Optional[float] = None
         prev_ball_source: Optional[str] = None
+        prev_ball_src_x: Optional[float] = None
+        prev_ball_src_y: Optional[float] = None
         prev_bx = float(prev_cx)
         prev_by = float(prev_cy)
         follower = CamFollow2O(zeta=0.95, wn=7.0, dt=1.0 / render_fps) if render_fps else None
@@ -2012,6 +2014,28 @@ class Renderer:
                     ball_available = True
                     if ball_source_tag is None:
                         ball_source_tag = "label"
+
+                bx_src: Optional[float] = None
+                by_src: Optional[float] = None
+                if ball_available and bx is not None and by is not None:
+                    bx_src = float(bx)
+                    by_src = float(by)
+                    alpha = 0.25
+                    if (
+                        prev_ball_src_x is not None
+                        and prev_ball_src_y is not None
+                    ):
+                        bx_src = prev_ball_src_x + alpha * (bx_src - prev_ball_src_x)
+                        by_src = prev_ball_src_y + alpha * (by_src - prev_ball_src_y)
+                prev_ball_src_x, prev_ball_src_y = bx_src, by_src
+                if bx_src is not None:
+                    bx_src = max(0.0, min(src_w_f - 1.0, bx_src))
+                if by_src is not None:
+                    by_src = max(0.0, min(src_h_f - 1.0, by_src))
+                if bx_src is not None:
+                    bx = bx_src
+                if by_src is not None:
+                    by = by_src
 
                 if used_tag == "offline_path":
                     W = float(width)
