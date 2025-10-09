@@ -57,7 +57,7 @@ class CamFollow2O:
 
 # --- Simple constant-velocity tracker (EMA-based Kalman-lite) ---
 
-BallPathEntry = Union[Tuple[float, float, float], Mapping[str, float]]
+BallPathEntry = Union[Tuple[float, float, float], Tuple[float, float], Mapping[str, float], None]
 
 
 class CV2DKalman:
@@ -1382,10 +1382,13 @@ class Renderer:
         self.init_manual = bool(init_manual)
         self.init_t = float(init_t)
 
-        normalized_ball_path: Optional[List[dict[str, float]]] = None
+        normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
             normalized_ball_path = []
             for entry in ball_path:
+                if entry is None:
+                    normalized_ball_path.append(None)
+                    continue
                 if isinstance(entry, Mapping):
                     sanitized: dict[str, float] = {}
                     for key, value in entry.items():
@@ -1397,12 +1400,34 @@ class Renderer:
                             sanitized["z"] = float(z_value)
                         except (TypeError, ValueError):
                             sanitized["z"] = 1.30
+                    bx_norm = sanitized.get("bx")
+                    by_norm = sanitized.get("by")
+                    if bx_norm is None or by_norm is None:
+                        bx_norm = sanitized.get("bx_stab", sanitized.get("bx_raw", bx_norm))
+                        by_norm = sanitized.get("by_stab", sanitized.get("by_raw", by_norm))
+                    if bx_norm is None or by_norm is None:
+                        normalized_ball_path.append(None)
+                        continue
+                    sanitized["bx"] = float(bx_norm)
+                    sanitized["by"] = float(by_norm)
                     normalized_ball_path.append(sanitized)
                 else:
-                    bx_val, by_val, z_val = entry
-                    normalized_ball_path.append(
-                        {"bx": float(bx_val), "by": float(by_val), "z": float(z_val)}
-                    )
+                    entry_seq = tuple(entry)
+                    if len(entry_seq) < 2:
+                        normalized_ball_path.append(None)
+                        continue
+                    bx_val = entry_seq[0]
+                    by_val = entry_seq[1]
+                    if bx_val is None or by_val is None:
+                        normalized_ball_path.append(None)
+                        continue
+                    z_val = entry_seq[2] if len(entry_seq) >= 3 else 1.30
+                    try:
+                        normalized_ball_path.append(
+                            {"bx": float(bx_val), "by": float(by_val), "z": float(z_val)}
+                        )
+                    except (TypeError, ValueError):
+                        normalized_ball_path.append(None)
         self.offline_ball_path = normalized_ball_path
 
     def _compose_frame(
@@ -1563,6 +1588,10 @@ class Renderer:
             bx_vals: List[float] = []
             by_vals: List[float] = []
             for entry in offline_ball_path:
+                if entry is None:
+                    bx_vals.append(float("nan"))
+                    by_vals.append(float("nan"))
+                    continue
                 bx_val: Optional[float] = None
                 by_val: Optional[float] = None
                 if isinstance(entry, Mapping):
@@ -1578,8 +1607,11 @@ class Renderer:
                 else:
                     entry_seq = tuple(entry)
                     if len(entry_seq) >= 2:
-                        bx_val = entry_seq[0]
-                        by_val = entry_seq[1]
+                        bx_candidate = entry_seq[0]
+                        by_candidate = entry_seq[1]
+                        if bx_candidate is not None and by_candidate is not None:
+                            bx_val = bx_candidate
+                            by_val = by_candidate
 
                 if bx_val is None or by_val is None:
                     bx_vals.append(float("nan"))
@@ -1780,11 +1812,23 @@ class Renderer:
                         else:
                             entry_vals = tuple(path_rec)
                             if len(entry_vals) >= 2:
-                                entry_bx = float(entry_vals[0])
-                                entry_by = float(entry_vals[1])
-                                entry_space = "generic"
+                                entry_bx_val = entry_vals[0]
+                                entry_by_val = entry_vals[1]
+                                if entry_bx_val is not None and entry_by_val is not None:
+                                    try:
+                                        entry_bx = float(entry_bx_val)
+                                        entry_by = float(entry_by_val)
+                                        entry_space = "generic"
+                                    except (TypeError, ValueError):
+                                        entry_bx = None
+                                        entry_by = None
                                 if len(entry_vals) >= 3:
-                                    z_planned_val = float(entry_vals[2])
+                                    z_candidate = entry_vals[2]
+                                    if z_candidate is not None:
+                                        try:
+                                            z_planned_val = float(z_candidate)
+                                        except (TypeError, ValueError):
+                                            pass
 
                         if entry_bx is not None and entry_by is not None:
                             bx = entry_bx
@@ -2366,6 +2410,74 @@ def _default_output_path(input_path: Path, preset: str) -> Path:
     return input_path.with_name(input_path.stem + suffix)
 
 
+def load_ball_path(path: Union[str, os.PathLike[str]]) -> List[Optional[dict[str, float]]]:
+    """Load a planned ball path JSONL file with stabilized coordinates."""
+
+    seq: List[Optional[dict[str, float]]] = []
+    default_zoom = 1.30
+    with open(path, "r", encoding="utf-8") as f:
+        for _, line in enumerate(f):
+            line = line.strip()
+            if not line:
+                seq.append(None)
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                seq.append(None)
+                continue
+            if not isinstance(data, Mapping):
+                seq.append(None)
+                continue
+
+            bx_value = data.get("bx_stab", data.get("bx_raw", data.get("bx")))
+            by_value = data.get("by_stab", data.get("by_raw", data.get("by")))
+            if bx_value is None or by_value is None:
+                seq.append(None)
+                continue
+
+            try:
+                bx_norm = float(bx_value)
+                by_norm = float(by_value)
+            except (TypeError, ValueError):
+                seq.append(None)
+                continue
+
+            rec: dict[str, float] = {}
+
+            for key_x, key_y in (("bx_stab", "by_stab"), ("bx_raw", "by_raw"), ("bx", "by")):
+                val_x = data.get(key_x)
+                val_y = data.get(key_y)
+                if val_x is None or val_y is None:
+                    continue
+                try:
+                    rec[key_x] = float(val_x)
+                    rec[key_y] = float(val_y)
+                except (TypeError, ValueError):
+                    continue
+
+            rec["bx"] = bx_norm
+            rec["by"] = by_norm
+
+            z_value = data.get("z", default_zoom)
+            try:
+                rec["z"] = float(z_value)
+            except (TypeError, ValueError):
+                rec["z"] = float(default_zoom)
+
+            t_value = data.get("t")
+            if isinstance(t_value, (int, float)):
+                rec["t"] = float(t_value)
+
+            frame_value = data.get("f")
+            if isinstance(frame_value, (int, float)):
+                rec["f"] = float(frame_value)
+
+            seq.append(rec)
+
+    return seq
+
+
 def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -2484,54 +2596,12 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
-    offline_ball_path: Optional[List[dict[str, float]]] = None
+    offline_ball_path: Optional[List[Optional[dict[str, float]]]] = None
     if getattr(args, "ball_path", None):
         ball_path_file = Path(args.ball_path).expanduser()
         if not ball_path_file.exists():
             raise FileNotFoundError(f"Ball path file not found: {ball_path_file}")
-        with open(ball_path_file, "r", encoding="utf-8") as f:
-            offline_ball_path = []
-            default_zoom = 1.30
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(data, dict):
-                    continue
-
-                rec: dict[str, float] = {}
-                for key in ("bx_stab", "by_stab", "bx_raw", "by_raw", "bx", "by"):
-                    value = data.get(key)
-                    if value is None:
-                        continue
-                    try:
-                        rec[key] = float(value)
-                    except (TypeError, ValueError):
-                        continue
-
-                has_x = any(key in rec for key in ("bx_stab", "bx_raw", "bx"))
-                has_y = any(key in rec for key in ("by_stab", "by_raw", "by"))
-                if not (has_x and has_y):
-                    continue
-
-                z_value = data.get("z", default_zoom)
-                try:
-                    rec["z"] = float(z_value)
-                except (TypeError, ValueError):
-                    rec["z"] = float(default_zoom)
-
-                t_value = data.get("t")
-                if isinstance(t_value, (int, float)):
-                    rec["t"] = float(t_value)
-                frame_value = data.get("f")
-                if isinstance(frame_value, (int, float)):
-                    rec["f"] = float(frame_value)
-
-                offline_ball_path.append(rec)
+        offline_ball_path = load_ball_path(ball_path_file)
     renderer = Renderer(
         input_path=input_path,
         output_path=output_path,
