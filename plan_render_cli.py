@@ -147,6 +147,43 @@ def smooth_path(vals, max_step=None, win=9, poly=2):
     return vals
 
 
+def clamp_velocity_spikes(series: np.ndarray, spike_thresh: float = 250.0) -> np.ndarray:
+    """Clamp frame-to-frame jumps beyond `spike_thresh` to the 95th percentile speed."""
+
+    out = np.asarray(series, dtype=np.float32).copy()
+    if out.size <= 1:
+        return out
+
+    finite = np.isfinite(out)
+    finite_vals = out[finite]
+    if finite_vals.size <= 1:
+        return out
+
+    diffs = np.diff(finite_vals)
+    if diffs.size == 0:
+        return out
+
+    v95 = float(np.percentile(np.abs(diffs), 95))
+    max_step = max(1.0, v95)
+
+    finite_idx = np.where(finite)[0]
+    if finite_idx.size == 0:
+        return out
+
+    first_idx = int(finite_idx[0])
+    prev = out[first_idx]
+    for i in range(first_idx + 1, len(out)):
+        if not np.isfinite(out[i]):
+            out[i] = prev
+            continue
+        step = out[i] - prev
+        if abs(step) > spike_thresh:
+            step = math.copysign(max_step, step)
+            out[i] = prev + step
+        prev = out[i]
+    return out
+
+
 def speed_px_per_s(xs, ys, fps, i, k=3):
     i0 = max(0, i - k)
     i1 = min(len(xs) - 1, i + k)
@@ -507,6 +544,12 @@ def main() -> None:
     dt = 1.0 / fps
     N = len(df)
 
+    dead_zone_frac = 0.25
+    dead_zone_half_scale = 0.5 * dead_zone_frac
+    ease_time_s = 0.25
+    ease_alpha = 1.0 - math.exp(-dt / max(1e-6, ease_time_s))
+    ease_alpha = min(1.0, max(0.0, ease_alpha))
+
     cx = df["cx"].to_numpy(np.float32)
     cy = df["cy"].to_numpy(np.float32)
     cx_series = pd.Series(cx)
@@ -579,6 +622,15 @@ def main() -> None:
         sy,
         np.where(np.isfinite(sy_raw), sy_raw, cy_interp),
     )
+    ball_x = np.clip(ball_x, 0.0, float(max(1, SRC_W) - 1))
+    ball_y = np.clip(ball_y, 0.0, float(max(1, SRC_H) - 1))
+
+    ball_x = clamp_velocity_spikes(ball_x, spike_thresh=250.0)
+    ball_y = clamp_velocity_spikes(ball_y, spike_thresh=250.0)
+
+    ball_x = ema(ball_x, 0.6)
+    ball_y = ema(ball_y, 0.6)
+
     ball_x = np.clip(ball_x, 0.0, float(max(1, SRC_W) - 1))
     ball_y = np.clip(ball_y, 0.0, float(max(1, SRC_H) - 1))
 
@@ -968,12 +1020,25 @@ def main() -> None:
         target_cx = (1.0 - t_env) * ball_x_now + t_env * lead_cx
         target_cy = (1.0 - t_env) * ball_y_now + t_env * lead_cy
 
-        dx = target_cx - cx
-        dy = target_cy - cy
-        max_dx = math.copysign(min(abs(dx), pan_step_now), dx)
-        max_dy = math.copysign(min(abs(dy), pan_step_now), dy)
-        cx += max_dx
-        cy += max_dy
+        dead_half_w = view_w_curr * dead_zone_half_scale
+        dead_half_h = view_h_curr * dead_zone_half_scale
+        inside_deadzone = (
+            abs(ball_x_now - cx) <= dead_half_w
+            and abs(ball_y_now - cy) <= dead_half_h
+        )
+
+        desired_cx = cx if inside_deadzone else target_cx
+        desired_cy = cy if inside_deadzone else target_cy
+
+        delta_cx = (desired_cx - cx) * ease_alpha
+        delta_cy = (desired_cy - cy) * ease_alpha
+
+        if pan_step_now > 0:
+            delta_cx = math.copysign(min(abs(delta_cx), pan_step_now), delta_cx)
+            delta_cy = math.copysign(min(abs(delta_cy), pan_step_now), delta_cy)
+
+        cx += delta_cx
+        cy += delta_cy
 
         if flow_pan_impulse:
             cx += flow_pan_impulse
@@ -1057,7 +1122,7 @@ def main() -> None:
             target_kind = "filtered"
 
         if tx is not None and ty is not None:
-            cx, cy = clamp_center_to_keep_point_inside(
+            clamp_cx, clamp_cy = clamp_center_to_keep_point_inside(
                 cx,
                 cy,
                 view_w_curr,
@@ -1068,6 +1133,25 @@ def main() -> None:
                 ty,
                 float(args.safe_margin_px),
             )
+
+            dead_half_w = view_w_curr * dead_zone_half_scale
+            dead_half_h = view_h_curr * dead_zone_half_scale
+            inside_deadzone = (
+                abs(tx - cx) <= dead_half_w and abs(ty - cy) <= dead_half_h
+            )
+
+            target_cx_final = cx if inside_deadzone else clamp_cx
+            target_cy_final = cy if inside_deadzone else clamp_cy
+
+            delta_cx = (target_cx_final - cx) * ease_alpha
+            delta_cy = (target_cy_final - cy) * ease_alpha
+
+            if pan_step_now > 0:
+                delta_cx = math.copysign(min(abs(delta_cx), pan_step_now), delta_cx)
+                delta_cy = math.copysign(min(abs(delta_cy), pan_step_now), delta_cy)
+
+            cx += delta_cx
+            cy += delta_cy
 
             if target_kind == "prediction":
                 view_w_curr = float(
