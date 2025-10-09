@@ -73,6 +73,14 @@ def main():
                     by = float(ball_val[1])
                 except (TypeError, ValueError):
                     bx = by = None
+        elif "telemetry_ball" in rec:
+            ball_val = rec.get("telemetry_ball")
+            if isinstance(ball_val, (list, tuple)) and len(ball_val) >= 2:
+                try:
+                    bx = float(ball_val[0])
+                    by = float(ball_val[1])
+                except (TypeError, ValueError):
+                    bx = by = None
         elif "bx_stab" in rec and "by_stab" in rec:
             try:
                 bx = float(rec["bx_stab"])
