@@ -3,10 +3,14 @@ Param(
     [Parameter(Mandatory=$true)] [string]$OutDir
 )
 $ErrorActionPreference = "Stop"
+$makeOpenerScript = Join-Path $PSScriptRoot 'make_opener.ps1'
+
 Import-Csv $RosterCsv | ForEach-Object {
-    & "$PSScriptRoot\make_opener.ps1" `
-        -PlayerName   $_.PlayerName `
-        -PlayerNumber ([int]$_.PlayerNumber) `
-        -PlayerPhoto  $_.PlayerPhoto `
+    $row = $_
+
+    & $makeOpenerScript `
+        -PlayerName   $row.PlayerName `
+        -PlayerNumber ([int]$row.PlayerNumber) `
+        -PlayerPhoto  $row.PlayerPhoto `
         -OutDir       $OutDir
 }
