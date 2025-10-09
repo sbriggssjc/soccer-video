@@ -1,8 +1,9 @@
 Param(
     [Parameter(Mandatory=$true)] [string]$PlayerName,
-    [Parameter(Mandatory=$true)] [int]$PlayerNumber,
+    [Parameter(Mandatory=$true)] [string]$PlayerNumber,
     [Parameter(Mandatory=$true)] [string]$PlayerPhoto,
     [Parameter(Mandatory=$true)] [string]$OutDir,
+    [string]$OutFile,
 
     [string]$BGPath = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png",
     [string]$BadgeSolidPath = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png",
@@ -31,7 +32,21 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $HoleBox = [int]([math]::Round($BadgeW * $HoleScale))
 $TxtOutStart = [math]::Round(($DUR - $FadeOutTxt),2)
 $SanName = ($PlayerName -replace '[^\w]+','').Trim('')
-$OUT = Join-Path $OutDir "$SanName__OPENER.mp4"
+if (-not [string]::IsNullOrEmpty($OutFile)) {
+    $OUT = $OutFile
+} else {
+    $OUT = Join-Path $OutDir "$SanName__OPENER.mp4"
+}
+New-Item -ItemType Directory -Force -Path (Split-Path $OUT -Parent) | Out-Null
+
+$PlayerNumberText = $PlayerNumber
+if ($PlayerNumberText.StartsWith('\#')) {
+    # already escaped for ffmpeg
+} elseif ($PlayerNumberText.StartsWith('#')) {
+    $PlayerNumberText = '\' + $PlayerNumberText
+} else {
+    $PlayerNumberText = "\#$PlayerNumberText"
+}
 
 # Filter graph (single-line stages; no inline comments)
 $fc = @"
@@ -48,7 +63,7 @@ color=c=black@0.0:s=1080x1920:d=${DUR}[t1];
 [t1]drawtext=fontfile='${FontPath}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[nameL];
 [vbase][nameL]overlay=0:0:shortest=1[b3];
 color=c=black@0.0:s=1080x1920:d=${DUR}[t2];
-[t2]drawtext=fontfile='${FontPath}':text='#${PlayerNumber}':fontsize=66:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[numL];
+[t2]drawtext=fontfile='${FontPath}':text='${PlayerNumberText}':fontsize=66:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[numL];
 [b3][numL]overlay=0:0:shortest=1[vout]
 "@
 
