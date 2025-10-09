@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--telemetry", required=True, help="JSONL written by unified renderer")
     ap.add_argument("--out", default=None, help="output debug mp4")
     ap.add_argument("--thickness", type=int, default=2)
-    ap.add_argument("--ball-radius", type=int, default=6)
+    ap.add_argument("--ball-radius", type=int, default=8)
     args = ap.parse_args()
 
     inp = os.path.abspath(args.inp)
@@ -75,14 +75,7 @@ def main():
         if not ok: break
         rec = recs[idx] if idx < len(recs) else recs[-1]
 
-        # draw crop box (source pixel coords)
-        crop = rec.get("crop")
-        if crop and len(crop) == 4:
-            x0, y0, w, h = [int(round(v)) for v in crop]
-            x1, y1 = x0 + w, y0 + h
-            x0 = max(0, min(W-1, x0)); y0 = max(0, min(H-1, y0))
-            x1 = max(0, min(W-1, x1)); y1 = max(0, min(H-1, y1))
-            cv2.rectangle(frame, (x0, y0), (x1, y1), (0,255,0), args.thickness)
+        row = rec
 
         # draw ball (red)
         bx, by = _get_ball_xy_src(rec, W, H)
@@ -98,9 +91,19 @@ def main():
                         bx = by = None
 
         if bx is not None and by is not None:
-            bx_i, by_i = int(round(bx)), int(round(by))
-            if 0 <= bx_i < W and 0 <= by_i < H:
-                cv2.circle(frame, (bx_i, by_i), args.ball_radius, (0,0,255), -1)
+            cv2.circle(
+                frame,
+                (int(round(bx)), int(round(by))),
+                args.ball_radius,
+                (0, 0, 255),
+                args.thickness,
+            )
+
+        if "crop_src" in row and row["crop_src"]:
+            cx, cy, cw, ch = row["crop_src"]
+            p1 = (int(round(cx)), int(round(cy)))
+            p2 = (int(round(cx + cw)), int(round(cy + ch)))
+            cv2.rectangle(frame, p1, p2, (0, 255, 0), args.thickness)
 
         vw.write(frame)
         idx += 1
