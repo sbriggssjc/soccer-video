@@ -94,6 +94,27 @@ def ncc_score(win,tpl):
     r2=cv2.matchTemplate(g,t2,cv2.TM_CCOEFF_NORMED).max()
     return float(max(r1,r2))
 
+def orange_score(bgr, x, y, r=7):
+    x, y, r = int(x), int(y), int(r)
+    if bgr is None or bgr.size == 0:
+        return 0.0
+    h, w = bgr.shape[:2]
+    if h <= 0 or w <= 0:
+        return 0.0
+    if r <= 0:
+        r = 3
+    x0, x1 = max(0, x - r), min(w, x + r + 1)
+    y0, y1 = max(0, y - r), min(h, y + r + 1)
+    if x0 >= x1 or y0 >= y1:
+        return 0.0
+    roi = bgr[y0:y1, x0:x1]
+    if roi.size == 0:
+        return 0.0
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    H, S, V = cv2.split(hsv)
+    m_orange = ((H >= 5) & (H <= 25) & (S >= 100) & (V >= 80))
+    return float(m_orange.mean())
+
 def radial_grad(gray,cx,cy,r):
     r=int(max(6,min(24,r)))
     x0=int(max(0,cx-r)); y0=int(max(0,cy-r)); x1=int(min(gray.shape[1],cx+r)); y1=int(min(gray.shape[0],cy+r))
@@ -122,6 +143,17 @@ def soft_radius_prior(r):
     center = 6.0
     sigma = 3.0
     weight = math.exp(-0.5 * ((r - center) / max(1e-3, sigma)) ** 2)
+    return 0.55 + 0.9 * weight
+
+def radius_position_prior(y, r, H):
+    if H <= 0:
+        return 1.0
+    y = float(np.clip(y, 0.0, float(H)))
+    r = float(max(0.5, min(36.0, r)))
+    # Expect slightly smaller radius near the top and larger near the bottom.
+    exp_r = np.interp(y / max(1.0, H), [0.0, 0.35, 1.0], [4.0, 6.0, 9.5])
+    sigma = 1.8 + 2.2 * (y / max(1.0, H))
+    weight = math.exp(-0.5 * ((r - exp_r) / max(1e-3, sigma)) ** 2)
     return 0.55 + 0.9 * weight
 
 # ---------- candidate generator with pass-cone ----------
@@ -171,7 +203,10 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
         color_patch = raw_bgr[sy0:sy1, sx0:sx1] if raw_bgr is not None else stab_bgr[sy0:sy1, sx0:sx1]
         color_w = soft_color_prior(color_patch)
         radius_w = soft_radius_prior(radius)
-        match = max(0.0, ncc) * color_w * radius_w
+        orange = orange_score(raw_bgr if raw_bgr is not None else stab_bgr, bx, by, r=max(5, int(radius * 1.4)))
+        combined = max(0.0, 0.7 * ncc + 0.3 * orange)
+        radius_pos_w = radius_position_prior(by, radius, H)
+        match = combined * color_w * radius_w * radius_pos_w
         base = (1.2 * match) + (0.02 * grad)
         base -= sideline_penalty(bx,by,W,H)
         out.append({
@@ -184,7 +219,10 @@ def gen_candidates(stab_bgr, raw_bgr, field_m, mot_map, pred_xy, tpl,
             "match": float(match),
             "color_w": float(color_w),
             "radius_w": float(radius_w),
+            "radius_pos_w": float(radius_pos_w),
             "radius": float(radius),
+            "orange": float(orange),
+            "combined": float(combined),
         })
 
     # contours
@@ -376,6 +414,15 @@ def main():
     prev_stab = warp_affine(fr1, np.eye(3, dtype=np.float32), W, H)
     pred=(bx0,by0); vel=(0.0,0.0); miss=0
     measurements=[]; smooth_path=[]; speeds=[]; records=[]
+    zoom_track=[]; raw_positions=[]
+    state={
+        "zoom": 0.82,
+        "spd": 0.0,
+        "pred_raw_next": None,
+        "raw_vel": (0.0, 0.0),
+        "reassoc_r": 160.0,
+        "confidence": 0.0,
+    }
     trace = None; w = None
     n=0
     last_good = pred
@@ -388,6 +435,12 @@ def main():
         stab = warp_affine(fr, A, W, H)
         field_m = field_mask_bgr(stab)
         mot = motion_strength(prev_stab, stab)
+
+        if state.get("pred_raw_next") is not None:
+            prx, pry = state["pred_raw_next"]
+            px = float(A[0,0]*prx + A[0,1]*pry + A[0,2])
+            py = float(A[1,0]*prx + A[1,1]*pry + A[1,2])
+            pred = (max(0.0, min(W-1.0, px)), max(0.0, min(H-1.0, py)))
 
         # pass-handoff cone temporarily disabled during validation
 
@@ -457,16 +510,16 @@ def main():
                     uniq[key] = cand
             cands = sorted(uniq.values(), key=lambda c: c["score"], reverse=True)[:24]
 
-        best = None
-        best_score = -1e9
-        best_ncc = 0.0
-        if cands:
-            px, py = pred
-
+        def choose_best(cand_list, pred_xy):
+            best_c = None
+            best_sc = -1e9
+            best_nc = 0.0
+            if not cand_list:
+                return best_c, best_sc, best_nc
+            px, py = pred_xy
             max_jump_px = 18.0 * (clip_fps / 24.0)
             speed_denom = max(4.0, max_jump_px * 0.75)
-
-            for cand in cands:
+            for cand in cand_list:
                 bx = cand["x"]
                 by = cand["y"]
                 base = cand["score"]
@@ -475,16 +528,64 @@ def main():
                 speed_penalty = math.exp(-0.5 * (dist / speed_denom) ** 2)
                 score = base - 0.03 * dist + center_bias
                 score *= 0.6 + 0.4 * speed_penalty
-                if score > best_score:
-                    best_score = score
-                    best = cand
-                    best_ncc = cand.get("ncc", 0.0)
+                if score > best_sc:
+                    best_sc = score
+                    best_c = cand
+                    best_nc = cand.get("ncc", 0.0)
+            return best_c, best_sc, best_nc
+
+        best = None
+        best_score = -1e9
+        best_ncc = 0.0
+        best_combined = 0.0
+        for attempt in range(2):
+            best, best_score, best_ncc = choose_best(cands, pred)
+            best_combined = best.get("combined", 0.0) if best is not None else 0.0
+            needs_reassoc = (best is None) or (best_combined < 0.25) or (best_ncc < 0.15)
+            if not needs_reassoc or attempt == 1:
+                if needs_reassoc:
+                    state["reassoc_r"] = min(520.0, state.get("reassoc_r", 160.0) * 1.25 + 20.0)
+                else:
+                    state["reassoc_r"] = max(120.0, state.get("reassoc_r", 160.0) * 0.82)
+                break
+
+            center_pt = pred if best is None else (best["x"], best["y"])
+            if center_pt is None:
+                center_pt = last_good
+            if center_pt is None:
+                center_pt = (W * 0.5, H * 0.5)
+            extra = gen_candidates(
+                stab,
+                fr,
+                field_m,
+                mot,
+                center_pt,
+                tpl,
+                search_r=int(min(540, max(sr, state.get("reassoc_r", 200.0)))),
+                cone_dir=None,
+                cone_deg=999,
+                min_r=min_r,
+                max_r=max_r,
+                max_cands=14,
+            )
+            if extra:
+                cands.extend(extra)
+                uniq = {}
+                for cand in cands:
+                    key = (int(round(cand["x"]/3.0)), int(round(cand["y"]/3.0)))
+                    if key not in uniq or cand["score"] > uniq[key]["score"]:
+                        uniq[key] = cand
+                cands = sorted(uniq.values(), key=lambda c: c["score"], reverse=True)[:28]
+            else:
+                state["reassoc_r"] = min(520.0, state.get("reassoc_r", 160.0) * 1.18 + 12.0)
 
         if best is not None:
             pred = (best["x"], best["y"])
             best_pt = pred
         else:
             best_pt = None
+
+        state["confidence"] = best_combined
 
         if best_pt is not None:
             bx, by = best_pt
@@ -521,6 +622,13 @@ def main():
             miss += 1
             # optionally enlarge `search_r` on miss
             # sr = min(420, sr + 30)
+            if state.get("pred_raw_next") is not None:
+                prx, pry = state["pred_raw_next"]
+                rvx, rvy = state.get("raw_vel", (0.0, 0.0))
+                state["pred_raw_next"] = (
+                    max(0.0, min(W-1.0, prx + rvx)),
+                    max(0.0, min(H-1.0, pry + rvy)),
+                )
 
         # spike check on raw pred displacement (before IMM)
         if len(measurements) >= 3:
@@ -575,20 +683,40 @@ def main():
 
         smooth_path.append((float(x), float(y)))
         speeds.append(v*fps)  # v is px/frame; convert to px/s
+
+        raw_positions.append((bx_r, by_r))
+        if len(raw_positions) >= 2:
+            rvx = raw_positions[-1][0] - raw_positions[-2][0]
+            rvy = raw_positions[-1][1] - raw_positions[-2][1]
+        else:
+            rvx = rvy = 0.0
+        state["raw_vel"] = (rvx, rvy)
+        state["pred_raw_next"] = (
+            max(0.0, min(W-1.0, bx_r + rvx)),
+            max(0.0, min(H-1.0, by_r + rvy)),
+        )
+        spd = math.hypot(rvx, rvy)
+        state["spd"] = state.get("spd", spd) * 0.85 + 0.15 * spd
+        zoom_target = np.interp(state["spd"], [8.0, 80.0], [0.72, 0.95])
+        if state["confidence"] < 0.35:
+            widen = np.interp(state["confidence"], [0.0, 0.35], [0.95, 0.80])
+            zoom_target = max(zoom_target, widen)
+        zoom_target = float(np.clip(zoom_target, 0.55, 0.95))
+        state.setdefault("zoom", zoom_target)
+        state["zoom"] += 0.25 * (zoom_target - state["zoom"])
+        zoom_track.append(float(state["zoom"]))
+
         prev_g=cur_g; prev_stab=stab; n+=1
     cap.release()
 
     if trace is not None:
         trace.close()
 
-    # planned zoom from smoothed speed
-    z = plan_zoom([p[0] for p in smooth_path], [p[1] for p in smooth_path], speeds, fps, W,H,
-                  zmin=1.10, zmax=1.76, v0=480, k=0.0070, edge_m=0.14, edge_gain=0.18, rate=0.030)
-
     with open(args.out,"w",encoding="utf-8") as f:
         for i, rec in enumerate(records):
             out = dict(rec)
-            out["z"] = float(z[i])
+            z_val = zoom_track[i] if i < len(zoom_track) else state.get("zoom", 0.82)
+            out["z"] = float(z_val)
             f.write(json.dumps(out)+"\n")
 
 if __name__=="__main__":

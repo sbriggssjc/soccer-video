@@ -1918,9 +1918,8 @@ class Renderer:
                     x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
                     y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
 
-                    if have_ball:
-                        telemetry_ball = (eff_bx, eff_by)
-                        telemetry_crop = (x0, y0, view_w, view_h)
+                    telemetry_ball = (eff_bx, eff_by)
+                    telemetry_crop = (x0, y0, view_w, view_h)
 
                     if is_portrait and have_ball:
                         portrait_plan_state["zoom"] = float(
