@@ -1654,6 +1654,7 @@ class Renderer:
         prev_zoom = float(zoom)
         prev_ball_x: Optional[float] = None
         prev_ball_y: Optional[float] = None
+        prev_ball_source: Optional[str] = None
         prev_bx = float(prev_cx)
         prev_by = float(prev_cy)
         follower = CamFollow2O(zeta=0.95, wn=7.0, dt=1.0 / render_fps) if render_fps else None
@@ -1723,6 +1724,7 @@ class Renderer:
                 ball_available = False
                 label_available = False
                 used_tag = "planner"
+                ball_source_tag: Optional[str] = prev_ball_source
                 planned_zoom: Optional[float] = None
                 telemetry_ball: Optional[Tuple[float, float]] = None
                 telemetry_crop: Optional[Tuple[float, float, float, float]] = None
@@ -1793,6 +1795,7 @@ class Renderer:
                             ball_path_space = entry_space
                             ball_available = True
                             used_tag = "offline_path"
+                            ball_source_tag = "ball_path"
                             planned_zoom = None
                             if kal is None:
                                 kal = CV2DKalman(bx, by)
@@ -1808,6 +1811,7 @@ class Renderer:
                         ball_available = True
                         label_available = True
                         used_tag = "label"
+                        ball_source_tag = "label"
 
                     pred_x = pred_y = None
                     if kal is not None:
@@ -1837,19 +1841,24 @@ class Renderer:
                                 _refresh_template(bx, by)
                                 ball_available = True
                                 used_tag = "model_cand"
+                                ball_source_tag = "model_cand"
                             else:
                                 bx, by = float(pred_x), float(pred_y)
                                 kal.bx, kal.by = bx, by
                                 ball_available = True
                                 used_tag = "model_pred"
+                                ball_source_tag = "model_pred"
                         else:
                             bx, by = float(pred_x), float(pred_y)
                             kal.bx, kal.by = bx, by
                             ball_available = True
                             used_tag = "model_pred"
+                            ball_source_tag = "model_pred"
 
                 if label_available and kal is not None:
                     ball_available = True
+                    if ball_source_tag is None:
+                        ball_source_tag = "label"
 
                 if used_tag == "offline_path":
                     W = float(width)
@@ -2223,31 +2232,46 @@ class Renderer:
                         float(crop_vals[2]),
                         float(crop_vals[3]),
                     ]
-                    if ball_path_entry is not None:
-                        ball_log_x = float(ball_path_entry[0])
-                        ball_log_y = float(ball_path_entry[1])
-                        telemetry_rec["ball"] = [ball_log_x, ball_log_y]
-                        if ball_path_space == "stab":
-                            telemetry_rec["bx_stab"] = ball_log_x
-                            telemetry_rec["by_stab"] = ball_log_y
-                            telemetry_rec["ball_space"] = "stab"
-                        elif ball_path_space == "raw":
-                            telemetry_rec["bx_raw"] = ball_log_x
-                            telemetry_rec["by_raw"] = ball_log_y
-                            telemetry_rec["ball_space"] = "raw"
-                        elif ball_path_space:
-                            telemetry_rec["ball_space"] = ball_path_space
-                    elif telemetry_ball is not None:
-                        telemetry_rec["ball"] = [
+                    ball_vals: Optional[Tuple[float, float]] = None
+                    if telemetry_ball is not None:
+                        ball_vals = (
                             float(telemetry_ball[0]),
                             float(telemetry_ball[1]),
-                        ]
-                    else:
-                        ball_log_x = float(bx) if bx is not None else float("nan")
-                        ball_log_y = float(by) if by is not None else float("nan")
-                        telemetry_rec["ball"] = [ball_log_x, ball_log_y]
-
+                        )
+                    elif ball_path_entry is not None and (
+                        ball_path_space in (None, "raw", "ball", "generic")
+                    ):
+                        ball_vals = (
+                            float(ball_path_entry[0]),
+                            float(ball_path_entry[1]),
+                        )
+                    elif bx is not None and by is not None:
+                        ball_vals = (float(bx), float(by))
+                    if ball_vals is None:
+                        ball_vals = (
+                            float(bx) if bx is not None else float("nan"),
+                            float(by) if by is not None else float("nan"),
+                        )
+                    telemetry_rec["ball"] = [ball_vals[0], ball_vals[1]]
+                    telemetry_rec["ball_space"] = "source"
+                    if ball_source_tag:
+                        telemetry_rec["ball_src"] = ball_source_tag
+                    if ball_path_entry is not None:
+                        ball_path_x = float(ball_path_entry[0])
+                        ball_path_y = float(ball_path_entry[1])
+                        telemetry_rec["ball_path"] = [ball_path_x, ball_path_y]
+                        if ball_path_space == "stab":
+                            telemetry_rec["bx_stab"] = ball_path_x
+                            telemetry_rec["by_stab"] = ball_path_y
+                            telemetry_rec["ball_path_space"] = "stab"
+                        elif ball_path_space == "raw":
+                            telemetry_rec["bx_raw"] = ball_path_x
+                            telemetry_rec["by_raw"] = ball_path_y
+                            telemetry_rec["ball_path_space"] = "raw"
+                        elif ball_path_space:
+                            telemetry_rec["ball_path_space"] = ball_path_space
                     tf.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
+                prev_ball_source = ball_source_tag
 
                 clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
                 frame_state = CamState(
