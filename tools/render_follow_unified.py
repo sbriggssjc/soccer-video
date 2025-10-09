@@ -32,6 +32,26 @@ import cv2
 import numpy as np
 
 
+def _get_ball_xy_src(rec, src_w, src_h):
+    """
+    Return ball center in *source pixel space* (x,y), regardless of which fields exist in the record.
+    Accepts bx/by, bx_stab/by_stab, bx_raw/by_raw, or normalized u/v.
+    """
+    # priority: stabilized, then plain, then raw
+    for kx, ky in (("bx_stab", "by_stab"), ("bx", "by"), ("bx_raw", "by_raw")):
+        if kx in rec and ky in rec:
+            return float(rec[kx]), float(rec[ky])
+
+    # normalized fallback (0..1); tolerate slight overshoot
+    if "u" in rec and "v" in rec:
+        u = float(rec["u"])
+        v = float(rec["v"])
+        return max(0.0, min(1.0, u)) * (src_w - 1), max(0.0, min(1.0, v)) * (src_h - 1)
+
+    # last resort: not found
+    return None, None
+
+
 class CamFollow2O:
     def __init__(self, zeta=0.95, wn=6.0, dt=1 / 30):
         self.z = zeta
@@ -85,15 +105,17 @@ class CV2DKalman:
 # --- Color/shape gating to remove grass and favor white-ish round blobs ---
 
 
-def pick_ball(d):
-    if "bx_stab" in d:
-        return float(d["bx_stab"]), float(d["by_stab"])
-    if "bx_raw" in d:
-        return float(d["bx_raw"]), float(d["by_raw"])
+def pick_ball(d, src_w, src_h):
+    bx, by = _get_ball_xy_src(d, src_w, src_h)
+    if bx is not None and by is not None:
+        return bx, by
     if "ball" in d:
-        return float(d["ball"][0]), float(d["ball"][1])
-    if "bx" in d:
-        return float(d["bx"]), float(d["by"])
+        ball_val = d["ball"]
+        if isinstance(ball_val, (list, tuple)) and len(ball_val) >= 2:
+            try:
+                return float(ball_val[0]), float(ball_val[1])
+            except (TypeError, ValueError):
+                return None, None
     return None, None
 
 
@@ -1901,7 +1923,7 @@ class Renderer:
                         z_planned_val: float = zoom
 
                         if isinstance(path_rec, Mapping):
-                            ball_x, ball_y = pick_ball(path_rec)
+                            ball_x, ball_y = pick_ball(path_rec, frame.shape[1], frame.shape[0])
                             if ball_x is not None and ball_y is not None:
                                 entry_bx = float(ball_x)
                                 entry_by = float(ball_y)

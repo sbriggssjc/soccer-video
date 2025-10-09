@@ -4,6 +4,27 @@ import argparse, json, os
 from pathlib import Path
 import cv2
 
+
+def _get_ball_xy_src(rec, src_w, src_h):
+    """
+    Return ball center in *source pixel space* (x,y), regardless of which fields exist in the record.
+    Accepts bx/by, bx_stab/by_stab, bx_raw/by_raw, or normalized u/v.
+    """
+    # priority: stabilized, then plain, then raw
+    for kx, ky in (("bx_stab", "by_stab"), ("bx", "by"), ("bx_raw", "by_raw")):
+        if kx in rec and ky in rec:
+            return float(rec[kx]), float(rec[ky])
+
+    # normalized fallback (0..1); tolerate slight overshoot
+    if "u" in rec and "v" in rec:
+        u = float(rec["u"])
+        v = float(rec["v"])
+        return max(0.0, min(1.0, u)) * (src_w - 1), max(0.0, min(1.0, v)) * (src_h - 1)
+
+    # last resort: not found
+    return None, None
+
+
 def read_jsonl(p):
     recs = []
     with open(p, "r", encoding="utf-8") as f:
@@ -56,11 +77,18 @@ def main():
 
         row = rec
 
-        bx = by = None
-        if "ball_src" in row and row["ball_src"]:
-            bx, by = row["ball_src"]
-        elif "ball" in row and row["ball"]:  # backward compatibility
-            bx, by = row["ball"]
+        # draw ball (red)
+        bx, by = _get_ball_xy_src(rec, W, H)
+        if bx is None or by is None:
+            for key in ("ball", "telemetry_ball"):
+                ball_val = rec.get(key)
+                if isinstance(ball_val, (list, tuple)) and len(ball_val) >= 2:
+                    try:
+                        bx = float(ball_val[0])
+                        by = float(ball_val[1])
+                        break
+                    except (TypeError, ValueError):
+                        bx = by = None
 
         if bx is not None and by is not None:
             cv2.circle(
