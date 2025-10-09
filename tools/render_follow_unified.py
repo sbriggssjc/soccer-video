@@ -97,6 +97,69 @@ def pick_ball(d):
     return None, None
 
 
+def _get_ball_xy_src(
+    rec: Optional[Union[Mapping[str, object], Sequence[object]]],
+    src_w: float,
+    src_h: float,
+) -> tuple[Optional[float], Optional[float]]:
+    """Return best-effort (x, y) ball coordinates in source pixels."""
+
+    if rec is None:
+        return None, None
+
+    def _pair_from_mapping(
+        mapping: Mapping[str, object],
+        key_x: str,
+        key_y: str,
+    ) -> Optional[tuple[float, float]]:
+        if key_x not in mapping or key_y not in mapping:
+            return None
+        val_x = mapping.get(key_x)
+        val_y = mapping.get(key_y)
+        try:
+            return float(val_x), float(val_y)
+        except (TypeError, ValueError):
+            return None
+
+    def _pair_from_sequence(seq: Sequence[object]) -> Optional[tuple[float, float]]:
+        if len(seq) < 2:
+            return None
+        try:
+            return float(seq[0]), float(seq[1])
+        except (TypeError, ValueError):
+            return None
+
+    def _to_src(pair: tuple[float, float]) -> tuple[float, float]:
+        x, y = pair
+        if src_w > 1 and src_h > 1 and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+            return x * float(src_w), y * float(src_h)
+        return x, y
+
+    if isinstance(rec, Mapping):
+        for key_x, key_y in ("bx_src", "by_src"), ("bx_raw", "by_raw"):
+            pair = _pair_from_mapping(rec, key_x, key_y)
+            if pair is not None:
+                return _to_src(pair)
+
+        ball_seq = rec.get("ball") if isinstance(rec, Mapping) else None
+        if isinstance(ball_seq, Sequence):
+            pair = _pair_from_sequence(ball_seq)
+            if pair is not None:
+                return _to_src(pair)
+
+        for key_x, key_y in ("bx_stab", "by_stab"), ("bx", "by"):
+            pair = _pair_from_mapping(rec, key_x, key_y)
+            if pair is not None:
+                return _to_src(pair)
+
+    if isinstance(rec, Sequence) and not isinstance(rec, (str, bytes, bytearray)):
+        pair = _pair_from_sequence(rec)
+        if pair is not None:
+            return _to_src(pair)
+
+    return None, None
+
+
 def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     H, S, V = cv2.split(hsv)
@@ -1867,7 +1930,8 @@ class Renderer:
                 used_tag = "planner"
                 ball_source_tag: Optional[str] = prev_ball_source
                 planned_zoom: Optional[float] = None
-                telemetry_ball: Optional[Tuple[float, float]] = None
+                telemetry_ball_src: Optional[Tuple[float, float]] = None
+                telemetry_ball_out: Optional[Tuple[Optional[float], Optional[float]]] = None
                 telemetry_crop: Optional[Tuple[float, float, float, float]] = None
                 planner_spd: Optional[float] = None
                 planner_zoom: Optional[float] = None
@@ -1891,10 +1955,12 @@ class Renderer:
 
                 ball_path_entry: Optional[Tuple[float, float]] = None
                 ball_path_space: Optional[str] = None
+                ball_path_rec_for_frame: Optional[Union[Mapping[str, object], Sequence[object]]] = None
 
                 if offline_ball_path and n < len(offline_ball_path):
                     path_rec = offline_ball_path[n]
                     if path_rec is not None:
+                        ball_path_rec_for_frame = path_rec
                         entry_bx: Optional[float] = None
                         entry_by: Optional[float] = None
                         entry_space: Optional[str] = None
@@ -2046,7 +2112,7 @@ class Renderer:
                         cy = y0 + 0.5 * crop_h
                         zoom = planner_zoom
                         telemetry_crop = (x0, y0, crop_w, crop_h)
-                        telemetry_ball = (eff_bx, eff_by)
+                        telemetry_ball_src = (eff_bx, eff_by)
                         used_tag = "planner"
                         planner_handled = True
                         prev_ball_x = eff_bx
@@ -2080,7 +2146,7 @@ class Renderer:
                     x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
                     y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
 
-                    telemetry_ball = (eff_bx, eff_by)
+                    telemetry_ball_src = (eff_bx, eff_by)
                     telemetry_crop = (x0, y0, view_w, view_h)
 
                     if is_portrait and have_ball:
@@ -2285,7 +2351,7 @@ class Renderer:
                             prev_ball_x, prev_ball_y = cur_bx, cur_by
                         speed_px = math.hypot(cur_bx - prev_ball_x, cur_by - prev_ball_y)
                         prev_ball_x, prev_ball_y = cur_bx, cur_by
-                        telemetry_ball = (cur_bx, cur_by)
+                        telemetry_ball_src = (cur_bx, cur_by)
                     else:
                         prev_ball_x = None
                         prev_ball_y = None
@@ -2379,36 +2445,106 @@ class Renderer:
                         if planner_zoom is not None:
                             telemetry_rec["plan_zoom"] = float(planner_zoom)
                     crop_vals = telemetry_crop if telemetry_crop is not None else (x0, y0, crop_w, crop_h)
-                    telemetry_rec["crop"] = [
+                    crop_list = [
                         float(crop_vals[0]),
                         float(crop_vals[1]),
                         float(crop_vals[2]),
                         float(crop_vals[3]),
                     ]
-                    ball_vals: Optional[Tuple[float, float]] = None
-                    if telemetry_ball is not None:
-                        ball_vals = (
-                            float(telemetry_ball[0]),
-                            float(telemetry_ball[1]),
-                        )
-                    elif ball_path_entry is not None and (
-                        ball_path_space in (None, "raw", "ball", "generic")
+                    telemetry_rec["crop"] = crop_list
+                    telemetry_rec["crop_src"] = list(crop_list)
+
+                    bx_src_val: Optional[float]
+                    by_src_val: Optional[float]
+                    if telemetry_ball_src is not None:
+                        bx_src_val, by_src_val = telemetry_ball_src
+                    else:
+                        bx_src_val = None
+                        by_src_val = None
+
+                    if (
+                        (bx_src_val is None or by_src_val is None)
+                        and ball_path_rec_for_frame is not None
                     ):
-                        ball_vals = (
-                            float(ball_path_entry[0]),
-                            float(ball_path_entry[1]),
+                        bx_candidate, by_candidate = _get_ball_xy_src(
+                            ball_path_rec_for_frame,
+                            float(width),
+                            float(height),
                         )
-                    elif bx is not None and by is not None:
-                        ball_vals = (float(bx), float(by))
-                    if ball_vals is None:
-                        ball_vals = (
+                        if bx_candidate is not None and by_candidate is not None:
+                            bx_src_val, by_src_val = bx_candidate, by_candidate
+
+                    if (
+                        (bx_src_val is None or by_src_val is None)
+                        and ball_path_entry is not None
+                        and ball_path_space in (None, "raw", "ball", "generic")
+                    ):
+                        bx_src_val = float(ball_path_entry[0])
+                        by_src_val = float(ball_path_entry[1])
+
+                    if (
+                        (bx_src_val is None or by_src_val is None)
+                        and bx is not None
+                        and by is not None
+                    ):
+                        bx_src_val = float(bx)
+                        by_src_val = float(by)
+
+                    if bx_src_val is not None and by_src_val is not None:
+                        telemetry_ball_src = (bx_src_val, by_src_val)
+
+                    out_w = float(output_size[0]) if output_size[0] else float(width)
+                    out_h = float(output_size[1]) if output_size[1] else float(height)
+                    if (
+                        bx_src_val is not None
+                        and by_src_val is not None
+                        and crop_vals[2] > 0
+                        and crop_vals[3] > 0
+                        and out_w > 0
+                        and out_h > 0
+                    ):
+                        crop_cx = float(cx)
+                        crop_cy = float(cy)
+                        crop_w = float(crop_vals[2])
+                        crop_h = float(crop_vals[3])
+                        crop_l = crop_cx - 0.5 * crop_w
+                        crop_t = crop_cy - 0.5 * crop_h
+                        sx = (bx_src_val - crop_l) / max(1e-6, crop_w)
+                        sy = (by_src_val - crop_t) / max(1e-6, crop_h)
+                        x_out = sx * out_w
+                        y_out = sy * out_h
+                        telemetry_ball_out = (x_out, y_out)
+                    else:
+                        telemetry_ball_out = (None, None)
+
+                    if telemetry_ball_src is not None:
+                        telemetry_rec["ball_src"] = [
+                            float(telemetry_ball_src[0]),
+                            float(telemetry_ball_src[1]),
+                        ]
+                        telemetry_rec["ball"] = [
+                            float(telemetry_ball_src[0]),
+                            float(telemetry_ball_src[1]),
+                        ]
+                    else:
+                        telemetry_rec["ball_src"] = [None, None]
+                        telemetry_rec["ball"] = [
                             float(bx) if bx is not None else float("nan"),
                             float(by) if by is not None else float("nan"),
-                        )
-                    telemetry_rec["ball"] = [ball_vals[0], ball_vals[1]]
+                        ]
+
+                    if telemetry_ball_out is not None:
+                        telemetry_rec["ball_out"] = [
+                            float(telemetry_ball_out[0]) if telemetry_ball_out[0] is not None else None,
+                            float(telemetry_ball_out[1]) if telemetry_ball_out[1] is not None else None,
+                        ]
+                    else:
+                        telemetry_rec["ball_out"] = [None, None]
+
                     telemetry_rec["ball_space"] = "source"
                     if ball_source_tag:
-                        telemetry_rec["ball_src"] = ball_source_tag
+                        telemetry_rec["ball_src_tag"] = ball_source_tag
+                        telemetry_rec["ball_src_name"] = ball_source_tag
                     if ball_path_entry is not None:
                         ball_path_x = float(ball_path_entry[0])
                         ball_path_y = float(ball_path_entry[1])
