@@ -124,12 +124,12 @@ When you have a CSV of crowd-cheer detections, run `08b_build_top10_cheers.py` t
        --out .\out\DJI_20251001_203314_740_video.ps1vars --profile portrait --roi goal --degree 5
    ```
 
-3. **Render a 9:16 master.** Feed the expressions to `make_reel.ps1`, which sources the vars file, clamps crop math, renders portrait or landscape outputs, and can emit debug/compare overlays on demand. Pair it with the social preset in `config/reels.json` (`tiktok_9x16`: 1080×1920 @24 fps) whenever you need matching frame geometry for downstream packaging.【F:make_reel.ps1†L1-L133】【F:config/reels.json†L1-L5】
+3. **Render a 9:16 master.** Feed the expressions to `make_reel.ps1`, which sources the vars file, clamps crop math, renders portrait or landscape outputs, and can emit debug/compare overlays on demand. Pair it with the social preset in `config/reels.json` (`tiktok_9x16`: 1080×1920 @24 fps) whenever you need matching frame geometry for downstream packaging. Portrait runs automatically land in `out/portrait_reels/clean/<clip_basename>_portrait_FINAL.mp4`, with optional crop/compare renders ready for `out/portrait_reels/debug/`.【F:make_reel.ps1†L1-L144】【F:config/reels.json†L1-L5】
 
    ```powershell
    pwsh -File .\make_reel.ps1 -Input "C:\clips\DJI_20251001_203314_740_video.mov" `
-         -Vars .\out\DJI_20251001_203314_740_video.ps1vars -Output .\out\DJI_20251001_203314_740_portrait.mp4 `
-         -Profile portrait -Debug .\out\DJI_20251001_203314_740_portrait_debug.mp4
+         -Vars .\out\DJI_20251001_203314_740_video.ps1vars -Profile portrait `
+         -Debug .\out\portrait_reels\debug\DJI_20251001_203314_740_portrait_DEBUG.mp4
    ```
 
 4. **Enhance the grade.** `.\enhance.ps1` wraps `tools/auto_enhance/auto_enhance.ps1`, scanning files or folders, appending `_ENH.mp4`, and exposing `rec709_smart`, `rec709_basic`, and `punchy` looks plus CRF/preset knobs. The inner script retries without `normalize` if your FFmpeg build lacks the filter, making it safe for short social clips.【F:enhance.ps1†L1-L10】【F:tools/auto_enhance/auto_enhance.ps1†L1-L134】
@@ -138,12 +138,21 @@ When you have a CSV of crowd-cheer detections, run `08b_build_top10_cheers.py` t
    pwsh -File .\enhance.ps1 -In .\out\DJI_20251001_203314_740_portrait.mp4 -Profile rec709_smart -Crf 18 -Preset fast
    ```
 
-5. **Apply branding.** `tools/tsc_brand.ps1` overlays Tulsa SC assets, titles, watermarks, optional lower thirds, and end cards. Passing `-Aspect 9x16` switches to the portrait ribbon/watermark set automatically, while font checks warn when Montserrat weights are missing. Run it on the already-cropped or enhanced clip to finish deliverables.【F:tools/tsc_brand.ps1†L1-L200】
+5. **Apply branding.** `tools/tsc_brand.ps1` overlays Tulsa SC assets, titles, watermarks, optional lower thirds, and end cards. Passing `-Aspect 9x16` switches to the portrait ribbon/watermark set automatically, while font checks warn when Montserrat weights are missing. When the input lives under `out/portrait_reels/clean/`, the script defaults the branded export to `out/portrait_reels/branded/<clip_basename>_portrait_FINAL.mp4` so the postable deliverable always resolves to the same filename.【F:tools/tsc_brand.ps1†L1-L214】
 
    ```powershell
-   pwsh -File .\tools\tsc_brand.ps1 -In .\out\DJI_20251001_203314_740_portrait_ENH.mp4 `
-         -Out .\out\DJI_20251001_203314_740_portrait_BRAND.mp4 -Aspect 9x16 `
-         -Title "Claire Practice" -Subtitle "2025-10-01" -Watermark -EndCard
+   pwsh -File .\tools\tsc_brand.ps1 -In .\out\portrait_reels\clean\DJI_20251001_203314_740_portrait_FINAL.mp4 `
+         -Aspect 9x16 -Title "Claire Practice" -Subtitle "2025-10-01" -Watermark -EndCard
+   ```
+
+   The `out/portrait_reels/` tree is now the single source of truth for social-ready exports:
+
+   ```
+   out/
+     portrait_reels/
+       clean/    # postable masters without branding
+       branded/  # matching FINAL renders with brand overlays
+       debug/    # optional overlays, guides, and comparison passes
    ```
 
    **Data hand-off recap:** `autoframe.py` → CSV/preview (and optional `.ps1vars`) → `fit_expr.py` `.ps1vars` → `make_reel.ps1` portrait master → `.\enhance.ps1` `_ENH` grade → `tools/tsc_brand.ps1` branded final. Ensure FFmpeg/FFprobe remain on `PATH` for every PowerShell stage, and install the Montserrat family under `fonts/` to keep text overlays intact.【F:make_reel.ps1†L54-L117】【F:tools/auto_enhance/auto_enhance.ps1†L83-L133】【F:tools/tsc_brand.ps1†L37-L168】

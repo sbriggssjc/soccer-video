@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory=$true)] [string]$In,
-  [Parameter(Mandatory=$true)] [string]$Out,
+  [string]$Out,
   [ValidateSet('16x9','9x16')] [string]$Aspect = '16x9',
   [string]$Title = '',
   [string]$Subtitle = '',
@@ -13,6 +13,36 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Ensure-ParentDirectory {
+  param([string]$Path)
+  if (-not $Path) { return }
+  $parent = Split-Path -Parent ([System.IO.Path]::GetFullPath($Path))
+  if ($parent -and -not (Test-Path $parent)) {
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  }
+}
+
+function Get-PortraitRootFromPath {
+  param([string]$ReferencePath)
+  if (-not $ReferencePath) { return $null }
+  $dir = if (Test-Path $ReferencePath -PathType Container) { $ReferencePath } else { Split-Path -Parent $ReferencePath }
+  while ($dir) {
+    if ((Split-Path $dir -Leaf) -ieq 'portrait_reels') { return $dir }
+    $parent = Split-Path -Parent $dir
+    if (-not $parent -or $parent -eq $dir) { break }
+    $dir = $parent
+  }
+  return $null
+}
+
+function Get-PortraitBasename {
+  param([string]$Path)
+  if (-not $Path) { return 'reel' }
+  $name = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+  if (-not $name) { return 'reel' }
+  return ($name -replace '_portrait_FINAL$', '')
+}
 
 function Escape-DrawText {
   param([string]$Value)
@@ -37,6 +67,20 @@ function Get-DrawTextPath {
 if (-not (Test-Path $In)) {
   throw "Input video not found: $In"
 }
+
+$inFull = (Resolve-Path -LiteralPath $In).Path
+if (-not $Out) {
+  $root = Get-PortraitRootFromPath -ReferencePath $inFull
+  $base = Get-PortraitBasename -Path $inFull
+  if ($root) {
+    $Out = Join-Path (Join-Path $root 'branded') ($base + '_portrait_FINAL.mp4')
+  } else {
+    $Out = Join-Path (Split-Path -Parent $inFull) ($base + '_portrait_FINAL.mp4')
+  }
+}
+
+$Out = [System.IO.Path]::GetFullPath($Out)
+Ensure-ParentDirectory $Out
 
 $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if (-not $ffmpegCmd) {
@@ -102,11 +146,6 @@ if ($LowerThird -and $boldFontMissing) {
 }
 if ($LowerThird -and $mediumFontMissing) {
   Write-Warning "Medium font missing for lower third: $mediumFont"
-}
-
-$outDir = Split-Path -Parent ([System.IO.Path]::GetFullPath($Out))
-if ($outDir -and -not (Test-Path $outDir)) {
-  New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 }
 
 $ffArgs = @('-y', '-i', $In)

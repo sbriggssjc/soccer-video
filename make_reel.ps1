@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Input,
     [Parameter(Mandatory=$true)][string]$Vars,
-    [string]$Output = "autoframe_crop.mp4",
+    [string]$Output = "",
     [string]$Debug = "",
     [string]$Compare = "",
     [ValidateSet("portrait","landscape")][string]$Profile = "portrait",
@@ -16,6 +16,54 @@ param(
 $ErrorActionPreference = "Stop"
 if (!(Test-Path $Input)) { throw "Missing input: $Input" }
 if (!(Test-Path $Vars)) { throw "Missing vars file: $Vars" }
+$inputFull = (Resolve-Path -LiteralPath $Input).Path
+$varsFull = (Resolve-Path -LiteralPath $Vars).Path
+
+function Get-PortraitBaseName {
+    param(
+        [string]$InputPath,
+        [string]$VarsPath
+    )
+
+    $base = ""
+    if ($VarsPath) {
+        $base = [IO.Path]::GetFileNameWithoutExtension($VarsPath)
+    }
+    if (-not $base -and $InputPath) {
+        $base = [IO.Path]::GetFileNameWithoutExtension($InputPath)
+    }
+    if (-not $base) {
+        $base = "reel"
+    }
+    return ($base -replace "_portrait_FINAL$", "")
+}
+
+function Ensure-ParentDirectory {
+    param([string]$Path)
+    if (-not $Path) { return }
+    $parent = Split-Path -Parent ([IO.Path]::GetFullPath($Path))
+    if ($parent -and -not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+}
+
+if (-not $PSBoundParameters.ContainsKey('Output') -or -not $Output) {
+    if ($Profile -eq "portrait") {
+        $varsDir = Split-Path -Parent $varsFull
+        $reelRoot = if ($varsDir) { Join-Path $varsDir "portrait_reels" } else { Join-Path (Split-Path -Parent $inputFull) "portrait_reels" }
+        $cleanDir = Join-Path $reelRoot "clean"
+        $baseName = Get-PortraitBaseName -InputPath $inputFull -VarsPath $varsFull
+        Ensure-ParentDirectory (Join-Path $cleanDir "placeholder")
+        $Output = Join-Path $cleanDir ($baseName + "_portrait_FINAL.mp4")
+    } else {
+        $Output = "autoframe_crop.mp4"
+    }
+}
+
+Ensure-ParentDirectory $Output
+Ensure-ParentDirectory $Debug
+Ensure-ParentDirectory $Compare
+
 . $Vars
 
 if (-not ($cxExpr) -or -not ($cyExpr) -or -not ($zExpr)) {
