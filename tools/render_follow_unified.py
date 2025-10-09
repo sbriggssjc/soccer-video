@@ -2725,7 +2725,11 @@ def _default_output_path(input_path: Path, preset: str) -> Path:
     return input_path.with_name(input_path.stem + suffix)
 
 
-def load_ball_path(path: Union[str, os.PathLike[str]]) -> List[Optional[dict[str, float]]]:
+def load_ball_path(
+    path: Union[str, os.PathLike[str]],
+    ball_key_x: str = "bx_stab",
+    ball_key_y: str = "by_stab",
+) -> List[Optional[dict[str, float]]]:
     """Load a planned ball path JSONL file with stabilized coordinates."""
 
     seq: List[Optional[dict[str, float]]] = []
@@ -2745,22 +2749,42 @@ def load_ball_path(path: Union[str, os.PathLike[str]]) -> List[Optional[dict[str
                 seq.append(None)
                 continue
 
-            bx_value = data.get("bx_stab", data.get("bx_raw", data.get("bx")))
-            by_value = data.get("by_stab", data.get("by_raw", data.get("by")))
-            if bx_value is None or by_value is None:
-                seq.append(None)
-                continue
+            bx_norm: Optional[float] = None
+            by_norm: Optional[float] = None
+            for key_x, key_y in (
+                (ball_key_x, ball_key_y),
+                ("bx", "by"),
+                ("bx_raw", "by_raw"),
+            ):
+                val_x = data.get(key_x)
+                val_y = data.get(key_y)
+                if val_x is None or val_y is None:
+                    continue
+                try:
+                    bx_norm = float(val_x)
+                    by_norm = float(val_y)
+                except (TypeError, ValueError):
+                    bx_norm = by_norm = None
+                    continue
+                else:
+                    break
 
-            try:
-                bx_norm = float(bx_value)
-                by_norm = float(by_value)
-            except (TypeError, ValueError):
+            if bx_norm is None or by_norm is None:
                 seq.append(None)
                 continue
 
             rec: dict[str, float] = {}
 
-            for key_x, key_y in (("bx_stab", "by_stab"), ("bx_raw", "by_raw"), ("bx", "by")):
+            seen_pairs: set[tuple[str, str]] = set()
+            for key_x, key_y in (
+                (ball_key_x, ball_key_y),
+                ("bx_stab", "by_stab"),
+                ("bx_raw", "by_raw"),
+                ("bx", "by"),
+            ):
+                if (key_x, key_y) in seen_pairs:
+                    continue
+                seen_pairs.add((key_x, key_y))
                 val_x = data.get(key_x)
                 val_y = data.get(key_y)
                 if val_x is None or val_y is None:
@@ -2921,7 +2945,11 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         ball_path_file = Path(args.ball_path).expanduser()
         if not ball_path_file.exists():
             raise FileNotFoundError(f"Ball path file not found: {ball_path_file}")
-        offline_ball_path = load_ball_path(ball_path_file)
+        offline_ball_path = load_ball_path(
+            ball_path_file,
+            ball_key_x=str(getattr(args, "ball_key_x", "bx_stab")),
+            ball_key_y=str(getattr(args, "ball_key_y", "by_stab")),
+        )
     renderer = Renderer(
         input_path=input_path,
         output_path=output_path,
@@ -2988,6 +3016,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", dest="log", help="Optional render log path")
     parser.add_argument("--crf", dest="crf", type=int, help="Override CRF value")
     parser.add_argument("--keyint-factor", dest="keyint_factor", type=int, help="Override keyint factor")
+    parser.add_argument(
+        "--ball-key-x",
+        dest="ball_key_x",
+        default="bx_stab",
+        help="Preferred X key when reading planned ball path JSONL",
+    )
+    parser.add_argument(
+        "--ball-key-y",
+        dest="ball_key_y",
+        default="by_stab",
+        help="Preferred Y key when reading planned ball path JSONL",
+    )
     parser.add_argument(
         "--init-manual",
         dest="init_manual",
