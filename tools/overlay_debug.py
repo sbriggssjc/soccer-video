@@ -91,6 +91,9 @@ def main():
                         bx = by = None
 
         if bx is not None and by is not None:
+            if 0.0 <= bx <= 1.0 and 0.0 <= by <= 1.0:
+                bx *= W
+                by *= H
             cv2.circle(
                 frame,
                 (int(round(bx)), int(round(by))),
