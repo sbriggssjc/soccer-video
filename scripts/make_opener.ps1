@@ -1,9 +1,8 @@
 Param(
     [Parameter(Mandatory=$true)] [string]$PlayerName,
-    [Parameter(Mandatory=$true)] [string]$PlayerNumber,
+    [Parameter(Mandatory=$true)] [int]$PlayerNumber,
     [Parameter(Mandatory=$true)] [string]$PlayerPhoto,
     [Parameter(Mandatory=$true)] [string]$OutDir,
-    [string]$OutFile,
 
     [string]$BGPath = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png",
     [string]$BadgeSolidPath = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png",
@@ -21,7 +20,7 @@ Param(
     [int]$HoleDX = 0,
     [int]$HoleDY = 0,
 
-    [string]$FontPath = "C:/WINDOWS/Fonts/arialbd.ttf",
+    [string]$FontPath = "Arial Bold",
     [double]$FadeInTxt = 0.60,
     [double]$FadeOutTxt = 0.60
 )
@@ -32,21 +31,12 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $HoleBox = [int]([math]::Round($BadgeW * $HoleScale))
 $TxtOutStart = [math]::Round(($DUR - $FadeOutTxt),2)
 $SanName = ($PlayerName -replace '[^\w]+','').Trim('')
-if (-not [string]::IsNullOrEmpty($OutFile)) {
-    $OUT = $OutFile
-} else {
-    $OUT = Join-Path $OutDir "$SanName__OPENER.mp4"
-}
-New-Item -ItemType Directory -Force -Path (Split-Path $OUT -Parent) | Out-Null
+$OUT = Join-Path $OutDir "$SanName__OPENER.mp4"
 
-$PlayerNumberText = $PlayerNumber
-if ($PlayerNumberText.StartsWith('\#')) {
-    # already escaped for ffmpeg
-} elseif ($PlayerNumberText.StartsWith('#')) {
-    $PlayerNumberText = '\' + $PlayerNumberText
-} else {
-    $PlayerNumberText = "\#$PlayerNumberText"
-}
+# Text config (safe for drawtext)
+$FontName = $FontPath
+$PlayerNameTxt = $PlayerName.ToUpper()
+$NumTxt = "\#$PlayerNumber"
 
 # Filter graph (single-line stages; no inline comments)
 $fc = @"
@@ -60,10 +50,10 @@ $fc = @"
 [b1][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[b2];
 [b2][badgeHole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[vbase];
 color=c=black@0.0:s=1080x1920:d=${DUR}[t1];
-[t1]drawtext=fontfile='${FontPath}':text='$($PlayerName.ToUpper())':fontsize=72:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[nameL];
+[t1]drawtext=font='${FontName}':text='${PlayerNameTxt}':fontsize=72:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[nameL];
 [vbase][nameL]overlay=0:0:shortest=1[b3];
 color=c=black@0.0:s=1080x1920:d=${DUR}[t2];
-[t2]drawtext=fontfile='${FontPath}':text='${PlayerNumberText}':fontsize=66:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[numL];
+[t2]drawtext=font='${FontName}':text='${NumTxt}':fontsize=66:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[numL];
 [b3][numL]overlay=0:0:shortest=1[vout]
 "@
 
