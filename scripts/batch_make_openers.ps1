@@ -10,9 +10,14 @@ Import-Csv $RosterCsv | ForEach-Object {
   $row = $_
 
   # --- Clean & validate fields ---
-  $name = ($row.PlayerName  -as [string]) ?? ""
-  $numS = ($row.PlayerNumber -as [string]) ?? ""
-  $photo = ($row.PlayerPhoto -as [string]) ?? ""
+  $name = $row.PlayerName -as [string]
+  if ($null -eq $name) { $name = "" }
+
+  $numS = $row.PlayerNumber -as [string]
+  if ($null -eq $numS) { $numS = "" }
+
+  $photo = $row.PlayerPhoto -as [string]
+  if ($null -eq $photo) { $photo = "" }
 
   # Pull out the first run of digits from PlayerNumber (handles "#19", " 19 ", "\#14", etc.)
   $m = [regex]::Match($numS, '\d+')
