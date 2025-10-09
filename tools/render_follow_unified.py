@@ -268,6 +268,118 @@ def _roi_around_point(bx, by, W, H, side):
     return _clamp_roi(x, y, side_i, side_i, W, H)
 
 
+def smooth_series(x, alpha=0.15):
+    # EWMA – robust, low-latency
+    y = np.empty_like(x, dtype=float)
+    acc = x[0]
+    for i, v in enumerate(x):
+        acc = alpha * v + (1 - alpha) * acc
+        y[i] = acc
+    return y
+
+
+def speed(px):
+    # |Δ| per frame (px/frame)
+    d = np.sqrt(np.sum(np.diff(px, axis=0) ** 2, axis=1))
+    return np.concatenate([[0.0], d])
+
+
+class ZoomPlanner:
+    """
+    Speed → zoom with hysteresis and slew-rate limiting.
+    zoom=1.0 means the crop is exactly target height; >1 zooms in.
+    """
+
+    def __init__(
+        self,
+        z_min=1.0,
+        z_max=1.8,
+        s_lo=3.0,
+        s_hi=18.0,
+        hysteresis=0.20,
+        max_step=0.03,
+    ):
+        self.z_min, self.z_max = z_min, z_max
+        self.s_lo, self.s_hi = s_lo, s_hi
+        self.hysteresis = hysteresis
+        self.max_step = max_step
+
+    def plan(self, spd):
+        # map speed to raw zoom target
+        t = np.clip((spd - self.s_lo) / (self.s_hi - self.s_lo), 0, 1)
+        raw = self.z_min + t * (self.z_max - self.z_min)
+
+        # apply hysteresis around last zoom to avoid flicker
+        out = np.empty_like(raw)
+        z = raw[0]
+        out[0] = z
+        for i in range(1, len(raw)):
+            rz = raw[i]
+            band = self.hysteresis * (self.z_max - self.z_min)
+            if abs(rz - z) <= band:
+                rz = z  # stick
+            # limit zoom change per frame
+            z += np.clip(rz - z, -self.max_step, self.max_step)
+            out[i] = z
+        # final mild smoothing
+        return smooth_series(out, alpha=0.25)
+
+
+FPS = 30.0
+
+
+def plan_camera_from_ball(
+    bx,
+    by,
+    frame_w,
+    frame_h,
+    target_aspect,
+    pan_alpha=0.15,
+    lead=0.10,
+    bounds_pad=16,
+):
+    """
+    bx/by are STABILIZED ball coords per-frame (not raw detector jitter).
+    - pan_alpha: EWMA for camera center (higher = tighter follow)
+    - lead: amount of lookahead in seconds, implemented as future-index peek
+    """
+
+    n = len(bx)
+    pts = np.stack([bx, by], axis=1)
+    spd = speed(pts)
+
+    # lookahead index in frames (use fps already known in your script)
+    LA = int(round(lead * FPS)) if lead > 0 else 0
+    bx_look = np.concatenate([bx[LA:], np.repeat(bx[-1], LA)])
+    by_look = np.concatenate([by[LA:], np.repeat(by[-1], LA)])
+
+    cx = smooth_series(bx_look, alpha=pan_alpha)
+    cy = smooth_series(by_look, alpha=pan_alpha)
+
+    # compute zoom per-frame
+    zp = ZoomPlanner(z_min=1.0, z_max=1.9, s_lo=2.5, s_hi=22.0, hysteresis=0.18, max_step=0.025)
+    z = zp.plan(spd)
+
+    # convert zoom to crop size (height); ensure target aspect; keep in bounds
+    crop_h = np.clip(frame_h / z, 240, frame_h - 2 * bounds_pad)
+    crop_w = np.minimum(crop_h * target_aspect, frame_w - 2 * bounds_pad)
+    crop_h = crop_w / target_aspect  # enforce exact aspect
+
+    # clamp camera center so crop box stays inside frame
+    half_w = crop_w / 2.0
+    half_h = crop_h / 2.0
+    cx = np.clip(cx, half_w + bounds_pad, frame_w - half_w - bounds_pad)
+    cy = np.clip(cy, half_h + bounds_pad, frame_h - half_h - bounds_pad)
+
+    # produce integer crops
+    x0 = (cx - half_w).round().astype(int)
+    y0 = (cy - half_h).round().astype(int)
+    w = crop_w.round().astype(int)
+    h = crop_h.round().astype(int)
+
+    return x0, y0, w, h, spd, z
+
+
 def guarantee_ball_in_crop(
     x0,
     y0,
@@ -1340,6 +1452,93 @@ class Renderer:
         src_h_f = float(height)
         speed_px_sec = float(self.speed_limit or 3000.0)
 
+        offline_plan_data: Optional[dict[str, np.ndarray]] = None
+        offline_plan_len = 0
+        if offline_ball_path:
+            bx_vals: List[float] = []
+            by_vals: List[float] = []
+            for entry in offline_ball_path:
+                bx_val: Optional[float] = None
+                by_val: Optional[float] = None
+                if isinstance(entry, Mapping):
+                    if "bx_stab" in entry and "by_stab" in entry:
+                        bx_val = entry.get("bx_stab")
+                        by_val = entry.get("by_stab")
+                    elif "bx" in entry and "by" in entry:
+                        bx_val = entry.get("bx")
+                        by_val = entry.get("by")
+                    elif "bx_raw" in entry and "by_raw" in entry:
+                        bx_val = entry.get("bx_raw")
+                        by_val = entry.get("by_raw")
+                else:
+                    entry_seq = tuple(entry)
+                    if len(entry_seq) >= 2:
+                        bx_val = entry_seq[0]
+                        by_val = entry_seq[1]
+
+                if bx_val is None or by_val is None:
+                    bx_vals.append(float("nan"))
+                    by_vals.append(float("nan"))
+                else:
+                    bx_vals.append(float(bx_val))
+                    by_vals.append(float(by_val))
+
+            if bx_vals:
+                bx_arr = np.asarray(bx_vals, dtype=float)
+                by_arr = np.asarray(by_vals, dtype=float)
+
+                def _ffill_nan(arr: np.ndarray, default: float) -> np.ndarray:
+                    out = arr.copy()
+                    last = default
+                    for idx in range(len(out)):
+                        if np.isfinite(out[idx]):
+                            last = out[idx]
+                        else:
+                            out[idx] = last
+                    return out
+
+                default_cx = float(width) / 2.0
+                default_cy = float(height) * 0.45
+                if not np.isfinite(bx_arr[0]):
+                    bx_arr[0] = default_cx
+                if not np.isfinite(by_arr[0]):
+                    by_arr[0] = default_cy
+
+                bx_arr = _ffill_nan(bx_arr, default_cx)
+                by_arr = _ffill_nan(by_arr, default_cy)
+
+                fps_for_plan = render_fps if render_fps > 0 else (src_fps if src_fps > 0 else 30.0)
+                if fps_for_plan <= 0:
+                    fps_for_plan = 30.0
+                global FPS
+                FPS = float(fps_for_plan)
+
+                if portrait_w > 0 and portrait_h > 0:
+                    target_aspect = float(portrait_w) / float(portrait_h)
+                else:
+                    target_aspect = (float(width) / float(height)) if height > 0 else 1.0
+
+                plan_x0, plan_y0, plan_w, plan_h, plan_spd, plan_zoom = plan_camera_from_ball(
+                    bx_arr,
+                    by_arr,
+                    float(width),
+                    float(height),
+                    float(target_aspect),
+                    pan_alpha=0.15,
+                    lead=0.10,
+                    bounds_pad=16,
+                )
+
+                offline_plan_len = len(plan_x0)
+                offline_plan_data = {
+                    "x0": plan_x0.astype(float),
+                    "y0": plan_y0.astype(float),
+                    "w": plan_w.astype(float),
+                    "h": plan_h.astype(float),
+                    "spd": plan_spd.astype(float),
+                    "z": plan_zoom.astype(float),
+                }
+
         kal: Optional[CV2DKalman] = None
         template: Optional[np.ndarray] = None
         tpl_side = 64
@@ -1422,6 +1621,8 @@ class Renderer:
                 planned_zoom: Optional[float] = None
                 telemetry_ball: Optional[Tuple[float, float]] = None
                 telemetry_crop: Optional[Tuple[float, float, float, float]] = None
+                planner_spd: Optional[float] = None
+                planner_zoom: Optional[float] = None
 
                 def _refresh_template(cx_val: float, cy_val: float) -> None:
                     nonlocal template
@@ -1559,18 +1760,50 @@ class Renderer:
                         eff_bx = prev_ball_bx
                         eff_by = prev_ball_by
 
-                    alpha_pan = 0.30
-                    cx = alpha_pan * eff_bx + (1 - alpha_pan) * prev_cx
-                    cy = alpha_pan * eff_by + (1 - alpha_pan) * prev_cy
+                    planner_handled = False
+                    if offline_plan_data is not None and n < offline_plan_len:
+                        plan_x0 = float(offline_plan_data["x0"][n])
+                        plan_y0 = float(offline_plan_data["y0"][n])
+                        plan_w = float(offline_plan_data["w"][n])
+                        plan_h = float(offline_plan_data["h"][n])
+                        planner_zoom = float(offline_plan_data["z"][n])
+                        planner_spd = float(offline_plan_data["spd"][n])
+                        if planner_zoom <= 0:
+                            planner_zoom = float(H / plan_h) if plan_h > 0 else prev_zoom
 
-                    speed = hypot(eff_bx - prev_ball_bx, eff_by - prev_ball_by)
-                    norm = min(1.0, speed / 24.0)
-                    z_min = float(zoom_min)
-                    z_max = float(zoom_max)
-                    zoom_target = z_min + (z_max - z_min) * (1.0 - norm)
-                    slew = 0.02
-                    zoom = prev_zoom + max(-slew, min(slew, zoom_target - prev_zoom))
-                    zoom = float(np.clip(zoom, z_min if z_min > 0 else 1.0, z_max))
+                        x0 = plan_x0
+                        y0 = plan_y0
+                        crop_w = plan_w
+                        crop_h = plan_h
+                        cx = x0 + 0.5 * crop_w
+                        cy = y0 + 0.5 * crop_h
+                        zoom = planner_zoom
+                        telemetry_crop = (x0, y0, crop_w, crop_h)
+                        telemetry_ball = (eff_bx, eff_by)
+                        used_tag = "planner"
+                        planner_handled = True
+                        prev_ball_x = eff_bx
+                        prev_ball_y = eff_by
+                        prev_cx = float(cx)
+                        prev_cy = float(cy)
+                        prev_zoom = float(zoom)
+                        prev_bx = eff_bx
+                        prev_by = eff_by
+                        if have_ball:
+                            ball_path_entry = (eff_bx, eff_by)
+                    if not planner_handled:
+                        alpha_pan = 0.30
+                        cx = alpha_pan * eff_bx + (1 - alpha_pan) * prev_cx
+                        cy = alpha_pan * eff_by + (1 - alpha_pan) * prev_cy
+
+                        speed = hypot(eff_bx - prev_ball_bx, eff_by - prev_ball_by)
+                        norm = min(1.0, speed / 24.0)
+                        z_min = float(zoom_min)
+                        z_max = float(zoom_max)
+                        zoom_target = z_min + (z_max - z_min) * (1.0 - norm)
+                        slew = 0.02
+                        zoom = prev_zoom + max(-slew, min(slew, zoom_target - prev_zoom))
+                        zoom = float(np.clip(zoom, z_min if z_min > 0 else 1.0, z_max))
 
                     view_h = H / float(zoom) if zoom > 0 else H
                     view_w = view_h * target_aspect
@@ -1580,8 +1813,8 @@ class Renderer:
                     x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
                     y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
 
-                    telemetry_ball = (eff_bx, eff_by)
-                    telemetry_crop = (x0, y0, view_w, view_h)
+                        telemetry_ball = (eff_bx, eff_by)
+                        telemetry_crop = (x0, y0, view_w, view_h)
 
                     x0, y0, crop_w, crop_h = compute_portrait_crop(
                         float(cx),
@@ -1604,26 +1837,44 @@ class Renderer:
                             float(width),
                             float(height),
                             float(zoom),
-                            zoom_min,
-                            zoom_max,
-                            margin=0.10,
-                            step_zoom=0.96,
+                            width,
+                            height,
+                            portrait_w,
+                            portrait_h,
+                            self.pad,
                         )
-                        prev_ball_x = eff_bx
-                        prev_ball_y = eff_by
-                    else:
-                        prev_ball_x = None
-                        prev_ball_y = None
 
-                    cx = float(x0 + 0.5 * crop_w)
-                    cy = float(y0 + 0.5 * crop_h)
-                    zoom = float(zoom)
-                    prev_cx = float(cx)
-                    prev_cy = float(cy)
-                    prev_zoom = float(zoom)
-                    if have_ball:
-                        prev_bx = eff_bx
-                        prev_by = eff_by
+                        if have_ball and crop_w > 1 and crop_h > 1:
+                            x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
+                                x0,
+                                y0,
+                                crop_w,
+                                crop_h,
+                                eff_bx,
+                                eff_by,
+                                float(width),
+                                float(height),
+                                float(zoom),
+                                zoom_min,
+                                zoom_max,
+                                margin=0.10,
+                                step_zoom=0.96,
+                            )
+                            prev_ball_x = eff_bx
+                            prev_ball_y = eff_by
+                        else:
+                            prev_ball_x = None
+                            prev_ball_y = None
+
+                        cx = float(x0 + 0.5 * crop_w)
+                        cy = float(y0 + 0.5 * crop_h)
+                        zoom = float(zoom)
+                        prev_cx = float(cx)
+                        prev_cy = float(cy)
+                        prev_zoom = float(zoom)
+                        if have_ball:
+                            prev_bx = eff_bx
+                            prev_by = eff_by
                 else:
                     smoothed_cx: Optional[float] = None
                     smoothed_cy: Optional[float] = None
@@ -1790,6 +2041,12 @@ class Renderer:
                         "cy": float(cy),
                         "zoom": float(zoom),
                     }
+                    telemetry_rec["f"] = int(state.frame)
+                    if used_tag == "planner":
+                        if planner_spd is not None:
+                            telemetry_rec["plan_spd"] = float(planner_spd)
+                        if planner_zoom is not None:
+                            telemetry_rec["plan_zoom"] = float(planner_zoom)
                     crop_vals = telemetry_crop if telemetry_crop is not None else (x0, y0, crop_w, crop_h)
                     telemetry_rec["crop"] = [
                         float(crop_vals[0]),
