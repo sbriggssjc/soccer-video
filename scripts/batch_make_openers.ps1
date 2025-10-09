@@ -4,12 +4,9 @@ Param(
 )
 $ErrorActionPreference = "Stop"
 Import-Csv $RosterCsv | ForEach-Object {
-    $name = $_.name
-    $number = [int]$_.number
-    $photo = $_.photo
     & "$PSScriptRoot\make_opener.ps1" `
-        -PlayerName   $name `
-        -PlayerNumber $number `
-        -PlayerPhoto  $photo `
+        -PlayerName   $_.name `
+        -PlayerNumber ([int]$_.number) `
+        -PlayerPhoto  $_.photo `
         -OutDir       $OutDir
 }
