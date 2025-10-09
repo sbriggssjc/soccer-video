@@ -34,9 +34,9 @@ $SanName = ($PlayerName -replace '[^\w]+','').Trim('')
 $OUT = Join-Path $OutDir "$SanName__OPENER.mp4"
 
 # Text config (safe for drawtext)
-$FontName = $FontPath
-$PlayerNameTxt = $PlayerName.ToUpper()
-$NumTxt = "\#$PlayerNumber"
+$FontName      = "Arial Bold"             # use font=, avoids C:\ path issues
+$PlayerNameTxt = ($PlayerName -replace "'", "’").ToUpper()
+$NumTxtEsc     = "\#$PlayerNumber"
 
 # Filter graph (single-line stages; no inline comments)
 $fc = @"
@@ -53,7 +53,7 @@ color=c=black@0.0:s=1080x1920:d=${DUR}[t1];
 [t1]drawtext=font='${FontName}':text='${PlayerNameTxt}':fontsize=72:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[nameL];
 [vbase][nameL]overlay=0:0:shortest=1[b3];
 color=c=black@0.0:s=1080x1920:d=${DUR}[t2];
-[t2]drawtext=font='${FontName}':text='${NumTxt}':fontsize=66:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[numL];
+[t2]drawtext=font='${FontName}':text='${NumTxtEsc}':fontsize=66:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${FadeInTxt}:alpha=1,fade=t=out:st=${TxtOutStart}:d=${FadeOutTxt}:alpha=1[numL];
 [b3][numL]overlay=0:0:shortest=1[vout]
 "@
 

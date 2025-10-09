@@ -1,26 +1,42 @@
-Param(
-    [Parameter(Mandatory=$true)] [string]$RosterCsv,
-    [Parameter(Mandatory=$true)] [string]$OutDir
+param(
+  [Parameter(Mandatory=$true)] [string] $RosterCsv,
+  [Parameter(Mandatory=$true)] [string] $OutDir
 )
-$ErrorActionPreference = "Stop"
-$makeOpenerScript = Join-Path $PSScriptRoot 'make_opener.ps1'
+
+# Create output directory
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 Import-Csv $RosterCsv | ForEach-Object {
-    $row = $_
+  $row = $_
 
-    # build a safe, informative filename: "14__Claire_Briggs.mp4"
-    $safeName = ($row.PlayerName -replace '[^\w\- ]','').Trim() -replace '\s+','_'
-    if ([string]::IsNullOrWhiteSpace($safeName)) {
-        $safeName = "Player"
-    }
-    $outFile = Join-Path $OutDir ("{0}__{1}.mp4" -f $row.PlayerNumber, $safeName)
+  # --- Clean & validate fields ---
+  $name = ($row.PlayerName  -as [string]) ?? ""
+  $numS = ($row.PlayerNumber -as [string]) ?? ""
+  $photo = ($row.PlayerPhoto -as [string]) ?? ""
 
-    Write-Host "Rendering opener -> $outFile"
+  # Pull out the first run of digits from PlayerNumber (handles "#19", " 19 ", "\#14", etc.)
+  $m = [regex]::Match($numS, '\d+')
+  if (-not $m.Success) {
+    Write-Warning "Skipping row (no numeric PlayerNumber): Name='$name' Number='$numS'"
+    return
+  }
+  $num = [int]$m.Value
 
-    & $makeOpenerScript `
-        -PlayerName   $row.PlayerName `
-        -PlayerNumber "\#${($row.PlayerNumber)}" `
-        -PlayerPhoto  $row.PlayerPhoto `
-        -OutDir       $OutDir `
-        -OutFile      $outFile
+  if (-not (Test-Path $photo)) {
+    Write-Warning "Skipping '$name' (#$num): Photo not found -> $photo"
+    return
+  }
+
+  # Safe filename for the output
+  $safeName = ($name -replace '[^\w\- ]','').Trim() -replace '\s+','_'
+  $outFile  = Join-Path $OutDir ("{0}__{1}.mp4" -f $num, $safeName)
+
+  Write-Host "Rendering opener -> $outFile"
+
+  & "$PSScriptRoot\make_opener.ps1" `
+    -PlayerName   $name `
+    -PlayerNumber $num `
+    -PlayerPhoto  $photo `
+    -OutFile      $outFile `
+    -OutDir       $OutDir
 }
