@@ -492,8 +492,6 @@ def plan_crop_from_ball(
     zoom_min=0.55,
     zoom_max=0.95,
     pad=24,
-    k_pos=0.18,
-    k_zoom=0.25,
     state=None,
 ):
     """Return integer (x0,y0,w,h) portrait crop centered on (bx,by) with damped smoothing."""
@@ -505,81 +503,190 @@ def plan_crop_from_ball(
         return 0, 0, src_w, src_h, state
 
     if out_w > 0 and out_h > 0:
-        ar_out = float(out_w) / float(out_h)
+        portrait_w = float(out_w)
+        portrait_h = float(out_h)
     else:
-        ar_out = float(src_w) / float(src_h) if src_h else 1.0
-    ar_out = max(ar_out, 1e-6)
+        portrait_w = float(src_w)
+        portrait_h = float(src_h)
+    if portrait_w <= 0:
+        portrait_w = float(src_w)
+    if portrait_h <= 0:
+        portrait_h = float(src_h)
+
+    if portrait_h <= 0:
+        portrait_h = 1.0
+    aspect = portrait_w / float(portrait_h) if portrait_h else 1.0
+    if aspect <= 0:
+        aspect = float(src_w) / float(src_h) if src_h else 1.0
 
     try:
         zoom_value = float(state.get("zoom", zoom_max))
     except (TypeError, ValueError):
         zoom_value = float(zoom_max)
 
-    if zoom_max >= zoom_min:
+    candidates = [zoom_value]
+    for candidate in (zoom_min, zoom_max):
+        try:
+            candidates.append(float(candidate))
+        except (TypeError, ValueError):
+            continue
+    zoom_value = next((c for c in reversed(candidates) if c and abs(c) > 1e-6), 1.0)
+
+    if zoom_min > 0 and zoom_max > 0 and zoom_max >= zoom_min:
         zoom_value = max(zoom_min, min(zoom_max, zoom_value))
+    elif zoom_min > 0 and (zoom_max <= 0 or zoom_max < zoom_min):
+        zoom_value = max(zoom_min, zoom_value)
+    elif zoom_max > 0:
+        zoom_value = min(zoom_max, zoom_value)
+    if abs(zoom_value) <= 1e-6:
+        zoom_value = 1.0
 
-    zoom_is_fraction = zoom_max <= 1.0 and zoom_min <= 1.0
-    if zoom_is_fraction:
-        crop_h_target = float(src_h) * zoom_value
-    else:
-        crop_h_target = float(src_h) / zoom_value if zoom_value > 1e-6 else float(src_h)
-    crop_w_target = crop_h_target * ar_out
-
-    pad_px = 0
+    pad_px = 0.0
     pad_frac = 0.0
     if pad <= 0.49:
-        pad_frac = max(0.0, min(float(pad), 0.49))
+        try:
+            pad_frac = max(0.0, min(float(pad), 0.49))
+        except (TypeError, ValueError):
+            pad_frac = 0.0
     else:
-        pad_px = max(0, int(round(pad)))
+        try:
+            pad_px = float(max(0, int(round(pad))))
+        except (TypeError, ValueError):
+            pad_px = 0.0
 
+    shrink = 1.0
     if pad_frac > 0.0:
         shrink = max(0.0, 1.0 - 2.0 * pad_frac)
-        crop_w_target *= shrink
-        crop_h_target *= shrink
 
     max_crop_w = max(1.0, float(src_w) - 2.0 * pad_px)
-    crop_w_target = min(crop_w_target, max_crop_w)
-    crop_h_target = min(crop_w_target / ar_out, float(src_h) - 2.0 * pad_px)
-    crop_w_target = crop_h_target * ar_out
+    max_crop_h = max(1.0, float(src_h) - 2.0 * pad_px)
 
-    x = float(bx) - crop_w_target / 2.0
-    y = float(by) - crop_h_target / 2.0
+    max_zoom_candidates = [zoom_value]
+    for candidate in (zoom_min, zoom_max):
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            max_zoom_candidates.append(value)
+    max_zoom = max(max_zoom_candidates) if max_zoom_candidates else 1.0
+    if max_zoom <= 1e-6:
+        max_zoom = 1.0
 
-    if "x" not in state:
-        state.update(x=float(x), y=float(y), w=float(crop_w_target), h=float(crop_h_target))
+    min_crop_h = portrait_h / max_zoom if max_zoom else portrait_h
+    if pad_frac > 0.0:
+        min_crop_h *= shrink
+    min_crop_h = max(1.0, min(min_crop_h, max_crop_h))
+    min_crop_w = max(1.0, min(min_crop_h * aspect, max_crop_w))
+    if min_crop_w < min_crop_h * aspect:
+        min_crop_h = min_crop_w / max(aspect, 1e-6)
 
-    state["x"] += k_pos * (x - state["x"])
-    state["y"] += k_pos * (y - state["y"])
-    state["w"] += k_zoom * (crop_w_target - state["w"])
-    state["h"] = float(state["w"] / ar_out)
+    target_crop_h = portrait_h / zoom_value
+    if pad_frac > 0.0:
+        target_crop_h *= shrink
+    target_crop_h = max(min_crop_h, min(target_crop_h, max_crop_h))
+    target_crop_w = target_crop_h * aspect
+    if target_crop_w > max_crop_w:
+        scale = max_crop_w / target_crop_w if target_crop_w > 0 else 1.0
+        target_crop_w = max_crop_w
+        target_crop_h *= scale
+    if target_crop_h < min_crop_h:
+        target_crop_h = min_crop_h
+        target_crop_w = min(target_crop_h * aspect, max_crop_w)
+        if target_crop_w <= 0:
+            target_crop_w = min_crop_w
+        if target_crop_w > max_crop_w:
+            target_crop_w = max_crop_w
+            target_crop_h = target_crop_w / max(aspect, 1e-6)
 
-    max_x = float(src_w) - pad_px - state["w"]
-    max_y = float(src_h) - pad_px - state["h"]
-    max_x = max(float(pad_px), max_x)
-    max_y = max(float(pad_px), max_y)
+    try:
+        prev_w = float(state.get("w", target_crop_w))
+    except (TypeError, ValueError):
+        prev_w = float(target_crop_w)
+    try:
+        prev_h = float(state.get("h", target_crop_h))
+    except (TypeError, ValueError):
+        prev_h = float(target_crop_h)
+    if prev_w <= 0:
+        prev_w = float(target_crop_w)
+    if prev_h <= 0:
+        prev_h = float(target_crop_h)
 
-    x_candidate = max(float(pad_px), min(max_x, state["x"]))
-    y_candidate = max(float(pad_px), min(max_y, state["y"]))
-    w = max(1, int(round(state["w"])))
-    h = max(1, int(round(state["h"])))
+    try:
+        prev_x = float(state.get("x", float(bx) - prev_w / 2.0))
+    except (TypeError, ValueError):
+        prev_x = float(bx) - prev_w / 2.0
+    try:
+        prev_y = float(state.get("y", float(by) - prev_h / 2.0))
+    except (TypeError, ValueError):
+        prev_y = float(by) - prev_h / 2.0
 
-    if zoom_is_fraction:
-        actual_zoom = float(h) / float(src_h) if src_h else zoom_value
+    prev_cx = prev_x + prev_w / 2.0
+    prev_cy = prev_y + prev_h / 2.0
+
+    bx = float(bx)
+    by = float(by)
+
+    alpha_center = 0.20
+    alpha_zoom = 0.15
+
+    cx = (1 - alpha_center) * prev_cx + alpha_center * bx
+    cy = (1 - alpha_center) * prev_cy + alpha_center * by
+
+    cw = (1 - alpha_zoom) * prev_w + alpha_zoom * target_crop_w
+    ch = (1 - alpha_zoom) * prev_h + alpha_zoom * target_crop_h
+
+    ch = max(min_crop_h, min(ch, max_crop_h))
+    cw = ch * aspect
+    if cw > max_crop_w:
+        scale = max_crop_w / cw if cw > 0 else 1.0
+        cw = max_crop_w
+        ch *= scale
+    min_crop_w = min_crop_h * aspect
+    if cw < min_crop_w:
+        cw = min_crop_w
+        ch = cw / max(aspect, 1e-6)
+
+    half_w = cw / 2.0
+    half_h = ch / 2.0
+    min_x = float(pad_px)
+    max_x = float(src_w) - float(pad_px) - cw
+    min_y = float(pad_px)
+    max_y = float(src_h) - float(pad_px) - ch
+
+    x0 = cx - half_w
+    y0 = cy - half_h
+
+    if max_x < min_x:
+        x0 = float(src_w) / 2.0 - half_w
     else:
-        actual_zoom = float(src_h) / float(h) if h else zoom_value
-    if zoom_max >= zoom_min:
-        actual_zoom = max(zoom_min, min(zoom_max, actual_zoom))
-    state["zoom"] = actual_zoom
+        x0 = max(min_x, min(max_x, x0))
+    if max_y < min_y:
+        y0 = float(src_h) / 2.0 - half_h
+    else:
+        y0 = max(min_y, min(max_y, y0))
 
-    state["x"] = float(x_candidate)
-    state["y"] = float(y_candidate)
-    state["w"] = float(w)
-    state["h"] = float(h)
+    cx = x0 + half_w
+    cy = y0 + half_h
 
-    x0 = int(round(x_candidate))
-    y0 = int(round(y_candidate))
+    zoom_actual = float(src_h) / ch if ch else zoom_value
+    if zoom_min > 0 and zoom_max > 0 and zoom_max >= zoom_min:
+        zoom_actual = max(zoom_min, min(zoom_max, zoom_actual))
 
-    return x0, y0, w, h, state
+    state["x"] = float(x0)
+    state["y"] = float(y0)
+    state["w"] = float(cw)
+    state["h"] = float(ch)
+    state["cx"] = float(cx)
+    state["cy"] = float(cy)
+    state["zoom"] = float(zoom_actual)
+
+    x0_int = int(round(x0))
+    y0_int = int(round(y0))
+    w_int = max(1, int(round(cw)))
+    h_int = max(1, int(round(ch)))
+
+    return x0_int, y0_int, w_int, h_int, state
 
 
 def compute_portrait_crop(cx, cy, zoom, src_w, src_h, target_aspect, pad):
