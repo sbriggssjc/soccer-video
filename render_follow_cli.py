@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import argparse, os, math, subprocess
+import argparse, json, os, math, subprocess
 import numpy as np
 import pandas as pd
 import cv2
@@ -23,6 +23,7 @@ def main():
     ap.add_argument("--clip", required=True)
     ap.add_argument("--track_csv", required=True)
     ap.add_argument("--out_mp4", required=True)
+    ap.add_argument("--telemetry", help="Optional JSONL telemetry output path")
 
     # motion parameters (same spirit as before)
     ap.add_argument("--tau", type=float, default=0.26)      # lookahead (s) for ball
@@ -51,6 +52,11 @@ def main():
     ap.add_argument("--hyst", type=float, default=35.0)        # deadband on speed switch
 
     args = ap.parse_args()
+
+    telemetry_f = None
+    if args.telemetry:
+        os.makedirs(os.path.dirname(args.telemetry) or ".", exist_ok=True)
+        telemetry_f = open(args.telemetry, "w", encoding="utf-8")
 
     cap = cv2.VideoCapture(args.clip)
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
@@ -203,11 +209,28 @@ def main():
             pad_w = max(0, eff_w - crop.shape[1])
             crop = cv2.copyMakeBorder(crop, 0, pad_h, 0, pad_w, cv2.BORDER_REPLICATE)
 
+        if telemetry_f:
+            t_sec = float(i / fps)
+            rec = {
+                "t": t_sec,
+                "f": int(i),
+                "used": "planner",
+                "cx": float(xi + 0.5 * eff_w),
+                "cy": float(yi + 0.5 * eff_h),
+                "zoom": float(crop_w_base / max(1.0, eff_w)),
+                "crop": [float(xi), float(yi), float(eff_w), float(eff_h)],
+            }
+            if i < len(cx) and not math.isnan(cx[i]) and not math.isnan(cy[i]):
+                rec["ball"] = [float(cx[i]), float(cy[i])]
+            telemetry_f.write(json.dumps(rec) + "\n")
+
         crop = cv2.resize(crop, (args.W_out, args.H_out), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(os.path.join(tmp_dir, f"f_{i:06d}.jpg"), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 96])
         i += 1
 
     cap.release()
+    if telemetry_f:
+        telemetry_f.close()
 
     os.makedirs(os.path.dirname(args.out_mp4) or ".", exist_ok=True)
     subprocess.run([
