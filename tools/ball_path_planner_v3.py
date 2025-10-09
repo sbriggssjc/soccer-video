@@ -457,6 +457,7 @@ def main() -> None:
     prev_stab = first_frame.copy()
     field_mask = field_mask_bgr(first_frame)
     cand_lists: List[List[Cand]] = []
+    affines: List[np.ndarray] = []
     pred = (bx0, by0)
     misses = 0
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -468,6 +469,7 @@ def main() -> None:
         cur_gray, A = stabilize_step(prev_gray, frame)
         stab = warp_affine(frame, A, width, height)
         motion_map = motion_strength(prev_stab, stab)
+        affines.append(A)
         if frame_idx - 1 in anchors_by_frame:
             pred = anchors_by_frame[frame_idx - 1]
         elif frame_idx in anchors_by_frame:
@@ -539,10 +541,37 @@ def main() -> None:
         rate=0.035,
     )
 
+    def clamp(v: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, v))
+
     with open(args.out, "w", encoding="utf-8") as f:
         for i, (x, y) in enumerate(zip(xs, ys)):
             t = i / float(fps)
-            f.write(json.dumps({"t": t, "bx": float(x), "by": float(y), "z": float(z[i])}) + "\n")
+            stab_x = float(clamp(x, 0.0, width - 1.0))
+            stab_y = float(clamp(y, 0.0, height - 1.0))
+            if i < len(affines):
+                A = affines[i]
+                try:
+                    A_inv = cv2.invertAffineTransform(A[:2, :].astype(np.float64))
+                except cv2.error:
+                    A_inv = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
+            else:
+                A_inv = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
+            raw_x = float(A_inv[0, 0] * stab_x + A_inv[0, 1] * stab_y + A_inv[0, 2])
+            raw_y = float(A_inv[1, 0] * stab_x + A_inv[1, 1] * stab_y + A_inv[1, 2])
+            raw_x = float(clamp(raw_x, 0.0, width - 1.0))
+            raw_y = float(clamp(raw_y, 0.0, height - 1.0))
+            record = {
+                "t": t,
+                "bx": stab_x,
+                "by": stab_y,
+                "bx_stab": stab_x,
+                "by_stab": stab_y,
+                "bx_raw": raw_x,
+                "by_raw": raw_y,
+                "z": float(z[i]),
+            }
+            f.write(json.dumps(record) + "\n")
 
 
 if __name__ == "__main__":
