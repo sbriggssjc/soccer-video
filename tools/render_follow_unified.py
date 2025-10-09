@@ -370,16 +370,19 @@ def to_jsonable(obj):
         return str(obj)
 
 
-def compute_portrait_crop(cx, cy, zoom, src_w, src_h, portrait_w, portrait_h, pad):
+def compute_portrait_crop(cx, cy, zoom, src_w, src_h, target_aspect, pad):
     # target aspect (w/h)
-    t_aspect = float(portrait_w) / float(portrait_h) if portrait_w and portrait_h else (src_w / float(src_h))
+    if target_aspect and target_aspect > 0:
+        t_aspect = float(target_aspect)
+    else:
+        t_aspect = src_w / float(src_h)
 
     # derive crop size from zoom while honoring aspect
     crop_h = src_h / float(zoom)
     crop_w = crop_h * t_aspect
     if crop_w > src_w:  # bound if too wide
         crop_w = float(src_w)
-        crop_h = crop_w / t_aspect
+        crop_h = crop_w / t_aspect if t_aspect else crop_h
 
     # pad shrinks the box a bit to keep safety margins around ball
     if pad and pad > 0:
@@ -1288,8 +1291,14 @@ class Renderer:
         else:
             output_size = (width, height)
 
-        portrait_w = output_size[0]
-        portrait_h = output_size[1]
+        target_w = int(output_size[0]) if output_size[0] else width
+        target_h = int(output_size[1]) if output_size[1] else height
+        if target_h <= 0:
+            target_h = height
+        if target_w <= 0:
+            target_w = width
+        target_aspect = float(target_w) / float(target_h) if target_h else (width / float(height))
+        output_size = (target_w, target_h)
 
         overlay_image = _load_overlay(self.brand_overlay_path, output_size)
         tf = self.telemetry
@@ -1563,8 +1572,11 @@ class Renderer:
                     zoom = prev_zoom + max(-slew, min(slew, zoom_target - prev_zoom))
                     zoom = float(np.clip(zoom, z_min if z_min > 0 else 1.0, z_max))
 
-                    view_w = W / float(zoom) if zoom > 0 else W
                     view_h = H / float(zoom) if zoom > 0 else H
+                    view_w = view_h * target_aspect
+                    if view_w > W:
+                        view_w = float(W)
+                        view_h = view_w / target_aspect if target_aspect else view_h
                     x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
                     y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
 
@@ -1577,8 +1589,7 @@ class Renderer:
                         float(zoom),
                         width,
                         height,
-                        portrait_w,
-                        portrait_h,
+                        target_aspect,
                         self.pad,
                     )
 
@@ -1669,8 +1680,11 @@ class Renderer:
                             zoom = default_zoom
 
                     if ball_available and bx is not None and by is not None and zoom > 0:
-                        view_w = width / float(zoom)
                         view_h = height / float(zoom)
+                        view_w = view_h * target_aspect
+                        if view_w > width:
+                            view_w = float(width)
+                            view_h = view_w / target_aspect if target_aspect else view_h
                         x0 = min(max(cx - 0.5 * view_w, 0.0), width - view_w)
                         y0 = min(max(cy - 0.5 * view_h, 0.0), height - view_h)
                         cx = x0 + 0.5 * view_w
@@ -1682,8 +1696,7 @@ class Renderer:
                         zoom,
                         width,
                         height,
-                        portrait_w,
-                        portrait_h,
+                        target_aspect,
                         self.pad,
                     )
 
@@ -1743,8 +1756,7 @@ class Renderer:
                             float(zoom),
                             width,
                             height,
-                            portrait_w,
-                            portrait_h,
+                            target_aspect,
                             self.pad,
                         )
 
