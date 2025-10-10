@@ -12,17 +12,19 @@ $Renderer  = Join-Path $RepoRoot "tools\render_follow_unified.py"
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
 
-# Gather staged atomic clips (exclude MASTER.* just in case)
-$clips = Get-ChildItem $AtomicDir -File -Include *.mp4,*.mov |
-         Where-Object { $_.BaseName -notmatch '^(MASTER|master)$' } |
-         Sort-Object Name
+# 🔎 RECURSIVE scan; ignore MASTER.* and anything inside _quarantine
+$clips = Get-ChildItem $AtomicDir -Recurse -File -Include *.mp4,*.mov |
+         Where-Object {
+           $_.Name -notmatch '^(MASTER|master)\.(mp4|mov)$' -and
+           $_.FullName -notmatch '\\_quarantine(\\|$)'
+         } |
+         Sort-Object FullName
 
 if ($clips.Count -eq 0) {
-  Write-Warning "No staged atomic clips found in $AtomicDir"
+  Write-Warning "No staged atomic clips found under $AtomicDir (recursively)."
   return
 }
 
-# Helper: build argument list for the renderer
 function Invoke-Render {
   param([string]$In, [string]$OutPath)
 
@@ -33,11 +35,9 @@ function Invoke-Render {
     "--out", $OutPath,
     "--preset", "cinematic"
   )
-
   if ($BrandOverlay -and (Test-Path $BrandOverlay)) { $args += @("--brand-overlay", $BrandOverlay) }
   if ($Endcard -and (Test-Path $Endcard))           { $args += @("--endcard",      $Endcard) }
 
-  # Call python with args
   & python $args
   return $LASTEXITCODE
 }
@@ -45,18 +45,16 @@ function Invoke-Render {
 $done = 0; $skipped = 0; $failed = 0
 
 foreach ($c in $clips) {
-  $outPath = Join-Path $OutDir ($c.BaseName + "_portrait_FINAL.mp4")
+  $outName = $c.BaseName + "_portrait_FINAL.mp4"
+  $outPath = Join-Path $OutDir $outName
 
-  # Skip if already fresh
   $need = $true
   if (Test-Path $outPath) {
-    $outNewer = ((Get-Item $outPath).LastWriteTime -gt (Get-Item $c.FullName).LastWriteTime)
-    $need = -not $outNewer
+    $need = -not ((Get-Item $outPath).LastWriteTime -gt (Get-Item $c.FullName).LastWriteTime)
   }
-
   if (-not $need) { $skipped++; continue }
 
-  Write-Host "Processing $($c.Name)..."
+  Write-Host "Processing $($c.FullName)..."
   $rc = Invoke-Render -In $c.FullName -OutPath $outPath
   if ($rc -eq 0 -and (Test-Path $outPath)) { $done++ } else { $failed++ }
 }
