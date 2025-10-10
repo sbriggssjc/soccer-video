@@ -1,194 +1,407 @@
-# Soccer Highlights Suite
+# Soccer Video Portrait Reel Pipeline
 
-`soccerhl` is a Windows-friendly end-to-end toolkit for turning a full match
-recording into polished highlight reels. The pipeline combines motion analysis,
-audio excitement, peak tightening, clip exports, smart ranking, and final reels
-with transitions.
+This repository contains the **soccer-video** toolkit that we use to turn
+manually curated match moments into polished 1080×1920 portrait reels. The
+pipeline is purpose-built for Windows 10/11 with PowerShell and Python 3.10+,
+and it relies on FFmpeg plus Real-ESRGAN for AI upscaling. The flow below starts
+from hand-picked "atomic" clips and ends with fully branded reels ready for
+social media.
 
-## Installation
+1. Collect atomic clips under `out\atomic_clips\`.
+2. Build/update the clip catalog (`atomic_index.csv`) and per-clip sidecars.
+3. Run batch upscaling with Real-ESRGAN.
+4. Run the portrait follow/crop/polish/branding renderer.
+5. Export final reels to `out\portrait_reels\clean\`.
+6. Track success, retry failures, and audit progress through the catalog files.
+
+The sections below document every moving part, from one-time setup through
+resume logic and troubleshooting.
+
+---
+
+## One-Time Setup
+
+### Requirements
+
+| Component | Notes |
+|-----------|-------|
+| Windows 10/11 | Run everything from Windows PowerShell or Windows Terminal. |
+| Python 3.10+ | Install from the Microsoft Store or python.org. |
+| FFmpeg & FFprobe | Place `ffmpeg.exe` and `ffprobe.exe` on `%PATH%`. |
+| Real-ESRGAN NCNN Vulkan | Install the binary at `C:\Users\scott\soccer-video\tools\realesrgan\realesrgan-ncnn-vulkan.exe`. |
+
+### Python Environment (optional but recommended)
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate
-pip install -e .
+pip install -r requirements-autoframe.txt
 ```
 
-The toolkit depends on FFmpeg/FFprobe and the libraries listed in
-`pyproject.toml`. Install FFmpeg separately and ensure it is on your `PATH`.
+You can also install additional packages as needed via `pip install -e .` if
+you plan to modify Python modules within this repository.
 
-## Configuration
-
-All commands read settings from `config.yaml` (or another YAML file passed via
-`--config`). Configuration includes paths, detection thresholds, jersey colors,
-output profiles, and encoding parameters. Profiles are provided for broadcast,
-social-vertical, and coach-review outputs.
-
-## CLI Overview
-
-Each pipeline stage is available as a subcommand of `soccerhl`:
+### FFmpeg Health Check
 
 ```powershell
-soccerhl detect --video .\out\full_game_stabilized.mp4 --pre 1.0 --post 2.0 --max-count 40
-soccerhl shrink --video .\out\full_game_stabilized.mp4 --csv .\out\highlights.csv --out .\out\highlights_smart.csv --aspect vertical --pre 3 --post 5 --bias-blue
-soccerhl clips --video .\out\full_game_stabilized.mp4 --csv .\out\highlights_smart.csv --outdir .\out\clips --workers 4
-soccerhl topk --candirs .\out\clips,.\out\clips_acc --k 10 --max-len 18
-soccerhl reel --list .\out\smart_top10_concat.txt --out .\out\reels\top10.mp4 --profile social-vertical
+ffmpeg -version
+ffprobe -version
 ```
 
-All examples use Windows PowerShell syntax without line continuations. The
-commands are idempotent—rerun them to resume processing, and add `--overwrite`
-to regenerate clips when needed.
+Both commands should succeed from any folder. If they do not, adjust your PATH
+so the binaries are visible.
 
-### PowerShell helper scripts
+### Real-ESRGAN Placement
 
-When you need a quick throwaway helper script during the workflow, stick to
-PowerShell here-strings so the file lands on disk before invoking Python:
+Download the NCNN Vulkan build and place it exactly at:
+
+```
+C:\Users\scott\soccer-video\tools\realesrgan\realesrgan-ncnn-vulkan.exe
+```
+
+The helper scripts call this binary via `tools\upscale.py`. The renderer falls
+back to FFmpeg Lanczos scaling when Real-ESRGAN is missing, but AI upscaling is
+strongly recommended for close-up sports footage.
+
+### PowerShell Session Reset Snippet
+
+Use this block at the top of a new PowerShell session to ensure fonts, assets,
+and paths are ready:
 
 ```powershell
-@'
-import csv, sys
-path = r"out\render_logs\tester_022__SHOT.ball.jsonl"
-n = sum(1 for _ in open(path, "r", encoding="utf-8"))
-print("ballpath lines:", n)
-'@ | Set-Content -Encoding UTF8 tools\check_ballpath.py
+# --- RESET BLOCK (run inside repo root) ---
+Set-Location C:\Users\scott\soccer-video
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
+$env:Path = "C:\Users\scott\soccer-video\tools\realesrgan;${env:Path}"
 
-python tools\check_ballpath.py
+$global:FFmpegFonts = 'C\:\\Windows\\Fonts\\arial.ttf'
+$global:FFmpegFontsBold = 'C\:\\Windows\\Fonts\\arialbd.ttf'
+$global:BrandAssets = 'C:\\Users\\scott\\soccer-video\\brand\\tsc'
+# -----------------------------------------
 ```
 
-Avoid Bash-style heredocs such as `python - <<'PY'` inside PowerShell—they are
-always parsed as literal arguments and will fail before Python ever runs.
+Set these global variables once per session if you plan to run FFmpeg
+commands manually (some filters require escaped font paths).
 
-## Pipeline Summary
+---
 
-1. **detect** – merges motion and audio scores per second, applies hysteresis
-   and sustain filters, and writes `out/highlights.csv`.
-2. **shrink** – tightens highlight windows around motion peaks (optionally
-   jersey-biased) and can write tracked social clips.
-3. **clips** – exports frame-accurate MP4 clips with small audio fades using
-   parallel FFmpeg workers.
-4. **topk** – scores candidate clips, trims slow starts, and writes both CSV and
-   concat list files for the best plays.
-5. **reel** – renders finished reels with title slates, numbered overlays,
-   crossfades, and gentle audio ducking.
+## Directory Layout
 
-Each command updates `out/report.md` with summary statistics so you always know
-how many windows, clips, and reel duration were produced.
+```
+out\atomic_clips\           # Hand-selected "atomic" highlights (input MP4s)
+out\upscaled\               # AI-upscaled intermediates (e.g., __x2.mp4)
+out\portrait_reels\clean\   # Final branded portrait reels (1080×1920)
+out\_tmp\                   # Scratch space for probes, frames, and caches
+out\catalog\                # Catalog + tracking artifacts (CSV + sidecars)
+  atomic_index.csv          # Clip inventory and descriptive metadata
+  pipeline_status.csv       # Step completion log, outputs, timestamps, errors
+  sidecar\*.json            # Per-clip provenance + step history
+brand\tsc\                  # Title ribbon, watermark, end card assets
+tools\render_follow_unified.py
+tools\upscale.py
+tools\catalog.py            # Catalog + tracking helper (new)
+Build-AtomicIndex.ps1       # Wrapper: scan atomic clips + update catalog
+Run-UpscaleAndBrand.ps1     # Wrapper: upscale + follow/crop/polish/brand
+Resume-Pipeline.ps1         # Wrapper: retry missing/failed steps
+```
 
+All generated media lives under `out\`. You can safely delete the contents of
+`out\_tmp\` when you need to free disk space—the pipeline recreates scratch
+files automatically. Keep `out\catalog\` under version control to audit history
+but avoid checking in large MP4 outputs.
 
-## Tulsa Soccer Club Branding
+---
 
-Run the full highlight export and wrap it with the TSC brand kit in a single command:
+## Step 0 – Curate Atomic Clips
+
+1. Review the match footage and manually export 16:9 moments into
+   `out\atomic_clips\` (MP4 containers with H.264 video and stereo audio).
+2. Use descriptive file names so later stages stay organized, for example:
+   `001__SHOT__t155.50-t166.40.mp4` or `015__GOAL__t3028.10-t3038.20.mp4`.
+3. Optional suffixes such as `_PK`, `_Corner`, or `_Breakaway` help with
+   filtering and tagging in the catalog.
+
+Atomic clips are the only required manual input. Everything else is scripted.
+
+---
+
+## Step 1 – Build or Refresh the Atomic Catalog
+
+The catalog captures clip metadata (duration, frame size, SHA1 hash) and keeps a
+per-clip JSON sidecar with provenance.
 
 ```powershell
-.\tools\tsc_brand.ps1 -In .\out\top_highlights_goals_first.mp4 -Out .\out\top_highlights_goals_first_b.mp4 -Title "U10 Girls | Matchday Highlights" -Subtitle "Week 6 vs Bartlesville" -Watermark -EndCard
+pwsh -File .\Build-AtomicIndex.ps1
 ```
 
-Place the required Montserrat headline fonts under `tools\..\fonts\` (for example
-`fonts/Montserrat-ExtraBold.ttf`, `Montserrat-SemiBold.ttf`, `Montserrat-Bold.ttf`,
-and `Montserrat-Medium.ttf`). The script automatically picks landscape or portrait
-overlays and applies the watermark, lower-third plate, and end card when enabled.
+### Outputs
 
-Example recipes live under `recipes/` and include both landscape and vertical
-presets along with screenshots of the ribbon, watermark, and safe-area guides.
+* `out\catalog\atomic_index.csv` – columns:
+  `clip_path, clip_name, created_at, duration_s, width, height, fps, sha1_64, tags`
+* `out\catalog\sidecar\{clip_stem}.json` – baseline record containing clip
+  metadata plus empty step slots.
 
-## How we publish highlights
+The PowerShell wrapper prints the number of clips scanned and how many records
+changed. Rerun it any time you add, rename, or update atomic clips.
 
-Two helper scripts wrap the week-to-week workflow: one regenerates the branded
-match reel and the other stitches individual portrait openers into a single
-team montage without ever touching the locked badge geometry.
+---
+
+## Step 2 – Upscale (AI) + Step 3 – Follow/Crop/Polish/Brand
+
+Execute both steps in one batch run. This wrapper handles caching, idempotency,
+and catalog updates.
 
 ```powershell
-pwsh -File scripts\publish_highlights.ps1 `
-    -Video .\out\full_game_stabilized.mp4 `
-    -OutDir .\out\2025-04-05_vs_Bartlesville `
-    -Title "U10 Girls | Matchday Highlights" `
-    -Subtitle "Week 6 vs Bartlesville"
+pwsh -File .\Run-UpscaleAndBrand.ps1 -Scale 2 -Brand 'tsc' -OutDir 'C:\Users\scott\soccer-video\out\portrait_reels\clean'
 ```
+
+### Under the Hood
+
+1. Iterates over every `*.mp4` in `out\atomic_clips\`.
+2. Runs `tools\upscale.py` with `--scale 2`.
+   * Calls Real-ESRGAN at `tools\realesrgan\realesrgan-ncnn-vulkan.exe`.
+   * Output saved to `out\upscaled\{clip_stem}__x2.mp4`.
+   * Skips the step if the upscaled file is newer than the source clip.
+3. Runs `tools\render_follow_unified.py` with:
+
+   ```powershell
+   python .\tools\render_follow_unified.py `
+     --in "C:\Users\scott\soccer-video\out\atomic_clips\<clip>.mp4" `
+     --portrait 1080x1920 --brand tsc --apply-polish `
+     --upscale --upscale-scale 2 `
+     --outdir "C:\Users\scott\soccer-video\out\portrait_reels\clean"
+   ```
+
+   * Applies motion-follow crops, camera polish, overlays, watermark, and end
+     card using assets under `brand\tsc\`.
+   * Final output saved as `out\portrait_reels\clean\{clip_stem}_portrait_FINAL.mp4`.
+   * Skips rendering if the final MP4 is newer than both the atomic and
+     upscaled sources.
+4. Updates the catalog via `tools\catalog.py` with step timestamps, outputs,
+   arguments, and errors (if any).
+
+The wrapper continues when a clip fails (error logged in the catalog) and prints
+`Batch complete.` once the queue is finished.
+
+---
+
+## Step 4 – Review Status & Resume Partial Runs
+
+### Inspect Catalogs
+
+* `out\catalog\pipeline_status.csv` – quick glance summary per clip:
+
+  | Column | Description |
+  |--------|-------------|
+  | `clip_path` | Absolute path to the atomic clip. |
+  | `upscale_done_at` | ISO timestamp of the last successful upscale. |
+  | `upscaled_path` | Path to the upscaled intermediate. |
+  | `follow_brand_done_at` | ISO timestamp of the last successful branding run. |
+  | `branded_path` | Final reel location. |
+  | `last_error` | Most recent error message (empty when clean). |
+  | `last_run_at` | Timestamp of the last attempt (success or failure). |
+
+* `out\catalog\sidecar\{clip}.json` – authoritative machine-readable state
+  (metadata, step args, provenance, error history).
+
+### Resume Examples
 
 ```powershell
-pwsh -File scripts\make_opener_montage.ps1 `
-    -Csv .\roster.csv `
-    -OutFile .\out\opener\u10_girls_team_montage.mp4
+pwsh -File .\Resume-Pipeline.ps1 -OnlyUpscale
+pwsh -File .\Resume-Pipeline.ps1 -OnlyBrand
+pwsh -File .\Resume-Pipeline.ps1 -Since '2025-10-09'
+pwsh -File .\Resume-Pipeline.ps1 -Clip 't3028.10'
 ```
 
+* `-OnlyUpscale` reruns Real-ESRGAN for clips that are missing upscaled files or
+  whose source clips are newer.
+* `-OnlyBrand` reruns the portrait render for clips missing branded outputs or
+  with recorded errors.
+* `-Since` filters entries whose `last_run_at` timestamp is on/after the
+  provided date.
+* `-Clip` filters rows where `clip_path` contains the provided substring.
 
-### Cheer-anchored Top-10
+The resume wrapper reads `pipeline_status.csv` (plus sidecars) to determine
+which steps are stale or errored, then reruns just those steps while updating
+catalog entries.
 
-When you have a CSV of cheer timestamps (see `09_detect_cheers.py`), run
-`08b_build_top10_cheers.py` to guarantee those big moments appear in the final
-Top-10 reel. The script keeps up to four well-spaced cheers, pads each window
-with additional context, fills remaining slots using the highest
-`action_score` clips from `out/highlights_filtered.csv`, then renders
-`out/top10.mp4` along with the individual clips and concat list.
+---
 
-## Motion Filter Tuning Notes
+## Per-Clip Advanced Run
 
-The optional `05_filter_by_motion.py` stage keeps the most action-packed windows
-by combining motion strength, a rough ball-speed proxy, and a navy jersey mask.
-You can adjust several parameters when your footage or uniforms differ from the
-defaults:
-
-* **Jersey mask** – `--team-hsv-low`/`--team-hsv-high` accept `H,S,V` triplets in
-  OpenCV ranges. The dark-navy defaults are `105,70,20` through `130,255,160`.
-  Raise the upper V toward `190` when clips look too dim, or increase the lower
-  S to ~`90` if the mask is catching sky and bleachers.
-* **Sensitivity knobs** – Lower `--min-flow-mean` (alias `--min-flow`) when fast
-  plays are being dropped, or reduce `--min-ball-speed` when the ball appears
-  small or far from the camera. Raising `--min-center-ratio` nudges the filter
-  toward activity in the attacking thirds.
-
-The filter now drops windows with low residual motion (such as pure camera pans)
-and those lacking a moving ball or visible pitch, so expect filler "in-between"
-clips to disappear as thresholds tighten.
-
-
-## Examples & Tests
-
-`examples/generate_sample.py` creates a small synthetic match clip that drives a
-regression test. After running the generator, process the clip with the
-PowerShell commands shown in `examples/README.md`.
-
-Run the automated test to verify the entire pipeline on the synthetic clip:
+When you need to experiment with parameters or debug a single clip, run the
+renderer directly:
 
 ```powershell
-pytest -k pipeline
+python .\tools\render_follow_unified.py `
+  --in "C:\Users\scott\soccer-video\out\atomic_clips\001__SHOT__t155.50-t166.40.mp4" `
+  --portrait 1080x1920 --brand tsc --apply-polish `
+  --upscale --upscale-scale 2 `
+  --outdir "C:\Users\scott\soccer-video\out\portrait_reels\clean"
 ```
 
-This produces a short reel under `examples/out/reels/` as part of the test run.
-
-## Goal-aware Autoframe
-
-`autoframe.py` now includes goal anchoring and context-aware zoom to keep plays
-framed even when the camera drifts. Run it with `--roi goal` to auto-detect the
-goal mouth, predict the motion center with dense optical flow, and blend toward
-the net whenever the crop slips away. New flags like `--lead_ms`,
-`--deadband_xy`, `--goal_side`, and `--anchor_weight` make the behaviour easy to
-dial in, while `--preview` / `--compare` render debug overlays showing the crop
-box, crosshair, goal outline, and per-frame IoU. See `README_AUTOFAME.md` for a
-complete rundown of the tuning options.
-
-When you want to batch-run the classic ball tracker (`track_ball_cli.py`) and
-camera planner (`plan_render_cli.py`) over a directory of clips, use the new
-Python helper instead of copying multi-line PowerShell commands:
+Optionally add `--force` to re-render even if outputs already exist. After a
+manual run, call `tools\catalog.py` to sync status:
 
 ```powershell
-python scripts/batch_autoframe.py `
-    --atomic-dir .\out\atomic_clips `
-    --work-dir .\out\autoframe_work `
-    --out-dir .\out\reels\tiktok
+python .\tools\catalog.py --mark-upscaled --clip <clip> --out <upscaled> --scale 2 --model realesrgan-x4plus
+python .\tools\catalog.py --mark-branded --clip <clip> --out <final> --brand tsc --args --portrait 1080x1920 --brand tsc
 ```
 
-The defaults mirror the values we previously documented, so you can omit the
-flags when using the recommended directory layout. Extra knobs like
-`--track-yolo-conf`, `--plan-zoom-max`, or `--overwrite` expose the same
-tuning options without tripping over PowerShell's line continuation rules.
+---
 
-### Unified Render (Preset Wrapper)
+## Catalog & Tracking System
 
-One entrypoint for all follow/zoom variants:
+`tools\catalog.py` maintains two CSV summaries plus JSON sidecars.
 
-    pwsh -File tools\render_follow.ps1 -In "C:\path\clip.mp4" -Preset Cinematic -Portrait
-    pwsh -File tools\render_follow.ps1 -In "C:\path\clip.mp4" -Preset Gentle   -Flip180
-    pwsh -File tools\render_follow.ps1 -In "C:\path\clip.mp4" -Preset RealZoom -ExtraArgs "--margin 0.22 --lookahead 24"
+### CSV 1 – `atomic_index.csv`
 
-The wrapper locates existing `render_follow_*` scripts (current or archived) and passes through common flags.
+| Column | Description |
+|--------|-------------|
+| `clip_path` | Absolute path to the atomic MP4. |
+| `clip_name` | File name only (useful for quick filtering). |
+| `created_at` | File creation time (UTC ISO 8601). |
+| `duration_s` | Duration from `ffprobe`, rounded to milliseconds. |
+| `width` / `height` | Source resolution (pixels). |
+| `fps` | Raw frame rate string from `ffprobe` (e.g., `60/1`). |
+| `sha1_64` | First 64 bits of the file SHA1 hash (short audit ID). |
+| `tags` | Free-form string for manual annotations. |
+
+Run `Build-AtomicIndex.ps1` whenever atomic clips change to update this table.
+
+### CSV 2 – `pipeline_status.csv`
+
+Each processing attempt updates (or creates) a row keyed by `clip_path`. The
+wrapper scripts call `tools\catalog.py --mark-upscaled` and
+`--mark-branded` to upsert timestamps, output locations, and error notes. The
+file can be opened in Excel for quick audits or filtered with PowerShell.
+
+### Sidecar JSON – `out\catalog\sidecar\{clip_stem}.json`
+
+Example:
+
+```json
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\001__SHOT__t155.50-t166.40.mp4",
+  "source_sha1_64": "abc1234567890def",
+  "meta": {
+    "duration_s": 10.9,
+    "fps": "60/1",
+    "size": [1920, 1080]
+  },
+  "steps": {
+    "upscale": {
+      "done": true,
+      "at": "2025-10-10T12:34:56Z",
+      "out": "C:\\Users\\scott\\soccer-video\\out\\upscaled\\001__SHOT__t155.50-t166.40__x2.mp4",
+      "model": "realesrgan-x4plus",
+      "scale": 2
+    },
+    "follow_crop_brand": {
+      "done": true,
+      "at": "2025-10-10T12:36:20Z",
+      "out": "C:\\Users\\scott\\soccer-video\\out\\portrait_reels\\clean\\001__SHOT__t155.50-t166.40_portrait_FINAL.mp4",
+      "brand": "tsc",
+      "args": ["--portrait", "1080x1920", "--brand", "tsc", "--apply-polish", "--upscale", "--upscale-scale", "2", "--outdir", "C:\\Users\\scott\\soccer-video\\out\\portrait_reels\\clean"]
+    }
+  },
+  "errors": []
+}
+```
+
+When an error occurs, the script appends an entry to the `errors` array with the
+step name, timestamp, and message for forensic tracking. The sidecar is the
+authoritative machine-readable record; the CSVs are concise summaries for quick
+review.
+
+---
+
+## Caching & Skip Logic
+
+* **Upscale step** – skipped when an existing `__x{scale}.mp4` is newer than the
+  atomic source. Delete the upscaled file to force regeneration.
+* **Branding step** – skipped when the final `_portrait_FINAL.mp4` is newer than
+  both the atomic clip and the upscaled intermediate. Delete the final file to
+  force re-rendering.
+* **CLI overrides** – add `--force` (renderer) or `--overwrite` (FFmpeg tooling)
+  to bypass caching when experimenting.
+* **Resume scripts** – automatically detect stale timestamps, missing outputs,
+  and recorded errors to rerun only what is necessary.
+
+---
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| `ffprobe` not found | Confirm FFmpeg binaries are on PATH. Reopen PowerShell after edits. |
+| Real-ESRGAN error | Ensure the binary path matches the documented location and that your GPU supports Vulkan. The pipeline falls back to FFmpeg Lanczos scaling, but quality is lower. |
+| Font errors (`Could not load font file`) | Double-escape font paths (`C\:\\Windows\\Fonts\\arialbd.ttf`) or use the RESET BLOCK variables. |
+| Missing brand assets | Confirm `brand\tsc\title_ribbon_1080x1920.png`, `watermark_corner_256.png`, and `end_card_1080x1920.png` exist. |
+| `pipeline_status.csv` shows stale errors | Run `Resume-Pipeline.ps1` or manually call `tools\catalog.py` with `--mark-branded`/`--mark-upscaled` after verifying outputs. |
+| Renderer slow | Adjust FFmpeg preset via command line (e.g., `--encode-preset medium`). Larger upscale factors (4×) produce better detail but increase render time. |
+
+---
+
+## Performance & Quality Tips for Sports Footage
+
+* **Upscale before crop** – The pipeline already upscales before portrait crops;
+  keep this order for crisp player details.
+* **Scale choice** – Use 2× for most reels. Reserve 4× for hero clips where the
+  source is extremely wide or soft.
+* **Encoding** – Stick to CRF ~18 and preset `slow` for best quality/size
+  balance. If throughput is more important, drop to `medium`.
+* **Batch size** – Process clips in batches of 10–15 to keep scratch storage and
+  GPU load manageable.
+* **Tags** – Add keywords in `atomic_index.csv` (last column) to group plays by
+  theme, athlete, or scenario.
+
+---
+
+## FAQ
+
+**Where are logs stored?**
+`tools\render_follow_unified.py` prints progress to stdout/stderr. Capture output
+with `Tee-Object` if you need persistent logs. Errors also land in
+`pipeline_status.csv` and the sidecar `errors` array.
+
+**How do I add custom tags?**
+Open `out\catalog\atomic_index.csv` in Excel or VS Code and populate the `tags`
+column. Re-running `Build-AtomicIndex.ps1` preserves manual tags.
+
+**Can I add a new brand theme?**
+Drop assets under `brand\<name>\`, update `render_follow_unified.py` to
+recognize the theme, then call `Run-UpscaleAndBrand.ps1 -Brand '<name>'`. The
+catalog will record the brand name in the sidecars.
+
+**How do I clear errors after fixing an issue?**
+Rerun the failing step (either via `Resume-Pipeline.ps1` or manually) and the
+catalog helper resets `last_error` once the step succeeds.
+
+---
+
+## Git Hygiene
+
+* Ignore large media outputs in `.gitignore` (patterns such as `out/*.mp4`,
+  `out/_tmp/`, `runs/`).
+* Commit catalog updates (`atomic_index.csv`, `pipeline_status.csv`, sidecars)
+  when they capture meaningful production state.
+* Suggested commit message template for pipeline tweaks:
+  `feat(pipeline): describe the automation change`
+
+---
+
+## Acceptance Checklist
+
+After a successful batch run you should see:
+
+* `out\upscaled\{clip_stem}__x2.mp4`
+* `out\portrait_reels\clean\{clip_stem}_portrait_FINAL.mp4`
+* `out\catalog\atomic_index.csv`
+* `out\catalog\pipeline_status.csv`
+* `out\catalog\sidecar\{clip_stem}.json`
+
+Use the resume script whenever the process is interrupted. The catalog +
+sidecars provide both human-readable and machine-friendly tracking so nothing
+falls through the cracks.
