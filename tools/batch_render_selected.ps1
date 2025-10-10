@@ -110,7 +110,8 @@ function Invoke-UpscaleFallback {
     # Lanczos upscale + light pre-clean; tune CRF/preset as desired
     & ffmpeg -hide_banner -y -i "$In" `
       -vf "scale=iw*${Scale}:ih*${Scale}:flags=lanczos,hqdn3d=2:1:2:3,unsharp=5:5:0.5:5:5:0.0" `
-      -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -map 0:a? "$Out"
+      -map 0:v:0 -map 0:a? `
+      -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -c:a aac -b:a 160k "$Out"
 
     if ($LASTEXITCODE -ne 0) { throw "[UPSCALE] ffmpeg fallback failed." }
 
