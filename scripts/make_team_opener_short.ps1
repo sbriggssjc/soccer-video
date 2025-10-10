@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $BG          = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
 $BADGE_SOL   = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 $BADGE_HOLE  = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
-$Font        = "C:/WINDOWS/Fonts/arialbd.ttf" # forward slashes for ffmpeg on Windows
+$FontName    = "Arial Bold"   # use the font family instead of a file path
 
 # ---- Layout (kept consistent with your opener) ----
 $BadgeW      = 900
@@ -99,10 +99,10 @@ foreach ($row in $rows) {
 [1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-0.05),2)):d=0.05:alpha=1[face];
 [bgHole][face]overlay=x='(W-w)/2':y='${BadgeY} - h/2 + ${FaceYOffset}':shortest=1[b1];
 color=c=black@0.0:s=1080x1920:d=${faceDur}[t1];
-[t1]drawtext=fontfile='${Font}':text='$($name.ToUpper())':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[nameL];
+[t1]drawtext=font='${FontName}':text='$($name.ToUpper())':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[nameL];
 [b1][nameL]overlay=0:0:shortest=1[b2];
 color=c=black@0.0:s=1080x1920:d=${faceDur}[t2];
-[t2]drawtext=fontfile='${Font}':text='${safeNumText}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[numL];
+[t2]drawtext=font='${FontName}':text='${safeNumText}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[numL];
 [b2][numL]overlay=0:0:shortest=1[vout]
 "@
 
