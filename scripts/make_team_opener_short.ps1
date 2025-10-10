@@ -23,14 +23,25 @@ $BG         = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
 $BADGE_SOL  = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 $BADGE_HOLE = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
 
-# --- build ordered face list (players by jersey number, then coach if provided) ---
+# --- build ordered face list (players by jersey number) ---
 $rows = Import-Csv $RosterCsv | Sort-Object { [int](([regex]::Match([string]$_.'PlayerNumber','\d+')).Value) }
 $faces = @()
 $faces += ($rows | ForEach-Object { $_.PlayerPhoto }) | Where-Object { $_ -and (Test-Path $_) }
-if ($CoachPhoto -and (Test-Path $CoachPhoto)) { $faces += $CoachPhoto }
+
+# --- auto-find coach image in the same folder as the player photos ---
+$coachPhoto = ""
+if ($faces.Count -gt 0) {
+  $photosDir = Split-Path -Parent $faces[0]
+  $coachPhoto = Get-ChildItem -Path $photosDir -File -Include *.jpg,*.jpeg,*.png |
+    Where-Object { $_.Name -match '(?i)coach' } |
+    Sort-Object Length -Descending | Select-Object -ExpandProperty FullName -First 1
+}
+if ($coachPhoto -and (Test-Path $coachPhoto)) {
+  $faces += $coachPhoto
+}
 
 if ($faces.Count -eq 0) {
-  throw "No valid face images were found from $RosterCsv (and CoachPhoto='$CoachPhoto')."
+  throw "No valid face images were found from $RosterCsv or coach image."
 }
 
 # target ~4.0s of faces after the 0.4s+0.4s intro (you can tweak)
