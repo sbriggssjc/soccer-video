@@ -1,100 +1,150 @@
 param(
   [Parameter(Mandatory=$true)] [string]$RosterCsv,
   [Parameter(Mandatory=$true)] [string]$OutFile,
-  [string]$CoachPhoto = ""
+  [int]$FPS = 30,
+  [double]$MaxDuration = 5.0
 )
 
-# === constants to match your locked-in opener ===
-$FPS       = 30
-$DUR       = 5.0          # total length
-$tX        = 0.40         # solid->hole crossfade start
-$xfDur     = 0.40         # crossfade duration
+$ErrorActionPreference = 'Stop'
 
-$BadgeW    = 900          # EXACT width for BOTH logos
-$BadgeY    = 520          # vertical center
-$HoleScale = 0.58         # inner-circle fraction of BadgeW
-$HoleBox   = [int]([math]::Round($BadgeW * $HoleScale))
-$FaceYOffset = -30        # nudge face if needed
-$HoleDX = 0               # fine nudge if ring art is off-center
-$HoleDY = 0
+# ---- Paths you already standardized ----
+$BG          = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
+$BADGE_SOL   = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
+$BADGE_HOLE  = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
+$Font        = "C:/WINDOWS/Fonts/arialbd.ttf" # forward slashes for ffmpeg on Windows
 
-# paths (adjust if yours differ)
-$BG         = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
-$BADGE_SOL  = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
-$BADGE_HOLE = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
+# ---- Layout (kept consistent with your opener) ----
+$BadgeW      = 900
+$BadgeY      = 520
+$HoleScale   = 0.58
+$HoleBox     = [int][math]::Round($BadgeW * $HoleScale)
+$FaceYOffset = -30
 
-# --- build ordered face list (players by jersey number) ---
-$rows = Import-Csv $RosterCsv | Sort-Object { [int](([regex]::Match([string]$_.'PlayerNumber','\d+')).Value) }
-$faces = @()
-$faces += ($rows | ForEach-Object { $_.PlayerPhoto }) | Where-Object { $_ -and (Test-Path $_) }
+# ---- Timings ----
+$introDur    = 0.5            # solid logo -> hole logo crossfade
+$fadeTxtIn   = 0.15
+$fadeTxtOut  = 0.15
 
-# --- auto-find coach image in the same folder as the player photos ---
-$coachPhoto = ""
-if ($faces.Count -gt 0) {
-  $photosDir = Split-Path -Parent $faces[0]
-  $coachPhoto = Get-ChildItem -Path $photosDir -File -Include *.jpg,*.jpeg,*.png |
-    Where-Object { $_.Name -match '(?i)coach' } |
-    Sort-Object Length -Descending | Select-Object -ExpandProperty FullName -First 1
+# ---- Prep workspace ----
+$work = Join-Path ([System.IO.Path]::GetDirectoryName($OutFile)) "_team_short_tmp"
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+# ---- Load roster and coerce types ----
+$rows = Import-Csv $RosterCsv | ForEach-Object {
+  [pscustomobject]@{
+    PlayerName   = [string]$_.'PlayerName'
+    PlayerNumber = ([int]([regex]::Match([string]$_.'PlayerNumber','\d+').Value))
+    PlayerPhoto  = [string]$_.'PlayerPhoto'
+  }
+} | Sort-Object PlayerNumber
+
+# ---- Append coach if present in the photo folder ----
+$photoFolder = Split-Path -Parent ($rows[0].PlayerPhoto)
+$coachPhoto = Get-ChildItem -Path $photoFolder -File -Include *Coach*.* -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($coachPhoto) {
+  $rows += [pscustomobject]@{
+    PlayerName   = 'COACH'
+    PlayerNumber = $null
+    PlayerPhoto  = $coachPhoto.FullName
+  }
 }
-if ($coachPhoto -and (Test-Path $coachPhoto)) {
-  $faces += $coachPhoto
-}
 
-if ($faces.Count -eq 0) {
-  throw "No valid face images were found from $RosterCsv or coach image."
-}
+if (!$rows -or $rows.Count -eq 0) { throw "No roster rows found." }
 
-# target ~4.0s of faces after the 0.4s+0.4s intro (you can tweak)
-$faceWindow = [math]::Max(0.1, $DUR - ($tX + $xfDur))   # ~4.2s
-$perFace = [math]::Round($faceWindow / $faces.Count, 2) # ~0.38-0.42s typical
-if ($perFace -lt 0.12) { $perFace = 0.12 }              # clamp to sane minimum
+# ---- Compute per-face duration within MaxDuration budget ----
+$faces = $rows.Count
+$faceDur = [math]::Max(0.25, ($MaxDuration - $introDur) / $faces)  # clamp to at least 0.25s
+$faceDur = [math]::Round($faceDur, 2)
 
-# concat list for ffmpeg (demuxer requires repeating last file without duration)
-$tempDir  = New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP "tsc_team_opener") | Select-Object -ExpandProperty FullName
-$listFile = Join-Path $tempDir "faces.txt"
-$lines = @()
-for ($i = 0; $i -lt $faces.Count; $i++) {
-  $p = $faces[$i]
-  $escaped = $p -replace '''',''''''
-  $lines += "file '$escaped'"
-  # duration lines for all but the very last *listed* entry; we will repeat the last file after the loop
-  $lines += "duration $perFace"
-}
-# repeat last file once per concat-demuxer rules
-$lines += "file '$(($faces[-1]) -replace '''','''''')'"
+Write-Host "Intro: $introDur s | Each face: $faceDur s | People: $faces | Target <= $MaxDuration s"
 
-Set-Content -Path $listFile -Value $lines -Encoding Ascii
-
-# --- filter graph (no inline comments; same geometry as your opener) ---
-$fc = @"
+# ---- 1) Build the INTRO segment (solid -> hole; no face yet) ----
+$introMp4 = Join-Path $work "_00_intro.mp4"
+$fcIntro = @"
 [2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
 [3:v]format=rgba,setsar=1[holeRaw];
 [holeRaw][solidRef]scale2ref=w=iw:h=ih[holeMatch][solidMatch];
 
-[solidMatch]fade=t=in:st=0:d=0.4:alpha=1,fade=t=out:st=${tX}:d=${xfDur}:alpha=1[badgeSolid];
-[holeMatch] fade=t=in:st=${tX}:d=${xfDur}:alpha=1[badgeHole];
+[solidMatch]fade=t=in:st=0:d=0.25:alpha=1,fade=t=out:st=0.25:d=0.25:alpha=1[badgeSolid];
+[holeMatch] fade=t=in:st=0.25:d=0.25:alpha=1[badgeHole];
 
-[0:v]fps=${FPS},scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba[facesSized];
-
-[1:v][facesSized]overlay=x='(W-w)/2 + ${HoleDX}':y='${BadgeY} - h/2 + ${FaceYOffset} + ${HoleDY}':shortest=1[b1];
-[b1][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[b2];
-[b2][badgeHole] overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[vout]
+[0:v][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[b1];
+[b1][badgeHole] overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[vout]
 "@
 
-# --- run ffmpeg in one pass: faces concat (in#0) + BG (in#1) + solid (in#2) + hole (in#3) + silent audio (in#4) ---
-$bgDur = $DUR.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-$cmd = @(
-  '-y',
-  '-f','concat','-safe','0','-i', $listFile,
-  '-loop','1','-t', $bgDur, '-i', $BG,
-  '-loop','1','-t', $bgDur, '-i', $BADGE_SOL,
-  '-loop','1','-t', $bgDur, '-i', $BADGE_HOLE,
-  '-f','lavfi','-t', $bgDur, '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
-  '-filter_complex', $fc,
-  '-map','[vout]','-map','4:a',
-  '-r',"$FPS", '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',
-  $OutFile
-)
+ffmpeg -hide_banner -y `
+  -loop 1 -t $introDur -i "$BG" `
+  -loop 1 -t $introDur -i "$BADGE_SOL" `
+  -loop 1 -t $introDur -i "$BADGE_HOLE" `
+  -f lavfi -t $introDur -i "anullsrc=channel_layout=stereo:sample_rate=48000" `
+  -filter_complex $fcIntro `
+  -map "[vout]" -map 3:a -r $FPS -c:v libx264 -pix_fmt yuv420p -c:a aac "$introMp4" | Out-Null
 
-Write-Host "Creating short team opener -> $OutFile"
-ffmpeg @cmd
+# ---- 2) Build each FACE segment under the logo-with-hole ----
+$tempParts = New-Object System.Collections.Generic.List[string]
+$tempParts.Add($introMp4)
+
+$idx = 1
+foreach ($row in $rows) {
+  $name = [string]$row.PlayerName
+  $num  = $row.PlayerNumber
+  $photo = [string]$row.PlayerPhoto
+
+  $safeNumText = $(if ($null -ne $num) { "\#$num" } else { " " })
+  $seg = Join-Path $work ("_{0:d2}_{1}.mp4" -f $idx, ($name -replace '\s','_'))
+
+  $fcFace = @"
+[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
+[3:v]format=rgba,setsar=1[holeRaw];
+[holeRaw][solidRef]scale2ref=w=iw:h=ih[holeMatch][solidMatch];
+
+# Keep only the hole (no more solid in face segments)
+[0:v][holeMatch]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
+
+# Face in the ring
+[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,
+     crop=${HoleBox}:${HoleBox},format=rgba,
+     fade=t=in:st=0:d=0.05:alpha=1,
+     fade=t=out:st=$([math]::Round(($faceDur-0.05),2)):d=0.05:alpha=1[face];
+
+[bgHole][face]overlay=x='(W-w)/2':y='${BadgeY} - h/2 + ${FaceYOffset}':shortest=1[b1];
+
+# Text
+color=c=black@0.0:s=1080x1920:d=${faceDur}[t1];
+[t1]drawtext=fontfile='${Font}':text='${name.ToUpper()}':fontsize=52:fontcolor=0xFFFFFF:
+    x=(w-text_w)/2:y=1030,format=rgba,
+    fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,
+    fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[nameL];
+[b1][nameL]overlay=0:0:shortest=1[b2];
+
+color=c=black@0.0:s=1080x1920:d=${faceDur}[t2];
+[t2]drawtext=fontfile='${Font}':text='${safeNumText}':fontsize=48:fontcolor=0x9B1B33:
+    x=(w-text_w)/2:y=1110,format=rgba,
+    fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,
+    fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[numL];
+[b2][numL]overlay=0:0:shortest=1[vout]
+"@
+
+  ffmpeg -hide_banner -y `
+    -loop 1 -t $faceDur -i "$BG" `
+    -loop 1 -t $faceDur -i "$photo" `
+    -loop 1 -t $faceDur -i "$BADGE_SOL" `
+    -loop 1 -t $faceDur -i "$BADGE_HOLE" `
+    -f lavfi -t $faceDur -i "anullsrc=channel_layout=stereo:sample_rate=48000" `
+    -filter_complex $fcFace `
+    -map "[vout]" -map 4:a -r $FPS -c:v libx264 -pix_fmt yuv420p -c:a aac "$seg" | Out-Null
+
+  $tempParts.Add($seg)
+  $idx++
+}
+
+# ---- 3) Concat everything ----
+$listPath = Join-Path $work "concat_list.txt"
+Set-Content -Path $listPath -Value ($tempParts | ForEach-Object { "file '$($_)'" })
+
+ffmpeg -hide_banner -y -f concat -safe 0 -i $listPath -c:v libx264 -pix_fmt yuv420p -r $FPS -c:a aac "$OutFile"
+
+Write-Host "Done -> $OutFile"
+
+# Optional: cleanup temp
+# Remove-Item -Recurse -Force $work
