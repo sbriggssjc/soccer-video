@@ -119,20 +119,31 @@ foreach ($row in $rows) {
   $escapedName = Escape-Drawtext($nameUpper)
   $escapedNum = Escape-Drawtext($safeNumText)
 
-  $nameFilter = "[t1]drawtext=fontfile='$FontPath':text='${escapedName}':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[nameL];[b1][nameL]overlay=0:0:shortest=1[b2];"
-  $numFilter = "[t2]drawtext=fontfile='$FontPath':text='${escapedNum}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[numL];[b2][numL]overlay=0:0:shortest=1[vout]"
+  $nameFilter = @"
+[t1]drawtext=fontfile='$FontPath':text='${escapedName}':fontsize=52:fontcolor=0xFFFFFF:
+    x=(w-text_w)/2:y=1030,format=rgba,
+    fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[nameL];
+[b1][nameL]overlay=0:0:shortest=1[b2];
+"@
+
+  $numFilter = @"
+[t2]drawtext=fontfile='$FontPath':text='${escapedNum}':fontsize=48:fontcolor=0x9B1B33:
+    x=(w-text_w)/2:y=1110,format=rgba,
+    fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[numL];
+[b2][numL]overlay=0:0:shortest=1[vout]
+"@
 
   $fcTemplate = @"
-[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solid];
-[3:v]format=rgba,setsar=1,scale=${BadgeW}:-1[hole];
+[0:v]format=rgba,setsar=1[bg];
 
-[0:v][solid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[introA];
-[introA][hole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[intro];
+[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[badgeSolid];
+[3:v]format=rgba,setsar=1,scale=${BadgeW}:-1[badgeHole];
 
-[3:v][0:v]scale2ref=w=iw:h=ih[holeMatch][bgRef];
-[bgRef][holeMatch]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
+[bg][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgSolid];
+[bgSolid][badgeHole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
 
-[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=${faceFadeOutStartStr}:d=0.05:alpha=1[face];
+[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,
+     fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=${faceFadeOutStartStr}:d=0.05:alpha=1[face];
 [bgHole][face]overlay=x='(W-w)/2':y='${faceCenterY} - h/2':shortest=1[b1];
 
 color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t1];
