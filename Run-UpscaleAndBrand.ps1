@@ -1,122 +1,64 @@
-[CmdletBinding()]
 param(
-    [int]$Scale = 2,
-    [string]$Brand = 'tsc',
-    [string]$OutDir = 'C:\Users\scott\soccer-video\out\portrait_reels\clean'
+  [int]    $Scale   = 2,
+  [string] $OutDir  = "C:\Users\scott\soccer-video\out\portrait_reels\clean",
+  # Optional: pass your overlay/endcard (leave blank to omit)
+  [string] $BrandOverlay = "C:\Users\scott\soccer-video\brand\tsc\title_ribbon_1080x1920.png",
+  [string] $Endcard      = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
 )
 
-$ErrorActionPreference = 'Stop'
+$RepoRoot  = "C:\Users\scott\soccer-video"
+$AtomicDir = Join-Path $RepoRoot "out\atomic_clips"
+$Renderer  = Join-Path $RepoRoot "tools\render_follow_unified.py"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $root
+if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
 
-$python = 'python'
-$catalogPy = Join-Path $root 'tools\catalog.py'
-$upscalePy = Join-Path $root 'tools\upscale.py'
-$renderPy = Join-Path $root 'tools\render_follow_unified.py'
+# Gather staged atomic clips (exclude MASTER.* just in case)
+$clips = Get-ChildItem $AtomicDir -File -Include *.mp4,*.mov |
+         Where-Object { $_.BaseName -notmatch '^(MASTER|master)$' } |
+         Sort-Object Name
 
-$atomicDir = Join-Path $root 'out\atomic_clips'
-$upscaledDir = Join-Path $root 'out\upscaled'
-
-if (!(Test-Path $atomicDir)) {
-    throw "Atomic clip directory not found: $atomicDir"
+if ($clips.Count -eq 0) {
+  Write-Warning "No staged atomic clips found in $AtomicDir"
+  return
 }
 
-if (!(Test-Path $upscaledDir)) {
-    New-Item -ItemType Directory -Force -Path $upscaledDir | Out-Null
+# Helper: build argument list for the renderer
+function Invoke-Render {
+  param([string]$In, [string]$OutPath)
+
+  $args = @(
+    $Renderer, "--in", $In,
+    "--portrait", "1080x1920",
+    "--upscale", "--upscale-scale", $Scale.ToString(),
+    "--out", $OutPath,
+    "--preset", "cinematic"
+  )
+
+  if ($BrandOverlay -and (Test-Path $BrandOverlay)) { $args += @("--brand-overlay", $BrandOverlay) }
+  if ($Endcard -and (Test-Path $Endcard))           { $args += @("--endcard",      $Endcard) }
+
+  # Call python with args
+  & python $args
+  return $LASTEXITCODE
 }
 
-if (!(Test-Path $OutDir)) {
-    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$done = 0; $skipped = 0; $failed = 0
+
+foreach ($c in $clips) {
+  $outPath = Join-Path $OutDir ($c.BaseName + "_portrait_FINAL.mp4")
+
+  # Skip if already fresh
+  $need = $true
+  if (Test-Path $outPath) {
+    $outNewer = ((Get-Item $outPath).LastWriteTime -gt (Get-Item $c.FullName).LastWriteTime)
+    $need = -not $outNewer
+  }
+
+  if (-not $need) { $skipped++; continue }
+
+  Write-Host "Processing $($c.Name)..."
+  $rc = Invoke-Render -In $c.FullName -OutPath $outPath
+  if ($rc -eq 0 -and (Test-Path $outPath)) { $done++ } else { $failed++ }
 }
 
-$clips = Get-ChildItem -Path $atomicDir -Filter '*.mp4' | Sort-Object FullName
-
-if (-not $clips) {
-    Write-Warning 'No atomic clips found. Add MP4s under out\atomic_clips\ before running.'
-    return
-}
-
-foreach ($clip in $clips) {
-    Write-Host "Processing $($clip.Name)..." -ForegroundColor Cyan
-    $clipPath = $clip.FullName
-    $clipStem = [System.IO.Path]::GetFileNameWithoutExtension($clipPath)
-    $upscaledPath = Join-Path $upscaledDir ($clipStem + ('__x{0}.mp4' -f $Scale))
-    $finalPath = Join-Path $OutDir ($clipStem + '_portrait_FINAL.mp4')
-    $clipMTime = $clip.LastWriteTimeUtc
-
-    try {
-        $needUpscale = $true
-        if (Test-Path $upscaledPath) {
-            $upscaledInfo = Get-Item $upscaledPath
-            if ($upscaledInfo.LastWriteTimeUtc -ge $clipMTime) {
-                $needUpscale = $false
-            }
-        }
-
-        if ($needUpscale) {
-            Write-Host '  Upscaling with Real-ESRGAN...' -ForegroundColor Yellow
-            & $python $upscalePy --in $clipPath --scale $Scale --out $upscaledPath
-            if ($LASTEXITCODE -ne 0) {
-                throw "Upscale failed with exit code $LASTEXITCODE"
-            }
-            $upscaledAt = (Get-Date).ToUniversalTime().ToString('o')
-        } else {
-            Write-Host '  Upscale already current; skipping.' -ForegroundColor DarkYellow
-            $upscaledAt = (Get-Item $upscaledPath).LastWriteTimeUtc.ToString('o')
-        }
-
-        & $python $catalogPy --mark-upscaled --clip $clipPath --out $upscaledPath --scale $Scale --model 'realesrgan-x4plus' --at $upscaledAt
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Failed to update upscale catalog.'
-        }
-    }
-    catch {
-        $message = $_.Exception.Message
-        Write-Warning "  Upscale step failed: $message"
-        & $python $catalogPy --mark-upscaled --clip $clipPath --error $message --at (Get-Date).ToUniversalTime().ToString('o')
-        continue
-    }
-
-    try {
-        $needBrand = $true
-        if (Test-Path $finalPath) {
-            $finalInfo = Get-Item $finalPath
-            $upscaledInfo = Get-Item $upscaledPath
-            if ($finalInfo.LastWriteTimeUtc -ge $clipMTime -and $finalInfo.LastWriteTimeUtc -ge $upscaledInfo.LastWriteTimeUtc) {
-                $needBrand = $false
-            }
-        }
-
-        if ($needBrand) {
-            Write-Host '  Rendering portrait follow/crop + branding...' -ForegroundColor Yellow
-            & $python $renderPy --in $clipPath --portrait 1080x1920 --brand $Brand --apply-polish --upscale --upscale-scale $Scale --outdir $OutDir
-            if ($LASTEXITCODE -ne 0) {
-                throw "Brand render failed with exit code $LASTEXITCODE"
-            }
-            if (!(Test-Path $finalPath)) {
-                throw "Expected branded output not found: $finalPath"
-            }
-            $brandAt = (Get-Date).ToUniversalTime().ToString('o')
-        } else {
-            Write-Host '  Branded output already current; skipping.' -ForegroundColor DarkYellow
-            $brandAt = (Get-Item $finalPath).LastWriteTimeUtc.ToString('o')
-        }
-
-        $argsList = @('--portrait','1080x1920','--brand',$Brand,'--apply-polish','--upscale','--upscale-scale',$Scale.ToString(),'--outdir',$OutDir)
-        & $python $catalogPy --mark-branded --clip $clipPath --out $finalPath --brand $Brand --at $brandAt --args $argsList
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Failed to update branding catalog.'
-        }
-    }
-    catch {
-        $message = $_.Exception.Message
-        Write-Warning "  Branding step failed: $message"
-        & $python $catalogPy --mark-branded --clip $clipPath --error $message --at (Get-Date).ToUniversalTime().ToString('o')
-        continue
-    }
-
-    Write-Host '  Completed successfully.' -ForegroundColor Green
-}
-
-Write-Host 'Batch complete.' -ForegroundColor Green
+Write-Host "Batch complete. Done: $done  Skipped: $skipped  Failed: $failed"
