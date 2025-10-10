@@ -119,7 +119,6 @@ foreach ($clip in $clips) {
             "--in", $clip,
             "--preset", $Preset,
             "--portrait", $Portrait,
-            "--clean-temp",
             "--lookahead","24",
             "--smoothing","0.65",
             "--zoom-min","1.08",
@@ -136,6 +135,7 @@ foreach ($clip in $clips) {
 
   # DEBUG overlay
   $dbg = Join-Path $parent ("{0}.__DEBUG_FINAL.mp4" -f $base)
+  python tools\sanitize_telemetry.py --in $tel
   python tools\overlay_debug.py --in $clip --telemetry $tel --out $dbg
 }
 
