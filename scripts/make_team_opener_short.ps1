@@ -14,17 +14,8 @@ $BADGE_HOLE  = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
 $FontName    = "Arial Bold"   # use the font family instead of a file path
 $FontPath    = "C\:/Windows/Fonts/arialbd.ttf"
 
-# ---- Layout (kept consistent with your opener) ----
-$BadgeW      = 900
-$BadgeY      = 520
-$HoleScale   = 0.58
-$HoleBox     = [int][math]::Round($BadgeW * $HoleScale)
-$FaceYOffset = -30
-
 # ---- Timings ----
 $introDur    = 0.5            # solid logo -> hole logo crossfade
-$fadeTxtIn   = 0.15
-$fadeTxtOut  = 0.15
 
 # ---- Prep workspace ----
 $work = Join-Path ([System.IO.Path]::GetDirectoryName($OutFile)) "_team_short_tmp"
@@ -71,13 +62,16 @@ Write-Host "Intro: $introDur s | Each face: $faceDur s | People: $faces | Target
 # ---- 1) Build the INTRO segment (solid -> hole; no face yet) ----
 $introMp4 = Join-Path $work "_00_intro.mp4"
 $fcIntro = @"
-[1:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
-[2:v]format=rgba,setsar=1[holeRaw];
-[holeRaw][solidRef]scale2ref=w=iw:h=ih[holeMatch][solidMatch];
-[solidMatch]format=rgba,fade=t=in:st=0:d=0.25:alpha=1,fade=t=out:st=0.25:d=0.25:alpha=1[badgeSolid];
-[holeMatch]format=rgba,fade=t=in:st=0.25:d=0.25:alpha=1[badgeHole];
-[0:v][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[b1];
-[b1][badgeHole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[vout]
+[0:v]format=rgba,setsar=1[bg];
+[1:v]format=rgba,setsar=1,scale=900:-1[solid];
+[2:v]format=rgba,setsar=1,scale=900:-1[hole];
+
+# 0.00–0.25s: solid badge; 0.25–0.50s: hole badge
+[solid]fade=t=in:st=0:d=0.12:alpha=1,fade=t=out:st=0.13:d=0.12:alpha=1[solidA];
+[hole] fade=t=in:st=0.25:d=0.12:alpha=1,fade=t=out:st=0.38:d=0.12:alpha=1[holeA];
+
+[bg][solidA]overlay=x='(W-w)/2':y='520 - h/2':shortest=1[tmp];
+[tmp][holeA] overlay=x='(W-w)/2':y='520 - h/2':shortest=1[vout]
 "@
 
 ffmpeg -hide_banner -y `
@@ -102,58 +96,37 @@ foreach ($row in $rows) {
   $seg = Join-Path $work ("_{0:d2}_{1}.mp4" -f $idx, ($name -replace '\s','_'))
 
   $faceDurStr = [string]::Format($invCulture, "{0:0.##}", $faceDur)
-  $fadeTxtInStr = [string]::Format($invCulture, "{0:0.##}", $fadeTxtIn)
-  $fadeTxtOutStr = [string]::Format($invCulture, "{0:0.##}", $fadeTxtOut)
-  $faceFadeOutStart = [math]::Round([math]::Max(0, $faceDur - 0.05), 2)
-  $faceFadeOutStartStr = [string]::Format($invCulture, "{0:0.##}", $faceFadeOutStart)
-  $textFadeOutStart = [math]::Round([math]::Max(0, $faceDur - $fadeTxtOut), 2)
-  $textFadeOutStartStr = [string]::Format($invCulture, "{0:0.##}", $textFadeOutStart)
-
   if ([string]::IsNullOrEmpty($name)) {
     $nameUpper = ""
   }
   else {
     $nameUpper = $name.ToUpperInvariant()
   }
-  $faceCenterY = $BadgeY + $FaceYOffset
   $escapedName = Escape-Drawtext($nameUpper)
   $escapedNum = Escape-Drawtext($safeNumText)
+  $fcFace = @"
+[0:v]format=rgba,setsar=1[bg];
+[3:v]format=rgba,setsar=1,scale=900:-1[badgeHole];
 
-  $nameFilter = @"
+# keep only the hole on the background
+[bg][badgeHole]overlay=x='(W-w)/2':y='520 - h/2':shortest=1[bgHole];
+
+# face in the ring (no fades)
+[1:v]scale=522:-1:force_original_aspect_ratio=increase,crop=522:522,format=rgba[face];
+[bgHole][face]overlay=x='(W-w)/2':y='520 - h/2 - 30':shortest=1[b1];
+
+# name (no fades)
+color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t1];
 [t1]drawtext=fontfile='$FontPath':text='${escapedName}':fontsize=52:fontcolor=0xFFFFFF:
-    x=(w-text_w)/2:y=1030,format=rgba,
-    fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[nameL];
+    x=(w-text_w)/2:y=1030,format=rgba[nameL];
 [b1][nameL]overlay=0:0:shortest=1[b2];
-"@
 
-  $numFilter = @"
+# number (no fades)
+color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t2];
 [t2]drawtext=fontfile='$FontPath':text='${escapedNum}':fontsize=48:fontcolor=0x9B1B33:
-    x=(w-text_w)/2:y=1110,format=rgba,
-    fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[numL];
+    x=(w-text_w)/2:y=1110,format=rgba[numL];
 [b2][numL]overlay=0:0:shortest=1[vout]
 "@
-
-  $fcTemplate = @"
-[0:v]format=rgba,setsar=1[bg];
-
-[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[badgeSolid];
-[3:v]format=rgba,setsar=1,scale=${BadgeW}:-1[badgeHole];
-
-[bg][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgSolid];
-[bgSolid][badgeHole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
-
-[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,
-     fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=${faceFadeOutStartStr}:d=0.05:alpha=1[face];
-[bgHole][face]overlay=x='(W-w)/2':y='${faceCenterY} - h/2':shortest=1[b1];
-
-color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t1];
-{0}
-
-color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t2];
-{1}
-"@
-
-  $fcFace = [string]::Format($fcTemplate, $nameFilter, $numFilter)
 
   ffmpeg -hide_banner -y `
     -loop 1 -t $faceDur -i "$BG" `
