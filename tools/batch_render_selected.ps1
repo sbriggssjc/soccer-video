@@ -14,6 +14,110 @@ if (-not (Test-Path -LiteralPath $Index)) { throw "Index not found: $Index" }
 
 Write-Host "Using index: $Index"
 
+# --- Real-ESRGAN config ---
+$RealESRGANExe   = "C:\\Users\\scott\\soccer-video\\tools\\realesrgan\\realesrgan-ncnn-vulkan.exe"
+$UpscaleEnabled  = $true    # master switch; set $false to bypass upscaling
+$UpscaleScale    = 2        # 2x is usually enough before portrait crops; 4x = heavier
+$UpscaleModel    = "realesrgan-x4plus"  # solid general model
+$UpscaleTmpRoot  = "C:\\Users\\scott\\soccer-video\\out\\_tmp\\upscale_frames"
+$UpscaleOutRoot  = "C:\\Users\\scott\\soccer-video\\out\\upscaled"
+
+# Make sure output dirs exist
+New-Item -ItemType Directory -Force $UpscaleTmpRoot  | Out-Null
+New-Item -ItemType Directory -Force $UpscaleOutRoot  | Out-Null
+
+function Get-UpscaledPath([string]$inPath, [int]$scale) {
+    $name = [IO.Path]::GetFileNameWithoutExtension($inPath)
+    $ext  = ".mp4"
+    return Join-Path $UpscaleOutRoot ("{0}__x{1}.mp4" -f $name, $scale)
+}
+
+function Invoke-Upscale {
+    param(
+        [Parameter(Mandatory=$true)][string]$In,
+        [int]$Scale = $UpscaleScale,
+        [string]$Model = $UpscaleModel
+    )
+
+    if (-not $UpscaleEnabled) { return $In } # passthrough
+
+    if (-not (Test-Path $RealESRGANExe)) {
+        Write-Warning "Real-ESRGAN not found; falling back to ffmpeg lanczos."
+        return (Invoke-UpscaleFallback -In $In -Scale $Scale)
+    }
+
+    $Out = Get-UpscaledPath -inPath $In -scale $Scale
+
+    # Skip if already upscaled and newer than source
+    if ((Test-Path $Out) -and ((Get-Item $Out).LastWriteTime -gt (Get-Item $In).LastWriteTime)) {
+        Write-Host "[UPSCALE] Skipping (already up-to-date): $Out"
+        return $Out
+    }
+
+    # Try the direct-video path first (some builds support video i/o). If it fails, we fall back to frame path.
+    Write-Host "[UPSCALE] Trying direct Real-ESRGAN video path..."
+    $direct = & $RealESRGANExe -i $In -o $Out -n $Model -s $Scale 2>&1
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $Out)) {
+        Write-Host "[UPSCALE] Success (direct): $Out"
+        return $Out
+    } else {
+        Write-Warning "[UPSCALE] Direct path failed; falling back to frame extraction pipeline."
+    }
+
+    # ---- Frame pipeline (always works) ----
+    $stamp    = [Guid]::NewGuid().ToString().Substring(0,8)
+    $tmpInDir = Join-Path $UpscaleTmpRoot ("in_$stamp")
+    $tmpOutDir= Join-Path $UpscaleTmpRoot ("out_$stamp")
+    New-Item -ItemType Directory -Force $tmpInDir  | Out-Null
+    New-Item -ItemType Directory -Force $tmpOutDir | Out-Null
+
+    # 1) Probe source fps
+    $fps = (& ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate `
+        -of default=noprint_wrappers=1:nokey=1 -- "$In").Trim()
+    if (-not $fps) { $fps = "30/1" }  # default fallback
+
+    # 2) Extract frames losslessly
+    & ffmpeg -hide_banner -y -i "$In" -map 0:v:0 -vsync 0 "$tmpInDir\%06d.png"
+    if ($LASTEXITCODE -ne 0) { throw "[UPSCALE] ffmpeg extract failed." }
+
+    # 3) ESRGAN upscale frames
+    & $RealESRGANExe -i "$tmpInDir" -o "$tmpOutDir" -n $Model -s $Scale
+    if ($LASTEXITCODE -ne 0) { throw "[UPSCALE] Real-ESRGAN on frames failed." }
+
+    # 4) Re-encode video from frames; copy/encode audio from original
+    #    Use same FPS; safe CRF/preset for quality
+    & ffmpeg -hide_banner -y -framerate $fps -i "$tmpOutDir\%06d.png" `
+        -i "$In" -map 0:v:0 -map 1:a? -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p "$Out"
+    if ($LASTEXITCODE -ne 0) { throw "[UPSCALE] ffmpeg re-encode failed." }
+
+    # 5) Clean temp
+    Remove-Item -Recurse -Force $tmpInDir, $tmpOutDir
+
+    Write-Host "[UPSCALE] Done (frames): $Out"
+    return $Out
+}
+
+function Invoke-UpscaleFallback {
+    param([Parameter(Mandatory=$true)][string]$In, [int]$Scale = 2)
+
+    $Out = Get-UpscaledPath -inPath $In -scale $Scale
+
+    if ((Test-Path $Out) -and ((Get-Item $Out).LastWriteTime -gt (Get-Item $In).LastWriteTime)) {
+        Write-Host "[UPSCALE] Skipping (already up-to-date fallback): $Out"
+        return $Out
+    }
+
+    # Lanczos upscale + light pre-clean; tune CRF/preset as desired
+    & ffmpeg -hide_banner -y -i "$In" `
+      -vf "scale=iw*${Scale}:ih*${Scale}:flags=lanczos,hqdn3d=2:1:2:3,unsharp=5:5:0.5:5:5:0.0" `
+      -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -map 0:a? "$Out"
+
+    if ($LASTEXITCODE -ne 0) { throw "[UPSCALE] ffmpeg fallback failed." }
+
+    Write-Host "[UPSCALE] Done (fallback lanczos): $Out"
+    return $Out
+}
+
 # --- Collect base IDs & explicit mp4 paths from BOTH raw text and CSV rows ---
 $rxBase = [regex]'\d{3}__[^\\/",\r\n]+__t\d+(?:\.\d+)?-t\d+(?:\.\d+)?'
 $rxMp4  = [regex]'(?:[A-Za-z]:)?(?:[\\/][^"''\r\n]+)+\.mp4'
@@ -103,6 +207,8 @@ foreach ($clip in $clips) {
   $base   = [IO.Path]::GetFileNameWithoutExtension($clip)
   $parent = Split-Path $clip -Parent
 
+  $hi = Invoke-Upscale -In $clip -Scale $UpscaleScale
+
   # prefer locked path if present
   $ballPath = Join-Path $LogsDir ("{0}.ball.lock.jsonl" -f $base)
   if (-not (Test-Path $ballPath)) { $ballPath = Join-Path $LogsDir ("{0}.ball.jsonl" -f $base) }
@@ -113,10 +219,13 @@ foreach ($clip in $clips) {
 
   Write-Host "`n=== RENDER ==="
   Write-Host "IN : $clip"
+  if ($hi -ne $clip) {
+    Write-Host "UPS: $hi"
+  }
   Write-Host "OUT: $final"
 
   $args = @("tools\render_follow_unified.py",
-            "--in", $clip,
+            "--in", $hi,
             "--preset", $Preset,
             "--portrait", $Portrait,
             "--clean-temp",
@@ -136,7 +245,7 @@ foreach ($clip in $clips) {
 
   # DEBUG overlay
   $dbg = Join-Path $parent ("{0}.__DEBUG_FINAL.mp4" -f $base)
-  python tools\overlay_debug.py --in $clip --telemetry $tel --out $dbg
+  python tools\overlay_debug.py --in $hi --telemetry $tel --out $dbg
 }
 
 Write-Host "`nAll done."
