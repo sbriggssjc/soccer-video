@@ -207,8 +207,6 @@ foreach ($clip in $clips) {
   $base   = [IO.Path]::GetFileNameWithoutExtension($clip)
   $parent = Split-Path $clip -Parent
 
-  $hi = Invoke-Upscale -In $clip -Scale $UpscaleScale
-
   # prefer locked path if present
   $ballPath = Join-Path $LogsDir ("{0}.ball.lock.jsonl" -f $base)
   if (-not (Test-Path $ballPath)) { $ballPath = Join-Path $LogsDir ("{0}.ball.jsonl" -f $base) }
@@ -219,13 +217,13 @@ foreach ($clip in $clips) {
 
   Write-Host "`n=== RENDER ==="
   Write-Host "IN : $clip"
-  if ($hi -ne $clip) {
-    Write-Host "UPS: $hi"
+  if ($UpscaleEnabled) {
+    Write-Host "UPS: Real-ESRGAN x$UpscaleScale"
   }
   Write-Host "OUT: $final"
 
   $args = @("tools\render_follow_unified.py",
-            "--in", $hi,
+            "--in", $clip,
             "--preset", $Preset,
             "--portrait", $Portrait,
             "--lookahead","24",
@@ -236,6 +234,9 @@ foreach ($clip in $clips) {
             "--telemetry", $tel,
             "--log", $log)
 
+  if ($UpscaleEnabled) {
+    $args += @("--upscale", "--upscale-scale", $UpscaleScale)
+  }
   if (Test-Path $ballPath) { $args += @("--ball-path", $ballPath, "--ball-key-x","bx_stab", "--ball-key-y","by_stab") }
   if (Test-Path $BrandOverlay) { $args += @("--brand-overlay", $BrandOverlay) }
   if (Test-Path $EndCard)      { $args += @("--endcard", $EndCard) }

@@ -140,6 +140,8 @@ def upscale_video(inp: str, scale: int = 2, model: str = "realesrgan-x4plus") ->
             "-pix_fmt",
             "yuv420p",
             "-map",
+            "0:v:0",
+            "-map",
             "0:a?",
             str(out),
         ]
