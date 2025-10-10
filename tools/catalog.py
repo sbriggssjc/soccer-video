@@ -26,6 +26,8 @@ SIDE_CAR_DIR = CATALOG_DIR / "sidecar"
 ATOMIC_INDEX_PATH = CATALOG_DIR / "atomic_index.csv"
 PIPELINE_STATUS_PATH = CATALOG_DIR / "pipeline_status.csv"
 
+VIDEO_EXTENSIONS = {".mp4", ".mov"}
+
 ATOMIC_HEADERS = [
     "clip_path",
     "clip_name",
@@ -242,11 +244,26 @@ def _append_error(data: dict, step: str, message: str, at: str) -> None:
     errors.append({"step": step, "message": message, "at": at})
 
 
-def scan_atomic_clips() -> tuple[int, int]:
+def _scan_clip_paths(clips: Iterable[Path]) -> tuple[int, int]:
     ensure_catalog_dirs()
-    clips = sorted(ATOMIC_DIR.glob("*.mp4"))
     updated = 0
+    processed = 0
+    seen: set[Path] = set()
     for clip in clips:
+        clip = Path(clip)
+        suffix = clip.suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS:
+            continue
+        if not clip.exists() or not clip.is_file():
+            continue
+        clip = clip.resolve()
+        if clip in seen:
+            continue
+        seen.add(clip)
+        suffix = clip.suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS:
+            continue
+        processed += 1
         stat = clip.stat()
         created_at = _dt.datetime.fromtimestamp(
             getattr(stat, "st_ctime", stat.st_mtime), tz=_dt.timezone.utc
@@ -267,7 +284,38 @@ def scan_atomic_clips() -> tuple[int, int]:
         _update_sidecar_base(clip, meta)
         if changed:
             updated += 1
-    return len(clips), updated
+    return processed, updated
+
+
+def _iter_atomic_clips() -> list[Path]:
+    if not ATOMIC_DIR.exists():
+        return []
+    return sorted(
+        clip
+        for clip in ATOMIC_DIR.iterdir()
+        if clip.is_file() and clip.suffix.lower() in VIDEO_EXTENSIONS
+    )
+
+
+def scan_atomic_clips() -> tuple[int, int]:
+    return _scan_clip_paths(_iter_atomic_clips())
+
+
+def scan_clip_list(list_path: Path) -> tuple[int, int]:
+    if not list_path.exists():
+        raise CatalogError(f"List file not found: {list_path}")
+    with list_path.open("r", encoding="utf-8") as fh:
+        raw_paths = [line.strip() for line in fh if line.strip()]
+    seen: dict[Path, None] = {}
+    base = list_path.parent
+    for entry in raw_paths:
+        clip_path = Path(entry)
+        if not clip_path.is_absolute():
+            clip_path = (base / clip_path).resolve()
+        else:
+            clip_path = clip_path.resolve()
+        seen.setdefault(clip_path, None)
+    return _scan_clip_paths(seen.keys())
 
 
 def mark_upscaled(
@@ -371,6 +419,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--scan-atomic", action="store_true", help="Scan atomic clips")
+    group.add_argument("--scan-list", type=Path, help="Scan clips from a list file")
     group.add_argument("--mark-upscaled", action="store_true", help="Mark upscale step")
     group.add_argument("--mark-branded", action="store_true", help="Mark branding step")
 
@@ -391,6 +440,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.scan_atomic:
         total, updated = scan_atomic_clips()
+        print(f"Scanned {total} clip(s); {updated} new/updated row(s).")
+        return 0
+
+    if args.scan_list:
+        total, updated = scan_clip_list(args.scan_list)
         print(f"Scanned {total} clip(s); {updated} new/updated row(s).")
         return 0
 
