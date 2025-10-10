@@ -61,15 +61,13 @@ Write-Host "Intro: $introDur s | Each face: $faceDur s | People: $faces | Target
 # ---- 1) Build the INTRO segment (solid -> hole; no face yet) ----
 $introMp4 = Join-Path $work "_00_intro.mp4"
 $fcIntro = @"
-[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
-[3:v]format=rgba,setsar=1[holeRaw];
+[1:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
+[2:v]format=rgba,setsar=1[holeRaw];
 [holeRaw][solidRef]scale2ref=w=iw:h=ih[holeMatch][solidMatch];
-
-[solidMatch]fade=t=in:st=0:d=0.25:alpha=1,fade=t=out:st=0.25:d=0.25:alpha=1[badgeSolid];
-[holeMatch] fade=t=in:st=0.25:d=0.25:alpha=1[badgeHole];
-
+[solidMatch]format=rgba,fade=t=in:st=0:d=0.25:alpha=1,fade=t=out:st=0.25:d=0.25:alpha=1[badgeSolid];
+[holeMatch]format=rgba,fade=t=in:st=0.25:d=0.25:alpha=1[badgeHole];
 [0:v][badgeSolid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[b1];
-[b1][badgeHole] overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[vout]
+[b1][badgeHole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[vout]
 "@
 
 ffmpeg -hide_banner -y `
@@ -97,31 +95,14 @@ foreach ($row in $rows) {
 [2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
 [3:v]format=rgba,setsar=1[holeRaw];
 [holeRaw][solidRef]scale2ref=w=iw:h=ih[holeMatch][solidMatch];
-
-# Keep only the hole (no more solid in face segments)
 [0:v][holeMatch]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
-
-# Face in the ring
-[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,
-     crop=${HoleBox}:${HoleBox},format=rgba,
-     fade=t=in:st=0:d=0.05:alpha=1,
-     fade=t=out:st=$([math]::Round(($faceDur-0.05),2)):d=0.05:alpha=1[face];
-
+[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-0.05),2)):d=0.05:alpha=1[face];
 [bgHole][face]overlay=x='(W-w)/2':y='${BadgeY} - h/2 + ${FaceYOffset}':shortest=1[b1];
-
-# Text
 color=c=black@0.0:s=1080x1920:d=${faceDur}[t1];
-[t1]drawtext=fontfile='${Font}':text='${name.ToUpper()}':fontsize=52:fontcolor=0xFFFFFF:
-    x=(w-text_w)/2:y=1030,format=rgba,
-    fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,
-    fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[nameL];
+[t1]drawtext=fontfile='${Font}':text='$($name.ToUpper())':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[nameL];
 [b1][nameL]overlay=0:0:shortest=1[b2];
-
 color=c=black@0.0:s=1080x1920:d=${faceDur}[t2];
-[t2]drawtext=fontfile='${Font}':text='${safeNumText}':fontsize=48:fontcolor=0x9B1B33:
-    x=(w-text_w)/2:y=1110,format=rgba,
-    fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,
-    fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[numL];
+[t2]drawtext=fontfile='${Font}':text='${safeNumText}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[numL];
 [b2][numL]overlay=0:0:shortest=1[vout]
 "@
 
