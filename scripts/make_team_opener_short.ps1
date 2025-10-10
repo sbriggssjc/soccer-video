@@ -12,6 +12,7 @@ $BG          = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
 $BADGE_SOL   = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
 $BADGE_HOLE  = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
 $FontName    = "Arial Bold"   # use the font family instead of a file path
+$FontPath    = "C\:/Windows/Fonts/arialbd.ttf"
 
 # ---- Layout (kept consistent with your opener) ----
 $BadgeW      = 900
@@ -118,8 +119,8 @@ foreach ($row in $rows) {
   $escapedName = Escape-Drawtext($nameUpper)
   $escapedNum = Escape-Drawtext($safeNumText)
 
-  $nameFilter = "[t1]drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='${escapedName}':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[nameL];`n[b1][nameL]overlay=0:0:shortest=1[b2];"
-  $numFilter = "[t2]drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='${escapedNum}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[numL];`n[b2][numL]overlay=0:0:shortest=1[vout]"
+  $nameFilter = "[t1]drawtext=fontfile='$FontPath':text='${escapedName}':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[nameL];[b1][nameL]overlay=0:0:shortest=1[b2];"
+  $numFilter = "[t2]drawtext=fontfile='$FontPath':text='${escapedNum}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[numL];[b2][numL]overlay=0:0:shortest=1[vout]"
 
   $fcTemplate = @"
 [2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solid];
