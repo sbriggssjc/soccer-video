@@ -56,6 +56,15 @@ $faces = $rows.Count
 $faceDur = [math]::Max(0.25, ($MaxDuration - $introDur) / $faces)  # clamp to at least 0.25s
 $faceDur = [math]::Round($faceDur, 2)
 
+$invCulture = [System.Globalization.CultureInfo]::InvariantCulture
+
+function Escape-Drawtext([string]$text) {
+  if ($null -eq $text) { return "" }
+  $escaped = $text -replace ":", "\\:"
+  $escaped = $escaped -replace "'", "\\'"
+  return $escaped
+}
+
 Write-Host "Intro: $introDur s | Each face: $faceDur s | People: $faces | Target <= $MaxDuration s"
 
 # ---- 1) Build the INTRO segment (solid -> hole; no face yet) ----
@@ -91,20 +100,48 @@ foreach ($row in $rows) {
   $safeNumText = $(if ($null -ne $num) { "\#$num" } else { " " })
   $seg = Join-Path $work ("_{0:d2}_{1}.mp4" -f $idx, ($name -replace '\s','_'))
 
-  $fcFace = @"
-[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solidRef];
-[3:v]format=rgba,setsar=1[holeRaw];
-[holeRaw][solidRef]scale2ref=w=iw:h=ih[holeMatch][solidMatch];
-[0:v][holeMatch]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
-[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-0.05),2)):d=0.05:alpha=1[face];
-[bgHole][face]overlay=x='(W-w)/2':y='${BadgeY} - h/2 + ${FaceYOffset}':shortest=1[b1];
-color=c=black@0.0:s=1080x1920:d=${faceDur}[t1];
-[t1]drawtext=font='${FontName}':text='$($name.ToUpper())':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[nameL];
-[b1][nameL]overlay=0:0:shortest=1[b2];
-color=c=black@0.0:s=1080x1920:d=${faceDur}[t2];
-[t2]drawtext=font='${FontName}':text='${safeNumText}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtIn}:alpha=1,fade=t=out:st=$([math]::Round(($faceDur-$fadeTxtOut),2)):d=${fadeTxtOut}:alpha=1[numL];
-[b2][numL]overlay=0:0:shortest=1[vout]
+  $faceDurStr = [string]::Format($invCulture, "{0:0.##}", $faceDur)
+  $fadeTxtInStr = [string]::Format($invCulture, "{0:0.##}", $fadeTxtIn)
+  $fadeTxtOutStr = [string]::Format($invCulture, "{0:0.##}", $fadeTxtOut)
+  $faceFadeOutStart = [math]::Round([math]::Max(0, $faceDur - 0.05), 2)
+  $faceFadeOutStartStr = [string]::Format($invCulture, "{0:0.##}", $faceFadeOutStart)
+  $textFadeOutStart = [math]::Round([math]::Max(0, $faceDur - $fadeTxtOut), 2)
+  $textFadeOutStartStr = [string]::Format($invCulture, "{0:0.##}", $textFadeOutStart)
+
+  if ([string]::IsNullOrEmpty($name)) {
+    $nameUpper = ""
+  }
+  else {
+    $nameUpper = $name.ToUpperInvariant()
+  }
+  $faceCenterY = $BadgeY + $FaceYOffset
+  $escapedName = Escape-Drawtext($nameUpper)
+  $escapedNum = Escape-Drawtext($safeNumText)
+
+  $nameFilter = "[t1]drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='${escapedName}':fontsize=52:fontcolor=0xFFFFFF:x=(w-text_w)/2:y=1030,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[nameL];`n[b1][nameL]overlay=0:0:shortest=1[b2];"
+  $numFilter = "[t2]drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='${escapedNum}':fontsize=48:fontcolor=0x9B1B33:x=(w-text_w)/2:y=1110,format=rgba,fade=t=in:st=0:d=${fadeTxtInStr}:alpha=1,fade=t=out:st=${textFadeOutStartStr}:d=${fadeTxtOutStr}:alpha=1[numL];`n[b2][numL]overlay=0:0:shortest=1[vout]"
+
+  $fcTemplate = @"
+[2:v]format=rgba,setsar=1,scale=${BadgeW}:-1[solid];
+[3:v]format=rgba,setsar=1,scale=${BadgeW}:-1[hole];
+
+[0:v][solid]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[introA];
+[introA][hole]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[intro];
+
+[3:v][0:v]scale2ref=w=iw:h=ih[holeMatch][bgRef];
+[bgRef][holeMatch]overlay=x='(W-w)/2':y='${BadgeY} - h/2':shortest=1[bgHole];
+
+[1:v]scale=${HoleBox}:-1:force_original_aspect_ratio=increase,crop=${HoleBox}:${HoleBox},format=rgba,fade=t=in:st=0:d=0.05:alpha=1,fade=t=out:st=${faceFadeOutStartStr}:d=0.05:alpha=1[face];
+[bgHole][face]overlay=x='(W-w)/2':y='${faceCenterY} - h/2':shortest=1[b1];
+
+color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t1];
+{0}
+
+color=c=black@0.0:s=1080x1920:d=${faceDurStr}[t2];
+{1}
 "@
+
+  $fcFace = [string]::Format($fcTemplate, $nameFilter, $numFilter)
 
   ffmpeg -hide_banner -y `
     -loop 1 -t $faceDur -i "$BG" `
