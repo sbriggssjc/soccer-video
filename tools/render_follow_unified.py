@@ -31,6 +31,8 @@ from math import hypot
 import cv2
 import numpy as np
 
+from tools.upscale import upscale_video
+
 
 def _get_ball_xy_src(rec, src_w, src_h):
     """
@@ -2820,9 +2822,22 @@ def load_ball_path(
 def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-    input_path = Path(args.in_path).expanduser().resolve()
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file not found: {input_path}")
+    source_path = Path(args.in_path).expanduser().resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Input file not found: {source_path}")
+
+    input_path = source_path
+    if getattr(args, "upscale", False):
+        scale_value = args.upscale_scale if args.upscale_scale and args.upscale_scale > 0 else 2
+        upscaled_str = upscale_video(str(source_path), scale=scale_value)
+        upscaled_path = Path(upscaled_str).expanduser().resolve()
+        logging.info(
+            "Upscaled source with Real-ESRGAN (scale=%s): %s -> %s",
+            scale_value,
+            source_path,
+            upscaled_path,
+        )
+        input_path = upscaled_path
 
     presets = load_presets()
     preset_key = (args.preset or "cinematic").lower()
@@ -2864,11 +2879,11 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     crf = int(args.crf) if args.crf is not None else int(preset_config.get("crf", 19))
     keyint_factor = int(args.keyint_factor) if args.keyint_factor is not None else int(preset_config.get("keyint_factor", 4))
 
-    output_path = Path(args.out) if args.out else _default_output_path(input_path, preset_key)
+    output_path = Path(args.out) if args.out else _default_output_path(source_path, preset_key)
     output_path = output_path.expanduser().resolve()
 
     labels_root = args.labels_root or "out/yolo"
-    label_files = find_label_files(input_path.stem, labels_root)
+    label_files = find_label_files(source_path.stem, labels_root)
 
     log_dict: dict[str, object] = {}
 
@@ -2935,7 +2950,7 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     states = planner.plan(positions, used_mask)
 
     temp_root = Path("out/autoframe_work")
-    temp_dir = temp_root / preset_key / input_path.stem
+    temp_dir = temp_root / preset_key / source_path.stem
     _prepare_temp_dir(temp_dir, args.clean_temp)
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
@@ -3000,6 +3015,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", dest="out", help="Output MP4 path")
     parser.add_argument("--preset", dest="preset", choices=["cinematic", "gentle", "realzoom"], default="cinematic")
     parser.add_argument("--portrait", dest="portrait", help="Portrait canvas WxH")
+    parser.add_argument("--upscale", dest="upscale", action="store_true", help="Upscale source with Real-ESRGAN before processing")
+    parser.add_argument("--upscale-scale", dest="upscale_scale", type=int, default=2, help="Scale factor for Real-ESRGAN")
     parser.add_argument("--fps", dest="fps", type=float, help="Output FPS")
     parser.add_argument("--flip180", dest="flip180", action="store_true", help="Rotate frames by 180 degrees before processing")
     parser.add_argument("--labels-root", dest="labels_root", help="Root directory containing YOLO label shards")
