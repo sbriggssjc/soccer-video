@@ -54,5 +54,8 @@ def upscale_video(inp: str, scale: int = 2, model: str = "realesrgan-x4plus") ->
     # ffmpeg-only fallback
     subprocess.check_call(['ffmpeg','-hide_banner','-y','-i',str(src),
                            '-vf', f'scale=iw*{scale}:ih*{scale}:flags=lanczos,hqdn3d=2:1:2:3,unsharp=5:5:0.5:5:5:0.0',
-                           '-c:v','libx264','-preset','slow','-crf','18','-pix_fmt','yuv420p','-map','0:a?', str(out)])
+                           '-map','0:v:0','-map','0:a?',
+                           '-c:v','libx264','-preset','slow','-crf','18','-pix_fmt','yuv420p',
+                           '-c:a','aac','-b:a','160k',
+                           str(out)])
     return str(out)
