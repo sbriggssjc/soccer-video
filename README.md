@@ -91,6 +91,26 @@ overlays and applies the watermark, lower-third plate, and end card when enabled
 Example recipes live under `recipes/` and include both landscape and vertical
 presets along with screenshots of the ribbon, watermark, and safe-area guides.
 
+## How we publish highlights
+
+Two helper scripts wrap the week-to-week workflow: one regenerates the branded
+match reel and the other stitches individual portrait openers into a single
+team montage without ever touching the locked badge geometry.
+
+```powershell
+pwsh -File scripts\publish_highlights.ps1 `
+    -Video .\out\full_game_stabilized.mp4 `
+    -OutDir .\out\2025-04-05_vs_Bartlesville `
+    -Title "U10 Girls | Matchday Highlights" `
+    -Subtitle "Week 6 vs Bartlesville"
+```
+
+```powershell
+pwsh -File scripts\make_opener_montage.ps1 `
+    -Csv .\roster.csv `
+    -OutFile .\out\opener\u10_girls_team_montage.mp4
+```
+
 
 ### Cheer-anchored Top-10
 
