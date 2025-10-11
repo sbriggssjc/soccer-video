@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
@@ -124,7 +124,7 @@ foreach ($legacyName in $legacyFiles) {
         }
     }
     catch {
-        Write-LogMessage "Failed to read legacy index $legacyPath: $_"
+        Write-LogMessage "Failed to read legacy index ${legacyPath}: $_"
     }
 }
 
