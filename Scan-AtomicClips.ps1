@@ -32,6 +32,17 @@ function Write-LogMessage {
     Add-Content -Path $logPath -Value $entry -Encoding UTF8
 }
 
+function Nz {
+    param(
+        [Parameter(Mandatory=$false)]$Value,
+        [Parameter(Mandatory=$false)]$Fallback = ''
+    )
+
+    if ($null -eq $Value) { return $Fallback }
+    if ($Value -is [string] -and $Value.Trim().Length -eq 0) { return $Fallback }
+    return $Value
+}
+
 function Normalize-Token {
     param(
         [string]$Text
@@ -274,7 +285,7 @@ foreach ($dir in $candidateDirs) {
         $stabilizedExists = 'false'
     }
 
-    $clipId = '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $clipIndex, ($date ?? ''), ($homeTeam ?? ''), ($awayTeam ?? ''), $label, $meta.tstartRaw, $meta.tendRaw
+    $clipId = '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $clipIndex, (Nz $date), (Nz $homeTeam), (Nz $awayTeam), $label, $meta.tstartRaw, $meta.tendRaw
 
     $notes = ''
     if ($legacyClipIds.Contains($clipId)) {
