@@ -168,15 +168,51 @@ if (Test-Path $brandedRoot) {
     }
 }
 
-$pattern = '^(?<index>\d{1,3})__(?<date>\d{4}-\d{2}-\d{2})__(?<homeTeam>.+?)_vs_(?<awayTeam>.+?)__(?<label>.+?)__t(?<tStart>\d+(?:\.\d+)?)\-t(?<tEnd>\d+(?:\.\d+)?)(?<rest>.*)$'
+$folderPatterns = @(
+    '^(?<idx>\d{1,3})__(?<date>\d{4}-\d{2}-\d{2})__(?<homeTeam>.+?)_vs_(?<awayTeam>.+?)__(?<label>.+?)__t(?<tstart>\d+(?:\.\d+)?)\-t(?<tend>\d+(?:\.\d+)?)(?<tail>(?:\..*)?)$',
+    '^(?<idx>\d{1,3})__(?<label>.+?)__t(?<tstart>\d+(?:\.\d+)?)\-t(?<tend>\d+(?:\.\d+)?)(?<tail>(?:\..*)?)$'
+)
+
+function Parse-FolderName {
+    param([string]$name)
+
+    foreach ($pattern in $folderPatterns) {
+        $match = [regex]::Match($name, $pattern)
+        if ($match.Success) {
+            $tail = $match.Groups['tail'].Value
+
+            $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
+            $homeTeam = if ($match.Groups['homeTeam'].Success) { $match.Groups['homeTeam'].Value } else { $null }
+            $awayTeam = if ($match.Groups['awayTeam'].Success) { $match.Groups['awayTeam'].Value } else { $null }
+
+            return [pscustomobject]@{
+                idx          = [int]$match.Groups['idx'].Value
+                date         = $date
+                homeTeam     = $homeTeam
+                awayTeam     = $awayTeam
+                label        = $match.Groups['label'].Value
+                tstart       = [double]$match.Groups['tstart'].Value
+                tend         = [double]$match.Groups['tend'].Value
+                tstartRaw    = $match.Groups['tstart'].Value
+                tendRaw      = $match.Groups['tend'].Value
+                isPortrait   = if ($tail -match 'portrait_FINAL') { $true } else { $false }
+                isDebug      = if ($tail -match '__DEBUG') { $true } else { $false }
+                isDebugFinal = if ($tail -match '__DEBUG_FINAL') { $true } else { $false }
+                rawTail      = $tail
+            }
+        }
+    }
+
+    return $null
+}
 $rowsById = @{}
 $unparsedFolders = @()
 
 $candidateDirs = Get-ChildItem -Path $cinematicRoot -Recurse -Directory | Where-Object { $_.Name -match '^\d{1,3}__' }
 foreach ($dir in $candidateDirs) {
     $name = $dir.Name
-    $match = [regex]::Match($name, $pattern)
-    if (-not $match.Success) {
+    $meta = Parse-FolderName -name $name
+    if (-not $meta) {
         $warning = "Unparsed folder name (check pattern): $name"
         Write-Warning $warning
         Write-LogMessage $warning
@@ -184,29 +220,26 @@ foreach ($dir in $candidateDirs) {
         continue
     }
 
-    $clipIndex = [int]$match.Groups['index'].Value
-    $date = $match.Groups['date'].Value
-    $homeTeam = $match.Groups['homeTeam'].Value
-    $awayTeam = $match.Groups['awayTeam'].Value
-    $label = $match.Groups['label'].Value
-    $tStart = [double]::Parse($match.Groups['tStart'].Value, $culture)
-    $tEnd = [double]::Parse($match.Groups['tEnd'].Value, $culture)
+    $clipIndex = $meta.idx
+    $date = $meta.date
+    $homeTeam = $meta.homeTeam
+    $awayTeam = $meta.awayTeam
+    $label = $meta.label
+    $tStart = [double]$meta.tstart
+    $tEnd = [double]$meta.tend
     $duration = [math]::Round(($tEnd - $tStart), 2)
-    $rest = $match.Groups['rest'].Value
     $fullName = $name
+    $rawTail = $meta.rawTail
 
-    $hasDebug = $false
-    if ($rest -match 'DEBUG' -or $fullName -match 'DEBUG') {
-        $hasDebug = $true
-    }
+    $hasDebug = $meta.isDebug -or $meta.isDebugFinal -or ($fullName -match 'DEBUG')
 
     $hasFinal = $false
-    if ($rest -match 'FINAL' -or $fullName -match 'FINAL') {
+    if ($meta.isDebugFinal -or $rawTail -match 'FINAL' -or $fullName -match 'FINAL') {
         $hasFinal = $true
     }
 
     $orientation = 'unknown'
-    if ($rest -match 'portrait' -or $fullName -match 'portrait') {
+    if ($meta.isPortrait -or $rawTail -match 'portrait' -or $fullName -match 'portrait') {
         $orientation = 'portrait'
     }
 
@@ -241,7 +274,7 @@ foreach ($dir in $candidateDirs) {
         $stabilizedExists = 'false'
     }
 
-    $clipId = '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $clipIndex, $date, $homeTeam, $awayTeam, $label, $match.Groups['tStart'].Value, $match.Groups['tEnd'].Value
+    $clipId = '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $clipIndex, ($date ?? ''), ($homeTeam ?? ''), ($awayTeam ?? ''), $label, $meta.tstartRaw, $meta.tendRaw
 
     $notes = ''
     if ($legacyClipIds.Contains($clipId)) {
