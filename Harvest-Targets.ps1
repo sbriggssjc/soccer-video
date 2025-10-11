@@ -96,6 +96,15 @@ if (Test-Path $CinematicRoot) {
     $trfPath    = Join-Path $followDir 'transforms.trf'
     $stabPath   = Join-Path $followDir 'stabilized.mp4'
 
+    # Compute paths first (PowerShell 5-safe; no ternary)
+    $proxyFound = Test-Path $proxyPath
+    $trfFound   = Test-Path $trfPath
+    $stabFound  = Test-Path $stabPath
+
+    $proxyFinal = if ($proxyFound) { $proxyPath } else { $null }
+    $trfFinal   = if ($trfFound)   { $trfPath   } else { $null }
+    $stabFinal  = if ($stabFound)  { $stabPath  } else { $null }
+
     $cinRows += [pscustomobject]@{
       key               = JoinKey $idx (Nz $date) (Nz $homeTeamName) (Nz $awayTeamName) (Nz $label) (Nz $tStart) (Nz $tEnd)
       src               = 'cinematic'
@@ -108,9 +117,9 @@ if (Test-Path $CinematicRoot) {
       t_end             = $tEnd
       clip_folder       = $name
       clip_folder_path  = $folderPath
-      proxy_path        = (Test-Path $proxyPath) ? $proxyPath : $null
-      transforms_path   = (Test-Path $trfPath)   ? $trfPath   : $null
-      stabilized_path   = (Test-Path $stabPath)  ? $stabPath  : $null
+      proxy_path        = $proxyFinal
+      transforms_path   = $trfFinal
+      stabilized_path   = $stabFinal
       branded_files     = @()
     }
   }
