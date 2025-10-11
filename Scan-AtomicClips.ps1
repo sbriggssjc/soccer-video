@@ -1,10 +1,20 @@
 ﻿[CmdletBinding()]
-param()
+param(
+  [Parameter(Position=0)] [string]$RepoRoot      = ".",
+  [Parameter(Position=1)] [string]$CinematicRoot = ".\out\autoframe_work\cinematic",
+  [Parameter(Position=2)] [string]$BrandedRoot   = ".\out\portrait_reels\branded",
+  [Parameter(Position=3)] [string]$OutCsv        = ".\atomic_clips_index.rebuilt.csv",
+  [Parameter(Position=4)] [string]$OutJson       = ".\atomic_clips_index.rebuilt.json"
+)
 
 $ErrorActionPreference = 'Stop'
 
 # Determine repository root based on the script location
-$repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $PSBoundParameters.ContainsKey('RepoRoot') -or [string]::IsNullOrWhiteSpace($RepoRoot) -or $RepoRoot -eq '.') {
+    $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
+$repoRoot = (Resolve-Path -Path $RepoRoot).ProviderPath
 Set-Location $repoRoot
 
 $logPath = Join-Path $repoRoot 'atomic_clips_scan.log'
@@ -73,8 +83,18 @@ function Add-Note {
 }
 
 $culture = [System.Globalization.CultureInfo]::InvariantCulture
-$cinematicRoot = Join-Path $repoRoot 'out\\autoframe_work\\cinematic'
-$brandedRoot = Join-Path $repoRoot 'out\\portrait_reels\\branded'
+if ([System.IO.Path]::IsPathRooted($CinematicRoot)) {
+    $cinematicRoot = $CinematicRoot
+}
+else {
+    $cinematicRoot = Join-Path $repoRoot $CinematicRoot
+}
+if ([System.IO.Path]::IsPathRooted($BrandedRoot)) {
+    $brandedRoot = $BrandedRoot
+}
+else {
+    $brandedRoot = Join-Path $repoRoot $BrandedRoot
+}
 
 if (-not (Test-Path $cinematicRoot)) {
     throw "Cinematic root not found: $cinematicRoot"
@@ -124,7 +144,7 @@ foreach ($legacyName in $legacyFiles) {
         }
     }
     catch {
-        Write-LogMessage "Failed to read legacy index ${legacyPath}: $_"
+        Write-LogMessage ("Failed to read legacy index {0}: {1}" -f $legacyPath, $_)
     }
 }
 
@@ -363,10 +383,10 @@ foreach ($brand in $brandedInfo) {
     $brandedOnlyRows += $brandRow
 }
 
-$csvPath = Join-Path $repoRoot 'atomic_clips_index.rebuilt.csv'
+$csvPath = if ([System.IO.Path]::IsPathRooted($OutCsv)) { $OutCsv } else { Join-Path $repoRoot $OutCsv }
 $rows | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
 
-$jsonPath = Join-Path $repoRoot 'atomic_clips_index.rebuilt.json'
+$jsonPath = if ([System.IO.Path]::IsPathRooted($OutJson)) { $OutJson } else { Join-Path $repoRoot $OutJson }
 $rows | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding UTF8
 
 $detectListPath = Join-Path $repoRoot 'buildlist_needs_detect_and_transform.csv'
