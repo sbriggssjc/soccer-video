@@ -48,17 +48,19 @@ function Parse-CineFolder([string]$name){
 function Parse-BrandedFile([IO.FileInfo]$fi){
   $m = $rxBranded.Match($fi.Name)
   if(-not $m.Success){ return $null }
-  $idx  = if($m.Groups['idx'].Success){ SafeInt $m.Groups['idx'].Value } else { $null }
-  $date = Nz $m.Groups['date'].Value
-  $home = Nz $m.Groups['home'].Value
-  $away = Nz $m.Groups['away'].Value
-  $label= Nz $m.Groups['label'].Value
-  $t1   = $m.Groups['t1'].Value
-  $t2   = $m.Groups['t2'].Value
-  $kind = $m.Groups['kind'].Value
+
+  $idx      = if($m.Groups['idx'].Success){ SafeInt $m.Groups['idx'].Value } else { $null }
+  $date     = Nz $m.Groups['date'].Value
+  $homeTeam = Nz $m.Groups['home'].Value
+  $awayTeam = Nz $m.Groups['away'].Value
+  $label    = Nz $m.Groups['label'].Value
+  $t1       = $m.Groups['t1'].Value
+  $t2       = $m.Groups['t2'].Value
+  $kind     = $m.Groups['kind'].Value
+
   [pscustomobject]@{
-    idx=$idx; date=$date; home=$home; away=$away; label=$label; t1=$t1; t2=$t2; kind=$kind;
-    key = '{0}|{1}|{2}' -f $label,$t1,$t2
+    idx=$idx; date=$date; home=$homeTeam; away=$awayTeam; label=$label; t1=$t1; t2=$t2; kind=$kind;
+    key  = '{0}|{1}|{2}' -f $label,$t1,$t2
     path = $fi.FullName
     name = $fi.Name
   }
@@ -138,14 +140,14 @@ foreach($g in $brandedGroups){
   $maxIdx++
   $idxStr = '{0:000}' -f $maxIdx
 
-  $date  = Nz $best.date '1970-01-01'
-  $home  = Nz $best.home 'HOME'
-  $away  = Nz $best.away 'AWAY'
-  $label = Nz $best.label 'CLIP'
-  $t1    = $best.t1
-  $t2    = $best.t2
+  $date     = Nz $best.date '1970-01-01'
+  $homeTeam = Nz $best.home 'HOME'
+  $awayTeam = Nz $best.away 'AWAY'
+  $label    = Nz $best.label 'CLIP'
+  $t1       = $best.t1
+  $t2       = $best.t2
 
-  $folderName = '{0}__{1}__{2}_vs_{3}__{4}__t{5}-{6}_portrait_FINAL' -f $idxStr,$date,$home,$away,$label,$t1,$t2
+  $folderName = '{0}__{1}__{2}_vs_{3}__{4}__t{5}-{6}_portrait_FINAL' -f $idxStr,$date,$homeTeam,$awayTeam,$label,$t1,$t2
   $cineFolder = Join-Path $CineRoot $folderName
   $follow     = Join-Path $cineFolder 'follow'
   $stab       = Join-Path $follow 'stabilized.mp4'
