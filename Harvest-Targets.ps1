@@ -40,13 +40,53 @@ function Ensure-Dir([string]$p) {
   if (-not (Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
 }
 
-# -------- Patterns (robust) --------
-# Cinematic folder (full form with date/teams)
-$rxCineFull  = [regex]'^(?<idx>\d{3})__(?<date>\d{4}-\d{2}-\d{2})__(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>[^_]+)__(?<tstart>t\d+\.\d{2})-(?<tend>t\d+\.\d{2})(?:\.__DEBUG(?:_FINAL)?)?_portrait_FINAL$'
-# Cinematic folder variant (no date/teams)
-$rxCineLite  = [regex]'^(?<idx>\d{3})__(?<label>[^_]+)__(?<tstart>t\d+\.\d{2})-(?<tend>t\d+\.\d{2})(?:\.__DEBUG(?:_FINAL)?)?_portrait_FINAL$'
-# Cinematic folder raw (no _portrait_FINAL at the end)
-$rxCineRaw   = [regex]'^(?<idx>\d{3})__(?<date>\d{4}-\d{2}-\d{2})__(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>[^_]+)__(?<tstart>t\d+\.\d{2})-(?<tend>t\d+\.\d{2})$'
+$FolderRegex = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>[^_]+)__t(?<t1>\d+(?:\.\d+)?)[-_](?<t2>\d+(?:\.\d+)?)(?:\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$'
+
+function Parse-CinematicFolder([string]$name) {
+  $match = $FolderRegex.Match($name)
+  if (-not $match.Success) { return $null }
+
+  $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
+  if ([string]::IsNullOrWhiteSpace($date)) { $date = $null }
+
+  $home = if ($match.Groups['home'].Success) { $match.Groups['home'].Value } else { $null }
+  if ([string]::IsNullOrWhiteSpace($home)) { $home = $null }
+
+  $away = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
+  if ([string]::IsNullOrWhiteSpace($away)) { $away = $null }
+
+  $t1 = $match.Groups['t1'].Value
+  $t2 = $match.Groups['t2'].Value
+
+  $tStartRaw = "t$($t1)"
+  $tEndRaw   = "t$($t2)"
+  $timeTokenMatch = [regex]::Match($name, '__t(?<first>\d+(?:\.\d+)?)(?<sep>[-_])(?<second>t?\d+(?:\.\d+)?)')
+  if ($timeTokenMatch.Success) {
+    $tStartRaw = "t$($timeTokenMatch.Groups['first'].Value)"
+    $secondRaw = $timeTokenMatch.Groups['second'].Value
+    if ([string]::IsNullOrWhiteSpace($secondRaw)) {
+      $tEndRaw = "t$($t2)"
+    }
+    elseif ($secondRaw.StartsWith('t')) {
+      $tEndRaw = $secondRaw
+    }
+    else {
+      $tEndRaw = "t$secondRaw"
+    }
+  }
+
+  [pscustomobject]@{
+    idx       = $match.Groups['idx'].Value
+    date      = $date
+    home      = $home
+    away      = $away
+    label     = $match.Groups['label'].Value
+    t1        = $t1
+    t2        = $t2
+    tstartRaw = $tStartRaw
+    tendRaw   = $tEndRaw
+  }
+}
 
 # Branded file (with optional date/teams; BRAND or POST)
 $rxBrand = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__(?<home>[^_]+)_vs_(?<away>[^_]+)__)?(?<label>[^_]+)__(?<tstart>t\d+\.\d{2})-(?<tend>t\d+\.\d{2})_portrait_(?<kind>BRAND|POST)\.mp4$'
@@ -56,39 +96,16 @@ $cinRows = @()
 if (Test-Path $CinematicRoot) {
   Get-ChildItem $CinematicRoot -Directory | ForEach-Object {
     $name = $_.Name
-    $m = $rxCineFull.Match($name)
-    $idx = $null; $date = $null; $homeTeamName = $null; $awayTeamName = $null; $label = $null; $tStart = $null; $tEnd = $null
+    $parsed = Parse-CinematicFolder $name
+    if (-not $parsed) { return }  # unparsed; ignore
 
-    if ($m.Success) {
-      $idx  = $m.Groups['idx'].Value
-      $date = $m.Groups['date'].Value
-      $homeTeamName = $m.Groups['home'].Value
-      $awayTeamName = $m.Groups['away'].Value
-      $label = $m.Groups['label'].Value
-      $tStart = $m.Groups['tstart'].Value
-      $tEnd   = $m.Groups['tend'].Value
-    } else {
-      $m2 = $rxCineLite.Match($name)
-      if ($m2.Success) {
-        $idx  = $m2.Groups['idx'].Value
-        $label= $m2.Groups['label'].Value
-        $tStart = $m2.Groups['tstart'].Value
-        $tEnd   = $m2.Groups['tend'].Value
-      } else {
-        $m3 = $rxCineRaw.Match($name)
-        if ($m3.Success) {
-          $idx  = $m3.Groups['idx'].Value
-          $date = $m3.Groups['date'].Value
-          $homeTeamName = $m3.Groups['home'].Value
-          $awayTeamName = $m3.Groups['away'].Value
-          $label = $m3.Groups['label'].Value
-          $tStart = $m3.Groups['tstart'].Value
-          $tEnd   = $m3.Groups['tend'].Value
-        }
-      }
-    }
-
-    if (-not $idx) { return }  # unparsed; ignore
+    $idx = $parsed.idx
+    $date = $parsed.date
+    $homeTeamName = $parsed.home
+    $awayTeamName = $parsed.away
+    $label = $parsed.label
+    $tStart = $parsed.tstartRaw
+    $tEnd   = $parsed.tendRaw
 
     $folderPath = $_.FullName
     $proxyPath  = Join-Path $folderPath 'proxy.mp4'
