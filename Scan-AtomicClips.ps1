@@ -179,7 +179,7 @@ if (Test-Path $brandedRoot) {
     }
 }
 
-$FolderRegex = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>[^_]+)__t(?<t1>\d+(?:\.\d+)?)[-_](?<t2>\d+(?:\.\d+)?)(?:\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$'
+$FolderRegex = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>.+?)__t(?<t1>\d+(?:\.\d+)?)(?:-t?|_)(?<t2>\d+(?:\.\d+)?)(?:\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$'
 
 function Parse-FolderName {
     param([string]$name)
