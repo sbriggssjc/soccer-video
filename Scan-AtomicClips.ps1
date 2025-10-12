@@ -179,42 +179,49 @@ if (Test-Path $brandedRoot) {
     }
 }
 
-$folderPatterns = @(
-    '^(?<idx>\d{1,3})__(?<date>\d{4}-\d{2}-\d{2})__(?<homeTeam>.+?)_vs_(?<awayTeam>.+?)__(?<label>.+?)__t(?<tstart>\d+(?:\.\d+)?)\-t(?<tend>\d+(?:\.\d+)?)(?<tail>(?:\..*)?)$',
-    '^(?<idx>\d{1,3})__(?<label>.+?)__t(?<tstart>\d+(?:\.\d+)?)\-t(?<tend>\d+(?:\.\d+)?)(?<tail>(?:\..*)?)$'
-)
+$FolderRegex = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>[^_]+)__t(?<t1>\d+(?:\.\d+)?)[-_](?<t2>\d+(?:\.\d+)?)(?:\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$'
 
 function Parse-FolderName {
     param([string]$name)
 
-    foreach ($pattern in $folderPatterns) {
-        $match = [regex]::Match($name, $pattern)
-        if ($match.Success) {
-            $tail = $match.Groups['tail'].Value
-
-            $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
-            $homeTeam = if ($match.Groups['homeTeam'].Success) { $match.Groups['homeTeam'].Value } else { $null }
-            $awayTeam = if ($match.Groups['awayTeam'].Success) { $match.Groups['awayTeam'].Value } else { $null }
-
-            return [pscustomobject]@{
-                idx          = [int]$match.Groups['idx'].Value
-                date         = $date
-                homeTeam     = $homeTeam
-                awayTeam     = $awayTeam
-                label        = $match.Groups['label'].Value
-                tstart       = [double]$match.Groups['tstart'].Value
-                tend         = [double]$match.Groups['tend'].Value
-                tstartRaw    = $match.Groups['tstart'].Value
-                tendRaw      = $match.Groups['tend'].Value
-                isPortrait   = if ($tail -match 'portrait_FINAL') { $true } else { $false }
-                isDebug      = if ($tail -match '__DEBUG') { $true } else { $false }
-                isDebugFinal = if ($tail -match '__DEBUG_FINAL') { $true } else { $false }
-                rawTail      = $tail
-            }
-        }
+    $matchedName = $name
+    $match = $FolderRegex.Match($matchedName)
+    if (-not $match.Success) {
+        return $null
     }
 
-    return $null
+    $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
+    if ([string]::IsNullOrWhiteSpace($date)) { $date = $null }
+
+    $homeTeam = if ($match.Groups['home'].Success) { $match.Groups['home'].Value } else { $null }
+    if ([string]::IsNullOrWhiteSpace($homeTeam)) { $homeTeam = $null }
+
+    $awayTeam = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
+    if ([string]::IsNullOrWhiteSpace($awayTeam)) { $awayTeam = $null }
+
+    $tailMatch = [regex]::Match($matchedName, '(\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$')
+    $tail = if ($tailMatch.Success) { $tailMatch.Groups[1].Value } else { '' }
+
+    $t1Raw = $match.Groups['t1'].Value
+    $t2Raw = $match.Groups['t2'].Value
+    $tStartValue = [double]::Parse($t1Raw, $culture)
+    $tEndValue = [double]::Parse($t2Raw, $culture)
+
+    return [pscustomobject]@{
+        idx          = [int]$match.Groups['idx'].Value
+        date         = $date
+        homeTeam     = $homeTeam
+        awayTeam     = $awayTeam
+        label        = $match.Groups['label'].Value
+        tstart       = $tStartValue
+        tend         = $tEndValue
+        tstartRaw    = "t$($t1Raw)"
+        tendRaw      = "t$($t2Raw)"
+        isPortrait   = $true
+        isDebug      = if ($tail -match '__DEBUG') { $true } else { $false }
+        isDebugFinal = if ($tail -match '__DEBUG_FINAL') { $true } else { $false }
+        rawTail      = $tail
+    }
 }
 $rowsById = @{}
 $unparsedFolders = @()
