@@ -51,11 +51,11 @@ function Parse-CinematicFolder([string]$name) {
   $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
   if ([string]::IsNullOrWhiteSpace($date)) { $date = $null }
 
-  $home = if ($match.Groups['home'].Success) { $match.Groups['home'].Value } else { $null }
-  if ([string]::IsNullOrWhiteSpace($home)) { $home = $null }
+  $homeTeam = if ($match.Groups['home'].Success) { $match.Groups['home'].Value } else { $null }
+  if ([string]::IsNullOrWhiteSpace($homeTeam)) { $homeTeam = $null }
 
-  $away = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
-  if ([string]::IsNullOrWhiteSpace($away)) { $away = $null }
+  $awayTeam = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
+  if ([string]::IsNullOrWhiteSpace($awayTeam)) { $awayTeam = $null }
 
   $t1 = $match.Groups['t1'].Value
   $t2 = $match.Groups['t2'].Value
@@ -80,8 +80,8 @@ function Parse-CinematicFolder([string]$name) {
   [pscustomobject]@{
     idx       = $match.Groups['idx'].Value
     date      = $date
-    home      = $home
-    away      = $away
+    home      = $homeTeam
+    away      = $awayTeam
     label     = $match.Groups['label'].Value
     t1        = $t1
     t2        = $t2
