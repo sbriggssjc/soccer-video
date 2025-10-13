@@ -13,7 +13,10 @@ $BrandedRegex = '^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>.+?)_v
 $brandedMap = @{}
 Get-ChildItem -LiteralPath $BrandedRoot -File -Recurse | ForEach-Object {
   if ($_.Name -match $BrandedRegex) {
-    $key = '{0}|{1}|{2}' -f $Matches.label, $Matches.t1, $Matches.t2
+    $labelToken = $Matches.label
+    $tStartToken = $Matches.t1
+    $tEndToken = $Matches.t2
+    $key = '{0}|{1}|{2}' -f $labelToken, $tStartToken, $tEndToken
     $brandedMap[$key] = @{
       matchDate = $Matches.date
       homeTeam  = $Matches.home
@@ -28,14 +31,18 @@ Get-ChildItem -LiteralPath $CinematicRoot -Directory | ForEach-Object {
     $matchDate = $Matches.date
     $homeTeam  = $Matches.home
     $awayTeam  = $Matches.away
+    $clipIndex = $Matches.idx
+    $labelToken = $Matches.label
+    $tStartToken = $Matches.t1
+    $tEndToken = $Matches.t2
     $needsFix = ($matchDate -eq '1970-01-01') -or ($homeTeam -eq 'HOME') -or ($awayTeam -eq 'AWAY')
 
     if ($needsFix) {
-      $key = '{0}|{1}|{2}' -f $Matches.label, $Matches.t1, $Matches.t2
+      $key = '{0}|{1}|{2}' -f $labelToken, $tStartToken, $tEndToken
       if ($brandedMap.ContainsKey($key)) {
         $meta = $brandedMap[$key]
         $newName = ('{0}__{1}__{2}_vs_{3}__{4}__t{5}-t{6}_portrait_FINAL' -f `
-          $Matches.idx, $meta.matchDate, $meta.homeTeam, $meta.awayTeam, $Matches.label, $Matches.t1, $Matches.t2)
+          $clipIndex, $meta.matchDate, $meta.homeTeam, $meta.awayTeam, $labelToken, $tStartToken, $tEndToken)
         if ($newName -ne $folderName) {
           if ($WhatIf) {
             "Would rename: $folderName -> $newName"

@@ -20,6 +20,8 @@ Set-Location $repoRoot
 . "$PSScriptRoot\FolderRegex.ps1"
 $FolderRegexPattern = $FolderRegex
 $FolderRegexRx = [regex]$FolderRegexPattern
+$RawRegexPattern = '^(?<id>\d{3})__(?<kind>[A-Z_]+)__t(?<t0>\d+\.\d+)-t(?<t1>\d+\.\d+)(?:__x(?<count>\d+))?$'
+$RawRegexRx = [regex]$RawRegexPattern
 
 # Ignore RAW scaffolds and legacy DEBUG-only folders in "unparsed"
 $IgnoreUnparsed = @(
@@ -194,41 +196,71 @@ function Parse-FolderName {
 
     $matchedName = $name
     $match = $FolderRegexRx.Match($matchedName)
-    if (-not $match.Success) {
+    if ($match.Success) {
+        $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
+        if ([string]::IsNullOrWhiteSpace($date)) { $date = $null }
+
+        $homeTeam = if ($match.Groups['home'].Success) { $match.Groups['home'].Value } else { $null }
+        if ([string]::IsNullOrWhiteSpace($homeTeam)) { $homeTeam = $null }
+
+        $awayTeam = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
+        if ([string]::IsNullOrWhiteSpace($awayTeam)) { $awayTeam = $null }
+
+        $tailMatch = [regex]::Match($matchedName, '(\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$')
+        $tail = if ($tailMatch.Success) { $tailMatch.Groups[1].Value } else { '' }
+
+        $t1Raw = $match.Groups['t1'].Value
+        $t2Raw = $match.Groups['t2'].Value
+        $tStartValue = [double]::Parse($t1Raw, $culture)
+        $tEndValue = [double]::Parse($t2Raw, $culture)
+
+        return [pscustomobject]@{
+            idx           = [int]$match.Groups['idx'].Value
+            date          = $date
+            homeTeam      = $homeTeam
+            awayTeam      = $awayTeam
+            label         = $match.Groups['label'].Value
+            tstart        = $tStartValue
+            tend          = $tEndValue
+            tstartRaw     = "t$($t1Raw)"
+            tendRaw       = "t$($t2Raw)"
+            isPortrait    = $true
+            isDebug       = if ($tail -match '__DEBUG') { $true } else { $false }
+            isDebugFinal  = if ($tail -match '__DEBUG_FINAL') { $true } else { $false }
+            rawTail       = $tail
+            isPlaceholder = $false
+            dupCount      = 1
+        }
+    }
+
+    $rawMatch = $RawRegexRx.Match($matchedName)
+    if (-not $rawMatch.Success) {
         return $null
     }
 
-    $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
-    if ([string]::IsNullOrWhiteSpace($date)) { $date = $null }
-
-    $homeTeam = if ($match.Groups['home'].Success) { $match.Groups['home'].Value } else { $null }
-    if ([string]::IsNullOrWhiteSpace($homeTeam)) { $homeTeam = $null }
-
-    $awayTeam = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
-    if ([string]::IsNullOrWhiteSpace($awayTeam)) { $awayTeam = $null }
-
-    $tailMatch = [regex]::Match($matchedName, '(\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$')
-    $tail = if ($tailMatch.Success) { $tailMatch.Groups[1].Value } else { '' }
-
-    $t1Raw = $match.Groups['t1'].Value
-    $t2Raw = $match.Groups['t2'].Value
-    $tStartValue = [double]::Parse($t1Raw, $culture)
-    $tEndValue = [double]::Parse($t2Raw, $culture)
+    $rawT0 = $rawMatch.Groups['t0'].Value
+    $rawT1 = $rawMatch.Groups['t1'].Value
+    $dupCount = 1
+    if ($rawMatch.Groups['count'].Success -and -not [string]::IsNullOrWhiteSpace($rawMatch.Groups['count'].Value)) {
+        $dupCount = [int]$rawMatch.Groups['count'].Value
+    }
 
     return [pscustomobject]@{
-        idx          = [int]$match.Groups['idx'].Value
-        date         = $date
-        homeTeam     = $homeTeam
-        awayTeam     = $awayTeam
-        label        = $match.Groups['label'].Value
-        tstart       = $tStartValue
-        tend         = $tEndValue
-        tstartRaw    = "t$($t1Raw)"
-        tendRaw      = "t$($t2Raw)"
-        isPortrait   = $true
-        isDebug      = if ($tail -match '__DEBUG') { $true } else { $false }
-        isDebugFinal = if ($tail -match '__DEBUG_FINAL') { $true } else { $false }
-        rawTail      = $tail
+        idx           = [int]$rawMatch.Groups['id'].Value
+        date          = $null
+        homeTeam      = $null
+        awayTeam      = $null
+        label         = $rawMatch.Groups['kind'].Value
+        tstart        = [double]::Parse($rawT0, $culture)
+        tend          = [double]::Parse($rawT1, $culture)
+        tstartRaw     = "t$($rawT0)"
+        tendRaw       = "t$($rawT1)"
+        isPortrait    = $false
+        isDebug       = $false
+        isDebugFinal  = $false
+        rawTail       = ''
+        isPlaceholder = $true
+        dupCount      = $dupCount
     }
 }
 $rowsById = @{}
@@ -308,6 +340,9 @@ foreach ($dir in $candidateDirs) {
     $clipId = '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $clipIndex, (Nz $date), (Nz $homeTeam), (Nz $awayTeam), $label, $meta.tstartRaw, $meta.tendRaw
 
     $notes = ''
+    if ($meta.isPlaceholder) {
+        $notes = Add-Note $notes 'raw placeholder folder'
+    }
     if ($legacyClipIds.Contains($clipId)) {
         $notes = Add-Note $notes 'seen in legacy index'
     }
@@ -344,6 +379,8 @@ foreach ($dir in $candidateDirs) {
         trf_exists = $trfExists
         stabilized_exists = $stabilizedExists
         has_branded = 'false'
+        placeholder = if ($meta.isPlaceholder) { 'true' } else { 'false' }
+        dup_count = [int]$meta.dupCount
         notes = $notes
     }
 
@@ -351,8 +388,31 @@ foreach ($dir in $candidateDirs) {
         $existingRow = $rowsById[$clipId]
         $newScore = Get-ArtifactScore $row
         $existingScore = Get-ArtifactScore $existingRow
+
+        $shouldReplace = $false
         if ($newScore -gt $existingScore) {
+            $shouldReplace = $true
+        }
+        elseif ($newScore -eq $existingScore) {
+            if ($existingRow.placeholder -eq 'true' -and $row.placeholder -ne 'true') {
+                $shouldReplace = $true
+            }
+        }
+
+        if ($shouldReplace) {
+            $row.dup_count = [math]::Max([int]$row.dup_count, [int]$existingRow.dup_count)
+            if ($row.placeholder -ne 'true' -and $existingRow.placeholder -eq 'true') {
+                $row.placeholder = 'false'
+            }
             $rowsById[$clipId] = $row
+        }
+        else {
+            if ([int]$existingRow.dup_count -lt [int]$row.dup_count) {
+                $existingRow.dup_count = [int]$row.dup_count
+            }
+            if ($existingRow.placeholder -eq 'true' -and $row.placeholder -ne 'true') {
+                $existingRow.placeholder = 'false'
+            }
         }
     }
     else {
@@ -442,6 +502,8 @@ foreach ($brand in $brandedInfo) {
         trf_exists = 'false'
         stabilized_exists = 'false'
         has_branded = 'true'
+        placeholder = 'false'
+        dup_count = 1
         notes = 'branded-only evidence'
     }
     $brandedOnlyRows += $brandRow
