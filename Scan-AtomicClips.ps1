@@ -17,6 +17,10 @@ if (-not $PSBoundParameters.ContainsKey('RepoRoot') -or [string]::IsNullOrWhiteS
 $repoRoot = (Resolve-Path -Path $RepoRoot).ProviderPath
 Set-Location $repoRoot
 
+. "$PSScriptRoot\FolderRegex.ps1"
+$FolderRegexPattern = $FolderRegex
+$FolderRegexRx = [regex]$FolderRegexPattern
+
 $logPath = Join-Path $repoRoot 'atomic_clips_scan.log'
 if (Test-Path $logPath) {
     Remove-Item $logPath -ErrorAction SilentlyContinue
@@ -179,13 +183,11 @@ if (Test-Path $brandedRoot) {
     }
 }
 
-$FolderRegex = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>.+?)__t(?<t1>\d+(?:\.\d+)?)(?:-t?|_)(?<t2>\d+(?:\.\d+)?)(?:\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$'
-
 function Parse-FolderName {
     param([string]$name)
 
     $matchedName = $name
-    $match = $FolderRegex.Match($matchedName)
+    $match = $FolderRegexRx.Match($matchedName)
     if (-not $match.Success) {
         return $null
     }
