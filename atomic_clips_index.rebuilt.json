@@ -141,7 +141,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "1|2025-10-04|TSC|FC_Tulsa_Black|DRIBBLING|t387.00|t412.00",
@@ -165,7 +165,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "70|2025-09-20|TSC|Greenwood|BUILD_UP_PLAY_SHOT|t1437.00|t1472.00",
@@ -261,7 +261,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "5|2025-10-04|TSC|FC_Tulsa_Black|SHOT|t600.00|t607.00",
@@ -285,7 +285,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "76|2025-09-20|TSC|Greenwood|BUILD_UP_PLAY_SHOT|t1711.00|t1722.00",
@@ -357,7 +357,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "83|2025-09-20|TSC|RVFC|DRIBBLING_SHOT|t1800.00|t1810.00",
@@ -405,7 +405,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "16|2025-09-13|TSC|NEOFC|SHOT|t155.50|t166.40",
@@ -453,7 +453,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "78|2025-09-20|TSC|Greenwood|PRESSURE_SHOT|t1871.00|t1881.00",
@@ -693,7 +693,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "75|2025-09-13|TSC|NEOFC|SHOT|t3098.90|t3108.80",
@@ -765,7 +765,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "11|2025-10-04|TSC|FC_Tulsa_Black|BUILD_UP_SHOT|t1198.00|t1222.00",
@@ -789,7 +789,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "38|2025-09-20|TSC|RVFC|PRESSURE_SHOT|t675.00|t689.00",
@@ -909,7 +909,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "8|2025-10-04|TSC|FC_Tulsa_Black|BUILD_UP_SHOT|t1025.00|t1040.00",
@@ -933,7 +933,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "44|2025-09-20|TSC|RVFC|BUILD_UP_PLAY_SHOT|t746.00|t757.00",
@@ -1125,7 +1125,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "30|2025-09-13|TSC|NEOFC|SHOT|t1247.80|t1259.20",
@@ -1149,7 +1149,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "23|2025-09-20|TSC|Greenwood|WIN_FREE_KICK|t538.00|t553.00",
@@ -1197,7 +1197,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "37|2025-09-20|TSC|Greenwood|DEFENSE_BUILD_UP|t821.00|t848.00",
@@ -1461,7 +1461,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "32|2025-09-20|TSC|RVFC|BUILD_UP_PLAY_SHOT|t565.00|t600.00",
@@ -1749,7 +1749,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "61|2025-09-20|TSC|Greenwood|BUILD_UP_PLAY_GOAL|t1292.00|t1329.00",
@@ -1797,7 +1797,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "48|2025-09-13|TSC|NEOFC|GOAL|t1904.20|t1925.20",
@@ -1821,7 +1821,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "107|2025-09-20|TSC|RVFC|PRESSURE_GOAL|t2411.00|t2431.00",
@@ -1869,7 +1869,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "27|2025-09-13|TSC|NEOFC|DRIBBLING|t982.00|t987.90",
@@ -1893,7 +1893,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "21|2025-09-20|TSC|Greenwood|PRESSURE_TWO_SHOTS|t444.00|t456.00",
@@ -2109,7 +2109,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "102|2025-09-20|TSC|Greenwood|PRESSURE_SHOT|t2705.00|t2715.00",
@@ -2157,7 +2157,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "73|2025-09-20|TSC|RVFC|PRESSURE_SHOT|t1300.00|t1310.00",
@@ -2277,7 +2277,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "43|2025-09-20|TSC|Greenwood|BUILD_SHOT|t973.00|t987.00",
@@ -2325,7 +2325,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "45|2025-09-13|TSC|NEOFC|GOAL|t1767.50|t1772.60",
@@ -2349,7 +2349,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "85|2025-09-20|TSC|RVFC|SHOT|t1827.00|t1834.00",
@@ -2397,7 +2397,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "49|2025-09-20|TSC|Greenwood|PRESSURE_SHOT|t1063.00|t1073.00",
@@ -2445,7 +2445,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "58|2025-09-20|TSC|Greenwood|PRESSURE_SHOT|t1212.00|t1224.00",
@@ -2517,7 +2517,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "33|2025-09-13|TSC|NEOFC|SHOT|t1420.40|t1438.20",
@@ -2541,7 +2541,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "57|2025-09-13|TSC|NEOFC|SHOT|t2284.90|t2298.20",
@@ -2565,7 +2565,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "19|2025-09-20|TSC|Greenwood|BUILD_UP_PLAY_SHOT|t421.00|t441.00",
@@ -2637,7 +2637,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "52|2025-09-20|TSC|Greenwood|SHOT|t1081.00|t1088.00",
@@ -2685,7 +2685,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "34|2025-09-20|TSC|Greenwood|PRESSURE_SHOT|t802.00|t818.00",
@@ -2757,7 +2757,7 @@
         "trf_exists":  "true",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  ""
+        "notes":  "seen in legacy index"
     },
     {
         "clip_id":  "113|2025-09-20|TSC|RVFC|GOAL|t3010.00|t3028.00",
@@ -2853,7 +2853,7 @@
         "trf_exists":  "false",
         "stabilized_exists":  "true",
         "has_branded":  "true",
-        "notes":  "missing proxy; missing transforms"
+        "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
         "clip_id":  "93|2025-09-20|TSC|RVFC|PRESSURE_SHOT|t1964.00|t1975.00",
