@@ -341,6 +341,7 @@ review.
 | Missing brand assets | Confirm `brand\tsc\title_ribbon_1080x1920.png`, `watermark_corner_256.png`, and `end_card_1080x1920.png` exist. |
 | `pipeline_status.csv` shows stale errors | Run `Resume-Pipeline.ps1` or manually call `tools\catalog.py` with `--mark-branded`/`--mark-upscaled` after verifying outputs. |
 | Renderer slow | Adjust FFmpeg preset via command line (e.g., `--encode-preset medium`). Larger upscale factors (4×) produce better detail but increase render time. |
+| Portrait follow locked or output video runs faster than audio | Follow the step-by-step checks in [`docs/DIAGNOSE_FOLLOW_SYNC.md`](docs/DIAGNOSE_FOLLOW_SYNC.md) to capture the wrapper command, compare FPS, run the renderer with telemetry, and inspect overlays. |
 
 ---
 
