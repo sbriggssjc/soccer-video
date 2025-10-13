@@ -20,15 +20,15 @@ $BrandedRoot = Resolve-Dir $BrandedRoot
 function Nz($v,$fallback=''){ if($null -ne $v -and "$v".Trim() -ne ''){ $v } else { $fallback } }
 function SafeInt($v,$d=0){ try { [int]$v } catch { $d } }
 
+. "$PSScriptRoot\FolderRegex.ps1"
+$FolderRegexPattern = $FolderRegex
+$rxCine = [regex]$FolderRegexPattern
+
 # Parse long or short branded names to parts
 # Supports:
 #  001__2025-09-13__TSC_vs_NEOFC__GOAL__t180.80-t191.20_portrait_POST.mp4
 #  002__GOAL__t180.80-t191.20_portrait_BRAND.mp4
 $rxBranded = [regex]'^(?:(?<idx>\d{3})__)?(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?:(?<home>[A-Za-z0-9_]+)_vs_(?<away>[A-Za-z0-9_]+)__)?(?<label>[A-Z0-9_]+)__t(?<t1>\d+(?:\.\d+)?)\-t(?<t2>\d+(?:\.\d+)?)_portrait_(?<kind>POST|BRAND|FINAL)\.mp4$'
-
-# Parse cinematic folder names
-#  001__2025-09-13__TSC_vs_NEOFC__GOAL__t180.80-t191.20_portrait_FINAL
-$rxCine = [regex]'^(?<idx>\d{3})__(?<date>\d{4}-\d{2}-\d{2})__(?<home>[A-Za-z0-9_]+)_vs_(?<away>[A-Za-z0-9_]+)__(?<label>[A-Z0-9_]+)__t(?<t1>\d+(?:\.\d+)?)\-t(?<t2>\d+(?:\.\d+)?)_portrait_FINAL$'
 
 function Parse-CineFolder([string]$name){
   $m = $rxCine.Match($name)
@@ -147,7 +147,7 @@ foreach($g in $brandedGroups){
   $t1       = $best.t1
   $t2       = $best.t2
 
-  $folderName = '{0}__{1}__{2}_vs_{3}__{4}__t{5}-{6}_portrait_FINAL' -f $idxStr,$date,$homeTeam,$awayTeam,$label,$t1,$t2
+  $folderName = '{0}__{1}__{2}_vs_{3}__{4}__t{5}-t{6}_portrait_FINAL' -f $idxStr,$date,$homeTeam,$awayTeam,$label,$t1,$t2
   $cineFolder = Join-Path $CineRoot $folderName
   $follow     = Join-Path $cineFolder 'follow'
   $stab       = Join-Path $follow 'stabilized.mp4'

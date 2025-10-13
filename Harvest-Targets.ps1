@@ -40,10 +40,12 @@ function Ensure-Dir([string]$p) {
   if (-not (Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
 }
 
-$FolderRegex = [regex]'^(?<idx>\d{3})__(?:(?<date>\d{4}-\d{2}-\d{2})__)?(?<home>[^_]+)_vs_(?<away>[^_]+)__(?<label>.+?)__t(?<t1>\d+(?:\.\d+)?)(?:-t?|_)(?<t2>\d+(?:\.\d+)?)(?:\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$'
+. "$PSScriptRoot\FolderRegex.ps1"
+$FolderRegexPattern = $FolderRegex
+$FolderRegexRx = [regex]$FolderRegexPattern
 
 function Parse-CinematicFolder([string]$name) {
-  $match = $FolderRegex.Match($name)
+  $match = $FolderRegexRx.Match($name)
   if (-not $match.Success) { return $null }
 
   $date = if ($match.Groups['date'].Success) { $match.Groups['date'].Value } else { $null }
