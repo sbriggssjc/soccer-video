@@ -21,6 +21,12 @@ Set-Location $repoRoot
 $FolderRegexPattern = $FolderRegex
 $FolderRegexRx = [regex]$FolderRegexPattern
 
+# Ignore RAW scaffolds and legacy DEBUG-only folders in "unparsed"
+$IgnoreUnparsed = @(
+  '^\d{3}__RAW__t0\.00-t0\.00__x2$',                           # scaffolds
+  '^\d{3}__SHOT__t\d+\.\d+-t\d+\.\d+\.__DEBUG(_FINAL)?_portrait_FINAL$'  # debug leftovers
+) -join '|'
+
 $logPath = Join-Path $repoRoot 'atomic_clips_scan.log'
 if (Test-Path $logPath) {
     Remove-Item $logPath -ErrorAction SilentlyContinue
@@ -228,11 +234,16 @@ function Parse-FolderName {
 $rowsById = @{}
 $unparsedFolders = @()
 
-$candidateDirs = Get-ChildItem -Path $cinematicRoot -Recurse -Directory | Where-Object { $_.Name -match '^\d{1,3}__' }
+$candidateDirs = Get-ChildItem -Path $cinematicRoot -Recurse -Directory | Where-Object {
+    $_.Name -match '^\d{1,3}__' -and -not ($_.Name -match $IgnoreUnparsed)
+}
 foreach ($dir in $candidateDirs) {
     $name = $dir.Name
     $meta = Parse-FolderName -name $name
     if (-not $meta) {
+        if ($name -match $IgnoreUnparsed) {
+            continue
+        }
         $warning = "Unparsed folder name (check pattern): $name"
         Write-Warning $warning
         Write-LogMessage $warning
