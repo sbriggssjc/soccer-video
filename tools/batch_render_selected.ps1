@@ -225,23 +225,36 @@ foreach ($clip in $clips) {
   }
   Write-Host "OUT: $final"
 
-  $args = @("tools\render_follow_unified.py",
-            "--in", $hi,
-            "--preset", $Preset,
-            "--portrait", $Portrait,
-            "--lookahead","24",
-            "--smoothing","0.65",
-            "--zoom-min","1.08",
-            "--zoom-max","1.45",
-            "--speed-limit","280",
-            "--telemetry", $tel,
-            "--log", $log)
+  [string[]]$extraArgs = @(
+    "--telemetry", $tel,
+    "--log", $log,
+    "--lookahead", "24",
+    "--smoothing", "0.65",
+    "--zoom-min", "1.08",
+    "--zoom-max", "1.45",
+    "--speed-limit", "280"
+  )
 
-  if (Test-Path $ballPath) { $args += @("--ball-path", $ballPath, "--ball-key-x","bx_stab", "--ball-key-y","by_stab") }
-  if (Test-Path $BrandOverlay) { $args += @("--brand-overlay", $BrandOverlay) }
-  if (Test-Path $EndCard)      { $args += @("--endcard", $EndCard) }
+  if (Test-Path $ballPath) {
+    $extraArgs += @("--ball-path", $ballPath, "--ball-key-x", "bx_stab", "--ball-key-y", "by_stab")
+  }
+  if (Test-Path $BrandOverlay) { $extraArgs += @("--brand-overlay", $BrandOverlay) }
+  if (Test-Path $EndCard)      { $extraArgs += @("--endcard", $EndCard) }
 
-  python $args
+  $renderParams = @{
+    In        = $hi
+    Out       = $final
+    Preset    = $Preset
+    ExtraArgs = $extraArgs
+    CleanTemp = $true
+  }
+  if ($Portrait) {
+    $renderParams["Portrait"] = $true
+    $renderParams["PortraitSize"] = $Portrait
+  }
+
+  & (Join-Path $PSScriptRoot 'render_follow.ps1') @renderParams
+  if ($LASTEXITCODE -ne 0) { throw "Unified renderer failed." }
 
   # DEBUG overlay
   $dbg = Join-Path $parent ("{0}.__DEBUG_FINAL.mp4" -f $base)
