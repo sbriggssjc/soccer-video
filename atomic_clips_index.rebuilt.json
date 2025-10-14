@@ -67,15 +67,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__SHOT__t0.00-t0.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__SHOT__t0.00-t0.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__SHOT__t0.00-t0.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "48|2025-09-13|TSC|NEOFC|GOAL|t1904.20|t1925.20",
@@ -301,15 +301,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\005__GOAL__t1855.00-t1870.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\005__GOAL__t1855.00-t1870.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\005__GOAL__t1855.00-t1870.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "110|2025-09-20|TSC|RVFC|BUILD_UP_PLAY_SHOT|t2571.00|t2599.00",
@@ -665,15 +665,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__DEFENSE__t310.00-t342.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__DEFENSE__t310.00-t342.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__DEFENSE__t310.00-t342.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "71|2025-09-20|TSC|RVFC|CROSS|t1275.00|t1293.00",
@@ -743,15 +743,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\011__PRESSURE__t2711.00-t2736.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\011__PRESSURE__t2711.00-t2736.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\011__PRESSURE__t2711.00-t2736.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "74|1970-01-01|HOME|AWAY|SHOT|t3028.10|t3059.70",
@@ -925,15 +925,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\008__BUILD_UP__t2438.00-t2442.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\008__BUILD_UP__t2438.00-t2442.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\008__BUILD_UP__t2438.00-t2442.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "86|2025-09-20|TSC|Greenwood|BUILD_UP_PLAY_SHOT|t2092.00|t2105.00",
@@ -1081,15 +1081,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\006__GOAL__t2035.00-t2054.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\006__GOAL__t2035.00-t2054.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\006__GOAL__t2035.00-t2054.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "45|2025-09-13|TSC|NEOFC|GOAL|t1767.50|t1772.60",
@@ -1393,15 +1393,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t135.00-t145.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t135.00-t145.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t135.00-t145.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "23|2025-09-20|TSC|Greenwood|WIN_FREE_KICK|t538.00|t553.00",
@@ -1523,15 +1523,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t0.00-t0.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t0.00-t0.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t0.00-t0.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "41|2025-09-20|TSC|RVFC|PRESSURE_SHOT|t689.00|t702.00",
@@ -1653,15 +1653,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t0.00-t0.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t0.00-t0.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t0.00-t0.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "97|2025-09-20|TSC|RVFC|BUILD_UP_PLAY_SHOT|t2131.00|t2150.00",
@@ -2199,15 +2199,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t185.00-t206.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t185.00-t206.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t185.00-t206.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "107|2025-09-20|TSC|RVFC|PRESSURE_GOAL|t2411.00|t2431.00",
@@ -2823,15 +2823,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\010__PRESSURE__t2694.00-t2706.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\010__PRESSURE__t2694.00-t2706.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\010__PRESSURE__t2694.00-t2706.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "85|2025-09-20|TSC|RVFC|SHOT|t1827.00|t1834.00",
@@ -2875,15 +2875,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\007__CROSS__t2212.00-t2228.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\007__CROSS__t2212.00-t2228.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\007__CROSS__t2212.00-t2228.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "3|2025-10-04|TSC|FC_Tulsa_Black|BUILD_UP|t458.00|t487.00",
@@ -3057,15 +3057,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\009__BUILD_UP__t2673.00-t2685.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\009__BUILD_UP__t2673.00-t2685.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\009__BUILD_UP__t2673.00-t2685.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "14|2025-10-04|TSC|FC_Tulsa_Black|SHOT|t1626.00|t1637.00",
@@ -3239,15 +3239,15 @@
         "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\004__PRESSURE__t640.00-t663.00",
         "proxy_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\004__PRESSURE__t640.00-t663.00\\proxy.mp4",
         "trf_path":  "",
-        "stabilized_path":  "",
+        "stabilized_path":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\004__PRESSURE__t640.00-t663.00\\follow\\stabilized.mp4",
         "branded_matches":  "",
         "proxy_exists":  "true",
         "trf_exists":  "false",
-        "stabilized_exists":  "false",
+        "stabilized_exists":  "true",
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing transforms"
     },
     {
         "clip_id":  "7|2025-10-04|TSC|FC_Tulsa_Black|BUILD_UP_SHOT|t767.00|t785.00",
