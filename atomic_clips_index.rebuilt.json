@@ -621,22 +621,22 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
-        "clip_id":  "3||||RAW|t0.00|t0.00",
+        "clip_id":  "3||||SHOT|t0.00|t0.00",
         "index":  3,
         "date":  null,
         "homeTeam":  null,
         "awayTeam":  null,
-        "label":  "RAW",
+        "label":  "SHOT",
         "tStart":  0,
         "tEnd":  0,
         "duration_sec":  0,
         "orientation":  "unknown",
         "hasDebug":  false,
         "hasFinal":  false,
-        "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__RAW__t0.00-t0.00",
+        "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\003__SHOT__t0.00-t0.00",
         "proxy_path":  "",
         "trf_path":  "",
         "stabilized_path":  "",
@@ -647,7 +647,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "103|2025-09-20|TSC|RVFC|PRESSURE_GOAL|t2348.00|t2367.00",
@@ -1297,7 +1297,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "23|2025-09-20|TSC|Greenwood|WIN_FREE_KICK|t538.00|t553.00",
@@ -1742,19 +1742,19 @@
         "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
-        "clip_id":  "1||||RAW|t0.00|t0.00",
+        "clip_id":  "1||||SHOT|t0.00|t0.00",
         "index":  1,
         "date":  null,
         "homeTeam":  null,
         "awayTeam":  null,
-        "label":  "RAW",
+        "label":  "SHOT",
         "tStart":  0,
         "tEnd":  0,
         "duration_sec":  0,
         "orientation":  "unknown",
         "hasDebug":  false,
         "hasFinal":  false,
-        "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__RAW__t0.00-t0.00",
+        "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\001__SHOT__t0.00-t0.00",
         "proxy_path":  "",
         "trf_path":  "",
         "stabilized_path":  "",
@@ -1765,7 +1765,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "65|2025-09-20|TSC|RVFC|BUILD_UP_PLAY_SHOT|t1158.00|t1182.00",
@@ -2103,7 +2103,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "107|2025-09-20|TSC|RVFC|PRESSURE_GOAL|t2411.00|t2431.00",
@@ -2522,19 +2522,19 @@
         "notes":  "seen in legacy index; missing proxy; missing transforms"
     },
     {
-        "clip_id":  "2||||RAW|t0.00|t0.00",
+        "clip_id":  "2||||SHOT|t0.00|t0.00",
         "index":  2,
         "date":  null,
         "homeTeam":  null,
         "awayTeam":  null,
-        "label":  "RAW",
+        "label":  "SHOT",
         "tStart":  0,
         "tEnd":  0,
         "duration_sec":  0,
         "orientation":  "unknown",
         "hasDebug":  false,
         "hasFinal":  false,
-        "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__RAW__t0.00-t0.00",
+        "root_dir":  "C:\\Users\\scott\\soccer-video\\out\\autoframe_work\\cinematic\\002__SHOT__t0.00-t0.00",
         "proxy_path":  "",
         "trf_path":  "",
         "stabilized_path":  "",
@@ -2545,7 +2545,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  1,
-        "notes":  "raw placeholder folder; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "6|2025-09-13|TSC|NEOFC|DEFENSE|t699.30|t711.50",
@@ -3065,7 +3065,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
+        "notes":  "shot placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "7|2025-10-04|TSC|FC_Tulsa_Black|BUILD_UP_SHOT|t767.00|t785.00",
