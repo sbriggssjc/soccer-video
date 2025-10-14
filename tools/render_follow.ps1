@@ -91,6 +91,44 @@ if ($ExtraArgs) {
     foreach ($item in $ExtraArgs) { $argsList.Add($item) }
 }
 
+$repoRoot = Split-Path -Parent $scriptRoot
+$logsDir = Join-Path (Join-Path $repoRoot 'out') 'render_logs'
+$stem = [System.IO.Path]::GetFileNameWithoutExtension($clipPath)
+$planLockPath = Join-Path $logsDir ($stem + '.ball.lock.jsonl')
+$planPath = Join-Path $logsDir ($stem + '.ball.jsonl')
+
+$hasBallPath = $false
+foreach ($arg in $argsList) {
+    if ($arg -eq '--ball-path' -or $arg -like '--ball-path=*') {
+        $hasBallPath = $true
+        break
+    }
+}
+
+if (-not $hasBallPath) {
+    if (Test-Path -LiteralPath $planLockPath) {
+        $argsList.Add('--ball-path')
+        $argsList.Add($planLockPath)
+    }
+    elseif (Test-Path -LiteralPath $planPath) {
+        $argsList.Add('--ball-path')
+        $argsList.Add($planPath)
+    }
+}
+
+$hasFps = $false
+foreach ($arg in $argsList) {
+    if ($arg -eq '--fps' -or $arg -like '--fps=*') {
+        $hasFps = $true
+        break
+    }
+}
+
+if (-not $hasFps) {
+    $argsList.Add('--fps')
+    $argsList.Add('24')
+}
+
 $commandLine = $argsList -join ' '
 Write-Host ('Invoking unified renderer: {0} {1}' -f $pythonCmd.Path, $commandLine)
 
