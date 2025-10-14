@@ -26,7 +26,7 @@ $RawRegexRx = [regex]$RawRegexPattern
 # Ignore RAW scaffolds and legacy DEBUG-only folders in "unparsed"
 $IgnoreUnparsed = @(
   '^\d{3}__RAW__t0\.00-t0\.00__x2$',                           # scaffolds
-  '^\d{3}__SHOT__t\d+\.\d+-t\d+\.\d+\.__DEBUG(_FINAL)?_portrait_FINAL$'  # debug leftovers
+  '^\d{3}__SHOT__t\d+\.\d+-t\d+\.\d+(?:\.__DEBUG(?:_FINAL)?|\.?__x\d+)_portrait_FINAL$'  # debug leftovers
 ) -join '|'
 
 $logPath = Join-Path $repoRoot 'atomic_clips_scan.log'
@@ -206,8 +206,12 @@ function Parse-FolderName {
         $awayTeam = if ($match.Groups['away'].Success) { $match.Groups['away'].Value } else { $null }
         if ([string]::IsNullOrWhiteSpace($awayTeam)) { $awayTeam = $null }
 
-        $tailMatch = [regex]::Match($matchedName, '(\.__DEBUG(?:_FINAL)?_portrait_FINAL|_portrait_FINAL)$')
-        $tail = if ($tailMatch.Success) { $tailMatch.Groups[1].Value } else { '' }
+        $tailMatch = [regex]::Match($matchedName, '(?<tail>\.__DEBUG(?:_FINAL)?_portrait_FINAL|__x(?<dup>\d+)_portrait_FINAL|_portrait_FINAL)$')
+        $tail = if ($tailMatch.Success) { $tailMatch.Groups['tail'].Value } else { '' }
+        $dupCount = 1
+        if ($tailMatch.Success -and $tailMatch.Groups['dup'].Success -and -not [string]::IsNullOrWhiteSpace($tailMatch.Groups['dup'].Value)) {
+            $dupCount = [int]$tailMatch.Groups['dup'].Value
+        }
 
         $t1Raw = $match.Groups['t1'].Value
         $t2Raw = $match.Groups['t2'].Value
@@ -226,10 +230,10 @@ function Parse-FolderName {
             tendRaw       = "t$($t2Raw)"
             isPortrait    = $true
             isDebug       = if ($tail -match '__DEBUG') { $true } else { $false }
-            isDebugFinal  = if ($tail -match '__DEBUG_FINAL') { $true } else { $false }
+            isDebugFinal  = if ($tail -match '__DEBUG_FINAL' -or $tail -match '__x\d+') { $true } else { $false }
             rawTail       = $tail
             isPlaceholder = $false
-            dupCount      = 1
+            dupCount      = $dupCount
         }
     }
 

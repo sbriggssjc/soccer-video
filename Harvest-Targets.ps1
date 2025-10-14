@@ -33,6 +33,7 @@ function JoinKey([string]$idx,[string]$date,[string]$homeTeam,[string]$awayTeam,
 function CleanBase([string]$s) {
   if (-not $s) { return $null }
   $x = $s -replace '\.__DEBUG(?:_FINAL)?_portrait_FINAL$',''
+  $x = $x -replace '__x\d+_portrait_FINAL$',''
   $x = $x -replace '_portrait_FINAL$',''
   return $x
 }
