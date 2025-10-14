@@ -23,9 +23,9 @@ $FolderRegexRx = [regex]$FolderRegexPattern
 $RawRegexPattern = '^(?<id>\d{3})__(?<kind>[A-Z_]+)__t(?<t0>\d+\.\d+)-t(?<t1>\d+\.\d+)(?:__x(?<count>\d+))?$'
 $RawRegexRx = [regex]$RawRegexPattern
 
-# Ignore RAW scaffolds and legacy DEBUG-only folders in "unparsed"
+# Ignore SHOT scaffolds and legacy DEBUG-only folders in "unparsed"
 $IgnoreUnparsed = @(
-  '^\d{3}__RAW__t0\.00-t0\.00__x2$',                           # scaffolds
+  '^\d{3}__SHOT__t0\.00-t0\.00__x2$',                          # scaffolds
   '^\d{3}__SHOT__t\d+\.\d+-t\d+\.\d+(?:\.__DEBUG(?:_FINAL)?|\.?__x\d+)_portrait_FINAL$'  # debug leftovers
 ) -join '|'
 
