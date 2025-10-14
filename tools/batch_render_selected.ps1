@@ -257,7 +257,7 @@ foreach ($clip in $clips) {
   if ($LASTEXITCODE -ne 0) { throw "Unified renderer failed." }
 
   # DEBUG overlay
-  $dbg = Join-Path $parent ("{0}.__DEBUG_FINAL.mp4" -f $base)
+  $dbg = Join-Path $parent ("{0}__x2.mp4" -f $base)
   python tools\sanitize_telemetry.py --in $tel
   python tools\overlay_debug.py --in $clip --telemetry $tel --out $dbg
 }

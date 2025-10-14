@@ -63,7 +63,7 @@ Overlay the telemetry to verify that a moving camera plan is in play.
 python tools\overlay_debug.py `
   --in "$Clip" `
   --telemetry "C:\Users\scott\soccer-video\out\render_logs\${Stem}.final.jsonl" `
-  --out "C:\Users\scott\soccer-video\out\atomic_clips\2025-10-12__TSC_SLSG_FallFestival\${Stem}.__DEBUG_FINAL.mp4"
+  --out "C:\Users\scott\soccer-video\out\atomic_clips\2025-10-12__TSC_SLSG_FallFestival\${Stem}__x2.mp4"
 ```
 
 The debug MP4 should show per-frame camera centres and zoom boxes. A static overlay means the follow plan was not applied.
