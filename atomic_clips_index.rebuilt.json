@@ -647,7 +647,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; missing proxy; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "103|2025-09-20|TSC|RVFC|PRESSURE_GOAL|t2348.00|t2367.00",
@@ -1765,7 +1765,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; missing proxy; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "65|2025-09-20|TSC|RVFC|BUILD_UP_PLAY_SHOT|t1158.00|t1182.00",
@@ -2545,7 +2545,7 @@
         "has_branded":  "false",
         "placeholder":  "true",
         "dup_count":  2,
-        "notes":  "raw placeholder folder; missing proxy; missing transforms; missing stabilized"
+        "notes":  "raw placeholder folder; seen in legacy index; missing proxy; missing transforms; missing stabilized"
     },
     {
         "clip_id":  "6|2025-09-13|TSC|NEOFC|DEFENSE|t699.30|t711.50",
