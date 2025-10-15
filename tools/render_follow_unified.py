@@ -996,6 +996,99 @@ def parse_portrait(value: Optional[str]) -> Optional[Tuple[int, int]]:
     return width, height
 
 
+def portrait_config_from_preset(
+    value: Optional[Union[str, Mapping[str, object], Sequence[object]]]
+) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[float, float]], float]:
+    """Extract portrait size, minimum crop, and horizon lock from a preset entry."""
+
+    portrait: Optional[Tuple[int, int]] = None
+    min_box: Optional[Tuple[float, float]] = None
+    horizon_lock = 0.0
+
+    def _parse_size(size_value: object) -> Optional[Tuple[int, int]]:
+        if size_value is None:
+            return None
+        if isinstance(size_value, str):
+            return parse_portrait(size_value)
+        if isinstance(size_value, Mapping):
+            width = size_value.get("width")
+            height = size_value.get("height")
+            if width is None or height is None:
+                return None
+            try:
+                w = int(width)
+                h = int(height)
+            except (TypeError, ValueError):
+                return None
+            if w > 0 and h > 0:
+                return w, h
+            return None
+        if isinstance(size_value, Sequence):
+            seq = list(size_value)
+            if len(seq) < 2:
+                return None
+            try:
+                w = int(seq[0])
+                h = int(seq[1])
+            except (TypeError, ValueError):
+                return None
+            if w > 0 and h > 0:
+                return w, h
+        return None
+
+    if value is None:
+        return None, None, 0.0
+
+    if isinstance(value, Mapping):
+        size_value = value.get("size")
+        if size_value is None:
+            size_value = value.get("canvas") or value.get("dimensions")
+        portrait = _parse_size(size_value)
+        if portrait is None and "width" in value and "height" in value:
+            portrait = _parse_size({"width": value.get("width"), "height": value.get("height")})
+
+        min_box_value = value.get("min_box_px") or value.get("min_box")
+        if isinstance(min_box_value, Mapping):
+            mbw = min_box_value.get("width")
+            mbh = min_box_value.get("height")
+            try:
+                mbw_f = float(mbw) if mbw is not None else None
+                mbh_f = float(mbh) if mbh is not None else None
+            except (TypeError, ValueError):
+                mbw_f = mbh_f = None
+            if mbw_f is not None and mbh_f is not None and mbw_f > 0 and mbh_f > 0:
+                min_box = (mbw_f, mbh_f)
+        elif isinstance(min_box_value, Sequence):
+            seq = list(min_box_value)
+            if len(seq) >= 2:
+                try:
+                    mbw_f = float(seq[0])
+                    mbh_f = float(seq[1])
+                except (TypeError, ValueError):
+                    mbw_f = mbh_f = None
+                else:
+                    if mbw_f > 0 and mbh_f > 0:
+                        min_box = (mbw_f, mbh_f)
+
+        horizon_value = value.get("horizon_lock")
+        if horizon_value is not None:
+            try:
+                horizon_lock = float(horizon_value)
+            except (TypeError, ValueError):
+                horizon_lock = 0.0
+            else:
+                horizon_lock = float(np.clip(horizon_lock, 0.0, 1.0))
+
+        if portrait is None:
+            inline = value.get("size")
+            if isinstance(inline, str):
+                portrait = parse_portrait(inline)
+    else:
+        portrait = _parse_size(value)
+
+    return portrait, min_box, horizon_lock
+
+
 def find_label_files(stem: str, labels_root: str) -> List[Path]:
     root = Path(labels_root or "out/yolo").expanduser()
     # Match ANY depth .../labels/<stem>_*.txt
@@ -1271,6 +1364,12 @@ class CameraPlanner:
         zoom_min: float,
         zoom_max: float,
         portrait: Optional[Tuple[int, int]] = None,
+        *,
+        margin_px: float = 0.0,
+        lead_frames: int = 0,
+        speed_zoom: Optional[Mapping[str, object]] = None,
+        min_box: Optional[Tuple[float, float]] = None,
+        horizon_lock: float = 0.0,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -1282,6 +1381,57 @@ class CameraPlanner:
         self.zoom_min = max(0.1, float(zoom_min))
         self.zoom_max = max(self.zoom_min, float(zoom_max))
         self.portrait = portrait
+
+        self.margin_px = max(0.0, float(margin_px))
+        self.lead_frames = max(0, int(lead_frames))
+
+        render_fps = self.fps if self.fps > 0 else 30.0
+        if render_fps <= 0:
+            render_fps = 30.0
+        self.render_fps = render_fps
+        self.speed_norm_px = 24.0 * (render_fps / 24.0)
+        self.zoom_slew = 0.02 * (render_fps / 24.0)
+
+        self.min_box_w = 0.0
+        self.min_box_h = 0.0
+        if min_box:
+            try:
+                mbw = float(min_box[0])
+                mbh = float(min_box[1])
+            except (TypeError, ValueError, IndexError):
+                mbw = mbh = 0.0
+            else:
+                if mbw > 0:
+                    self.min_box_w = min(self.width, mbw)
+                if mbh > 0:
+                    self.min_box_h = min(self.height, mbh)
+
+        self.horizon_lock = float(np.clip(horizon_lock, 0.0, 1.0))
+
+        self.speed_zoom_config: Optional[dict[str, float]] = None
+        if speed_zoom and bool(speed_zoom.get("enabled", True)):
+            try:
+                v_lo = float(speed_zoom.get("v_lo", 0.0))
+                v_hi = float(speed_zoom.get("v_hi", 0.0))
+                zoom_lo = float(speed_zoom.get("zoom_lo", 1.0))
+                zoom_hi = float(speed_zoom.get("zoom_hi", 1.0))
+            except (TypeError, ValueError):
+                self.speed_zoom_config = None
+            else:
+                if v_lo < 0:
+                    v_lo = 0.0
+                if v_hi < 0:
+                    v_hi = 0.0
+                if v_hi < v_lo:
+                    v_hi, v_lo = v_lo, v_hi
+                base_zoom = float(self.zoom_max)
+                self.speed_zoom_config = {
+                    "v_lo": v_lo,
+                    "v_hi": v_hi,
+                    "zoom_lo": zoom_lo,
+                    "zoom_hi": zoom_hi,
+                    "base_zoom": base_zoom,
+                }
 
         base_side = min(self.width, self.height)
         base_side = max(1.0, base_side)
@@ -1301,7 +1451,7 @@ class CameraPlanner:
         prev_zoom = self.base_zoom
         fallback_center = np.array([prev_cx, self.height * 0.45], dtype=np.float32)
         fallback_alpha = 0.05
-        render_fps = self.fps if self.fps > 0 else 30.0
+        render_fps = self.render_fps
         px_per_sec_x = self.speed_limit * 1.35
         px_per_sec_y = self.speed_limit * 0.90
         pxpf_x = px_per_sec_x / render_fps if render_fps > 0 else 0.0
@@ -1309,8 +1459,7 @@ class CameraPlanner:
         center_alpha = float(np.clip(self.smoothing, 0.0, 1.0))
         if math.isclose(center_alpha, 0.0, abs_tol=1e-6):
             center_alpha = 0.28
-        zoom_slew = 0.02
-        speed_norm_px = 24.0 * (render_fps / 24.0 if render_fps > 0 else 1.0)
+        zoom_slew = self.zoom_slew
         prev_target_x = prev_cx
         prev_target_y = prev_cy
 
@@ -1347,12 +1496,27 @@ class CameraPlanner:
                 crop_w *= pad_scale
                 crop_h *= pad_scale
 
+            min_box_w = self.min_box_w
+            min_box_h = self.min_box_h
+            if min_box_w > 0.0 or min_box_h > 0.0:
+                if min_box_w <= 0.0 and min_box_h > 0.0 and aspect_ratio > 0.0:
+                    min_box_w = min_box_h * aspect_ratio
+                elif min_box_h <= 0.0 and min_box_w > 0.0 and aspect_ratio > 0.0:
+                    min_box_h = min_box_w / max(aspect_ratio, 1e-6)
+                crop_w = max(crop_w, min_box_w)
+                crop_h = max(crop_h, min_box_h)
+
             crop_w = float(np.clip(crop_w, 1.0, self.width))
             crop_h = float(np.clip(crop_h, 1.0, self.height))
 
             adjusted_cy = center_y
             if aspect_target:
                 adjusted_cy = adjusted_cy + 0.10 * crop_h
+                if self.horizon_lock > 0.0:
+                    anchor = self.height * self.horizon_lock
+                    adjusted_cy = float(
+                        (1.0 - self.horizon_lock) * adjusted_cy + self.horizon_lock * anchor
+                    )
 
             desired_x0 = center_x - crop_w / 2.0
             desired_y0 = adjusted_cy - crop_h / 2.0
@@ -1376,6 +1540,15 @@ class CameraPlanner:
 
             if has_position:
                 target = pos.copy()
+                if self.lead_frames > 0:
+                    lead_idx = min(frame_count - 1, frame_idx + self.lead_frames)
+                    if lead_idx != frame_idx:
+                        future_valid = bool(used_mask[lead_idx]) and not np.isnan(
+                            positions[lead_idx]
+                        ).any()
+                        if future_valid:
+                            lead_pos = positions[lead_idx]
+                            target = 0.6 * target + 0.4 * lead_pos
             else:
                 fallback_target = np.array([self.width / 2.0, self.height * 0.40], dtype=np.float32)
                 fallback_center = (
@@ -1397,10 +1570,23 @@ class CameraPlanner:
             by_used = float(target[1])
 
             speed_pf = math.hypot(bx_used - prev_target_x, by_used - prev_target_y)
-            norm = 0.0
-            if speed_norm_px > 1e-6:
-                norm = min(1.0, speed_pf / speed_norm_px)
-            zoom_target = self.zoom_min + (self.zoom_max - self.zoom_min) * (1.0 - norm)
+            if self.speed_zoom_config:
+                config = self.speed_zoom_config
+                v_lo = config["v_lo"]
+                v_hi = config["v_hi"]
+                if v_hi <= v_lo:
+                    norm = 1.0 if speed_pf >= v_hi else 0.0
+                else:
+                    norm = float(np.clip((speed_pf - v_lo) / max(v_hi - v_lo, 1e-6), 0.0, 1.0))
+                zoom_factor = config["zoom_lo"] + (config["zoom_hi"] - config["zoom_lo"]) * norm
+                zoom_target = float(config["base_zoom"] * zoom_factor)
+                zoom_target = float(np.clip(zoom_target, self.zoom_min, self.zoom_max))
+            else:
+                speed_norm_px = self.speed_norm_px
+                norm = 0.0
+                if speed_norm_px > 1e-6:
+                    norm = min(1.0, speed_pf / speed_norm_px)
+                zoom_target = self.zoom_min + (self.zoom_max - self.zoom_min) * (1.0 - norm)
             zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
@@ -1443,6 +1629,26 @@ class CameraPlanner:
 
                 max_x0 = max(0.0, self.width - crop_w)
                 max_y0 = max(0.0, self.height - crop_h)
+
+                margin_px = self.margin_px
+                if margin_px > 0.0:
+                    desired_x0 = x0
+                    desired_y0 = y0
+                    if bx < x0 + margin_px:
+                        desired_x0 = max(0.0, min(max_x0, bx - margin_px))
+                    elif bx > x0 + crop_w - margin_px:
+                        desired_x0 = max(0.0, min(max_x0, bx + margin_px - crop_w))
+                    if by < y0 + margin_px:
+                        desired_y0 = max(0.0, min(max_y0, by - margin_px))
+                    elif by > y0 + crop_h - margin_px:
+                        desired_y0 = max(0.0, min(max_y0, by + margin_px - crop_h))
+                    if not (
+                        math.isclose(desired_x0, x0, rel_tol=1e-6, abs_tol=1e-3)
+                        and math.isclose(desired_y0, y0, rel_tol=1e-6, abs_tol=1e-3)
+                    ):
+                        x0 = desired_x0
+                        y0 = desired_y0
+                        bounds_clamped = True
 
                 def _rounded_bounds(x_start: float, y_start: float) -> Tuple[int, int, int, int]:
                     x1_i = int(round(x_start))
@@ -1561,6 +1767,9 @@ class Renderer:
         init_manual: bool,
         init_t: float,
         ball_path: Optional[Sequence[BallPathEntry]],
+        follow_lead_time: float = 0.0,
+        follow_margin_px: float = 0.0,
+        follow_smoothing: float = 0.3,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -1579,6 +1788,9 @@ class Renderer:
         self.last_ffmpeg_command: Optional[List[str]] = None
         self.init_manual = bool(init_manual)
         self.init_t = float(init_t)
+        self.follow_lead_time = max(0.0, float(follow_lead_time))
+        self.follow_margin_px = max(0.0, float(follow_margin_px))
+        self.follow_smoothing = float(np.clip(follow_smoothing, 0.0, 1.0))
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -1855,15 +2067,20 @@ class Renderer:
                 else:
                     target_aspect = (float(width) / float(height)) if height > 0 else 1.0
 
+                pan_alpha = float(np.clip(self.follow_smoothing, 0.05, 0.95))
+                lead_seconds = max(0.0, float(self.follow_lead_time))
+                bounds_pad = int(round(self.follow_margin_px)) if self.follow_margin_px > 0 else 16
+                bounds_pad = max(8, bounds_pad)
+
                 plan_x0, plan_y0, plan_w, plan_h, plan_spd, plan_zoom = plan_camera_from_ball(
                     bx_arr,
                     by_arr,
                     float(width),
                     float(height),
                     float(target_aspect),
-                    pan_alpha=0.15,
-                    lead=0.10,
-                    bounds_pad=16,
+                    pan_alpha=pan_alpha,
+                    lead=lead_seconds,
+                    bounds_pad=bounds_pad,
                 )
 
                 offline_plan_len = len(plan_x0)
@@ -2860,29 +3077,82 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     if fps_out <= 0:
         fps_out = fps_in if fps_in > 0 else 30.0
 
+    follow_config_raw = preset_config.get("follow")
+    follow_config: Mapping[str, object] = {}
+    if isinstance(follow_config_raw, Mapping):
+        follow_config = follow_config_raw
+
     portrait_w = getattr(args, "portrait_w", None)
     portrait_h = getattr(args, "portrait_h", None)
-    portrait_str = args.portrait or preset_config.get("portrait")
+    preset_portrait, portrait_min_box, portrait_horizon_lock = portrait_config_from_preset(
+        preset_config.get("portrait")
+    )
     portrait: Optional[Tuple[int, int]] = None
     if portrait_w is not None and portrait_h is not None:
         portrait = (portrait_w, portrait_h)
-    elif portrait_str:
-        portrait = parse_portrait(portrait_str)
+    elif args.portrait:
+        portrait = parse_portrait(args.portrait)
         if portrait:
             portrait_w, portrait_h = portrait
+    elif preset_portrait:
+        portrait = preset_portrait
+        portrait_w, portrait_h = portrait
     if portrait_w is not None:
         setattr(args, "portrait_w", portrait_w)
     if portrait_h is not None:
         setattr(args, "portrait_h", portrait_h)
 
     lookahead = int(args.lookahead) if args.lookahead is not None else int(preset_config.get("lookahead", 18))
-    smoothing = float(args.smoothing) if args.smoothing is not None else float(preset_config.get("smoothing", 0.65))
+    smoothing_default = preset_config.get("smoothing", 0.65)
+    follow_smoothing = follow_config.get("smoothing") if follow_config else None
+    if follow_smoothing is not None:
+        try:
+            smoothing_default = float(follow_smoothing)
+        except (TypeError, ValueError):
+            smoothing_default = preset_config.get("smoothing", 0.65)
+    smoothing = float(args.smoothing) if args.smoothing is not None else float(smoothing_default)
     pad = float(args.pad) if args.pad is not None else float(preset_config.get("pad", 0.22))
     speed_limit = float(args.speed_limit) if args.speed_limit is not None else float(preset_config.get("speed_limit", 480))
     zoom_min = float(args.zoom_min) if args.zoom_min is not None else float(preset_config.get("zoom_min", 1.0))
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
     crf = int(args.crf) if args.crf is not None else int(preset_config.get("crf", 19))
     keyint_factor = int(args.keyint_factor) if args.keyint_factor is not None else int(preset_config.get("keyint_factor", 4))
+
+    margin_px = 0.0
+    margin_val = follow_config.get("margin_px") if follow_config else None
+    if margin_val is not None:
+        try:
+            margin_px = max(0.0, float(margin_val))
+        except (TypeError, ValueError):
+            margin_px = 0.0
+
+    lead_time_s = 0.0
+    lead_val = follow_config.get("lead_time") if follow_config else None
+    if lead_val is not None:
+        try:
+            lead_time_s = max(0.0, float(lead_val))
+        except (TypeError, ValueError):
+            lead_time_s = 0.0
+    lead_frames = int(round(lead_time_s * fps_out)) if fps_out > 0 else 0
+
+    speed_zoom_value = follow_config.get("speed_zoom") if follow_config else None
+    speed_zoom_config = speed_zoom_value if isinstance(speed_zoom_value, Mapping) else None
+
+    default_ball_key_x = "bx_stab"
+    default_ball_key_y = "by_stab"
+    keys_value = follow_config.get("keys") if follow_config else None
+    if isinstance(keys_value, Sequence) and len(keys_value) >= 2:
+        try:
+            default_ball_key_x = str(keys_value[0])
+            default_ball_key_y = str(keys_value[1])
+        except Exception:
+            default_ball_key_x = "bx_stab"
+            default_ball_key_y = "by_stab"
+
+    if not getattr(args, "ball_key_x", None):
+        setattr(args, "ball_key_x", default_ball_key_x)
+    if not getattr(args, "ball_key_y", None):
+        setattr(args, "ball_key_y", default_ball_key_y)
 
     output_path = Path(args.out) if args.out else _default_output_path(original_source_path, preset_key)
     output_path = output_path.expanduser().resolve()
@@ -2951,6 +3221,11 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         zoom_min=zoom_min,
         zoom_max=zoom_max,
         portrait=portrait,
+        margin_px=margin_px,
+        lead_frames=lead_frames,
+        speed_zoom=speed_zoom_config,
+        min_box=portrait_min_box,
+        horizon_lock=portrait_horizon_lock,
     )
     states = planner.plan(positions, used_mask)
 
@@ -2988,6 +3263,9 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         init_manual=getattr(args, "init_manual", False),
         init_t=getattr(args, "init_t", 0.8),
         ball_path=offline_ball_path,
+        follow_lead_time=lead_time_s,
+        follow_margin_px=margin_px,
+        follow_smoothing=smoothing,
     )
 
     renderer.write_frames(states)
@@ -3050,13 +3328,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ball-key-x",
         dest="ball_key_x",
-        default="bx_stab",
+        default=None,
         help="Preferred X key when reading planned ball path JSONL",
     )
     parser.add_argument(
         "--ball-key-y",
         dest="ball_key_y",
-        default="by_stab",
+        default=None,
         help="Preferred Y key when reading planned ball path JSONL",
     )
     parser.add_argument(
