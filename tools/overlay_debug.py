@@ -45,6 +45,11 @@ def main():
     ap.add_argument("--out", default=None, help="output debug mp4")
     ap.add_argument("--thickness", type=int, default=2)
     ap.add_argument("--ball-radius", type=int, default=8)
+    ap.add_argument(
+        "--show-plan-text",
+        action="store_true",
+        help="Render debug text with frame index, plan time, and coordinates",
+    )
     args = ap.parse_args()
 
     inp = os.path.abspath(args.inp)
@@ -103,6 +108,60 @@ def main():
                 args.ball_radius,
                 (0, 0, 255),
                 args.thickness,
+            )
+
+        if args.show_plan_text:
+            plan_t = rec.get("t") if isinstance(rec, dict) else None
+            if isinstance(plan_t, (int, float)):
+                plan_t_val = float(plan_t)
+                plan_t_str = f"{plan_t_val:.3f}s"
+            else:
+                plan_t_val = None
+                plan_t_str = "?"
+
+            actual_t = idx / float(fps) if fps else 0.0
+
+            def _extract_plan_xy(record):
+                if isinstance(record, dict):
+                    for key_x, key_y in ("bx_stab", "by_stab"), ("bx", "by"), ("bx_raw", "by_raw"):
+                        if key_x in record and key_y in record:
+                            try:
+                                return float(record[key_x]), float(record[key_y])
+                            except (TypeError, ValueError):
+                                continue
+                return None, None
+
+            plan_bx, plan_by = _extract_plan_xy(rec)
+            if plan_bx is not None and plan_by is not None and 0.0 <= plan_bx <= 1.0 and 0.0 <= plan_by <= 1.0:
+                plan_bx_disp = plan_bx * (W - 1)
+                plan_by_disp = plan_by * (H - 1)
+            else:
+                plan_bx_disp = plan_bx
+                plan_by_disp = plan_by
+
+            bx_str = f"{plan_bx_disp:.1f}" if plan_bx_disp is not None else "?"
+            by_str = f"{plan_by_disp:.1f}" if plan_by_disp is not None else "?"
+
+            text = f"f={idx} t_plan={plan_t_str} t_frame={actual_t:.3f}s bx={bx_str} by={by_str}"
+            cv2.putText(
+                frame,
+                text,
+                (12, 28),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (0, 0, 0),
+                3,
+                lineType=cv2.LINE_AA,
+            )
+            cv2.putText(
+                frame,
+                text,
+                (12, 28),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (255, 255, 255),
+                1,
+                lineType=cv2.LINE_AA,
             )
 
         if "crop_src" in row and row["crop_src"]:
