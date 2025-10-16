@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [Parameter(Position=0)] [string]$RepoRoot      = ".",
   [Parameter(Position=1)] [string]$CinematicRoot = ".\out\autoframe_work\cinematic",
@@ -270,7 +270,7 @@ function Parse-FolderName {
 $rowsById = @{}
 $unparsedFolders = @()
 
-$candidateDirs = Get-ChildItem -Path $cinematicRoot -Recurse -Directory | Where-Object {
+$candidateDirs = Get-ChildItem -Path $cinematicRoot -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object {
     $_.Name -match '^\d{1,3}__' -and -not ($_.Name -match $IgnoreUnparsed)
 }
 foreach ($dir in $candidateDirs) {
