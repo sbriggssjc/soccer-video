@@ -7,7 +7,7 @@ import numpy as np
 
 def load_plan(path):
     rows = []
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, 'r', encoding='utf-8-sig') as f:
         for ln in f:
             ln = ln.strip()
             if not ln:
