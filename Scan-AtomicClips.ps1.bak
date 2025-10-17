@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Position=0)] [string]$RepoRoot      = ".",
   [Parameter(Position=1)] [string]$CinematicRoot = ".\out\autoframe_work\cinematic",
