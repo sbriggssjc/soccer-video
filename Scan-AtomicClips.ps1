@@ -478,17 +478,24 @@ foreach ($row in $rows) {
 
 
 
-# -- index-rescue patch (robust v2) --
-# Rescue branded files without dates by matching the 3-digit prefix to the clip folder prefix.
+
+# -- index-rescue patch (robust v3) --
+# Rescue branded files without dates by matching a normalized 3-digit index to the clip/clip_id prefix.
 
 $__unmatched = $brandedInfo | Where-Object { -not $_.Matched }
-$__unmatchedWithIdx = $__unmatched | Where-Object {
+
+# Only those branded files that start with a 3-digit index
+$__unmatchedWithIdx = $__unmatched | ForEach-Object {
     $bn = [IO.Path]::GetFileNameWithoutExtension($_.Path)
-    [regex]::IsMatch($bn, '^(?<idx>\d{3})')
+    $m  = [regex]::Match($bn, '^(?<idx>\d{3})')
+    if ($m.Success) {
+        $norm = ('{0:000}' -f [int]$m.Groups['idx'].Value)
+        [pscustomobject]@{ BrandObj=$_; BrandIdx=$norm }
+    }
 }
 Write-Host "Index-rescue candidates (no-date w/ index): $($__unmatchedWithIdx.Count)"
 
-# Build index -> row map using BOTH .clip and .clip_id (some paths only set clip_id)
+# Build index -> row map using BOTH .clip and .clip_id (normalize to 000)
 $__rowsByIdx = @{}
 $__rowsWithIdx = 0
 
@@ -498,24 +505,23 @@ foreach ($r in $rows) {
         $m = [regex]::Match($c.Trim(), '^(?<idx>\d{3})')
         if ($m.Success) {
             $__rowsWithIdx++
-            $idx = $m.Groups['idx'].Value
+            $idx = ('{0:000}' -f [int]$m.Groups['idx'].Value)
             if (-not $__rowsByIdx.ContainsKey($idx)) { $__rowsByIdx[$idx] = $r }
             break
         }
     }
 }
 
-# If still empty, crosswalk indices from actual directory names under cinematicRoot
+# If empty, crosswalk indices from actual cinematic folder names
 if ($__rowsByIdx.Count -eq 0 -and (Test-Path $cinematicRoot)) {
     $clipDirs = Get-ChildItem -LiteralPath $cinematicRoot -Directory -ErrorAction SilentlyContinue
     foreach ($d in $clipDirs) {
         $m = [regex]::Match($d.Name, '^(?<idx>\d{3})')
         if (-not $m.Success) { continue }
-        $idx = $m.Groups['idx'].Value
+        $idx = ('{0:000}' -f [int]$m.Groups['idx'].Value)
         if (-not $__rowsByIdx.ContainsKey($idx)) {
-            # Find a row whose clip OR clip_id matches this directory name prefix
             $rowForIdx = $rows | Where-Object {
-                ($_.clip -and $_.clip -like "$idx*") -or ($_.clip_id -and $_.clip_id -like "$idx*")
+                ($_.clip -and $_.clip.Trim() -like "$idx*") -or ($_.clip_id -and $_.clip_id.Trim() -like "$idx*")
             } | Select-Object -First 1
             if ($rowForIdx) { $__rowsByIdx[$idx] = $rowForIdx }
         }
@@ -523,21 +529,21 @@ if ($__rowsByIdx.Count -eq 0 -and (Test-Path $cinematicRoot)) {
 }
 
 Write-Host "Rows carrying 3-digit indices: $__rowsWithIdx"
-Write-Host "Distinct indices mapped from rows: $(${$__rowsByIdx}.Keys.Count)"
+Write-Host "Distinct indices mapped from rows: $($__rowsByIdx.Count)"
+
+# Optional: show a few keys to sanity check
+$__peek = ($__rowsByIdx.Keys | Select-Object -First 6) -join ', '
+if ($__peek) { Write-Host "Sample row indices: $__peek" }
 
 $rescued = 0
-foreach ($brand in $__unmatchedWithIdx) {
-    $bn = [IO.Path]::GetFileNameWithoutExtension($brand.Path)
-    $m  = [regex]::Match($bn, '^(?<idx>\d{3})')
-    if (-not $m.Success) { continue }
-    $idx = $m.Groups['idx'].Value
-
-    $rowForIdx = $null
-    if ($__rowsByIdx.ContainsKey($idx)) { $rowForIdx = $__rowsByIdx[$idx] }
-    if ($null -ne $rowForIdx) {
+foreach ($bk in $__unmatchedWithIdx) {
+    $idx = $bk.BrandIdx
+    if ($__rowsByIdx.ContainsKey($idx)) {
+        $row = $__rowsByIdx[$idx]
+        $brand = $bk.BrandObj
         $brand.Matched = $true
-        $rowForIdx.branded_matches = (($rowForIdx.branded_matches + ';' + $brand.Path) -replace '^[;]+','').TrimEnd(';')
-        $rowForIdx.has_branded = 'true'
+        $row.branded_matches = (($row.branded_matches + ';' + $brand.Path) -replace '^[;]+','').TrimEnd(';')
+        $row.has_branded = 'true'
         $rescued++
     }
 }
