@@ -476,6 +476,68 @@ foreach ($row in $rows) {
     }
 }
 
+
+# -- index-rescue patch (v4) --
+# Rescue branded files without dates by matching the 3-digit prefix to the clip folder prefix.
+
+$__unmatched = $brandedInfo | Where-Object { -not $_.Matched }
+
+# Pre-compute a map index -> first row with matching clip index (based on the row.clip value)
+$__rowsByIdx = @{}
+foreach ($r in $rows) {
+  $clipName = [string]$r.clip
+  if (-not [string]::IsNullOrWhiteSpace($clipName)) {
+    $m = [regex]::Match($clipName.Trim(), '^(?<idx>\d{3})')
+    if ($m.Success) {
+      $idx = $m.Groups['idx'].Value
+      if (-not $__rowsByIdx.ContainsKey($idx)) { $__rowsByIdx[$idx] = $r }
+    }
+  }
+}
+
+$rescued = 0
+$ignoredGeneric = 0
+
+foreach ($brand in $__unmatched) {
+  $bn = [IO.Path]::GetFileNameWithoutExtension($brand.Path)
+
+  # Skip generic portrait placeholders that can't map to a clip
+  if ($bn -match '^(follow_|_)portrait_(BRAND|POST)$') {
+    $brand.Matched = $true
+    $ignoredGeneric++
+    continue
+  }
+
+  # Try index-based match
+  $m  = [regex]::Match($bn, '^(?<idx>\d{3})')
+  if (-not $m.Success) { continue }
+  $idx = $m.Groups['idx'].Value
+
+  if ($__rowsByIdx.ContainsKey($idx)) {
+    $rowForIdx = $__rowsByIdx[$idx]
+    if ($null -ne $rowForIdx) {
+      $brand.Matched = $true
+      $rowForIdx.branded_matches = (($rowForIdx.branded_matches + ';' + $brand.Path) -replace '^[;]+','').TrimEnd(';')
+      $rowForIdx.has_branded = 'true'
+      $rescued++
+    }
+  }
+}
+
+# Also mark as matched any branded files that have neither date nor 3-digit index (pure placeholders)
+$__noDateNoIdx = $brandedInfo | Where-Object {
+  -not $_.Matched -and
+  -not ([IO.Path]::GetFileNameWithoutExtension($_.Path) -match '^\d{3}__') -and
+  -not ([IO.Path]::GetFileNameWithoutExtension($_.Path) -match '\d{4}-\d{2}-\d{2}')
+}
+foreach ($g in $__noDateNoIdx) {
+  $g.Matched = $true
+  $ignoredGeneric++
+}
+
+Write-Host "Index-rescue matched: $rescued"
+Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
+# -- end index-rescue --
 $brandedOnlyRows = @()
 foreach ($brand in $brandedInfo) {
     if ($brand.Matched) {
