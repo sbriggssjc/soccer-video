@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [Parameter(Position=0)] [string]$RepoRoot      = ".",
   [Parameter(Position=1)] [string]$CinematicRoot = ".\out\autoframe_work\cinematic",
@@ -436,9 +436,7 @@ foreach ($row in $rows) {
     $matchedPaths = @()
 
     foreach ($brand in $brandedInfo) {
-        if ($brand.Date -ne $row.date) {
-            continue
-        }
+        if ($brand.Date -and ($brand.Date -ne $row.date)) { continue }
 
         $matchesCount = 0
         if ($homeNorm -ne '' -and $brand.NormalizedName -like ('*' + $homeNorm + '*')) {
