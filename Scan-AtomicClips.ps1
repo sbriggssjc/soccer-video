@@ -483,7 +483,7 @@ foreach ($row in $rows) {
 # -- index-rescue patch (v4) --
 # 1) Try to map branded (no-date) files by 3-digit index to rows (clip/clip_id).
 # 2) If no row exists for that index, but a cinematic folder exists beginning with that index,
-#    still mark the brand as Matched so it doesn’t appear in the branded-only evidence list.
+#    still mark the brand as Matched so it doesnâ€™t appear in the branded-only evidence list.
 
 $__unmatched = $brandedInfo | Where-Object { -not $_.Matched }
 
