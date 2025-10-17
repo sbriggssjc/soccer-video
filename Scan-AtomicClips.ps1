@@ -477,67 +477,6 @@ foreach ($row in $rows) {
 }
 
 
-# -- index-rescue patch (v4) --
-# Rescue branded files without dates by matching the 3-digit prefix to the clip folder prefix.
-
-$__unmatched = $brandedInfo | Where-Object { -not $_.Matched }
-
-# Pre-compute a map index -> first row with matching clip index (based on the row.clip value)
-$__rowsByIdx = @{}
-foreach ($r in $rows) {
-  $clipName = [string]$r.clip
-  if (-not [string]::IsNullOrWhiteSpace($clipName)) {
-    $m = [regex]::Match($clipName.Trim(), '^(?<idx>\d{3})')
-    if ($m.Success) {
-      $idx = $m.Groups['idx'].Value
-      if (-not $__rowsByIdx.ContainsKey($idx)) { $__rowsByIdx[$idx] = $r }
-    }
-  }
-}
-
-$rescued = 0
-$ignoredGeneric = 0
-
-foreach ($brand in $__unmatched) {
-  $bn = [IO.Path]::GetFileNameWithoutExtension($brand.Path)
-
-  # Skip generic portrait placeholders that can't map to a clip
-  if ($bn -match '^(follow_|_)portrait_(BRAND|POST)$') {
-    $brand.Matched = $true
-    $ignoredGeneric++
-    continue
-  }
-
-  # Try index-based match
-  $m  = [regex]::Match($bn, '^(?<idx>\d{3})')
-  if (-not $m.Success) { continue }
-  $idx = $m.Groups['idx'].Value
-
-  if ($__rowsByIdx.ContainsKey($idx)) {
-    $rowForIdx = $__rowsByIdx[$idx]
-    if ($null -ne $rowForIdx) {
-      $brand.Matched = $true
-      $rowForIdx.branded_matches = (($rowForIdx.branded_matches + ';' + $brand.Path) -replace '^[;]+','').TrimEnd(';')
-      $rowForIdx.has_branded = 'true'
-      $rescued++
-    }
-  }
-}
-
-# Also mark as matched any branded files that have neither date nor 3-digit index (pure placeholders)
-$__noDateNoIdx = $brandedInfo | Where-Object {
-  -not $_.Matched -and
-  -not ([IO.Path]::GetFileNameWithoutExtension($_.Path) -match '^\d{3}__') -and
-  -not ([IO.Path]::GetFileNameWithoutExtension($_.Path) -match '\d{4}-\d{2}-\d{2}')
-}
-foreach ($g in $__noDateNoIdx) {
-  $g.Matched = $true
-  $ignoredGeneric++
-}
-
-Write-Host "Index-rescue matched: $rescued"
-Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
-# -- end index-rescue --
 $brandedOnlyRows = @()
 foreach ($brand in $brandedInfo) {
     if ($brand.Matched) {
@@ -591,7 +530,106 @@ $brandedOnlyRows | Export-Csv -Path $renderOnlyPath -NoTypeInformation -Encoding
 $totalCinematic = $rows.Count
 $proxyCount = ($rows | Where-Object { $_.proxy_exists -eq 'true' }).Count
 $trfCount = ($rows | Where-Object { $_.trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count
+$stabilizedCount = ($rows | Where-Object { $_.s
+# -- index-rescue patch (v5) --
+# Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
+# any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
+
+$__unmatched = $brandedInfo | Where-Object { -not $_.Matched }
+
+# Build a map: idx -> a representative $row
+$__rowsByIdx = @{}
+$__rowIdxs   = New-Object System.Collections.Generic.HashSet[string]
+
+function __TryAdd-IdxFromValue([string]$val, [object]$row) {
+  if ([string]::IsNullOrWhiteSpace($val)) { return }
+  $m = [regex]::Match($val.Trim(), '^(?<idx>\d{3})')
+  if (-not $m.Success) { return }
+  $idx = $m.Groups['idx'].Value
+  if ($__rowIdxs.Add($idx)) { $__rowsByIdx[$idx] = $row }
+}
+
+foreach ($r in $rows) {
+  # common fields we’ve seen: clip (folder name), clip_id, index
+  __TryAdd-IdxFromValue ([string]$r.clip)    $r
+  __TryAdd-IdxFromValue ([string]$r.clip_id) $r
+  __TryAdd-IdxFromValue ([string]$r.index)   $r
+}
+
+# If we still have branded candidates that won’t match rows by idx, try folder names under cinematic.
+# This gives us a second map: idx -> folderName (string), which we can still attach to some row with same idx later.
+$__cinematicIdxs = New-Object System.Collections.Generic.HashSet[string]
+$__cinIdxToName  = @{}
+
+try {
+  $repoRoot = Split-Path -LiteralPath $PSScriptRoot -Parent
+  $outRoot  = Join-Path $repoRoot 'out'
+  $cinRoot  = Join-Path $outRoot 'autoframe_work\cinematic'
+  if (Test-Path -LiteralPath $cinRoot) {
+    foreach ($d in (Get-ChildItem -LiteralPath $cinRoot -Directory -ErrorAction SilentlyContinue)) {
+      $m = [regex]::Match($d.Name, '^(?<idx>\d{3})')
+      if ($m.Success) {
+        $idx = $m.Groups['idx'].Value
+        if ($__cinematicIdxs.Add($idx)) { $__cinIdxToName[$idx] = $d.Name }
+        # if rows didn’t expose this idx yet, create a dummy row object we can attach branded_matches to
+        if (-not $__rowsByIdx.ContainsKey($idx)) {
+          $__rowsByIdx[$idx] = [pscustomobject]@{
+            clip             = $d.Name
+            clip_id          = $idx
+            index            = $idx
+            branded_matches  = ''
+            has_branded      = 'false'
+          }
+        }
+      }
+    }
+  }
+} catch { }
+
+$rescued = 0
+$ignoredGeneric = 0
+
+foreach ($brand in $__unmatched) {
+  $bn = [IO.Path]::GetFileNameWithoutExtension($brand.Path)
+
+  # Skip generic portrait placeholders that can't map to a specific clip
+  if ($bn -match '^(follow_|_)portrait_(BRAND|POST)$') {
+    $brand.Matched = $true
+    $ignoredGeneric++
+    continue
+  }
+
+  # Extract the leading 3-digit index from the branded filename
+  $m  = [regex]::Match($bn, '^(?<idx>\d{3})')
+  if (-not $m.Success) { continue }
+  $idx = $m.Groups['idx'].Value
+
+  if ($__rowsByIdx.ContainsKey($idx)) {
+    $rowForIdx = $__rowsByIdx[$idx]
+    if ($null -ne $rowForIdx) {
+      $brand.Matched = $true
+      $rowForIdx.branded_matches = (($rowForIdx.branded_matches + ';' + $brand.Path) -replace '^[;]+','').TrimEnd(';')
+      $rowForIdx.has_branded = 'true'
+      $rescued++
+    }
+  }
+}
+
+# Also mark as matched any branded files that have neither date nor 3-digit index (pure placeholders)
+$__noDateNoIdx = $brandedInfo | Where-Object {
+  -not $_.Matched -and
+  -not ([IO.Path]::GetFileNameWithoutExtension($_.Path) -match '^\d{3}__') -and
+  -not ([IO.Path]::GetFileNameWithoutExtension($_.Path) -match '\d{4}-\d{2}-\d{2}')
+}
+foreach ($g in $__noDateNoIdx) {
+  $g.Matched = $true
+  $ignoredGeneric++
+}
+
+Write-Host "Index-rescue matched: $rescued"
+Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
+# -- end index-rescue --
+tabilized_exists -eq 'true' }).Count
 $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
