@@ -550,13 +550,13 @@ function __TryAdd-IdxFromValue([string]$val, [object]$row) {
 }
 
 foreach ($r in $rows) {
-  # common fields weâ€™ve seen: clip (folder name), clip_id, index
+  # common fields we’ve seen: clip (folder name), clip_id, index
   __TryAdd-IdxFromValue ([string]$r.clip)    $r
   __TryAdd-IdxFromValue ([string]$r.clip_id) $r
   __TryAdd-IdxFromValue ([string]$r.index)   $r
 }
 
-# If we still have branded candidates that wonâ€™t match rows by idx, try folder names under cinematic.
+# If we still have branded candidates that won’t match rows by idx, try folder names under cinematic.
 # This gives us a second map: idx -> folderName (string), which we can still attach to some row with same idx later.
 $__cinematicIdxs = New-Object System.Collections.Generic.HashSet[string]
 $__cinIdxToName  = @{}
@@ -571,7 +571,7 @@ try {
       if ($m.Success) {
         $idx = $m.Groups['idx'].Value
         if ($__cinematicIdxs.Add($idx)) { $__cinIdxToName[$idx] = $d.Name }
-        # if rows didnâ€™t expose this idx yet, create a dummy row object we can attach branded_matches to
+        # if rows didn’t expose this idx yet, create a dummy row object we can attach branded_matches to
         if (-not $__rowsByIdx.ContainsKey($idx)) {
           $__rowsByIdx[$idx] = [pscustomobject]@{
             clip             = $d.Name
@@ -633,13 +633,6 @@ tabilized_exists -eq 'true' }).Count
 $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
-$proxyCount       = ($rows | Where-Object { $_.proxy_exists       -eq 'true' }).Count
-$transformsCount  = ($rows | Where-Object { $_.transforms_exists  -eq 'true' }).Count
-$stabilizedCount  = ($rows | Where-Object { $_.stabilized_exists  -eq 'true' }).Count
-$brandedCount     = ($rows | Where-Object { $_.has_branded        -eq 'true' }).Count
-$brandedOnlyCount = $brandedOnlyRows.Count
-# -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
 Write-Host "Proxy exists count: $proxyCount"
 Write-Host "Transforms exists count: $trfCount"
