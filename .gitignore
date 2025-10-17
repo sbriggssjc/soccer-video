@@ -27,3 +27,20 @@ __pycache__/**
 *.engine
 models/**/weights/**
 
+
+# Local backups & temp artifacts
+*.bak
+*.bak_*
+*._bak
+*.old
+*.tmp
+
+
+# Local backups & temp artifacts
+Scan-AtomicClips.ps1.bak_*
+*.bak
+*.bak_*
+*._bak
+*.old
+*.tmp
+
