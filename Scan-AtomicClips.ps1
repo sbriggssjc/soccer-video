@@ -48,21 +48,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -81,8 +72,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -180,30 +169,18 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -222,23 +199,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -257,23 +225,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -292,9 +251,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -392,21 +349,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -425,8 +373,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -445,24 +391,15 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -481,23 +418,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -516,23 +444,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -551,9 +470,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -651,21 +568,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -684,8 +592,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -783,30 +689,18 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -825,23 +719,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -860,23 +745,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -895,9 +771,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -995,21 +869,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1028,8 +893,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1048,23 +911,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1083,23 +937,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1118,23 +963,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1153,9 +989,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -1253,21 +1087,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1286,7 +1111,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 # [auto-comment extra param block]param(
 #  [string]$RepoRoot = "."
 #  [string]$CinematicRoot = ".\out\autoframe_work\cinematic"
@@ -1355,7 +1179,6 @@ function Normalize-Token {
  $lower = $Text.ToLowerInvariant()
  $collapsed = $lower -replace '[\s_\-]+', ''
  return $collapsed
-}
 
 function Get-ArtifactScore {
 # [auto-comment extra param block] param($Row)
@@ -1391,7 +1214,6 @@ function Add-Note {
  }
 
  return ($Existing + '; ' + $NewNote)
-}
 
 $culture = [System.Globalization.CultureInfo]::InvariantCulture
 if ([System.IO.Path]::IsPathRooted($CinematicRoot)) {
@@ -1818,23 +1640,14 @@ $brandedOnlyRows | Export-Csv -Path $renderOnlyPath -NoTypeInformation -Encoding
 $totalCinematic = $rows.Count
 
 
-# [auto-joined] $trfCount = ($rows | Where-Object { # [auto-joined] $trfCount = ($rows | Where-Object { $_.trf_exists -eq 'true' }).Count.trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1853,23 +1666,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1888,23 +1692,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -1923,9 +1718,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -2023,21 +1816,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2056,8 +1840,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -2155,30 +1937,18 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2197,23 +1967,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2232,23 +1993,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2267,9 +2019,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -2367,21 +2117,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2400,8 +2141,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2420,9 +2159,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -2520,30 +2257,18 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2562,23 +2287,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.proxy_exists -eq 'true' }).Count..proxy_exists -eq 'true' }).Count
-$trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$trfCount = ($rows.Where({ $trfCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2597,23 +2313,14 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.trf_exists -eq 'true' }).Count..trf_exists -eq 'true' }).Count
-$stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count
-$stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.proxy_exists -eq 'true' })).Count.proxy_exists -eq 'true' })).Count
+$stabilizedCount = ($rows.Where({ $stabilizedCount = ($rows.Where({ $_.stabilized_exists -eq 'true' })).Count.stabilized_exists -eq 'true' })).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2632,9 +2339,7 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
 
-# -- index-rescue patch (v5) --
 # Rescue branded files without dates by matching 3-digit prefix to rows (clip/clip_id/index) or to
 # any existing cinematic folder name that begins with that 3-digit prefix. Also ignore generic portraits.
 
@@ -2732,21 +2437,12 @@ foreach ($g in $__noDateNoIdx) {
 Write-Host "Index-rescue matched: $rescued"
 Write-Host "Ignored generic branded (no date/index): $ignoredGeneric"
 # -- end index-rescue --
-# [auto-comment broken tail] stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 
-# -- summary-counts recompute (patch) --
 
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
 
-# [auto-joined] $transformsCount = ($rows | Where-Object { $_.transforms_exists -eq 'true' }).Count
-# [auto-joined] $stabilizedCount = ($rows | Where-Object { # [auto-joined] $stabilizedCount = ($rows | Where-Object { $_.stabilized_exists -eq 'true' }).Count.stabilized_exists -eq 'true' }).Count
-# [auto-joined] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2765,8 +2461,6 @@ if ($unparsedFolders.Count -gt 0) {
 else {
  Write-Host 'All candidate folders parsed successfully.'
 }
-# [auto-comment broken tail] {ind}.stabilized_exists -eq 'true' }).Count..stabilized_exists -eq 'true' }).Count
-# [auto-comment broken tail] $brandedCount = ($rows | Where-Object { $_.has_branded -eq 'true' }).Count
 $brandedOnlyCount = $brandedOnlyRows.Count
 # -- end summary-counts recompute --
 Write-Host "Total cinematic folders parsed: $totalCinematic"
@@ -2786,4 +2480,3 @@ else {
  Write-Host 'All candidate folders parsed successfully.'
 }
 
-)
