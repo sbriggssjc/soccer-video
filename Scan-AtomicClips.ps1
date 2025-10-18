@@ -1,10 +1,9 @@
-param(
+﻿param(
   [string]$RepoRoot      = '.',
   [string]$CinematicRoot = '.\out\autoframe_work\cinematic',
   [string]$BrandedRoot   = '.\out\portrait_reels\branded',
   [string]$OutCsv        = '.\atomic_clips_index.rebuilt.csv'
 )
-} catch { }
 
 $rescued = 0
 $ignoredGeneric = 0
