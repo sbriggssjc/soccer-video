@@ -101,9 +101,24 @@ function Make-Overlay([string]$PlanPath){
 }
 
 function Score-Coverage([string]$PlanPath){
-  $p = & python tools\coverage_check.py --ball "$PlanPath" --w 1920 --h 1080 --crop-w 486 --crop-h 864 --margin 90 --smooth 0.25 2>&1
-  $m = ($p | Select-String -Pattern 'coverage:\s+(\d+)\/(\d+)\s+=\s+([\d\.]+)%' -AllMatches).Matches
-  if($m.Count -gt 0){ return [pscustomobject]@{ text=$p -join "`n"; coverage=[double]$m[0].Groups[3].Value } else { return [pscustomobject]@{ text=$p -join "`n"; coverage=0.0 } }
+  # Run coverage_check and capture all output (stdout+stderr)
+  $args = @("--ball", $PlanPath, "--w","1920","--h","1080","--crop-w","486","--crop-h","864","--margin","90","--smooth","0.25")
+  $p = & python tools\coverage_check.py @args 2>&1
+
+  # Normalize to single string for regex
+  $text = ($p | Out-String)
+
+  # Parse coverage number
+  $match = [regex]::Match($text, 'coverage:\s+(\d+)\/(\d+)\s+=\s+([\d\.]+)%')
+  $cov = 0.0
+  if ($match.Success) {
+    $cov = [double]$match.Groups[3].Value
+  }
+
+  return [pscustomobject]@{
+    text     = $text
+    coverage = $cov
+  }
 }
 
 # --- 1) COARSE SWEEP: center jitter + dt ---
