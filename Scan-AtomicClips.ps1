@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$RepoRoot      = '.',
   [string]$CinematicRoot = '.\out\autoframe_work\cinematic',
   [string]$BrandedRoot   = '.\out\portrait_reels\branded',
@@ -1176,7 +1176,7 @@ function Normalize-Token {
  return ''
  }
 
- $lower = $Text.ToLowerInvariant()
+ $lower = ([string]$Text).ToLowerInvariant()
  $collapsed = $lower -replace '[\s_\-]+', ''
  return $collapsed
 
@@ -1248,7 +1248,7 @@ foreach ($legacyName in $legacyFiles) {
  }
 
  try {
- if ($legacyName.ToLowerInvariant().EndsWith('.csv')) {
+ if (([string]$legacyName).ToLowerInvariant().EndsWith('.csv')) {
  $legacyRows = Import-Csv -Path $legacyPath -ErrorAction Stop
  foreach ($legacyRow in $legacyRows) {
  if ($legacyRow.PSObject.Properties.Name -contains 'clip_id') {
@@ -1259,7 +1259,7 @@ foreach ($legacyName in $legacyFiles) {
  }
  }
  }
- elseif ($legacyName.ToLowerInvariant().EndsWith('.json')) {
+ elseif (([string]$legacyName).ToLowerInvariant().EndsWith('.json')) {
  $legacyJson = Get-Content -Path $legacyPath -Raw -Encoding UTF8
  if (-not [string]::IsNullOrWhiteSpace($legacyJson)) {
  $legacyData = $legacyJson | ConvertFrom-Json
