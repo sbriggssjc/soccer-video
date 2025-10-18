@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$RepoRoot      = '.',
   [string]$CinematicRoot = '.\out\autoframe_work\cinematic',
   [string]$BrandedRoot   = '.\out\portrait_reels\branded',
