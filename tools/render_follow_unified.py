@@ -108,6 +108,68 @@ class CamFollow2O:
         self.cy += self.vy * dt
         return self.cx, self.cy
 
+    def damp_velocity(self, factor: float) -> None:
+        factor = float(max(0.0, min(1.0, factor)))
+        self.vx *= factor
+        self.vy *= factor
+
+
+class FollowHoldController:
+    """Stateful helper that gates follow targets during dropouts."""
+
+    def __init__(
+        self,
+        *,
+        dt: float,
+        release_frames: int = 3,
+        decay_time: float = 0.4,
+        initial_target: Optional[Tuple[float, float]] = None,
+    ) -> None:
+        self.release_frames = max(1, int(release_frames))
+        self.valid_streak = self.release_frames
+        self.decay_time = max(0.05, float(decay_time))
+        self.decay_factor = float(
+            math.exp(-dt / self.decay_time) if dt > 0 else 0.0
+        )
+        self._target = [0.0, 0.0]
+        if initial_target is not None:
+            self._target[0] = float(initial_target[0])
+            self._target[1] = float(initial_target[1])
+            self.valid_streak = self.release_frames
+        self._initialised = initial_target is not None
+
+    @property
+    def target(self) -> Tuple[float, float]:
+        return float(self._target[0]), float(self._target[1])
+
+    def apply(
+        self, target_x: float, target_y: float, valid: bool
+    ) -> Tuple[float, float, bool]:
+        if not math.isfinite(target_x) or not math.isfinite(target_y):
+            valid = False
+        if not self._initialised:
+            self._target[0] = float(target_x)
+            self._target[1] = float(target_y)
+            self._initialised = True
+        if valid:
+            if self.valid_streak < self.release_frames:
+                self.valid_streak += 1
+            else:
+                self.valid_streak = self.release_frames
+            if self.valid_streak >= self.release_frames:
+                self._target[0] = float(target_x)
+                self._target[1] = float(target_y)
+                return float(target_x), float(target_y), False
+            return self.target[0], self.target[1], True
+        self.valid_streak = 0
+        return self.target[0], self.target[1], True
+
+    def reset_target(self, cx: float, cy: float) -> None:
+        self._target[0] = float(cx)
+        self._target[1] = float(cy)
+        self.valid_streak = self.release_frames
+        self._initialised = True
+
 
 def ema_path(xs: Sequence[float], ys: Sequence[float], alpha: float) -> tuple[List[float], List[float]]:
     if alpha <= 0:
@@ -1933,6 +1995,7 @@ class Renderer:
         start_cx: float,
         start_cy: float,
         frame_count: int,
+        follow_valid_mask: Optional[Sequence[bool]] = None,
     ) -> List[Tuple[float, float]]:
         if (
             follow_targets is None
@@ -1958,12 +2021,28 @@ class Renderer:
 
         xs, ys = follow_targets
         last_idx = min(len(xs), len(ys)) - 1
+        hold = FollowHoldController(
+            dt=1.0 / render_fps if render_fps > 1e-6 else 1.0 / 30.0,
+            release_frames=3,
+            decay_time=0.4,
+            initial_target=(start_cx, start_cy),
+        )
         centers: List[Tuple[float, float]] = []
         for frame_idx in range(frame_count):
             target_idx = min(frame_idx + follow_lookahead_frames, last_idx)
             target_x = float(xs[target_idx])
             target_y = float(ys[target_idx])
-            cx, cy = follower.step(target_x, target_y)
+            valid = True
+            if follow_valid_mask is not None and target_idx < len(follow_valid_mask):
+                valid = bool(follow_valid_mask[target_idx])
+            elif not (math.isfinite(target_x) and math.isfinite(target_y)):
+                valid = False
+            eff_x, eff_y, holding = hold.apply(target_x, target_y, valid)
+            if holding and 0.0 < hold.decay_factor < 1.0:
+                follower.damp_velocity(hold.decay_factor)
+            cx, cy = follower.step(eff_x, eff_y)
+            if not holding:
+                hold.reset_target(cx, cy)
             centers.append((cx, cy))
         return centers
 
@@ -2123,6 +2202,7 @@ class Renderer:
 
         offline_plan_data: Optional[dict[str, np.ndarray]] = None
         follow_targets: Optional[Tuple[List[float], List[float]]] = None
+        follow_valid_mask: Optional[List[bool]] = None
         offline_plan_len = 0
         if offline_ball_path:
             bx_vals: List[float] = []
@@ -2163,6 +2243,7 @@ class Renderer:
             if bx_vals:
                 bx_arr = np.asarray(bx_vals, dtype=float)
                 by_arr = np.asarray(by_vals, dtype=float)
+                valid_mask_arr = np.isfinite(bx_arr) & np.isfinite(by_arr)
 
                 def _ffill_nan(arr: np.ndarray, default: float) -> np.ndarray:
                     out = arr.copy()
@@ -2189,6 +2270,7 @@ class Renderer:
                 if self.follow_pre_smooth > 0:
                     bx_list, by_list = ema_path(bx_list, by_list, self.follow_pre_smooth)
                 follow_targets = (bx_list, by_list)
+                follow_valid_mask = valid_mask_arr.astype(bool).tolist()
 
                 fps_for_plan = render_fps if render_fps > 0 else (src_fps if src_fps > 0 else 30.0)
                 if fps_for_plan <= 0:
@@ -2261,6 +2343,13 @@ class Renderer:
         else:
             follower = None
 
+        follow_hold = FollowHoldController(
+            dt=1.0 / render_fps if render_fps > 1e-6 else 1.0 / 30.0,
+            release_frames=3,
+            decay_time=0.4,
+            initial_target=(prev_cx, prev_cy),
+        )
+
         jerk95 = 0.0
         if follow_targets_len and render_fps > 0:
             centers = self._simulate_follow_centers(
@@ -2270,6 +2359,7 @@ class Renderer:
                 prev_cx,
                 prev_cy,
                 len(states),
+                follow_valid_mask=follow_valid_mask,
             )
             if centers:
                 xs = [c[0] for c in centers]
@@ -2529,6 +2619,7 @@ class Renderer:
                         eff_by = prev_ball_by
 
                     planner_handled = False
+                    holding_follow = False
                     if offline_plan_data is not None and n < offline_plan_len:
                         plan_x0 = float(offline_plan_data["x0"][n])
                         plan_y0 = float(offline_plan_data["y0"][n])
@@ -2557,21 +2648,34 @@ class Renderer:
                         prev_zoom = float(zoom)
                         prev_bx = eff_bx
                         prev_by = eff_by
+                        follow_hold.reset_target(cx, cy)
                         if have_ball:
                             ball_path_entry = (eff_bx, eff_by)
                     if not planner_handled:
-                        target_x = eff_bx
-                        target_y = eff_by
-                        if follow_targets and follow_targets_len > 0:
+                        target_x = float(eff_bx)
+                        target_y = float(eff_by)
+                        if have_ball and follow_targets and follow_targets_len > 0:
                             idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
-                            target_x = follow_targets[0][idx]
-                            target_y = follow_targets[1][idx]
+                            target_x = float(follow_targets[0][idx])
+                            target_y = float(follow_targets[1][idx])
+                        valid_for_hold = bool(have_ball)
+                        if follow_valid_mask and n < len(follow_valid_mask):
+                            valid_for_hold = valid_for_hold and bool(follow_valid_mask[n])
+                        eff_target_x, eff_target_y, holding_follow = follow_hold.apply(
+                            target_x,
+                            target_y,
+                            valid_for_hold,
+                        )
                         if follower is not None:
-                            cx, cy = follower.step(float(target_x), float(target_y))
+                            if holding_follow and 0.0 < follow_hold.decay_factor < 1.0:
+                                follower.damp_velocity(follow_hold.decay_factor)
+                            cx, cy = follower.step(float(eff_target_x), float(eff_target_y))
                         else:
-                            alpha_pan = 0.30
-                            cx = alpha_pan * eff_bx + (1 - alpha_pan) * prev_cx
-                            cy = alpha_pan * eff_by + (1 - alpha_pan) * prev_cy
+                            alpha_pan = 0.30 if not holding_follow else 0.0
+                            cx = alpha_pan * eff_target_x + (1 - alpha_pan) * prev_cx
+                            cy = alpha_pan * eff_target_y + (1 - alpha_pan) * prev_cy
+                        if not holding_follow:
+                            follow_hold.reset_target(cx, cy)
 
                         speed = hypot(eff_bx - prev_ball_bx, eff_by - prev_ball_by)
                         norm = min(1.0, speed / 24.0)
@@ -2672,6 +2776,8 @@ class Renderer:
                         if have_ball:
                             prev_bx = eff_bx
                             prev_by = eff_by
+                        if not holding_follow:
+                            follow_hold.reset_target(cx, cy)
                 else:
                     zoom_speed: Optional[float] = None
                     speed_px = 0.0
@@ -2710,19 +2816,38 @@ class Renderer:
                             target_x = float(pcx)
                             target_y = float(pcy)
 
-                    if follower is not None and target_x is not None and target_y is not None:
-                        cx, cy = follower.step(target_x, target_y)
+                    candidate_x = float(target_x if target_x is not None else pcx)
+                    candidate_y = float(target_y if target_y is not None else pcy)
+                    ball_valid_for_hold = bool(
+                        bx_val is not None
+                        and by_val is not None
+                        and math.isfinite(bx_val)
+                        and math.isfinite(by_val)
+                    )
+                    eff_target_x, eff_target_y, holding_follow = follow_hold.apply(
+                        candidate_x,
+                        candidate_y,
+                        ball_valid_for_hold,
+                    )
+
+                    if follower is not None:
+                        if holding_follow and 0.0 < follow_hold.decay_factor < 1.0:
+                            follower.damp_velocity(follow_hold.decay_factor)
+                        cx, cy = follower.step(eff_target_x, eff_target_y)
                     else:
                         if cam_center_override is not None:
                             cx, cy = cam_center_override
-                        elif bx_val is not None and by_val is not None:
+                        elif not holding_follow and bx_val is not None and by_val is not None:
                             cx = 0.90 * bx_val + 0.10 * prev_cx
                             cy = 0.90 * by_val + 0.10 * prev_cy
                         else:
-                            cx, cy = pcx, pcy
+                            cx = eff_target_x if not holding_follow else prev_cx
+                            cy = eff_target_y if not holding_follow else prev_cy
 
                     if cam_center_override is not None:
                         cx, cy = cam_center_override
+                    if not holding_follow:
+                        follow_hold.reset_target(cx, cy)
 
                     if render_fps > 0:
                         max_dx = 9999.0
@@ -2885,6 +3010,8 @@ class Renderer:
                         )
 
                     telemetry_crop = (x0, y0, crop_w, crop_h)
+                    if not holding_follow:
+                        follow_hold.reset_target(cx, cy)
                     prev_cx, prev_cy = float(cx), float(cy)
                     prev_zoom = float(zoom)
                     if ball_available and bx is not None and by is not None:
