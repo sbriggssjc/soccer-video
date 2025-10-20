@@ -1,5 +1,14 @@
 import argparse
 import json
+import math
+
+
+def _is_num(x) -> bool:
+    try:
+        xf = float(x)
+    except Exception:
+        return False
+    return not math.isnan(xf) and math.isfinite(xf)
 
 
 def load_jsonl(path: str):
@@ -8,11 +17,18 @@ def load_jsonl(path: str):
         for line in f:
             if not line.strip():
                 continue
-            obj = json.loads(line)
-            t = obj.get("t", 0.0)
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            try:
+                t = float(obj.get("t", 0.0))
+            except Exception:
+                t = 0.0
             bx = obj.get("bx_stab", obj.get("bx"))
             by = obj.get("by_stab", obj.get("by"))
-            rows.append((t, float(bx), float(by)))
+            if _is_num(bx) and _is_num(by):
+                rows.append((t, float(bx), float(by)))
     return rows
 
 
@@ -36,13 +52,20 @@ def main():
     parser.add_argument(
         "--margin",
         type=int,
-        default=80,
+        default=90,
         help="safety px around ball inside crop",
     )
     parser.add_argument("--smooth", type=float, default=0.25)
     args = parser.parse_args()
 
     pts = load_jsonl(args.ball)
+    if not pts:
+        print(
+            "coverage: 0/0 = 0.00% (crop {}x{}, margin {}px, smooth {})".format(
+                args.crop_w, args.crop_h, args.margin, args.smooth
+            )
+        )
+        return
     # simple EMA on center
     cx = []
     cy = []
