@@ -59,26 +59,71 @@ def _get_ball_xy_src(rec, src_w, src_h):
 
 
 class CamFollow2O:
-    def __init__(self, zeta=0.95, wn=6.0, dt=1 / 30):
-        self.z = zeta
-        self.w = wn
-        self.dt = dt
+    def __init__(
+        self,
+        zeta: float = 0.95,
+        wn: float = 6.0,
+        dt: float = 1 / 30,
+        max_vel: Optional[float] = None,
+        max_acc: Optional[float] = None,
+        deadzone: float = 0.0,
+    ) -> None:
+        self.z = float(zeta)
+        self.w = float(wn)
+        self.dt = float(dt)
         self.cx = 0.0
         self.cy = 0.0
         self.vx = 0.0
         self.vy = 0.0
+        self.max_vel = max_vel
+        self.max_acc = max_acc
+        self.dead = max(0.0, float(deadzone))
+
+    def _clamp(self, vec: tuple[float, float], limit: Optional[float]) -> tuple[float, float]:
+        if limit is None or limit <= 0:
+            return vec
+        vx, vy = vec
+        mag = math.hypot(vx, vy)
+        if mag <= limit:
+            return vec
+        scale = limit / max(mag, 1e-6)
+        return vx * scale, vy * scale
 
     def step(self, target_x: float, target_y: float) -> tuple[float, float]:
+        ex = target_x - self.cx
+        ey = target_y - self.cy
+        if math.hypot(ex, ey) < self.dead:
+            ex = ey = 0.0
+
         dt = self.dt
         w = self.w
         z = self.z
-        ax = w * w * (target_x - self.cx) - 2 * z * w * self.vx
-        ay = w * w * (target_y - self.cy) - 2 * z * w * self.vy
+        ax = w * w * ex - 2 * z * w * self.vx
+        ay = w * w * ey - 2 * z * w * self.vy
+        ax, ay = self._clamp((ax, ay), self.max_acc)
         self.vx += ax * dt
         self.vy += ay * dt
+        self.vx, self.vy = self._clamp((self.vx, self.vy), self.max_vel)
         self.cx += self.vx * dt
         self.cy += self.vy * dt
         return self.cx, self.cy
+
+
+def ema_path(xs: Sequence[float], ys: Sequence[float], alpha: float) -> tuple[List[float], List[float]]:
+    if alpha <= 0:
+        return list(xs), list(ys)
+    sx: List[float] = []
+    sy: List[float] = []
+    for idx in range(len(xs)):
+        x_val = float(xs[idx])
+        y_val = float(ys[idx])
+        if idx == 0:
+            sx.append(x_val)
+            sy.append(y_val)
+            continue
+        sx.append(alpha * x_val + (1 - alpha) * sx[-1])
+        sy.append(alpha * y_val + (1 - alpha) * sy[-1])
+    return sx, sy
 
 
 # --- Simple constant-velocity tracker (EMA-based Kalman-lite) ---
@@ -1770,6 +1815,14 @@ class Renderer:
         follow_lead_time: float = 0.0,
         follow_margin_px: float = 0.0,
         follow_smoothing: float = 0.3,
+        *,
+        follow_zeta: float = 0.95,
+        follow_wn: float = 6.0,
+        follow_deadzone: float = 0.0,
+        follow_max_vel: Optional[float] = None,
+        follow_max_acc: Optional[float] = None,
+        follow_lookahead: int = 0,
+        follow_pre_smooth: float = 0.0,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -1791,6 +1844,13 @@ class Renderer:
         self.follow_lead_time = max(0.0, float(follow_lead_time))
         self.follow_margin_px = max(0.0, float(follow_margin_px))
         self.follow_smoothing = float(np.clip(follow_smoothing, 0.0, 1.0))
+        self.follow_zeta = float(follow_zeta)
+        self.follow_wn = float(follow_wn)
+        self.follow_deadzone = max(0.0, float(follow_deadzone))
+        self.follow_max_vel = None if follow_max_vel is None else float(follow_max_vel)
+        self.follow_max_acc = None if follow_max_acc is None else float(follow_max_acc)
+        self.follow_lookahead = int(follow_lookahead)
+        self.follow_pre_smooth = float(np.clip(follow_pre_smooth, 0.0, 1.0))
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -1995,6 +2055,7 @@ class Renderer:
         speed_px_sec = float(self.speed_limit or 3000.0)
 
         offline_plan_data: Optional[dict[str, np.ndarray]] = None
+        follow_targets: Optional[Tuple[List[float], List[float]]] = None
         offline_plan_len = 0
         if offline_ball_path:
             bx_vals: List[float] = []
@@ -2056,6 +2117,12 @@ class Renderer:
                 bx_arr = _ffill_nan(bx_arr, default_cx)
                 by_arr = _ffill_nan(by_arr, default_cy)
 
+                bx_list = bx_arr.astype(float).tolist()
+                by_list = by_arr.astype(float).tolist()
+                if self.follow_pre_smooth > 0:
+                    bx_list, by_list = ema_path(bx_list, by_list, self.follow_pre_smooth)
+                follow_targets = (bx_list, by_list)
+
                 fps_for_plan = render_fps if render_fps > 0 else (src_fps if src_fps > 0 else 30.0)
                 if fps_for_plan <= 0:
                     fps_for_plan = 30.0
@@ -2108,12 +2175,24 @@ class Renderer:
         prev_ball_src_y: Optional[float] = None
         prev_bx = float(prev_cx)
         prev_by = float(prev_cy)
-        follower = CamFollow2O(zeta=0.95, wn=7.0, dt=1.0 / render_fps) if render_fps else None
-        if follower is not None:
+        follow_targets_len = len(follow_targets[0]) if follow_targets else 0
+        follow_lookahead_frames = max(0, int(self.follow_lookahead))
+        follower: Optional[CamFollow2O]
+        if render_fps > 0:
+            follower = CamFollow2O(
+                zeta=self.follow_zeta,
+                wn=self.follow_wn,
+                dt=1.0 / render_fps,
+                max_vel=self.follow_max_vel,
+                max_acc=self.follow_max_acc,
+                deadzone=self.follow_deadzone,
+            )
             follower.cx = float(prev_cx)
             follower.cy = float(prev_cy)
             follower.vx = 0.0
             follower.vy = 0.0
+        else:
+            follower = None
 
         if self.init_manual:
             frame0, _fps0 = grab_frame_at_time(
@@ -2394,9 +2473,18 @@ class Renderer:
                         if have_ball:
                             ball_path_entry = (eff_bx, eff_by)
                     if not planner_handled:
-                        alpha_pan = 0.30
-                        cx = alpha_pan * eff_bx + (1 - alpha_pan) * prev_cx
-                        cy = alpha_pan * eff_by + (1 - alpha_pan) * prev_cy
+                        target_x = eff_bx
+                        target_y = eff_by
+                        if follow_targets and follow_targets_len > 0:
+                            idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
+                            target_x = follow_targets[0][idx]
+                            target_y = follow_targets[1][idx]
+                        if follower is not None:
+                            cx, cy = follower.step(float(target_x), float(target_y))
+                        else:
+                            alpha_pan = 0.30
+                            cx = alpha_pan * eff_bx + (1 - alpha_pan) * prev_cx
+                            cy = alpha_pan * eff_by + (1 - alpha_pan) * prev_cy
 
                         speed = hypot(eff_bx - prev_ball_bx, eff_by - prev_ball_by)
                         norm = min(1.0, speed / 24.0)
@@ -2498,22 +2586,20 @@ class Renderer:
                             prev_bx = eff_bx
                             prev_by = eff_by
                 else:
-                    smoothed_cx: Optional[float] = None
-                    smoothed_cy: Optional[float] = None
                     zoom_speed: Optional[float] = None
                     speed_px = 0.0
+                    bx_val: Optional[float] = None
+                    by_val: Optional[float] = None
 
                     if ball_available and bx is not None and by is not None:
-                        bx = float(bx)
-                        by = float(by)
-                        prev_bx_for_speed = prev_ball_x if prev_ball_x is not None else bx
-                        prev_by_for_speed = prev_ball_y if prev_ball_y is not None else by
+                        bx_val = float(bx)
+                        by_val = float(by)
+                        bx = bx_val
+                        by = by_val
+                        prev_bx_for_speed = prev_ball_x if prev_ball_x is not None else bx_val
+                        prev_by_for_speed = prev_ball_y if prev_ball_y is not None else by_val
 
-                        alpha = 0.30
-                        smoothed_cx = alpha * bx + (1 - alpha) * prev_cx
-                        smoothed_cy = alpha * by + (1 - alpha) * prev_cy
-
-                        speed_px = hypot(bx - prev_bx_for_speed, by - prev_by_for_speed)
+                        speed_px = hypot(bx_val - prev_bx_for_speed, by_val - prev_by_for_speed)
                         norm = min(1.0, speed_px / 24.0)
                         z_min = zoom_min
                         z_max = zoom_max
@@ -2523,15 +2609,33 @@ class Renderer:
                         zoom_speed = float(np.clip(prev_zoom + zoom_step, z_min, z_max))
 
                     pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
+                    target_x: Optional[float] = None
+                    target_y: Optional[float] = None
+                    if follow_targets and follow_targets_len > 0:
+                        idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
+                        target_x = float(follow_targets[0][idx])
+                        target_y = float(follow_targets[1][idx])
+                    if target_x is None or target_y is None:
+                        if bx_val is not None and by_val is not None:
+                            target_x = bx_val
+                            target_y = by_val
+                        else:
+                            target_x = float(pcx)
+                            target_y = float(pcy)
+
+                    if follower is not None and target_x is not None and target_y is not None:
+                        cx, cy = follower.step(target_x, target_y)
+                    else:
+                        if cam_center_override is not None:
+                            cx, cy = cam_center_override
+                        elif bx_val is not None and by_val is not None:
+                            cx = 0.90 * bx_val + 0.10 * prev_cx
+                            cy = 0.90 * by_val + 0.10 * prev_cy
+                        else:
+                            cx, cy = pcx, pcy
+
                     if cam_center_override is not None:
                         cx, cy = cam_center_override
-                    elif smoothed_cx is not None and smoothed_cy is not None:
-                        cx, cy = smoothed_cx, smoothed_cy
-                    elif ball_available and bx is not None and by is not None:
-                        cx = 0.90 * float(bx) + 0.10 * prev_cx
-                        cy = 0.90 * float(by) + 0.10 * prev_cy
-                    else:
-                        cx, cy = pcx, pcy
 
                     if render_fps > 0:
                         max_dx = 9999.0
@@ -3102,7 +3206,14 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     if portrait_h is not None:
         setattr(args, "portrait_h", portrait_h)
 
-    lookahead = int(args.lookahead) if args.lookahead is not None else int(preset_config.get("lookahead", 18))
+    plan_lookahead_arg = getattr(args, "plan_lookahead", None)
+    if plan_lookahead_arg is not None:
+        lookahead = int(plan_lookahead_arg)
+    else:
+        lookahead = int(preset_config.get("lookahead", 18))
+        if getattr(args, "_follow_lookahead_cli", False):
+            lookahead = int(args.follow_lookahead)
+    lookahead = max(0, lookahead)
     smoothing_default = preset_config.get("smoothing", 0.65)
     follow_smoothing = follow_config.get("smoothing") if follow_config else None
     if follow_smoothing is not None:
@@ -3117,6 +3228,13 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
     crf = int(args.crf) if args.crf is not None else int(preset_config.get("crf", 19))
     keyint_factor = int(args.keyint_factor) if args.keyint_factor is not None else int(preset_config.get("keyint_factor", 4))
+    follow_zeta = float(args.follow_zeta)
+    follow_wn = float(args.follow_wn)
+    follow_deadzone = max(0.0, float(args.deadzone))
+    follow_max_vel = float(args.max_vel) if args.max_vel is not None else None
+    follow_max_acc = float(args.max_acc) if args.max_acc is not None else None
+    follow_lookahead_frames = max(0, int(args.follow_lookahead))
+    follow_pre_smooth = float(np.clip(float(args.pre_smooth), 0.0, 1.0))
 
     margin_px = 0.0
     margin_val = follow_config.get("margin_px") if follow_config else None
@@ -3266,6 +3384,13 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
         follow_lead_time=lead_time_s,
         follow_margin_px=margin_px,
         follow_smoothing=smoothing,
+        follow_zeta=follow_zeta,
+        follow_wn=follow_wn,
+        follow_deadzone=follow_deadzone,
+        follow_max_vel=follow_max_vel,
+        follow_max_acc=follow_max_acc,
+        follow_lookahead=follow_lookahead_frames,
+        follow_pre_smooth=follow_pre_smooth,
     )
 
     renderer.write_frames(states)
@@ -3313,7 +3438,62 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flip180", dest="flip180", action="store_true", help="Rotate frames by 180 degrees before processing")
     parser.add_argument("--labels-root", dest="labels_root", help="Root directory containing YOLO label shards")
     parser.add_argument("--clean-temp", dest="clean_temp", action="store_true", help="Remove temporary frame folder before rendering")
-    parser.add_argument("--lookahead", dest="lookahead", type=int, help="Frames of lookahead for planning")
+    parser.add_argument(
+        "--lookahead",
+        "--follow-lookahead",
+        dest="follow_lookahead",
+        type=int,
+        default=2,
+        help="frames to look ahead when following",
+    )
+    parser.add_argument(
+        "--follow-zeta",
+        dest="follow_zeta",
+        type=float,
+        default=1.10,
+        help="2nd-order damping ratio (>=1 is overdamped)",
+    )
+    parser.add_argument(
+        "--follow-wn",
+        dest="follow_wn",
+        type=float,
+        default=3.5,
+        help="2nd-order natural freq (rad/s)",
+    )
+    parser.add_argument(
+        "--deadzone",
+        dest="deadzone",
+        type=float,
+        default=8.0,
+        help="pixels; ignore target error inside this radius",
+    )
+    parser.add_argument(
+        "--max-vel",
+        dest="max_vel",
+        type=float,
+        default=250.0,
+        help="px/s clamp on camera velocity",
+    )
+    parser.add_argument(
+        "--max-acc",
+        dest="max_acc",
+        type=float,
+        default=1200.0,
+        help="px/s^2 clamp on camera acceleration",
+    )
+    parser.add_argument(
+        "--pre-smooth",
+        dest="pre_smooth",
+        type=float,
+        default=0.35,
+        help="EMA alpha to pre-smooth bx/by (0..1)",
+    )
+    parser.add_argument(
+        "--plan-lookahead",
+        dest="plan_lookahead",
+        type=int,
+        help="Frames of lookahead for planning",
+    )
     parser.add_argument("--smoothing", dest="smoothing", type=float, help="EMA smoothing factor")
     parser.add_argument("--pad", dest="pad", type=float, help="Edge padding ratio used to derive zoom")
     parser.add_argument("--speed-limit", dest="speed_limit", type=float, help="Maximum pan speed in px/sec")
@@ -3360,7 +3540,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
     args = parser.parse_args(argv)
+    follow_lookahead_cli = any(
+        arg == "--lookahead" or arg.startswith("--lookahead=") for arg in raw_argv
+    )
+    setattr(args, "_follow_lookahead_cli", follow_lookahead_cli)
     # --- portrait helpers ---
     portrait_w, portrait_h = (None, None)
     if args.portrait:
