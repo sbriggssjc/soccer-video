@@ -126,6 +126,31 @@ def ema_path(xs: Sequence[float], ys: Sequence[float], alpha: float) -> tuple[Li
     return sx, sy
 
 
+# --- Jerk helpers --------------------------------------------------------
+
+
+def compute_camera_jerk95(xs: Sequence[float], ys: Sequence[float], fps: float) -> float:
+    """Return the 95th percentile jerk magnitude for a camera path."""
+
+    if fps <= 0.0 or len(xs) < 4 or len(xs) != len(ys):
+        return 0.0
+
+    dt = 1.0 / float(fps)
+    arr_x = np.asarray(xs, dtype=np.float64)
+    arr_y = np.asarray(ys, dtype=np.float64)
+
+    vx = np.gradient(arr_x, dt, edge_order=2)
+    vy = np.gradient(arr_y, dt, edge_order=2)
+    ax = np.gradient(vx, dt, edge_order=2)
+    ay = np.gradient(vy, dt, edge_order=2)
+    jx = np.gradient(ax, dt, edge_order=2)
+    jy = np.gradient(ay, dt, edge_order=2)
+
+    jerk_mag = np.hypot(jx, jy)
+    jerk_mag = np.nan_to_num(jerk_mag, nan=0.0, posinf=0.0, neginf=0.0)
+    return float(np.percentile(np.abs(jerk_mag), 95.0))
+
+
 # --- Simple constant-velocity tracker (EMA-based Kalman-lite) ---
 
 BallPathEntry = Union[Tuple[float, float, float], Tuple[float, float], Mapping[str, float], None]
@@ -1900,6 +1925,48 @@ class Renderer:
                         normalized_ball_path.append(None)
         self.offline_ball_path = normalized_ball_path
 
+    def _simulate_follow_centers(
+        self,
+        follow_targets: Optional[Tuple[List[float], List[float]]],
+        follow_lookahead_frames: int,
+        render_fps: float,
+        start_cx: float,
+        start_cy: float,
+        frame_count: int,
+    ) -> List[Tuple[float, float]]:
+        if (
+            follow_targets is None
+            or render_fps <= 0.0
+            or frame_count <= 0
+            or not follow_targets[0]
+            or not follow_targets[1]
+        ):
+            return []
+
+        follower = CamFollow2O(
+            zeta=self.follow_zeta,
+            wn=self.follow_wn,
+            dt=1.0 / render_fps,
+            max_vel=self.follow_max_vel,
+            max_acc=self.follow_max_acc,
+            deadzone=self.follow_deadzone,
+        )
+        follower.cx = float(start_cx)
+        follower.cy = float(start_cy)
+        follower.vx = 0.0
+        follower.vy = 0.0
+
+        xs, ys = follow_targets
+        last_idx = min(len(xs), len(ys)) - 1
+        centers: List[Tuple[float, float]] = []
+        for frame_idx in range(frame_count):
+            target_idx = min(frame_idx + follow_lookahead_frames, last_idx)
+            target_x = float(xs[target_idx])
+            target_y = float(ys[target_idx])
+            cx, cy = follower.step(target_x, target_y)
+            centers.append((cx, cy))
+        return centers
+
     def _compose_frame(
         self,
         frame: np.ndarray,
@@ -1974,7 +2041,7 @@ class Renderer:
         frame_count = int(round(self.fps_out * 2.0))
         return [resized for _ in range(frame_count)]
 
-    def write_frames(self, states: Sequence[CamState]) -> None:
+    def write_frames(self, states: Sequence[CamState], *, probe_only: bool = False) -> float:
         input_mp4 = str(self.input_path)
         cap = cv2.VideoCapture(input_mp4)
         if not cap.isOpened():
@@ -2194,52 +2261,72 @@ class Renderer:
         else:
             follower = None
 
-        if self.init_manual:
-            frame0, _fps0 = grab_frame_at_time(
-                input_mp4, max(0.0, self.init_t), fps_hint=src_fps or 30.0
+        jerk95 = 0.0
+        if follow_targets_len and render_fps > 0:
+            centers = self._simulate_follow_centers(
+                follow_targets,
+                follow_lookahead_frames,
+                render_fps,
+                prev_cx,
+                prev_cy,
+                len(states),
             )
-            if frame0 is not None:
-                roi = manual_select_ball(frame0, window="Drag around the BALL, press Enter")
-                if roi:
-                    x, y, w, h = roi
-                    bx0 = x + w / 2.0
-                    by0 = y + h / 2.0
-                    kal = CV2DKalman(bx0, by0)
-                    frame0_gray = cv2.cvtColor(frame0, cv2.COLOR_BGR2GRAY)
-                    tx0 = int(max(0, bx0 - tpl_side // 2))
-                    ty0 = int(max(0, by0 - tpl_side // 2))
-                    tx1 = int(min(frame0.shape[1], tx0 + tpl_side))
-                    ty1 = int(min(frame0.shape[0], ty0 + tpl_side))
-                    template = frame0_gray[ty0:ty1, tx0:tx1].copy()
-                    prev_cx, prev_cy = float(bx0), float(by0)
-                    if tf:
-                        tf.write(
-                            json.dumps(
-                                to_jsonable(
-                                    {
-                                        "t": float(self.init_t),
-                                        "used": "manual_bootstrap",
-                                        "cx": float(prev_cx),
-                                        "cy": float(prev_cy),
-                                        "zoom": 1.2,
-                                        "crop": [
-                                            float(max(0, bx0 - 240)),
-                                            float(max(0, by0 - 432)),
-                                            480.0,
-                                            864.0,
-                                        ],
-                                        "ball": [float(bx0), float(by0)],
-                                    }
-                                )
-                            )
-                            + "\n"
-                        )
-                else:
-                    print("[WARN] Manual init skipped (no ROI selected).")
-            else:
-                print(f"[WARN] Could not grab frame for manual init at t={self.init_t:.2f} s")
+            if centers:
+                xs = [c[0] for c in centers]
+                ys = [c[1] for c in centers]
+                jerk95 = compute_camera_jerk95(xs, ys, render_fps)
+        self.last_jerk95 = float(jerk95)
 
+        tf = self.telemetry
         try:
+            if probe_only:
+                return float(jerk95)
+
+            if self.init_manual:
+                frame0, _fps0 = grab_frame_at_time(
+                    input_mp4, max(0.0, self.init_t), fps_hint=src_fps or 30.0
+                )
+                if frame0 is not None:
+                    roi = manual_select_ball(frame0, window="Drag around the BALL, press Enter")
+                    if roi:
+                        x, y, w, h = roi
+                        bx0 = x + w / 2.0
+                        by0 = y + h / 2.0
+                        kal = CV2DKalman(bx0, by0)
+                        frame0_gray = cv2.cvtColor(frame0, cv2.COLOR_BGR2GRAY)
+                        tx0 = int(max(0, bx0 - tpl_side // 2))
+                        ty0 = int(max(0, by0 - tpl_side // 2))
+                        tx1 = int(min(frame0.shape[1], tx0 + tpl_side))
+                        ty1 = int(min(frame0.shape[0], ty0 + tpl_side))
+                        template = frame0_gray[ty0:ty1, tx0:tx1].copy()
+                        prev_cx, prev_cy = float(bx0), float(by0)
+                        if tf:
+                            tf.write(
+                                json.dumps(
+                                    to_jsonable(
+                                        {
+                                            "t": float(self.init_t),
+                                            "used": "manual_bootstrap",
+                                            "cx": float(prev_cx),
+                                            "cy": float(prev_cy),
+                                            "zoom": 1.2,
+                                            "crop": [
+                                                float(max(0, bx0 - 240)),
+                                                float(max(0, by0 - 432)),
+                                                480.0,
+                                                864.0,
+                                            ],
+                                            "ball": [float(bx0), float(by0)],
+                                        }
+                                    )
+                                )
+                                + "\n"
+                            )
+                    else:
+                        print("[WARN] Manual init skipped (no ROI selected).")
+                else:
+                    print(f"[WARN] Could not grab frame for manual init at t={self.init_t:.2f} s")
+
             for state in states:
                 ok, frame = cap.read()
                 if not ok or frame is None:
@@ -2969,6 +3056,8 @@ class Renderer:
                 out_path = self.temp_dir / f"f_{start_index + offset:06d}.jpg"
                 cv2.imwrite(str(out_path), endcard_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
+        return float(jerk95)
+
     def ffmpeg_stitch(
         self,
         crf: int,
@@ -3144,7 +3233,7 @@ def load_ball_path(
     return seq
 
 
-def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
+def run(args: argparse.Namespace, telemetry_path: Optional[Path] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     original_source_path = Path(args.in_path).expanduser().resolve()
@@ -3363,41 +3452,118 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
             ball_key_x=str(getattr(args, "ball_key_x", "bx_stab")),
             ball_key_y=str(getattr(args, "ball_key_y", "by_stab")),
         )
-    renderer = Renderer(
-        input_path=input_path,
-        output_path=output_path,
-        temp_dir=temp_dir,
-        fps_in=fps_in,
-        fps_out=fps_out,
-        flip180=args.flip180,
-        portrait=portrait,
-        brand_overlay=brand_overlay_path,
-        endcard=endcard_path,
-        pad=pad,
-        zoom_min=zoom_min,
-        zoom_max=zoom_max,
-        speed_limit=speed_limit,
-        telemetry=telemetry,
-        init_manual=getattr(args, "init_manual", False),
-        init_t=getattr(args, "init_t", 0.8),
-        ball_path=offline_ball_path,
-        follow_lead_time=lead_time_s,
-        follow_margin_px=margin_px,
-        follow_smoothing=smoothing,
-        follow_zeta=follow_zeta,
-        follow_wn=follow_wn,
-        follow_deadzone=follow_deadzone,
-        follow_max_vel=follow_max_vel,
-        follow_max_acc=follow_max_acc,
-        follow_lookahead=follow_lookahead_frames,
-        follow_pre_smooth=follow_pre_smooth,
-    )
+    jerk_threshold = float(getattr(args, "jerk_threshold", 0.0) or 0.0)
+    jerk_enabled = jerk_threshold > 0.0
+    jerk_wn_scale = float(getattr(args, "jerk_wn_scale", 0.9) or 0.9)
+    jerk_deadzone_step = float(getattr(args, "jerk_deadzone_step", 2.0) or 2.0)
+    jerk_max_attempts = max(1, int(getattr(args, "jerk_max_attempts", 3) or 3))
 
-    renderer.write_frames(states)
+    current_follow_wn = float(follow_wn)
+    current_deadzone = float(follow_deadzone)
+    jerk95 = 0.0
+    renderer: Optional[Renderer] = None
+
+    attempt = 0
+    while True:
+        attempt += 1
+        probe_renderer = Renderer(
+            input_path=input_path,
+            output_path=output_path,
+            temp_dir=temp_dir,
+            fps_in=fps_in,
+            fps_out=fps_out,
+            flip180=args.flip180,
+            portrait=portrait,
+            brand_overlay=brand_overlay_path,
+            endcard=endcard_path,
+            pad=pad,
+            zoom_min=zoom_min,
+            zoom_max=zoom_max,
+            speed_limit=speed_limit,
+            telemetry=None,
+            init_manual=getattr(args, "init_manual", False),
+            init_t=getattr(args, "init_t", 0.8),
+            ball_path=offline_ball_path,
+            follow_lead_time=lead_time_s,
+            follow_margin_px=margin_px,
+            follow_smoothing=smoothing,
+            follow_zeta=follow_zeta,
+            follow_wn=current_follow_wn,
+            follow_deadzone=current_deadzone,
+            follow_max_vel=follow_max_vel,
+            follow_max_acc=follow_max_acc,
+            follow_lookahead=follow_lookahead_frames,
+            follow_pre_smooth=follow_pre_smooth,
+        )
+        jerk95 = probe_renderer.write_frames(states, probe_only=True)
+        logging.info(
+            "jerk95=%.1f px/s^3 (attempt %d/%d, follow_wn=%.2f, deadzone=%.1f)",
+            jerk95,
+            attempt,
+            jerk_max_attempts,
+            current_follow_wn,
+            current_deadzone,
+        )
+
+        if (not jerk_enabled) or jerk95 <= jerk_threshold or attempt >= jerk_max_attempts:
+            if jerk_enabled and jerk95 > jerk_threshold and attempt >= jerk_max_attempts:
+                logging.warning(
+                    "jerk95 %.1f exceeds threshold %.1f; reached max attempts, proceeding with last settings.",
+                    jerk95,
+                    jerk_threshold,
+                )
+            telemetry_handle: Optional[TextIO] = None
+            try:
+                if telemetry_path is not None:
+                    telemetry_handle = open(telemetry_path, "w", encoding="utf-8")
+                renderer = Renderer(
+                    input_path=input_path,
+                    output_path=output_path,
+                    temp_dir=temp_dir,
+                    fps_in=fps_in,
+                    fps_out=fps_out,
+                    flip180=args.flip180,
+                    portrait=portrait,
+                    brand_overlay=brand_overlay_path,
+                    endcard=endcard_path,
+                    pad=pad,
+                    zoom_min=zoom_min,
+                    zoom_max=zoom_max,
+                    speed_limit=speed_limit,
+                    telemetry=telemetry_handle,
+                    init_manual=getattr(args, "init_manual", False),
+                    init_t=getattr(args, "init_t", 0.8),
+                    ball_path=offline_ball_path,
+                    follow_lead_time=lead_time_s,
+                    follow_margin_px=margin_px,
+                    follow_smoothing=smoothing,
+                    follow_zeta=follow_zeta,
+                    follow_wn=current_follow_wn,
+                    follow_deadzone=current_deadzone,
+                    follow_max_vel=follow_max_vel,
+                    follow_max_acc=follow_max_acc,
+                    follow_lookahead=follow_lookahead_frames,
+                    follow_pre_smooth=follow_pre_smooth,
+                )
+                jerk95 = renderer.write_frames(states)
+            finally:
+                if telemetry_handle:
+                    telemetry_handle.close()
+            break
+
+        logging.info(
+            "jerk95 %.1f exceeds threshold %.1f; retuning follow_wn/deadzone", jerk95, jerk_threshold
+        )
+        current_follow_wn = max(0.1, current_follow_wn * max(jerk_wn_scale, 0.1))
+        current_deadzone = max(0.0, current_deadzone + jerk_deadzone_step)
+
+    assert renderer is not None
 
     keyint = max(1, int(round(float(keyint_factor) * float(fps_out))))
     log_path = Path(args.log).expanduser() if args.log else None
     renderer.ffmpeg_stitch(crf=crf, keyint=keyint, log_path=log_path)
+
+    log_dict["jerk95"] = float(jerk95)
 
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3410,6 +3576,7 @@ def run(args: argparse.Namespace, telemetry: Optional[TextIO] = None) -> None:
             "preset": preset_key,
             "ffmpeg_command": renderer.last_ffmpeg_command,
         }
+        summary["jerk95"] = float(jerk95)
         summary.update(log_dict)
         with log_path.open("w", encoding="utf-8") as handle:
             json.dump(to_jsonable(log_dict), handle, ensure_ascii=False, indent=2)
@@ -3489,6 +3656,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="EMA alpha to pre-smooth bx/by (0..1)",
     )
     parser.add_argument(
+        "--jerk-threshold",
+        dest="jerk_threshold",
+        type=float,
+        default=0.0,
+        help="Max allowed camera jerk95 in px/s^3 (0 disables the gate)",
+    )
+    parser.add_argument(
+        "--jerk-wn-scale",
+        dest="jerk_wn_scale",
+        type=float,
+        default=0.9,
+        help="Multiplier applied to --follow-wn when jerk exceeds the threshold",
+    )
+    parser.add_argument(
+        "--jerk-deadzone-step",
+        dest="jerk_deadzone_step",
+        type=float,
+        default=2.0,
+        help="Deadzone increment (px) when jerk exceeds the threshold",
+    )
+    parser.add_argument(
+        "--jerk-max-attempts",
+        dest="jerk_max_attempts",
+        type=int,
+        default=3,
+        help="Maximum number of retune attempts when enforcing jerk threshold",
+    )
+    parser.add_argument(
         "--plan-lookahead",
         dest="plan_lookahead",
         type=int,
@@ -3557,17 +3752,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             )
     setattr(args, "portrait_w", portrait_w)
     setattr(args, "portrait_h", portrait_h)
-    tf = None
+    telemetry_path: Optional[Path] = None
     if getattr(args, "telemetry", None):
         telemetry_path = Path(args.telemetry).expanduser()
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         args.telemetry = os.fspath(telemetry_path)
-        tf = open(args.telemetry, "w", encoding="utf-8")
-    try:
-        run(args, telemetry=tf)
-    finally:
-        if tf:
-            tf.close()
+    run(args, telemetry_path=telemetry_path)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
