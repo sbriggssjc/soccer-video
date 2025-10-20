@@ -50,6 +50,11 @@ def main():
         action="store_true",
         help="Render debug text with frame index, plan time, and coordinates",
     )
+    ap.add_argument(
+        "--show-states",
+        action="store_true",
+        help="If a record contains a 'state' field (offscreen/occluded/unknown), render a small label.",
+    )
     args = ap.parse_args()
 
     inp = os.path.abspath(args.inp)
@@ -163,6 +168,32 @@ def main():
                 1,
                 lineType=cv2.LINE_AA,
             )
+
+        if args.show_states:
+            state_val = rec.get("state") if isinstance(rec, dict) else None
+            state_str = str(state_val).strip().lower() if state_val is not None else ""
+            if state_str in {"offscreen", "occluded", "unknown"}:
+                label = f"[{state_str}]"
+                cv2.putText(
+                    frame,
+                    label,
+                    (12, 58),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 0),
+                    3,
+                    lineType=cv2.LINE_AA,
+                )
+                cv2.putText(
+                    frame,
+                    label,
+                    (12, 58),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 255),
+                    1,
+                    lineType=cv2.LINE_AA,
+                )
 
         if "crop_src" in row and row["crop_src"]:
             cx, cy, cw, ch = row["crop_src"]
