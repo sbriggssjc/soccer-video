@@ -58,6 +58,72 @@ def _get_ball_xy_src(rec, src_w, src_h):
     return None, None
 
 
+def edge_aware_zoom(
+    cx: float,
+    cy: float,
+    bx: Optional[float],
+    by: Optional[float],
+    cw: float,
+    ch: float,
+    width: float,
+    height: float,
+    margin_px: float,
+    *,
+    s_min: float = 0.75,
+) -> float:
+    """Return a zoom scale (<= 1.0) that avoids edge clamps while keeping the ball inside a margin."""
+
+    if cw <= 0.0 or ch <= 0.0 or width <= 0.0 or height <= 0.0:
+        return 1.0
+
+    cx = float(cx)
+    cy = float(cy)
+    cw = float(cw)
+    ch = float(ch)
+    width = float(width)
+    height = float(height)
+    margin_px = max(0.0, float(margin_px))
+
+    s_needed = 1.0
+
+    half_w = cw / 2.0
+    half_h = ch / 2.0
+
+    if half_w <= 0.0 or half_h <= 0.0:
+        return 1.0
+
+    # compute minimum scale needed to avoid clamping against source edges
+    s_clamp_x = 1.0
+    s_clamp_y = 1.0
+    if cx - half_w < 0.0:
+        s_clamp_x = min(s_clamp_x, (max(cx, 0.0) * 2.0) / max(cw, 1e-6))
+    if cx + half_w > width:
+        s_clamp_x = min(s_clamp_x, (max(width - cx, 0.0) * 2.0) / max(cw, 1e-6))
+    if cy - half_h < 0.0:
+        s_clamp_y = min(s_clamp_y, (max(cy, 0.0) * 2.0) / max(ch, 1e-6))
+    if cy + half_h > height:
+        s_clamp_y = min(s_clamp_y, (max(height - cy, 0.0) * 2.0) / max(ch, 1e-6))
+
+    s_needed = min(s_needed, s_clamp_x, s_clamp_y)
+
+    if bx is not None and by is not None and math.isfinite(bx) and math.isfinite(by):
+        bx = float(bx)
+        by = float(by)
+        dx = abs(bx - cx)
+        dy = abs(by - cy)
+        if margin_px > 0.0:
+            hx_margin = max(half_w - margin_px, 0.0)
+            hy_margin = max(half_h - margin_px, 0.0)
+            if hx_margin > 0.0 and dx > hx_margin:
+                s_needed = min(s_needed, hx_margin / max(dx, 1e-6))
+            if hy_margin > 0.0 and dy > hy_margin:
+                s_needed = min(s_needed, hy_margin / max(dy, 1e-6))
+
+    s_min = max(0.0, min(1.0, float(s_min)))
+    s_needed = max(s_min, min(1.0, float(s_needed)))
+    return float(s_needed)
+
+
 class CamFollow2O:
     def __init__(
         self,
@@ -1479,6 +1545,7 @@ class CamState:
     used_label: bool
     clamp_flags: List[str]
     ball: Optional[Tuple[float, float]] = None
+    zoom_scale: float = 1.0
 
 
 class CameraPlanner:
@@ -1574,6 +1641,7 @@ class CameraPlanner:
         pre_pad_target = target_final_side / shrink_factor
         desired_zoom = base_side / max(pre_pad_target, 1.0)
         self.base_zoom = float(np.clip(desired_zoom, self.zoom_min, self.zoom_max))
+        self.edge_zoom_min_scale = 0.75
 
     def plan(self, positions: np.ndarray, used_mask: np.ndarray) -> List[CamState]:
         frame_count = len(positions)
@@ -1611,11 +1679,9 @@ class CameraPlanner:
                 return prev_value + (limit if delta > 0 else -limit), True
             return current_value, False
 
-        def _compute_crop(
-            center_x: float,
-            center_y: float,
+        def _compute_crop_dimensions(
             zoom_value: float,
-        ) -> Tuple[float, float, float, float, float, float, float, bool]:
+        ) -> Tuple[float, float, float]:
             zoom_clamped = float(np.clip(zoom_value, self.zoom_min, self.zoom_max))
             crop_h = self.height / max(zoom_clamped, 1e-6)
             crop_w = crop_h * aspect_ratio
@@ -1640,7 +1706,14 @@ class CameraPlanner:
 
             crop_w = float(np.clip(crop_w, 1.0, self.width))
             crop_h = float(np.clip(crop_h, 1.0, self.height))
+            return zoom_clamped, crop_w, crop_h
 
+        def _compute_crop(
+            center_x: float,
+            center_y: float,
+            zoom_value: float,
+        ) -> Tuple[float, float, float, float, float, float, float, bool]:
+            zoom_clamped, crop_w, crop_h = _compute_crop_dimensions(zoom_value)
             adjusted_cy = center_y
             if aspect_target:
                 adjusted_cy = adjusted_cy + 0.10 * crop_h
@@ -1736,6 +1809,31 @@ class CameraPlanner:
             speed_limited = x_clamped or y_clamped
             if speed_limited:
                 clamp_flags.append("speed")
+
+            _, est_crop_w, est_crop_h = _compute_crop_dimensions(zoom)
+            edge_zoom_scale = 1.0
+            bx_margin: Optional[float]
+            by_margin: Optional[float]
+            if ball_point:
+                bx_margin, by_margin = ball_point
+            else:
+                bx_margin, by_margin = float(target[0]), float(target[1])
+            zoom_scale = edge_aware_zoom(
+                cx,
+                cy,
+                bx_margin,
+                by_margin,
+                est_crop_w,
+                est_crop_h,
+                self.width,
+                self.height,
+                self.margin_px,
+                s_min=self.edge_zoom_min_scale,
+            )
+            if zoom_scale < 0.999:
+                edge_zoom_scale = zoom_scale
+                zoom = max(self.zoom_min, zoom * zoom_scale)
+                clamp_flags.append(f"edge_zoom={zoom_scale:.3f}")
 
             crop_w, crop_h, x0, y0, actual_cx, actual_cy, zoom, bounds_clamped = _compute_crop(
                 cx, cy, zoom
@@ -1849,6 +1947,7 @@ class CameraPlanner:
                     used_label=bool(has_position),
                     clamp_flags=clamp_flags,
                     ball=ball_point,
+                    zoom_scale=edge_zoom_scale,
                 )
             )
 
@@ -3044,6 +3143,7 @@ class Renderer:
                         "cy": float(cy),
                         "zoom": float(zoom),
                     }
+                    telemetry_rec["zoom_edge_scale"] = float(state.zoom_scale)
                     telemetry_rec["f"] = int(state.frame)
                     if used_tag == "planner":
                         if planner_spd is not None:
@@ -3181,6 +3281,7 @@ class Renderer:
                     used_label=state.used_label,
                     clamp_flags=clamp_flags,
                     ball=state.ball,
+                    zoom_scale=state.zoom_scale,
                 )
 
                 composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
