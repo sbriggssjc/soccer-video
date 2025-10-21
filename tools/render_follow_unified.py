@@ -38,6 +38,51 @@ if str(REPO_ROOT) not in sys.path:
 from tools.upscale import upscale_video
 
 
+def _safe_div(a, b, eps=1e-6):
+    return float(a) / float(b if abs(b) > eps else (eps if b >= 0 else -eps))
+
+
+def _edge_aware_zoom(cx, cy, bx, by, cw, ch, W, H, margin_px, s_min=0.80):
+    """
+    Returns scale s in (s_min..1.0]. s=1 means no zoom-out. We reduce s only
+    when we'd fail margin or hit borders at the requested (cx,cy).
+    """
+
+    s = 1.0
+    hx, hy = cw * 0.5, ch * 0.5
+
+    # Border headroom at current center
+    left = cx - hx
+    right = (W - 1) - (cx + hx)
+    top = cy - hy
+    bottom = (H - 1) - (cy + hy)
+
+    # If any headroom goes negative, shrink s so the crop fits
+    if left < 0:
+        s = min(s, _safe_div(cx * 2.0, cw))
+    if right < 0:
+        s = min(s, _safe_div((W - 1 - cx) * 2.0, cw))
+    if top < 0:
+        s = min(s, _safe_div(cy * 2.0, ch))
+    if bottom < 0:
+        s = min(s, _safe_div((H - 1 - cx) * 2.0, cw))  # (typo-safe; we handle below)
+
+    # Recompute robustly for Y bottom:
+    if bottom < 0:
+        s = min(s, _safe_div((H - 1 - cy) * 2.0, ch))
+
+    # Margin check: ensure ball is inside margin after scaling
+    # Note: for s<1, effective half-sizes shrink (we see a larger world area),
+    # so the required |bx-cx| <= hx*s - margin.
+    dx, dy = abs(bx - cx), abs(by - cy)
+    if dx > (hx - margin_px):
+        s = min(s, _safe_div((hx - margin_px), max(dx, 1e-6)))
+    if dy > (hy - margin_px):
+        s = min(s, _safe_div((hy - margin_px), max(dy, 1e-6)))
+
+    return max(s_min, min(1.0, float(s)))
+
+
 def _get_ball_xy_src(rec, src_w, src_h):
     """
     Return ball center in *source pixel space* (x,y), regardless of which fields exist in the record.
@@ -2540,6 +2585,7 @@ class Renderer:
                 telemetry_crop: Optional[Tuple[float, float, float, float]] = None
                 planner_spd: Optional[float] = None
                 planner_zoom: Optional[float] = None
+                edge_zoom_scale_follow = 1.0
 
                 def _refresh_template(cx_val: float, cy_val: float) -> None:
                     nonlocal template
@@ -2754,12 +2800,43 @@ class Renderer:
                         if have_ball:
                             ball_path_entry = (eff_bx, eff_by)
                     if not planner_handled:
-                        target_x = float(eff_bx)
-                        target_y = float(eff_by)
+                        base_target_x = float(eff_bx)
+                        base_target_y = float(eff_by)
                         if have_ball and follow_targets and follow_targets_len > 0:
                             idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
-                            target_x = float(follow_targets[0][idx])
-                            target_y = float(follow_targets[1][idx])
+                            base_target_x = float(follow_targets[0][idx])
+                            base_target_y = float(follow_targets[1][idx])
+
+                        fps_for_vel = (
+                            float(render_fps)
+                            if render_fps and render_fps > 0
+                            else (float(src_fps) if src_fps and src_fps > 0 else 30.0)
+                        )
+                        plan_len = follow_targets_len if follow_targets else len(states)
+                        plan_idx = min(max(n, 0), plan_len - 1) if plan_len > 0 else 0
+                        vx = 0.0
+                        vy = 0.0
+                        if (
+                            follow_targets
+                            and follow_targets_len > 1
+                            and plan_idx > 0
+                            and plan_idx < follow_targets_len - 1
+                            and fps_for_vel > 0.0
+                        ):
+                            bx_prev_plan = float(follow_targets[0][plan_idx - 1])
+                            by_prev_plan = float(follow_targets[1][plan_idx - 1])
+                            bx_next_plan = float(follow_targets[0][plan_idx + 1])
+                            by_next_plan = float(follow_targets[1][plan_idx + 1])
+                            vx = 0.5 * (bx_next_plan - bx_prev_plan) * fps_for_vel
+                            vy = 0.5 * (by_next_plan - by_prev_plan) * fps_for_vel
+                        elif n > 0:
+                            vx = float(base_target_x - prev_bx)
+                            vy = float(base_target_y - prev_by)
+
+                        lead_k = 0.02
+                        target_x = float(base_target_x + lead_k * vx)
+                        target_y = float(base_target_y + lead_k * vy)
+
                         valid_for_hold = bool(have_ball)
                         if follow_valid_mask and n < len(follow_valid_mask):
                             valid_for_hold = valid_for_hold and bool(follow_valid_mask[n])
@@ -2771,13 +2848,15 @@ class Renderer:
                         if follower is not None:
                             if holding_follow and 0.0 < follow_hold.decay_factor < 1.0:
                                 follower.damp_velocity(follow_hold.decay_factor)
-                            cx, cy = follower.step(float(eff_target_x), float(eff_target_y))
+                            cam_x, cam_y = follower.step(
+                                float(eff_target_x), float(eff_target_y)
+                            )
                         else:
                             alpha_pan = 0.30 if not holding_follow else 0.0
-                            cx = alpha_pan * eff_target_x + (1 - alpha_pan) * prev_cx
-                            cy = alpha_pan * eff_target_y + (1 - alpha_pan) * prev_cy
+                            cam_x = alpha_pan * eff_target_x + (1 - alpha_pan) * prev_cx
+                            cam_y = alpha_pan * eff_target_y + (1 - alpha_pan) * prev_cy
                         if not holding_follow:
-                            follow_hold.reset_target(cx, cy)
+                            follow_hold.reset_target(cam_x, cam_y)
 
                         speed = hypot(eff_bx - prev_ball_bx, eff_by - prev_ball_by)
                         norm = min(1.0, speed / 24.0)
@@ -2787,17 +2866,59 @@ class Renderer:
                         slew = 0.02
                         zoom = prev_zoom + max(-slew, min(slew, zoom_target - prev_zoom))
                         zoom = float(np.clip(zoom, z_min if z_min > 0 else 1.0, z_max))
+                    else:
+                        cam_x = cx
+                        cam_y = cy
 
-                    view_h = H / float(zoom) if zoom > 0 else H
-                    view_w = view_h * target_aspect
-                    if view_w > W:
-                        view_w = float(W)
-                        view_h = view_w / target_aspect if target_aspect else view_h
-                    x0 = min(max(cx - 0.5 * view_w, 0.0), W - view_w)
-                    y0 = min(max(cy - 0.5 * view_h, 0.0), H - view_h)
+                    crop_h = H / float(zoom) if zoom > 0 else H
+                    crop_w = crop_h * target_aspect
+                    if crop_w > W:
+                        crop_w = float(W)
+                        crop_h = crop_w / target_aspect if target_aspect else crop_h
+
+                    margin_follow = (
+                        float(self.follow_margin_px)
+                        if self.follow_margin_px > 0
+                        else 16.0
+                    )
+                    margin_follow = max(0.0, float(margin_follow))
+                    half_w = 0.5 * float(crop_w)
+                    half_h = 0.5 * float(crop_h)
+                    max_margin = max(0.0, min(half_w, half_h) - 1.0)
+                    margin_follow = min(margin_follow, max_margin)
+
+                    edge_zoom_scale = _edge_aware_zoom(
+                        float(cam_x),
+                        float(cam_y),
+                        float(eff_bx),
+                        float(eff_by),
+                        float(crop_w),
+                        float(crop_h),
+                        float(W),
+                        float(H),
+                        margin_px=margin_follow,
+                        s_min=0.80,
+                    )
+                    eff_w = float(crop_w * edge_zoom_scale)
+                    eff_h = float(crop_h * edge_zoom_scale)
+                    hx = eff_w * 0.5
+                    hy = eff_h * 0.5
+                    cam_x = max(hx, min(W - 1.0 - hx, float(cam_x)))
+                    cam_y = max(hy, min(H - 1.0 - hy, float(cam_y)))
+                    x0 = max(0.0, min(W - eff_w, cam_x - hx))
+                    y0 = max(0.0, min(H - eff_h, cam_y - hy))
+
+                    crop_w = eff_w
+                    crop_h = eff_h
+                    cx = float(cam_x)
+                    cy = float(cam_y)
+                    if eff_h > 1e-6:
+                        zoom = float(H / eff_h)
+
+                    edge_zoom_scale_follow = float(edge_zoom_scale)
 
                     telemetry_ball_src = (eff_bx, eff_by)
-                    telemetry_crop = (x0, y0, view_w, view_h)
+                    telemetry_crop = (x0, y0, crop_w, crop_h)
 
                     if is_portrait and have_ball:
                         portrait_plan_state["zoom"] = float(
@@ -2871,6 +2992,7 @@ class Renderer:
 
                         cx = float(x0 + 0.5 * crop_w)
                         cy = float(y0 + 0.5 * crop_h)
+                        telemetry_crop = (x0, y0, crop_w, crop_h)
                         zoom = float(zoom)
                         prev_cx = float(cx)
                         prev_cy = float(cy)
@@ -3119,6 +3241,17 @@ class Renderer:
                     if ball_available and bx is not None and by is not None:
                         prev_bx = float(bx)
                         prev_by = float(by)
+                half_w_final = float(crop_w) * 0.5 if crop_w is not None else 0.0
+                half_h_final = float(crop_h) * 0.5 if crop_h is not None else 0.0
+                clamped_flag = 0
+                if half_w_final > 0.0 and half_h_final > 0.0:
+                    clamped_flag = int(
+                        cy <= half_h_final + 0.5
+                        or cy >= (height - 1.0) - half_h_final - 0.5
+                        or cx <= half_w_final + 0.5
+                        or cx >= (width - 1.0) - half_w_final - 0.5
+                    )
+
                 if simple_tf:
                     bx_val = float(bx) if bx is not None else None
                     by_val = float(by) if by is not None else None
@@ -3132,6 +3265,8 @@ class Renderer:
                         "cy": float(cy),
                         "bx": bx_val,
                         "by": by_val,
+                        "zoom": float(edge_zoom_scale_follow),
+                        "clamped": int(clamped_flag),
                     }
                     simple_tf.write(json.dumps(simple_record) + "\n")
 
@@ -3143,7 +3278,10 @@ class Renderer:
                         "cy": float(cy),
                         "zoom": float(zoom),
                     }
-                    telemetry_rec["zoom_edge_scale"] = float(state.zoom_scale)
+                    if used_tag == "offline_path":
+                        telemetry_rec["zoom_edge_scale"] = float(edge_zoom_scale_follow)
+                    else:
+                        telemetry_rec["zoom_edge_scale"] = float(state.zoom_scale)
                     telemetry_rec["f"] = int(state.frame)
                     if used_tag == "planner":
                         if planner_spd is not None:
