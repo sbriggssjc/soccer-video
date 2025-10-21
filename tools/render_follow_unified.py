@@ -1896,6 +1896,7 @@ class Renderer:
         zoom_max: float,
         speed_limit: float,
         telemetry: Optional[TextIO],
+        telemetry_simple: Optional[TextIO] = None,
         init_manual: bool,
         init_t: float,
         ball_path: Optional[Sequence[BallPathEntry]],
@@ -1925,6 +1926,7 @@ class Renderer:
         self.zoom_max = float(zoom_max)
         self.speed_limit = float(speed_limit)
         self.telemetry = telemetry
+        self.telemetry_simple = telemetry_simple
         self.last_ffmpeg_command: Optional[List[str]] = None
         self.init_manual = bool(init_manual)
         self.init_t = float(init_t)
@@ -2155,6 +2157,7 @@ class Renderer:
 
         overlay_image = _load_overlay(self.brand_overlay_path, output_size)
         tf = self.telemetry
+        simple_tf = self.telemetry_simple
 
         is_portrait = target_h > target_w
         portrait_plan_state: dict[str, float] = {}
@@ -3017,6 +3020,22 @@ class Renderer:
                     if ball_available and bx is not None and by is not None:
                         prev_bx = float(bx)
                         prev_by = float(by)
+                if simple_tf:
+                    bx_val = float(bx) if bx is not None else None
+                    by_val = float(by) if by is not None else None
+                    if bx_val is not None and not math.isfinite(bx_val):
+                        bx_val = None
+                    if by_val is not None and not math.isfinite(by_val):
+                        by_val = None
+                    simple_record = {
+                        "t": float(t),
+                        "cx": float(cx),
+                        "cy": float(cy),
+                        "bx": bx_val,
+                        "by": by_val,
+                    }
+                    simple_tf.write(json.dumps(simple_record) + "\n")
+
                 if tf:
                     telemetry_rec = {
                         "t": float(t),
@@ -3175,6 +3194,9 @@ class Renderer:
             if tf:
                 tf.close()
                 self.telemetry = None
+            if simple_tf:
+                simple_tf.close()
+                self.telemetry_simple = None
 
         endcard_frames = self._append_endcard(output_size)
         if endcard_frames:
@@ -3360,7 +3382,11 @@ def load_ball_path(
     return seq
 
 
-def run(args: argparse.Namespace, telemetry_path: Optional[Path] = None) -> None:
+def run(
+    args: argparse.Namespace,
+    telemetry_path: Optional[Path] = None,
+    telemetry_simple_path: Optional[Path] = None,
+) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     original_source_path = Path(args.in_path).expanduser().resolve()
@@ -3608,6 +3634,7 @@ def run(args: argparse.Namespace, telemetry_path: Optional[Path] = None) -> None
             zoom_max=zoom_max,
             speed_limit=speed_limit,
             telemetry=None,
+            telemetry_simple=None,
             init_manual=getattr(args, "init_manual", False),
             init_t=getattr(args, "init_t", 0.8),
             ball_path=offline_ball_path,
@@ -3640,9 +3667,14 @@ def run(args: argparse.Namespace, telemetry_path: Optional[Path] = None) -> None
                     jerk_threshold,
                 )
             telemetry_handle: Optional[TextIO] = None
+            telemetry_simple_handle: Optional[TextIO] = None
             try:
                 if telemetry_path is not None:
                     telemetry_handle = open(telemetry_path, "w", encoding="utf-8")
+                if telemetry_simple_path is not None:
+                    telemetry_simple_handle = open(
+                        telemetry_simple_path, "w", encoding="utf-8"
+                    )
                 renderer = Renderer(
                     input_path=input_path,
                     output_path=output_path,
@@ -3658,6 +3690,7 @@ def run(args: argparse.Namespace, telemetry_path: Optional[Path] = None) -> None
                     zoom_max=zoom_max,
                     speed_limit=speed_limit,
                     telemetry=telemetry_handle,
+                    telemetry_simple=telemetry_simple_handle,
                     init_manual=getattr(args, "init_manual", False),
                     init_t=getattr(args, "init_t", 0.8),
                     ball_path=offline_ball_path,
@@ -3676,6 +3709,8 @@ def run(args: argparse.Namespace, telemetry_path: Optional[Path] = None) -> None
             finally:
                 if telemetry_handle:
                     telemetry_handle.close()
+                if telemetry_simple_handle:
+                    telemetry_simple_handle.close()
             break
 
         logging.info(
@@ -3822,6 +3857,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--zoom-min", dest="zoom_min", type=float, help="Minimum zoom multiplier")
     parser.add_argument("--zoom-max", dest="zoom_max", type=float, help="Maximum zoom multiplier")
     parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
+    parser.add_argument(
+        "--telemetry-out",
+        dest="telemetry_out",
+        default=None,
+        help="Write per-frame JSONL with t,cx,cy,bx,by",
+    )
     parser.add_argument("--brand-overlay", dest="brand_overlay", help="PNG overlay composited on every frame")
     parser.add_argument("--endcard", dest="endcard", help="Optional endcard image displayed for ~2 seconds")
     parser.add_argument("--log", dest="log", help="Optional render log path")
@@ -3880,11 +3921,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     setattr(args, "portrait_w", portrait_w)
     setattr(args, "portrait_h", portrait_h)
     telemetry_path: Optional[Path] = None
+    telemetry_simple_path: Optional[Path] = None
     if getattr(args, "telemetry", None):
         telemetry_path = Path(args.telemetry).expanduser()
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         args.telemetry = os.fspath(telemetry_path)
-    run(args, telemetry_path=telemetry_path)
+    if getattr(args, "telemetry_out", None):
+        telemetry_simple_path = Path(args.telemetry_out).expanduser()
+        telemetry_simple_path.parent.mkdir(parents=True, exist_ok=True)
+        args.telemetry_out = os.fspath(telemetry_simple_path)
+    run(args, telemetry_path=telemetry_path, telemetry_simple_path=telemetry_simple_path)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
