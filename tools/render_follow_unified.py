@@ -2090,7 +2090,7 @@ class Renderer:
         follow_max_acc: Optional[float] = None,
         follow_lookahead: int = 0,
         follow_pre_smooth: float = 0.0,
-        follow_zoom_out_max: float = 1.30,
+        follow_zoom_out_max: float = 1.35,
         follow_zoom_edge_frac: float = 1.0,
     ) -> None:
         self.input_path = input_path
@@ -3287,6 +3287,111 @@ class Renderer:
                     if ball_available and bx is not None and by is not None:
                         prev_bx = float(bx)
                         prev_by = float(by)
+                zoom_ball_x: Optional[float] = None
+                zoom_ball_y: Optional[float] = None
+                if have_ball:
+                    try:
+                        zoom_ball_x = float(eff_bx)
+                        zoom_ball_y = float(eff_by)
+                    except NameError:
+                        zoom_ball_x = zoom_ball_y = None
+                    except (TypeError, ValueError):
+                        zoom_ball_x = zoom_ball_y = None
+                if (
+                    zoom_ball_x is None
+                    or zoom_ball_y is None
+                ) and ball_available and bx is not None and by is not None:
+                    try:
+                        zoom_ball_x = float(bx)
+                        zoom_ball_y = float(by)
+                    except (TypeError, ValueError):
+                        zoom_ball_x = zoom_ball_y = None
+
+                if (
+                    is_portrait
+                    and zoom_ball_x is not None
+                    and zoom_ball_y is not None
+                    and crop_w is not None
+                    and crop_h is not None
+                    and crop_w > 1.0
+                    and crop_h > 1.0
+                ):
+                    margin_ratio = self.pad if self.pad > 0.0 else 0.10
+                    margin_px = float(margin_ratio) * min(float(crop_w), float(crop_h))
+                    if margin_px > 0.0:
+                        zoom_out_max = float(self.follow_zoom_out_max)
+                        edge_frac = float(self.follow_zoom_edge_frac)
+                        headroom_px = 4.0
+                        halfW = float(crop_w) * 0.5
+                        halfH = float(crop_h) * 0.5
+                        cx_val = float(cx)
+                        cy_val = float(cy)
+                        bx_val = float(zoom_ball_x)
+                        by_val = float(zoom_ball_y)
+
+                        left_d = bx_val - (cx_val - halfW + margin_px)
+                        right_d = (cx_val + halfW - margin_px) - bx_val
+                        top_d = by_val - (cy_val - halfH + margin_px)
+                        bot_d = (cy_val + halfH - margin_px) - by_val
+
+                        need_w = 0.0
+                        need_h = 0.0
+                        if min(left_d, right_d) < edge_frac * margin_px:
+                            req_halfW = max(
+                                bx_val - (cx_val - margin_px - headroom_px),
+                                (cx_val + margin_px + headroom_px) - bx_val,
+                            )
+                            need_w = max(0.0, req_halfW - halfW) * 2.0
+
+                        if min(top_d, bot_d) < edge_frac * margin_px:
+                            req_halfH = max(
+                                by_val - (cy_val - margin_px - headroom_px),
+                                (cy_val + margin_px + headroom_px) - by_val,
+                            )
+                            need_h = max(0.0, req_halfH - halfH) * 2.0
+
+                        effW = max(float(crop_w), need_w)
+                        effH = max(float(crop_h), need_h)
+
+                        if effW > float(width):
+                            effW = float(width)
+                        if effH > float(height):
+                            effH = float(height)
+
+                        base_zoom_out = max(
+                            1.0,
+                            min(
+                                zoom_out_max,
+                                max(
+                                    effW / max(float(crop_w), 1e-6),
+                                    effH / max(float(crop_h), 1e-6),
+                                ),
+                            ),
+                        )
+
+                        if base_zoom_out > 1.0 and effW > 1.0 and effH > 1.0:
+                            hx = 0.5 * effW
+                            hy = 0.5 * effH
+                            width_f = float(width)
+                            height_f = float(height)
+                            cx_val = max(hx, min((width_f - 1.0) - hx, cx_val))
+                            cy_val = max(hy, min((height_f - 1.0) - hy, cy_val))
+                            x0 = max(0.0, min(width_f - effW, cx_val - hx))
+                            y0 = max(0.0, min(height_f - effH, cy_val - hy))
+                            crop_w = effW
+                            crop_h = effH
+                            cx = float(cx_val)
+                            cy = float(cy_val)
+                            telemetry_crop = (x0, y0, crop_w, crop_h)
+                            zoom = float(height) / max(crop_h, 1e-6)
+                            if zoom_max >= zoom_min:
+                                zoom = max(zoom_min, min(zoom_max, zoom))
+                            edge_zoom_scale_follow = float(
+                                edge_zoom_scale_follow * base_zoom_out
+                            )
+                            prev_cx = float(cx)
+                            prev_cy = float(cy)
+                            prev_zoom = float(zoom)
                 half_w_final = float(crop_w) * 0.5 if crop_w is not None else 0.0
                 half_h_final = float(crop_h) * 0.5 if crop_h is not None else 0.0
                 clamped_flag = 0
@@ -3298,11 +3403,11 @@ class Renderer:
                         or cx >= (width - 1.0) - half_w_final - 0.5
                     )
 
-                if simple_tf:
-                    bx_val = float(bx) if bx is not None else None
-                    by_val = float(by) if by is not None else None
-                    if bx_val is not None and not math.isfinite(bx_val):
-                        bx_val = None
+                    if simple_tf:
+                        bx_val = float(bx) if bx is not None else None
+                        by_val = float(by) if by is not None else None
+                        if bx_val is not None and not math.isfinite(bx_val):
+                            bx_val = None
                     if by_val is not None and not math.isfinite(by_val):
                         by_val = None
                     simple_record = {
@@ -3317,14 +3422,15 @@ class Renderer:
                     }
                     simple_tf.write(json.dumps(simple_record) + "\n")
 
-                if tf:
-                    telemetry_rec = {
-                        "t": float(t),
-                        "used": used_tag,
-                        "cx": float(cx),
-                        "cy": float(cy),
-                        "zoom": float(zoom),
-                    }
+                    if tf:
+                        telemetry_rec = {
+                            "t": float(t),
+                            "used": used_tag,
+                            "cx": float(cx),
+                            "cy": float(cy),
+                            "zoom": float(zoom),
+                            "zoom_out": float(edge_zoom_scale_follow),
+                        }
                     if used_tag == "offline_path":
                         telemetry_rec["zoom_edge_scale"] = float(edge_zoom_scale_follow)
                     else:
@@ -3852,12 +3958,12 @@ def run(
             margin_px = 0.0
 
     zoom_out_max_default = follow_config.get("zoom_out_max") if follow_config else None
-    follow_zoom_out_max = 1.30
+    follow_zoom_out_max = 1.35
     if zoom_out_max_default is not None:
         try:
             follow_zoom_out_max = max(1.0, float(zoom_out_max_default))
         except (TypeError, ValueError):
-            follow_zoom_out_max = 1.30
+            follow_zoom_out_max = 1.35
     if getattr(args, "zoom_out_max", None) is not None:
         follow_zoom_out_max = max(1.0, float(args.zoom_out_max))
 
@@ -4251,12 +4357,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--zoom-out-max",
         dest="zoom_out_max",
         type=float,
+        default=1.35,
         help="Maximum automatic zoom-out multiplier",
     )
     parser.add_argument(
         "--zoom-edge-frac",
         dest="zoom_edge_frac",
         type=float,
+        default=0.80,
         help="Fraction of safe margin where zoom-out begins to ease out",
     )
     parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
