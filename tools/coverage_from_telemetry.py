@@ -30,6 +30,12 @@ def main():
     total = 0
     misses = []
 
+    crop_w = args.crop_w
+    crop_h = args.crop_h
+    margin = args.margin
+    W = args.w
+    H = args.h
+
     for i, r in enumerate(recs):
         if r is None:
             continue
@@ -40,24 +46,21 @@ def main():
         cy = float(r["cy"])
         bx = float(r["bx"])
         by = float(r["by"])
-        s = float(r.get("zoom_out", 1.0))
+        z = float(r.get("zoom_out", 1.0))
 
-        # effective crop in SOURCE pixels during this frame
-        eff_w = args.crop_w * s
-        eff_h = args.crop_h * s
-        hx = 0.5 * eff_w
-        hy = 0.5 * eff_h
+        eff_w = min(W, crop_w * z)
+        eff_h = min(H, crop_h * z)
 
-        x0 = cx - hx
-        x1 = cx + hx
-        y0 = cy - hy
-        y1 = cy + hy
+        x0 = max(0.0, min(W - eff_w, cx - eff_w * 0.5))
+        y0 = max(0.0, min(H - eff_h, cy - eff_h * 0.5))
+        x1 = x0 + eff_w
+        y1 = y0 + eff_h
 
         ok = (
-            bx >= x0 + args.margin
-            and bx <= x1 - args.margin
-            and by >= y0 + args.margin
-            and by <= y1 - args.margin
+            bx >= x0 + margin
+            and bx <= x1 - margin
+            and by >= y0 + margin
+            and by <= y1 - margin
         )
         if ok:
             inside += 1
@@ -67,7 +70,7 @@ def main():
 
     pct = 100.0 * inside / max(1, total)
     print(
-        f"camera-coverage: {inside}/{total} = {pct:.2f}% (crop {args.crop_w}x{args.crop_h}, margin {args.margin}px)"
+        f"camera-coverage: {inside}/{total} = {pct:.2f}% (crop {args.crop_w}x{args.crop_h}, margin {args.margin}px; zoom-aware)"
     )
     if misses:
         i, t, bx, by = misses[0]
