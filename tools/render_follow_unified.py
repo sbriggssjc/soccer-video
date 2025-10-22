@@ -38,49 +38,40 @@ if str(REPO_ROOT) not in sys.path:
 from tools.upscale import upscale_video
 
 
-def _safe_div(a, b, eps=1e-6):
-    return float(a) / float(b if abs(b) > eps else (eps if b >= 0 else -eps))
-
-
-def _edge_aware_zoom(cx, cy, bx, by, cw, ch, W, H, margin_px, s_min=0.80):
+def edge_zoom_out(
+    cx,
+    cy,
+    bx,
+    by,
+    crop_w,
+    crop_h,
+    W,
+    H,
+    margin_px,
+    s_cap=1.25,
+):
     """
-    Returns scale s in (s_min..1.0]. s=1 means no zoom-out. We reduce s only
-    when we'd fail margin or hit borders at the requested (cx,cy).
+    Returns s_out in [1.0, s_cap], where s_out enlarges the source crop:
+      eff_w = crop_w * s_out, eff_h = crop_h * s_out
+    We zoom out only as needed (margin) and as allowed (borders).
     """
 
-    s = 1.0
-    hx, hy = cw * 0.5, ch * 0.5
-
-    # Border headroom at current center
-    left = cx - hx
-    right = (W - 1) - (cx + hx)
-    top = cy - hy
-    bottom = (H - 1) - (cy + hy)
-
-    # If any headroom goes negative, shrink s so the crop fits
-    if left < 0:
-        s = min(s, _safe_div(cx * 2.0, cw))
-    if right < 0:
-        s = min(s, _safe_div((W - 1 - cx) * 2.0, cw))
-    if top < 0:
-        s = min(s, _safe_div(cy * 2.0, ch))
-    if bottom < 0:
-        s = min(s, _safe_div((H - 1 - cx) * 2.0, cw))  # (typo-safe; we handle below)
-
-    # Recompute robustly for Y bottom:
-    if bottom < 0:
-        s = min(s, _safe_div((H - 1 - cy) * 2.0, ch))
-
-    # Margin check: ensure ball is inside margin after scaling
-    # Note: for s<1, effective half-sizes shrink (we see a larger world area),
-    # so the required |bx-cx| <= hx*s - margin.
+    hx, hy = 0.5 * crop_w, 0.5 * crop_h
     dx, dy = abs(bx - cx), abs(by - cy)
-    if dx > (hx - margin_px):
-        s = min(s, _safe_div((hx - margin_px), max(dx, 1e-6)))
-    if dy > (hy - margin_px):
-        s = min(s, _safe_div((hy - margin_px), max(dy, 1e-6)))
 
-    return max(s_min, min(1.0, float(s)))
+    # Need at least this much zoom to satisfy margin
+    s_need_x = (dx + margin_px) / max(hx, 1e-6)
+    s_need_y = (dy + margin_px) / max(hy, 1e-6)
+    s_ball = max(1.0, s_need_x, s_need_y)
+
+    # Border headroom: max zoom-out we can afford without leaving the image
+    s_max_l = cx / max(hx, 1e-6)
+    s_max_r = (W - 1 - cx) / max(hx, 1e-6)
+    s_max_t = cy / max(hy, 1e-6)
+    s_max_b = (H - 1 - cy) / max(hy, 1e-6)
+    s_border = max(1.0, min(s_max_l, s_max_r, s_max_t, s_max_b))
+
+    return max(1.0, min(s_ball, min(s_border, s_cap)))
 
 
 def _get_ball_xy_src(rec, src_w, src_h):
@@ -2887,7 +2878,7 @@ class Renderer:
                     max_margin = max(0.0, min(half_w, half_h) - 1.0)
                     margin_follow = min(margin_follow, max_margin)
 
-                    edge_zoom_scale = _edge_aware_zoom(
+                    s_out = edge_zoom_out(
                         float(cam_x),
                         float(cam_y),
                         float(eff_bx),
@@ -2897,14 +2888,14 @@ class Renderer:
                         float(W),
                         float(H),
                         margin_px=margin_follow,
-                        s_min=0.80,
+                        s_cap=1.25,
                     )
-                    eff_w = float(crop_w * edge_zoom_scale)
-                    eff_h = float(crop_h * edge_zoom_scale)
-                    hx = eff_w * 0.5
-                    hy = eff_h * 0.5
-                    cam_x = max(hx, min(W - 1.0 - hx, float(cam_x)))
-                    cam_y = max(hy, min(H - 1.0 - hy, float(cam_y)))
+                    eff_w = float(crop_w * s_out)
+                    eff_h = float(crop_h * s_out)
+                    hx = 0.5 * eff_w
+                    hy = 0.5 * eff_h
+                    cam_x = max(hx, min((W - 1.0) - hx, float(cam_x)))
+                    cam_y = max(hy, min((H - 1.0) - hy, float(cam_y)))
                     x0 = max(0.0, min(W - eff_w, cam_x - hx))
                     y0 = max(0.0, min(H - eff_h, cam_y - hy))
 
@@ -2915,7 +2906,7 @@ class Renderer:
                     if eff_h > 1e-6:
                         zoom = float(H / eff_h)
 
-                    edge_zoom_scale_follow = float(edge_zoom_scale)
+                    edge_zoom_scale_follow = float(s_out)
 
                     telemetry_ball_src = (eff_bx, eff_by)
                     telemetry_crop = (x0, y0, crop_w, crop_h)
@@ -3265,7 +3256,8 @@ class Renderer:
                         "cy": float(cy),
                         "bx": bx_val,
                         "by": by_val,
-                        "zoom": float(edge_zoom_scale_follow),
+                        "zoom": float(zoom),
+                        "zoom_out": float(edge_zoom_scale_follow),
                         "clamped": int(clamped_flag),
                     }
                     simple_tf.write(json.dumps(simple_record) + "\n")
