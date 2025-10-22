@@ -48,21 +48,55 @@ def edge_zoom_out(
     W,
     H,
     margin_px,
-    s_cap=1.25,
+    s_cap=1.30,
+    *,
+    edge_frac: float = 1.0,
 ):
-    """
-    Returns s_out in [1.0, s_cap], where s_out enlarges the source crop:
-      eff_w = crop_w * s_out, eff_h = crop_h * s_out
-    We zoom out only as needed (margin) and as allowed (borders).
+    """Return a zoom-out multiplier that keeps the ball off the crop edge.
+
+    ``s_out`` scales the crop dimensions (``eff_w = crop_w * s_out``) and is
+    constrained by ``s_cap`` and the available border headroom.  ``edge_frac``
+    softens the onset of the zoom so that we start nudging the crop outward
+    before the ball fully breaches the requested ``margin_px``.
     """
 
     hx, hy = 0.5 * crop_w, 0.5 * crop_h
     dx, dy = abs(bx - cx), abs(by - cy)
 
-    # Need at least this much zoom to satisfy margin
-    s_need_x = (dx + margin_px) / max(hx, 1e-6)
-    s_need_y = (dy + margin_px) / max(hy, 1e-6)
-    s_ball = max(1.0, s_need_x, s_need_y)
+    margin_px = max(0.0, float(margin_px))
+    s_cap = max(1.0, float(s_cap))
+    try:
+        edge_frac = float(edge_frac)
+    except (TypeError, ValueError):
+        edge_frac = 1.0
+    if not math.isfinite(edge_frac) or edge_frac <= 0.0:
+        edge_frac = 1.0
+
+    def _axis_scale(delta: float, half: float) -> float:
+        if half <= 0.0:
+            return 1.0
+
+        need = max(1.0, (delta + margin_px) / max(half, 1e-6))
+        if margin_px <= 0.0:
+            return need
+
+        actual_margin = max(0.0, half - delta)
+        trigger_margin = margin_px / edge_frac if edge_frac > 0.0 else half
+        trigger_margin = max(margin_px, min(trigger_margin, half))
+
+        if actual_margin >= trigger_margin:
+            return 1.0
+        if actual_margin <= margin_px or trigger_margin <= margin_px:
+            return need
+
+        blend = (trigger_margin - actual_margin) / max(
+            trigger_margin - margin_px, 1e-6
+        )
+        return 1.0 + blend * (need - 1.0)
+
+    s_soft_x = _axis_scale(dx, hx)
+    s_soft_y = _axis_scale(dy, hy)
+    s_ball = max(1.0, s_soft_x, s_soft_y)
 
     # Border headroom: max zoom-out we can afford without leaving the image
     s_max_l = cx / max(hx, 1e-6)
@@ -2046,6 +2080,8 @@ class Renderer:
         follow_max_acc: Optional[float] = None,
         follow_lookahead: int = 0,
         follow_pre_smooth: float = 0.0,
+        follow_zoom_out_max: float = 1.30,
+        follow_zoom_edge_frac: float = 1.0,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -2075,6 +2111,14 @@ class Renderer:
         self.follow_max_acc = None if follow_max_acc is None else float(follow_max_acc)
         self.follow_lookahead = int(follow_lookahead)
         self.follow_pre_smooth = float(np.clip(follow_pre_smooth, 0.0, 1.0))
+        self.follow_zoom_out_max = max(1.0, float(follow_zoom_out_max))
+        try:
+            zoom_edge_frac = float(follow_zoom_edge_frac)
+        except (TypeError, ValueError):
+            zoom_edge_frac = 1.0
+        if not math.isfinite(zoom_edge_frac) or zoom_edge_frac <= 0.0:
+            zoom_edge_frac = 1.0
+        self.follow_zoom_edge_frac = zoom_edge_frac
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -2888,7 +2932,8 @@ class Renderer:
                         float(W),
                         float(H),
                         margin_px=margin_follow,
-                        s_cap=1.25,
+                        s_cap=self.follow_zoom_out_max,
+                        edge_frac=self.follow_zoom_edge_frac,
                     )
                     eff_w = float(crop_w * s_out)
                     eff_h = float(crop_h * s_out)
@@ -3717,6 +3762,28 @@ def run(
         except (TypeError, ValueError):
             margin_px = 0.0
 
+    zoom_out_max_default = follow_config.get("zoom_out_max") if follow_config else None
+    follow_zoom_out_max = 1.30
+    if zoom_out_max_default is not None:
+        try:
+            follow_zoom_out_max = max(1.0, float(zoom_out_max_default))
+        except (TypeError, ValueError):
+            follow_zoom_out_max = 1.30
+    if getattr(args, "zoom_out_max", None) is not None:
+        follow_zoom_out_max = max(1.0, float(args.zoom_out_max))
+
+    zoom_edge_frac_default = follow_config.get("zoom_edge_frac") if follow_config else None
+    follow_zoom_edge_frac = 0.80
+    if zoom_edge_frac_default is not None:
+        try:
+            follow_zoom_edge_frac = float(zoom_edge_frac_default)
+        except (TypeError, ValueError):
+            follow_zoom_edge_frac = 0.80
+    if getattr(args, "zoom_edge_frac", None) is not None:
+        follow_zoom_edge_frac = float(args.zoom_edge_frac)
+    if not math.isfinite(follow_zoom_edge_frac) or follow_zoom_edge_frac <= 0.0:
+        follow_zoom_edge_frac = 1.0
+
     lead_time_s = 0.0
     lead_val = follow_config.get("lead_time") if follow_config else None
     if lead_val is not None:
@@ -3879,6 +3946,8 @@ def run(
             follow_max_acc=follow_max_acc,
             follow_lookahead=follow_lookahead_frames,
             follow_pre_smooth=follow_pre_smooth,
+            follow_zoom_out_max=follow_zoom_out_max,
+            follow_zoom_edge_frac=follow_zoom_edge_frac,
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         logging.info(
@@ -3935,6 +4004,8 @@ def run(
                     follow_max_acc=follow_max_acc,
                     follow_lookahead=follow_lookahead_frames,
                     follow_pre_smooth=follow_pre_smooth,
+                    follow_zoom_out_max=follow_zoom_out_max,
+                    follow_zoom_edge_frac=follow_zoom_edge_frac,
                 )
                 jerk95 = renderer.write_frames(states)
             finally:
@@ -4087,6 +4158,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--speed-limit", dest="speed_limit", type=float, help="Maximum pan speed in px/sec")
     parser.add_argument("--zoom-min", dest="zoom_min", type=float, help="Minimum zoom multiplier")
     parser.add_argument("--zoom-max", dest="zoom_max", type=float, help="Maximum zoom multiplier")
+    parser.add_argument(
+        "--zoom-out-max",
+        dest="zoom_out_max",
+        type=float,
+        help="Maximum automatic zoom-out multiplier",
+    )
+    parser.add_argument(
+        "--zoom-edge-frac",
+        dest="zoom_edge_frac",
+        type=float,
+        help="Fraction of safe margin where zoom-out begins to ease out",
+    )
     parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
         "--telemetry-out",
