@@ -1649,6 +1649,8 @@ class CameraPlanner:
         speed_zoom: Optional[Mapping[str, object]] = None,
         min_box: Optional[Tuple[float, float]] = None,
         horizon_lock: float = 0.0,
+        emergency_gain: float = 0.6,
+        emergency_zoom_max: float = 1.45,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -1663,6 +1665,8 @@ class CameraPlanner:
 
         self.margin_px = max(0.0, float(margin_px))
         self.lead_frames = max(0, int(lead_frames))
+        self.emergency_gain = float(np.clip(emergency_gain, 0.0, 1.0))
+        self.emergency_zoom_max = max(1.0, float(emergency_zoom_max))
 
         render_fps = self.fps if self.fps > 0 else 30.0
         if render_fps <= 0:
@@ -1914,6 +1918,63 @@ class CameraPlanner:
                 edge_zoom_scale = zoom_scale
                 zoom = max(self.zoom_min, zoom * zoom_scale)
                 clamp_flags.append(f"edge_zoom={zoom_scale:.3f}")
+
+            # --- emergency keep-in-view ---
+            if math.isfinite(bx_margin) and math.isfinite(by_margin):
+                margin = float(self.margin_px)
+                _, crop_w_est, crop_h_est = _compute_crop_dimensions(zoom)
+                if crop_w_est > 0.0 and crop_h_est > 0.0:
+                    bx = float(bx_margin)
+                    by = float(by_margin)
+                    crop_w = float(crop_w_est)
+                    crop_h = float(crop_h_est)
+
+                    em_gain = self.emergency_gain if hasattr(self, "emergency_gain") else 0.6
+                    em_zoom = self.emergency_zoom_max if hasattr(self, "emergency_zoom_max") else 1.45
+                    em_gain = float(np.clip(em_gain, 0.0, 1.0))
+
+                    halfW = crop_w * 0.5
+                    halfH = crop_h * 0.5
+
+                    dxL = bx - (cx - halfW + margin)
+                    dxR = (cx + halfW - margin) - bx
+                    dyT = by - (cy - halfH + margin)
+                    dyB = (cy + halfH - margin) - by
+
+                    need_dx = 0.0
+                    if dxL < 0.0:
+                        need_dx = -(margin - (bx - (cx - halfW)))
+                    elif dxR < 0.0:
+                        need_dx = margin - ((cx + halfW) - bx)
+
+                    need_dy = 0.0
+                    if dyT < 0.0:
+                        need_dy = -(margin - (by - (cy - halfH)))
+                    elif dyB < 0.0:
+                        need_dy = margin - ((cy + halfH) - by)
+
+                    if need_dx or need_dy:
+                        cx += em_gain * need_dx
+                        cy += em_gain * need_dy
+
+                    left_d = bx - (cx - halfW + margin)
+                    right_d = (cx + halfW - margin) - bx
+                    top_d = by - (cy - halfH + margin)
+                    bot_d = (cy + halfH - margin) - by
+                    tight = min(left_d, right_d, top_d, bot_d)
+
+                    if tight < 2.0:
+                        req_halfW = max(bx - (cx - margin), (cx + margin) - bx)
+                        req_halfH = max(by - (cy - margin), (cy + margin) - by)
+                        needW = max(crop_w, 2.0 * req_halfW)
+                        needH = max(crop_h, 2.0 * req_halfH)
+                        zoom_out = max(1.0, min(em_zoom, max(needW / max(crop_w, 1e-6), needH / max(crop_h, 1e-6))))
+                    else:
+                        zoom_out = 1.0
+
+                    if zoom_out > 1.0:
+                        zoom = float(np.clip(zoom / zoom_out, self.zoom_min, self.zoom_max))
+                        edge_zoom_scale *= 1.0 / zoom_out
 
             crop_w, crop_h, x0, y0, actual_cx, actual_cy, zoom, bounds_clamped = _compute_crop(
                 cx, cy, zoom
@@ -4079,6 +4140,8 @@ def run(
         speed_zoom=speed_zoom_config,
         min_box=portrait_min_box,
         horizon_lock=portrait_horizon_lock,
+        emergency_gain=getattr(args, "emergency_gain", 0.6),
+        emergency_zoom_max=getattr(args, "emergency_zoom_max", 1.45),
     )
     states = planner.plan(positions, used_mask)
 
@@ -4366,6 +4429,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.80,
         help="Fraction of safe margin where zoom-out begins to ease out",
+    )
+    parser.add_argument(
+        "--emergency-gain",
+        dest="emergency_gain",
+        type=float,
+        default=0.6,
+        help="Emergency recenter gain when the ball breaches the safety margin",
+    )
+    parser.add_argument(
+        "--emergency-zoom-max",
+        dest="emergency_zoom_max",
+        type=float,
+        default=1.45,
+        help="Maximum emergency zoom-out multiplier to keep the ball in view",
     )
     parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
