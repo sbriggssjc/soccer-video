@@ -1113,6 +1113,16 @@ def dynamic_zoom(
 
 
 PRESETS_PATH = Path(__file__).resolve().parent / "render_presets.yaml"
+FOLLOW_DEFAULTS = {
+    "zeta": 1.10,
+    "wn": 3.5,
+    "deadzone": 8.0,
+    "max_vel": 250.0,
+    "max_acc": 1200.0,
+    "pre_smooth": 0.35,
+    "lookahead": 2,
+}
+
 DEFAULT_PRESETS = {
     "cinematic": {
         "fps": 30,
@@ -3746,13 +3756,92 @@ def run(
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
     crf = int(args.crf) if args.crf is not None else int(preset_config.get("crf", 19))
     keyint_factor = int(args.keyint_factor) if args.keyint_factor is not None else int(preset_config.get("keyint_factor", 4))
-    follow_zeta = float(args.follow_zeta)
-    follow_wn = float(args.follow_wn)
-    follow_deadzone = max(0.0, float(args.deadzone))
-    follow_max_vel = float(args.max_vel) if args.max_vel is not None else None
-    follow_max_acc = float(args.max_acc) if args.max_acc is not None else None
-    follow_lookahead_frames = max(0, int(args.follow_lookahead))
-    follow_pre_smooth = float(np.clip(float(args.pre_smooth), 0.0, 1.0))
+
+    controller_config_raw = follow_config.get("controller") if follow_config else None
+    controller_config: Mapping[str, object] = {}
+    if isinstance(controller_config_raw, Mapping):
+        controller_config = controller_config_raw
+
+    def _controller_value(key: str) -> Optional[object]:
+        if key in controller_config:
+            return controller_config[key]
+        preset_key_name = f"follow_{key}"
+        if preset_key_name in preset_config:
+            return preset_config[preset_key_name]
+        return None
+
+    def _controller_float(key: str, fallback: float) -> float:
+        value = _controller_value(key)
+        if value is None:
+            return fallback
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    def _controller_optional_float(key: str, fallback: Optional[float]) -> Optional[float]:
+        value = _controller_value(key)
+        if value is None:
+            return fallback
+        if isinstance(value, str) and value.strip().lower() in {"none", "", "null"}:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    def _controller_int(key: str, fallback: int) -> int:
+        value = _controller_value(key)
+        if value is None:
+            return fallback
+        try:
+            return int(round(float(value)))
+        except (TypeError, ValueError):
+            return fallback
+
+    follow_zeta = (
+        float(args.follow_zeta)
+        if args.follow_zeta is not None
+        else _controller_float("zeta", FOLLOW_DEFAULTS["zeta"])
+    )
+    follow_wn = (
+        float(args.follow_wn)
+        if args.follow_wn is not None
+        else _controller_float("wn", FOLLOW_DEFAULTS["wn"])
+    )
+    follow_deadzone = max(
+        0.0,
+        float(args.deadzone)
+        if args.deadzone is not None
+        else _controller_float("deadzone", FOLLOW_DEFAULTS["deadzone"]),
+    )
+    follow_max_vel = (
+        float(args.max_vel)
+        if args.max_vel is not None
+        else _controller_optional_float("max_vel", FOLLOW_DEFAULTS["max_vel"])
+    )
+    follow_max_acc = (
+        float(args.max_acc)
+        if args.max_acc is not None
+        else _controller_optional_float("max_acc", FOLLOW_DEFAULTS["max_acc"])
+    )
+    follow_lookahead_value = (
+        int(args.follow_lookahead)
+        if args.follow_lookahead is not None
+        else _controller_int("lookahead", int(FOLLOW_DEFAULTS["lookahead"]))
+    )
+    follow_lookahead_frames = max(0, int(follow_lookahead_value))
+    follow_pre_smooth = (
+        float(np.clip(float(args.pre_smooth), 0.0, 1.0))
+        if args.pre_smooth is not None
+        else float(
+            np.clip(
+                _controller_float("pre_smooth", FOLLOW_DEFAULTS["pre_smooth"]),
+                0.0,
+                1.0,
+            )
+        )
+    )
 
     margin_px = 0.0
     margin_val = follow_config.get("margin_px") if follow_config else None
@@ -4052,7 +4141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--in", dest="in_path", required=True, help="Input MP4 path")
     parser.add_argument("--src", dest="src", help="Legacy compatibility input path (ignored)")
     parser.add_argument("--out", dest="out", help="Output MP4 path")
-    parser.add_argument("--preset", dest="preset", choices=["cinematic", "gentle", "realzoom"], default="cinematic")
+    parser.add_argument("--preset", dest="preset", default="cinematic", help="Preset name to load from render_presets.yaml")
     parser.add_argument("--portrait", dest="portrait", help="Portrait canvas WxH")
     parser.add_argument(
         "--upscale",
@@ -4074,50 +4163,50 @@ def build_parser() -> argparse.ArgumentParser:
         "--follow-lookahead",
         dest="follow_lookahead",
         type=int,
-        default=2,
-        help="frames to look ahead when following",
+        default=None,
+        help="frames to look ahead when following (defaults to preset)",
     )
     parser.add_argument(
         "--follow-zeta",
         dest="follow_zeta",
         type=float,
-        default=1.10,
-        help="2nd-order damping ratio (>=1 is overdamped)",
+        default=None,
+        help="2nd-order damping ratio (>=1 is overdamped; defaults to preset)",
     )
     parser.add_argument(
         "--follow-wn",
         dest="follow_wn",
         type=float,
-        default=3.5,
-        help="2nd-order natural freq (rad/s)",
+        default=None,
+        help="2nd-order natural freq (rad/s; defaults to preset)",
     )
     parser.add_argument(
         "--deadzone",
         dest="deadzone",
         type=float,
-        default=8.0,
-        help="pixels; ignore target error inside this radius",
+        default=None,
+        help="pixels; ignore target error inside this radius (defaults to preset)",
     )
     parser.add_argument(
         "--max-vel",
         dest="max_vel",
         type=float,
-        default=250.0,
-        help="px/s clamp on camera velocity",
+        default=None,
+        help="px/s clamp on camera velocity (defaults to preset)",
     )
     parser.add_argument(
         "--max-acc",
         dest="max_acc",
         type=float,
-        default=1200.0,
-        help="px/s^2 clamp on camera acceleration",
+        default=None,
+        help="px/s^2 clamp on camera acceleration (defaults to preset)",
     )
     parser.add_argument(
         "--pre-smooth",
         dest="pre_smooth",
         type=float,
-        default=0.35,
-        help="EMA alpha to pre-smooth bx/by (0..1)",
+        default=None,
+        help="EMA alpha to pre-smooth bx/by (0..1; defaults to preset)",
     )
     parser.add_argument(
         "--jerk-threshold",
