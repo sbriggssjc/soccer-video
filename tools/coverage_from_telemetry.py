@@ -46,7 +46,10 @@ def main():
         cy = float(r["cy"])
         bx = float(r["bx"])
         by = float(r["by"])
-        z = float(r.get("zoom_out", 1.0))
+        z_out = float(r.get("zoom_out", 1.0))
+        z_in = float(r.get("zoom", 1.0))
+        z_eff = max(z_out, 1.0 / max(z_in, 1e-6))
+        z = max(1.0, z_eff)
 
         eff_w = min(W, crop_w * z)
         eff_h = min(H, crop_h * z)
