@@ -63,10 +63,14 @@ def main():
             continue
 
         total += 1
-        x0 = cx - args.crop_w/2
-        x1 = cx + args.crop_w/2
-        y0 = cy - args.crop_h/2
-        y1 = cy + args.crop_h/2
+        s = float(r.get("zoom_out", 1.0))
+        hx = 0.5 * args.crop_w * s
+        hy = 0.5 * args.crop_h * s
+
+        x0 = cx - hx
+        x1 = cx + hx
+        y0 = cy - hy
+        y1 = cy + hy
 
         ok = (bx >= x0 + args.margin and bx <= x1 - args.margin and
               by >= y0 + args.margin and by <= y1 - args.margin)
