@@ -1,6 +1,11 @@
 import argparse, json, math
 
 
+# --- robust outward nudge (Ceiling) + slightly bigger slack ---
+SLACK = 8          # was 6
+HALF = 0.65        # widen local warp window (seconds); was ~0.50–0.60
+
+
 def load_jsonl(path):
     rows = []
     with open(path, "r", encoding="utf-8") as f:
@@ -59,25 +64,41 @@ def main():
         x1 = x0 + eff_w
         y1 = y0 + eff_h
 
-        ok = (
-            bx >= x0 + margin
-            and bx <= x1 - margin
-            and by >= y0 + margin
-            and by <= y1 - margin
-        )
+        left = x0 + margin
+        right = x1 - margin
+        top = y0 + margin
+        bottom = y1 - margin
+
+        ok = bx >= left and bx <= right and by >= top and by <= bottom
         if ok:
             inside += 1
         else:
             t = float(r.get("t", i / 30.0))
-            misses.append((i, t, bx, by))
+            need_dx = 0
+            need_dy = 0
+            if bx < left:
+                need_dx = int(math.ceil((left + SLACK) - bx))
+            elif bx > right:
+                need_dx = int(math.ceil((right - SLACK) - bx))
+
+            if by < top:
+                need_dy = int(math.ceil((top + SLACK) - by))
+            elif by > bottom:
+                need_dy = int(math.ceil((bottom - SLACK) - by))
+
+            misses.append((i, t, bx, by, need_dx, need_dy))
 
     pct = 100.0 * inside / max(1, total)
     print(
         f"camera-coverage: {inside}/{total} = {pct:.2f}% (crop {args.crop_w}x{args.crop_h}, margin {args.margin}px; zoom-aware)"
     )
     if misses:
-        i, t, bx, by = misses[0]
-        print(f"first miss @ frame {i} t={t:.2f}s  ball=({bx:.1f},{by:.1f})")
+        i, t, bx, by, need_dx, need_dy = misses[0]
+        print(
+            "first miss @ frame"
+            f" {i} t={t:.2f}s  ball=({bx:.1f},{by:.1f})"
+            f" need_dx={need_dx} need_dy={need_dy}"
+        )
 
 
 if __name__ == "__main__":
