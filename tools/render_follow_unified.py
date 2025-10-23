@@ -1651,6 +1651,10 @@ class CameraPlanner:
         horizon_lock: float = 0.0,
         emergency_gain: float = 0.6,
         emergency_zoom_max: float = 1.45,
+        keepinview_margin_px: Optional[float] = None,
+        keepinview_nudge_gain: float = 0.5,
+        keepinview_zoom_gain: float = 0.4,
+        keepinview_zoom_out_max: float = 1.6,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -1667,6 +1671,13 @@ class CameraPlanner:
         self.lead_frames = max(0, int(lead_frames))
         self.emergency_gain = float(np.clip(emergency_gain, 0.0, 1.0))
         self.emergency_zoom_max = max(1.0, float(emergency_zoom_max))
+
+        if keepinview_margin_px is None:
+            keepinview_margin_px = self.margin_px
+        self.keepinview_margin_px = max(0.0, float(keepinview_margin_px))
+        self.keepinview_nudge_gain = max(0.0, float(keepinview_nudge_gain))
+        self.keepinview_zoom_gain = max(0.0, float(keepinview_zoom_gain))
+        self.keepinview_zoom_out_max = max(1.0, float(keepinview_zoom_out_max))
 
         render_fps = self.fps if self.fps > 0 else 30.0
         if render_fps <= 0:
@@ -1887,6 +1898,74 @@ class CameraPlanner:
                 ball_point = (float(pos[0]), float(pos[1]))
 
             clamp_flags: List[str] = []
+            edge_zoom_scale = 1.0
+
+            keepinview_zoom_out = 1.0
+            keepinview_margin = self.keepinview_margin_px
+            if keepinview_margin > 0.0:
+                bx_guard: Optional[float]
+                by_guard: Optional[float]
+                if ball_point:
+                    bx_guard, by_guard = ball_point
+                else:
+                    bx_guard, by_guard = float(target[0]), float(target[1])
+
+                if math.isfinite(bx_guard) and math.isfinite(by_guard):
+                    _, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
+                    if kv_crop_w > 0.0 and kv_crop_h > 0.0:
+                        half_w = kv_crop_w * 0.5
+                        half_h = kv_crop_h * 0.5
+
+                        left_gap = bx_guard - (cx - half_w + keepinview_margin)
+                        right_gap = (cx + half_w - keepinview_margin) - bx_guard
+                        top_gap = by_guard - (cy - half_h + keepinview_margin)
+                        bot_gap = (cy + half_h - keepinview_margin) - by_guard
+                        tight = min(left_gap, right_gap, top_gap, bot_gap)
+
+                        threshold_nudge = keepinview_margin * 0.15
+                        if self.keepinview_nudge_gain > 0.0 and tight < threshold_nudge:
+                            ex = 0.0
+                            ey = 0.0
+                            if left_gap < threshold_nudge:
+                                ex -= threshold_nudge - left_gap
+                            if right_gap < threshold_nudge:
+                                ex += threshold_nudge - right_gap
+                            if top_gap < threshold_nudge:
+                                ey -= threshold_nudge - top_gap
+                            if bot_gap < threshold_nudge:
+                                ey += threshold_nudge - bot_gap
+                            if ex or ey:
+                                cx += self.keepinview_nudge_gain * ex
+                                cy += self.keepinview_nudge_gain * ey
+                                if "keepin_nudge" not in clamp_flags:
+                                    clamp_flags.append("keepin_nudge")
+                                left_gap = bx_guard - (cx - half_w + keepinview_margin)
+                                right_gap = (cx + half_w - keepinview_margin) - bx_guard
+                                top_gap = by_guard - (cy - half_h + keepinview_margin)
+                                bot_gap = (cy + half_h - keepinview_margin) - by_guard
+
+                        threshold_zoom = keepinview_margin * 0.25
+                        min_gap = min(left_gap, right_gap, top_gap, bot_gap)
+                        if (
+                            self.keepinview_zoom_gain > 0.0
+                            and threshold_zoom > 0.0
+                            and min_gap < threshold_zoom
+                        ):
+                            deficit = threshold_zoom - min_gap
+                            keepinview_zoom_out = 1.0 + self.keepinview_zoom_gain * (
+                                deficit / threshold_zoom
+                            )
+                            keepinview_zoom_out = min(
+                                keepinview_zoom_out,
+                                self.keepinview_zoom_out_max,
+                            )
+
+            if keepinview_zoom_out > 1.0:
+                keepin_scale = 1.0 / keepinview_zoom_out
+                zoom = max(self.zoom_min, zoom * keepin_scale)
+                edge_zoom_scale *= keepin_scale
+                if not any(flag.startswith("keepin_zoom=") for flag in clamp_flags):
+                    clamp_flags.append(f"keepin_zoom={keepinview_zoom_out:.3f}")
 
             cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x)
             cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y)
@@ -1895,7 +1974,6 @@ class CameraPlanner:
                 clamp_flags.append("speed")
 
             _, est_crop_w, est_crop_h = _compute_crop_dimensions(zoom)
-            edge_zoom_scale = 1.0
             bx_margin: Optional[float]
             by_margin: Optional[float]
             if ball_point:
@@ -1915,7 +1993,7 @@ class CameraPlanner:
                 s_min=self.edge_zoom_min_scale,
             )
             if zoom_scale < 0.999:
-                edge_zoom_scale = zoom_scale
+                edge_zoom_scale *= zoom_scale
                 zoom = max(self.zoom_min, zoom * zoom_scale)
                 clamp_flags.append(f"edge_zoom={zoom_scale:.3f}")
 
@@ -4025,6 +4103,66 @@ def run(
         except (TypeError, ValueError):
             margin_px = 0.0
 
+    keepinview_margin = margin_px
+    keepinview_nudge = 0.5
+    keepinview_zoom_gain = 0.4
+    keepinview_zoom_cap = 1.6
+    keepinview_cfg = follow_config.get("keepinview") if follow_config else None
+    if isinstance(keepinview_cfg, Mapping):
+        if "margin" in keepinview_cfg:
+            try:
+                keepinview_margin = max(0.0, float(keepinview_cfg["margin"]))
+            except (TypeError, ValueError):
+                keepinview_margin = margin_px
+        elif "margin_px" in keepinview_cfg:
+            try:
+                keepinview_margin = max(0.0, float(keepinview_cfg["margin_px"]))
+            except (TypeError, ValueError):
+                keepinview_margin = margin_px
+        if "nudge_gain" in keepinview_cfg:
+            try:
+                keepinview_nudge = max(0.0, float(keepinview_cfg["nudge_gain"]))
+            except (TypeError, ValueError):
+                keepinview_nudge = 0.5
+        if "zoom_gain" in keepinview_cfg:
+            try:
+                keepinview_zoom_gain = max(0.0, float(keepinview_cfg["zoom_gain"]))
+            except (TypeError, ValueError):
+                keepinview_zoom_gain = 0.4
+        if "zoom_out_max" in keepinview_cfg:
+            try:
+                keepinview_zoom_cap = max(1.0, float(keepinview_cfg["zoom_out_max"]))
+            except (TypeError, ValueError):
+                keepinview_zoom_cap = 1.6
+
+    keepinview_margin_arg = getattr(args, "keepinview_margin", None)
+    if keepinview_margin_arg is not None:
+        try:
+            keepinview_margin = max(0.0, float(keepinview_margin_arg))
+        except (TypeError, ValueError):
+            keepinview_margin = margin_px
+    keepinview_nudge_arg = getattr(args, "keepinview_nudge", None)
+    if keepinview_nudge_arg is not None:
+        try:
+            keepinview_nudge = max(0.0, float(keepinview_nudge_arg))
+        except (TypeError, ValueError):
+            keepinview_nudge = 0.5
+    keepinview_zoom_arg = getattr(args, "keepinview_zoom", None)
+    if keepinview_zoom_arg is not None:
+        try:
+            keepinview_zoom_gain = max(0.0, float(keepinview_zoom_arg))
+        except (TypeError, ValueError):
+            keepinview_zoom_gain = 0.4
+    keepinview_zoom_cap_arg = getattr(args, "keepinview_zoom_cap", None)
+    keepinview_zoom_cap_override = False
+    if keepinview_zoom_cap_arg is not None:
+        try:
+            keepinview_zoom_cap = max(1.0, float(keepinview_zoom_cap_arg))
+        except (TypeError, ValueError):
+            keepinview_zoom_cap = 1.6
+        else:
+            keepinview_zoom_cap_override = True
+
     zoom_out_max_default = follow_config.get("zoom_out_max") if follow_config else None
     follow_zoom_out_max = 1.35
     if zoom_out_max_default is not None:
@@ -4034,6 +4172,10 @@ def run(
             follow_zoom_out_max = 1.35
     if getattr(args, "zoom_out_max", None) is not None:
         follow_zoom_out_max = max(1.0, float(args.zoom_out_max))
+
+    if not keepinview_zoom_cap_override:
+        keepinview_zoom_cap = min(keepinview_zoom_cap, follow_zoom_out_max)
+    keepinview_zoom_cap = max(1.0, float(keepinview_zoom_cap))
 
     zoom_edge_frac_default = follow_config.get("zoom_edge_frac") if follow_config else None
     follow_zoom_edge_frac = 0.80
@@ -4149,6 +4291,10 @@ def run(
         horizon_lock=portrait_horizon_lock,
         emergency_gain=getattr(args, "emergency_gain", 0.6),
         emergency_zoom_max=getattr(args, "emergency_zoom_max", 1.45),
+        keepinview_margin_px=keepinview_margin,
+        keepinview_nudge_gain=keepinview_nudge,
+        keepinview_zoom_gain=keepinview_zoom_gain,
+        keepinview_zoom_out_max=keepinview_zoom_cap,
     )
     states = planner.plan(positions, used_mask)
 
@@ -4427,7 +4573,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--zoom-out-max",
         dest="zoom_out_max",
         type=float,
-        default=1.35,
+        default=None,
         help="Maximum automatic zoom-out multiplier",
     )
     parser.add_argument(
@@ -4450,6 +4596,30 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.45,
         help="Maximum emergency zoom-out multiplier to keep the ball in view",
+    )
+    parser.add_argument(
+        "--keepinview-margin",
+        dest="keepinview_margin",
+        type=float,
+        help="Safety band in pixels for the keep-in-view guard (defaults to follow margin)",
+    )
+    parser.add_argument(
+        "--keepinview-nudge",
+        dest="keepinview_nudge",
+        type=float,
+        help="Proportional gain for keep-in-view recenter nudges",
+    )
+    parser.add_argument(
+        "--keepinview-zoom",
+        dest="keepinview_zoom",
+        type=float,
+        help="Gain controlling keep-in-view adaptive zoom-out strength",
+    )
+    parser.add_argument(
+        "--keepinview-zoom-cap",
+        dest="keepinview_zoom_cap",
+        type=float,
+        help="Maximum keep-in-view zoom-out multiplier (defaults to follow zoom limit)",
     )
     parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
