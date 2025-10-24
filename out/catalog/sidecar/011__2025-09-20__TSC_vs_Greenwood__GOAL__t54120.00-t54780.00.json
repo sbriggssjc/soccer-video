@@ -8,7 +8,13 @@
     "fps": "30/1"
   },
   "steps": {},
-  "errors": [],
+  "errors": [
+    {
+      "step": "scan",
+      "message": "No video stream detected",
+      "at": "2025-10-24T16:22:15+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/full_game_stabilized_ENH_SMARTSHOTS.mp4",
   "master_rel": "out/full_game_stabilized_ENH_SMARTSHOTS.mp4"
 }

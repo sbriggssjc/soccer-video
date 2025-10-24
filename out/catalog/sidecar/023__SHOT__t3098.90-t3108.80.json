@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\023__SHOT__t3098.90-t3108.80.mp4",
-  "source_sha1_64": "22f33e793085ad77",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\023__SHOT__t3098.90-t3108.80.mp4",
+  "source_sha1_64": "3b528996a6bc57b9",
   "meta": {
-    "duration_s": 11.919,
+    "duration_s": 9.875,
     "width": 1920,
     "height": 1080,
-    "fps": "183832/7661"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],

@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\015__DRIBBLING__t1972.50-t1980.70.mp4",
-  "source_sha1_64": "fc6881692e8c8d28",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\015__DRIBBLING__t1972.50-t1980.70.mp4",
+  "source_sha1_64": "91a8aa659f36f8a6",
   "meta": {
-    "duration_s": 9.002,
+    "duration_s": 8.167,
     "width": 1920,
     "height": 1080,
-    "fps": "183832/7661"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],
