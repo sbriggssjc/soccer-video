@@ -167,6 +167,28 @@ The `05_make_social_reel.sh` helper sorts the detection CSV by score, grabs the 
 
 Outside the portrait pipeline you can still run `.\enhance.ps1` directly on landscape reels or raw match exports to normalize exposure and colour before publishing.【F:enhance.ps1†L1-L10】【F:tools/auto_enhance/auto_enhance.ps1†L43-L134】
 
+### 5.6 Offline ball-path planning recipe
+
+When you only need a stabilised ball trace and zoom plan (for example, to feed `render_follow_unified.py` without the rest of the portrait toolchain) run the lightweight `tools/ball_path_offline.py` helper. The script accepts the video path plus two tuning knobs—candidate budget and search radius—and optional manual initialisation flags. There are no `--dx/--dy/--sh` parameters; those belong to older planners and will be rejected by this CLI.【F:tools/ball_path_offline.py†L360-L409】
+
+```powershell
+$Proj = "C:\Users\scott\soccer-video"
+$Stem = "042__2025-09-20__TSC_vs_RVFC__CORNER__t3992400.00-t4057200.00"
+$Clip = Join-Path $Proj "out\atomic_clips\$Stem.mp4"
+$Plan = Join-Path $Proj "out\follow_diag\$Stem\auto_hill\plan.jsonl"
+
+New-Item -Force -ItemType Directory -Path (Split-Path $Plan) | Out-Null
+
+python tools\ball_path_offline.py `
+  --in "$Clip" `
+  --out "$Plan" `
+  --search-r 120 `
+  --max-cands 5 `
+  --init-manual
+```
+
+Use `--init-manual` the first time you build a plan so you can click the starting ball location; afterwards you can rerun without it if the cached template remains valid. Adjust `--search-r` when the ball moves faster than the default 280 px window, and lower `--max-cands` if you want to keep the beam search tight in cluttered frames.【F:tools/ball_path_offline.py†L360-L423】
+
 ## 6. Quality Assurance
 
 * **Regression test.** Generate the synthetic sample and run `pytest -k pipeline` to exercise the full stack on a miniature match; it writes output under `examples/out/reels/`.【F:README.md†L106-L118】
