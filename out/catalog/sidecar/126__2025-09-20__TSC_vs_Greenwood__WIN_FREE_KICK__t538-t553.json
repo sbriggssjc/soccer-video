@@ -1,0 +1,15 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\126__2025-09-20__TSC_vs_Greenwood__WIN_FREE_KICK__t538-t553.mp4",
+  "source_sha1_64": "1bc345451011c9d9",
+  "meta": {},
+  "steps": {},
+  "errors": [
+    {
+      "step": "scan",
+      "message": "No video stream detected",
+      "at": "2025-10-24T12:21:24+00:00"
+    }
+  ],
+  "master_path": "C:/Users/scott/soccer-video/out/atomic_clips/MASTER.mp4",
+  "master_rel": "out/atomic_clips/MASTER.mp4"
+}

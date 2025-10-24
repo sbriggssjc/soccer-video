@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\MASTER.mp4",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\MASTER.mp4",
   "source_sha1_64": "2c7c3cc9a56f37d0",
   "meta": {
     "duration_s": 3121.877,
@@ -7,7 +7,9 @@
     "size": [
       1920,
       1080
-    ]
+    ],
+    "width": 1920,
+    "height": 1080
   },
   "steps": {
     "upscale": {
@@ -43,5 +45,7 @@
       "message": "Brand render failed with exit code 2",
       "at": "2025-10-10T14:23:24.6958401Z"
     }
-  ]
+  ],
+  "master_path": "C:/Users/scott/soccer-video/out/atomic_clips/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "master_rel": "out/atomic_clips/2025-09-13__TSC_vs_NEOFC/MASTER.mp4"
 }

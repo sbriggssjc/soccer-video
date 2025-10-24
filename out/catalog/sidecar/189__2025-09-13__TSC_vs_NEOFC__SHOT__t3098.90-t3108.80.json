@@ -1,0 +1,15 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\189__2025-09-13__TSC_vs_NEOFC__SHOT__t3098.90-t3108.80.mp4",
+  "source_sha1_64": "1bc345451011c9d9",
+  "meta": {},
+  "steps": {},
+  "errors": [
+    {
+      "step": "scan",
+      "message": "No video stream detected",
+      "at": "2025-10-24T12:21:18+00:00"
+    }
+  ],
+  "master_path": "C:/Users/scott/soccer-video/out/atomic_clips/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "master_rel": "out/atomic_clips/2025-09-13__TSC_vs_NEOFC/MASTER.mp4"
+}
