@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\006__DEFENSE__t699.30-t711.50.mp4",
-  "source_sha1_64": "4a953e4cdc0145b6",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\006__DEFENSE__t699.30-t711.50.mp4",
+  "source_sha1_64": "becc16cf94078131",
   "meta": {
-    "duration_s": 16.67,
+    "duration_s": 12.208,
     "width": 1920,
     "height": 1080,
-    "fps": "183832/7661"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],

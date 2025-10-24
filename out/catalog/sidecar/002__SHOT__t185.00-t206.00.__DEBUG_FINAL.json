@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-10-12__TSC_SLSG_FallFestival\\002__SHOT__t185.00-t206.00.__DEBUG_FINAL.mp4",
-  "source_sha1_64": "7d85b6e48643b95e",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\002__SHOT__t185.00-t206.00.__DEBUG_FINAL.mp4",
+  "source_sha1_64": "6b5af67758c665a7",
   "meta": {
-    "duration_s": 21.0,
+    "duration_s": 20.958,
     "width": 1920,
     "height": 1080,
-    "fps": "2994/125"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],

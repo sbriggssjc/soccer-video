@@ -1,14 +1,20 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-10-12__TSC_SLSG_FallFestival\\001__RAW__t0.00-t0.00.__DEBUG_FINAL.mp4",
-  "source_sha1_64": "9eaaddaf593205fd",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\001__RAW__t0.00-t0.00.__DEBUG_FINAL.mp4",
+  "source_sha1_64": "bb1457367f5938dd",
   "meta": {
-    "duration_s": 1618.895,
+    "duration_s": 0.01,
     "width": 1920,
     "height": 1080,
     "fps": "5999/250"
   },
   "steps": {},
-  "errors": [],
+  "errors": [
+    {
+      "step": "scan",
+      "message": "No video stream detected",
+      "at": "2025-10-24T15:40:42+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/full_game_stabilized_ENH_SMARTSHOTS.mp4",
   "master_rel": "out/full_game_stabilized_ENH_SMARTSHOTS.mp4"
 }

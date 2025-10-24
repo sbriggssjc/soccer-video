@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\003__BUILD_UP__t224.80-t248.70.mp4",
-  "source_sha1_64": "89fc12d876c7944f",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\003__BUILD_UP__t224.80-t248.70.mp4",
+  "source_sha1_64": "1803522ca9db46e4",
   "meta": {
-    "duration_s": 33.881,
+    "duration_s": 23.917,
     "width": 1920,
     "height": 1080,
-    "fps": "183832/7661"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],

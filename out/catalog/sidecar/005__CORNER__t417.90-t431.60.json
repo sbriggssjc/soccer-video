@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\005__CORNER__t417.90-t431.60.mp4",
-  "source_sha1_64": "5098e3e644d548c1",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\005__CORNER__t417.90-t431.60.mp4",
+  "source_sha1_64": "8732149e467b0450",
   "meta": {
-    "duration_s": 16.711,
+    "duration_s": 13.667,
     "width": 1920,
     "height": 1080,
-    "fps": "183832/7661"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],

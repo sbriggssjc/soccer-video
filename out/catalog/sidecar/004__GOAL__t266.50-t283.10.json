@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\004__GOAL__t266.50-t283.10.mp4",
-  "source_sha1_64": "001664285cb82bea",
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\004__GOAL__t266.50-t283.10.mp4",
+  "source_sha1_64": "5393b707ad40eee9",
   "meta": {
-    "duration_s": 19.878,
+    "duration_s": 16.583,
     "width": 1920,
     "height": 1080,
-    "fps": "183832/7661"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],

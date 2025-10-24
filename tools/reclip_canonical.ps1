@@ -1,21 +1,21 @@
-param(
+﻿param(
   [Parameter(Mandatory=$true)][string]$Manifest,
   [Parameter(Mandatory=$true)][string]$OutRoot,
   [ValidateSet("copy","encode")][string]$Mode = "encode"
 )
 
 $ErrorActionPreference = "Stop"
+$Invariant = [System.Globalization.CultureInfo]::InvariantCulture
 
 function Parse-Num([object]$v) {
   if ($null -eq $v) { return $null }
   $s = [string]$v
   $m = [regex]::Matches($s, "[-+]?\d*\.?\d+")
   if ($m.Count -eq 0) { return $null }
-  return [double]::Parse($m[0].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+  return [double]::Parse($m[0].Value, $Invariant)
 }
 
 function Extract-GameKey([string]$clipName) {
-  # expects names like: 123__YYYY-MM-DD__Team_vs_Opponent__LABEL__t123-t456.mp4
   if ($clipName -match "\d{4}-\d{2}-\d{2}__[^_]+_vs_[^_]+") { return $Matches[0] }
   return "misc"
 }
@@ -29,7 +29,10 @@ function Coalesce-Label($r) {
 function Cut-Clip([string]$In, [double]$Start, [double]$End, [string]$Out, [string]$Mode) {
   if (-not (Test-Path $In)) { throw "Master not found: $In" }
   $dur = [Math]::Max(0.01, $End - $Start)
-  $args = @("-hide_banner","-loglevel","error","-ss",("{0:n3}" -f $Start),"-i",$In,"-t",("{0:n3}" -f $dur))
+  # IMPORTANT: format numbers WITHOUT thousands separators using invariant culture
+  $ss = $Start.ToString("0.###", $Invariant)
+  $tt = $dur  .ToString("0.###", $Invariant)
+  $args = @("-hide_banner","-loglevel","error","-ss",$ss,"-i",$In,"-t",$tt)
   if ($Mode -eq "copy") {
     $args += @("-c","copy","-y",$Out)
   } else {
@@ -39,11 +42,9 @@ function Cut-Clip([string]$In, [double]$Start, [double]$End, [string]$Out, [stri
   if ($p.ExitCode -ne 0) { throw "ffmpeg exit $($p.ExitCode) for: $Out" }
 }
 
-# Load manifest
 if (!(Test-Path $Manifest)) { throw "Manifest not found: $Manifest" }
 $rows = Import-Csv $Manifest
 
-# Normalize & build canonical list
 $norm = @()
 foreach ($r in $rows) {
   $t1 = Parse-Num $r.t_start_s
@@ -54,23 +55,27 @@ foreach ($r in $rows) {
       $t2 = [double]$Matches[2]
     }
   }
-  if (-not $r.master_path -or -not $r.clip_name -or $null -eq $t1 -or $null -eq $t2) { continue }
+
+  # guard rails
+  if ($null -eq $t1 -or $null -eq $t2) { continue }
+  if ($t2 -le $t1) { continue }
+  if (-not $r.master_path -or -not $r.clip_name) { continue }
 
   $label = Coalesce-Label $r
   $key = ($r.master_path + "|" + $label + "|" +
-          ([math]::Round([double]$t1,1)) + "-" + ([math]::Round([double]$t2,1)))
+          ([math]::Round([double]$t1,1).ToString($Invariant)) + "-" +
+          ([math]::Round([double]$t2,1).ToString($Invariant)))
 
-  $norm += New-Object psobject -Property ([ordered]@{
+  $norm += [pscustomobject]@{
     key         = $key
     master_path = $r.master_path
     clip_name   = $r.clip_name
     label       = $label
     t1          = [double]$t1
     t2          = [double]$t2
-  })
+  }
 }
 
-# Deduplicate by key (keep first)
 $canon = @()
 $seen  = @{}
 foreach ($n in $norm) {
@@ -80,7 +85,6 @@ foreach ($n in $norm) {
   }
 }
 
-# Write outputs
 $made = 0
 foreach ($r in $canon) {
   $gameKey = Extract-GameKey $r.clip_name

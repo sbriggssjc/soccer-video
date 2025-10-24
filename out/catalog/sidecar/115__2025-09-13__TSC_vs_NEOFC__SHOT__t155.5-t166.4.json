@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\115__2025-09-13__TSC_vs_NEOFC__SHOT__t155.5-t166.4.mp4",
-  "source_sha1_64": "540f519269b2d35d",
+  "source_sha1_64": "434afd9d57cf15c4",
   "meta": {
-    "duration_s": 10.877,
-    "width": 3840,
-    "height": 2160,
-    "fps": "5999/250"
+    "duration_s": 10.917,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [],
