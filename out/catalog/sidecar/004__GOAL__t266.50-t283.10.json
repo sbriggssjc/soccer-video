@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\004__GOAL__t266.50-t283.10.mp4",
-  "source_sha1_64": "5393b707ad40eee9",
+  "source_sha1_64": "8a68d96f9b12f360",
   "meta": {
-    "duration_s": 16.583,
+    "duration_s": 16.6,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],

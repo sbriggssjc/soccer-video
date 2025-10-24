@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\003__BUILD_UP__t224.80-t248.70.mp4",
-  "source_sha1_64": "1803522ca9db46e4",
+  "source_sha1_64": "4073eba6efe06f33",
   "meta": {
-    "duration_s": 23.917,
+    "duration_s": 23.9,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],

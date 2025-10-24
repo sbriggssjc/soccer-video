@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\023__SHOT__t3098.90-t3108.80.mp4",
-  "source_sha1_64": "3b528996a6bc57b9",
+  "source_sha1_64": "84857a546d610547",
   "meta": {
-    "duration_s": 9.875,
+    "duration_s": 9.9,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],

@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\017__SHOT__t2284.90-t2298.20.mp4",
-  "source_sha1_64": "1de468a5b6680dec",
+  "source_sha1_64": "e24925fb723789ea",
   "meta": {
-    "duration_s": 13.292,
+    "duration_s": 13.3,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],

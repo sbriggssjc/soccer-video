@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\010__CROSS__t1541.10-t1547.90.mp4",
-  "source_sha1_64": "87b080106012092e",
+  "source_sha1_64": "908cdc7f4729e3d4",
   "meta": {
-    "duration_s": 6.833,
+    "duration_s": 6.8,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],

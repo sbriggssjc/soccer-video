@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\005__CORNER__t417.90-t431.60.mp4",
-  "source_sha1_64": "8732149e467b0450",
+  "source_sha1_64": "ce6ed31a8fd6b77f",
   "meta": {
-    "duration_s": 13.667,
+    "duration_s": 13.7,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],

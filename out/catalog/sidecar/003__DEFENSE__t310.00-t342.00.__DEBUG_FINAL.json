@@ -1,11 +1,11 @@
 {
   "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\misc\\003__DEFENSE__t310.00-t342.00.__DEBUG_FINAL.mp4",
-  "source_sha1_64": "22824f5b9ec08308",
+  "source_sha1_64": "b26fe00cdd3d0536",
   "meta": {
-    "duration_s": 31.958,
+    "duration_s": 32.0,
     "width": 1920,
     "height": 1080,
-    "fps": "24/1"
+    "fps": "30/1"
   },
   "steps": {},
   "errors": [],
