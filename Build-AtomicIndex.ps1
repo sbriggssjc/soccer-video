@@ -6,27 +6,29 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-# Build a fresh file list for cataloging (recursive; ignore MASTER and _quarantine)
-$repoRoot = $root
-$atomicDir = Join-Path $repoRoot 'out\atomic_clips'
-$listFile = Join-Path $atomicDir 'list.txt'
+$catalogDir = Join-Path $root 'out\catalog'
+$sidecarDir = Join-Path $catalogDir 'sidecar'
 
-if (-not (Test-Path $atomicDir)) {
-    throw "Atomic clips directory not found: $atomicDir"
+if (-not (Test-Path $catalogDir)) {
+    New-Item -ItemType Directory -Path $catalogDir | Out-Null
+}
+if (-not (Test-Path $sidecarDir)) {
+    New-Item -ItemType Directory -Path $sidecarDir | Out-Null
 }
 
-Get-ChildItem $atomicDir -Recurse -File -Include *.mp4,*.mov |
-  Where-Object { $_.Name -notmatch '^(MASTER|master)\.(mp4|mov)$' -and $_.FullName -notmatch '\\_quarantine(\\|$)' } |
-  ForEach-Object { $_.FullName } | Set-Content -Encoding UTF8 $listFile
-
-Write-Host 'Scanning atomic clips and refreshing catalogs...' -ForegroundColor Cyan
-$clipCount = (Get-Content $listFile).Count
-Write-Host ("Found {0} clip(s) to catalog (recursive)." -f $clipCount)
+Write-Host 'Rebuilding atomic clip catalog...' -ForegroundColor Cyan
 
 $python = 'python'
 $script = Join-Path $root 'tools\catalog.py'
 
-$process = & $python $script --scan-list $listFile
-Write-Host $process
+$output = & $python $script --rebuild-atomic-index
+$output | ForEach-Object { Write-Host $_ }
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning 'Catalog rebuild completed with probe failures.'
+    exit 1
+}
 
 Write-Host 'Catalog refresh complete.' -ForegroundColor Green
+exit 0
+

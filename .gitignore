@@ -1,5 +1,7 @@
 ﻿# build artifacts & media
-out/**
+out/*
+!out/catalog/
+!out/catalog/**
 runs/**
 *.mp4
 *.mov
