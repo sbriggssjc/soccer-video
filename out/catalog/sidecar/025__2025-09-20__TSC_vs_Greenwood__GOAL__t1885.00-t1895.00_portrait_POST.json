@@ -1,0 +1,14 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\025__2025-09-20__TSC_vs_Greenwood__GOAL__t1885.00-t1895.00_portrait_POST.mp4",
+  "source_sha1_64": "1de0cbb56e58a0e0",
+  "meta": {
+    "duration_s": 10.0,
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/full_game_stabilized_ENH_SMARTSHOTS.mp4",
+  "master_rel": "out/full_game_stabilized_ENH_SMARTSHOTS.mp4"
+}
