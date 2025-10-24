@@ -13,7 +13,7 @@ if (!(Test-Path $BasePlan -PathType Leaf)){ throw "Missing base plan: $BasePlan"
 if (!(Test-Path $Work)) { New-Item -ItemType Directory -Force -Path $Work | Out-Null }
 
 # --- HELPERS ---
-function Has-Prop($o,[string]$n){ $p=$o.PSObject.Properties; if ($p){ return $p.Match($n).Count -gt 0 } else { return $false } }
+function Test-HasProperty($o,[string]$n){ $p=$o.PSObject.Properties; if ($p){ return $p.Match($n).Count -gt 0 } else { return $false } }
 function Write-Utf8NoBom([string]$Path, [string[]]$Lines){
   $enc = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllLines($Path,$Lines,$enc)
@@ -29,20 +29,20 @@ function Ms([double]$s){ return [int][math]::Round(1000.0*$s) }  # seconds->ms f
 # --- LOAD PLAN ---
 $series = New-Object System.Collections.Generic.List[object]
 $i=0
-Get-Content $BasePlan | ? { $_ -and $_.Trim() } | % {
+Get-Content $BasePlan | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
   $o = $_ | ConvertFrom-Json
-  $t = if (Has-Prop $o 't') { [double]$o.t } else { $i/24.0 }
+  $t = if (Test-HasProperty $o 't') { [double]$o.t } else { $i/24.0 }
   $i++
   $bx=$null;$by=$null
-  if     (Has-Prop $o 'bx_stab') { $bx=[double]$o.bx_stab } elseif (Has-Prop $o 'bx') { $bx=[double]$o.bx }
-  if     (Has-Prop $o 'by_stab') { $by=[double]$o.by_stab } elseif (Has-Prop $o 'by') { $by=[double]$o.by }
+  if     (Test-HasProperty $o 'bx_stab') { $bx=[double]$o.bx_stab } elseif (Test-HasProperty $o 'bx') { $bx=[double]$o.bx }
+  if     (Test-HasProperty $o 'by_stab') { $by=[double]$o.by_stab } elseif (Test-HasProperty $o 'by') { $by=[double]$o.by }
   $series.Add([pscustomobject]@{ t=$t; bx=$bx; by=$by; raw=$_ })
 }
 if($series.Count -eq 0){ throw "Empty plan: $BasePlan" }
 $Tmin = ($series[0]).t
 $Tmax = ($series[-1]).t
 
-function Sample-PlanAtT([double]$tt){
+function Get-PlanAtT([double]$tt){
   if ($tt -le $Tmin) { return @{bx=$series[0].bx; by=$series[0].by} }
   if ($tt -ge $Tmax) { return @{bx=$series[-1].bx; by=$series[-1].by} }
   $lo=0; $hi=$series.Count-1
@@ -51,7 +51,7 @@ function Sample-PlanAtT([double]$tt){
   return @{bx=(1-$alpha)*$a.bx + $alpha*$b.bx; by=(1-$alpha)*$a.by + $alpha*$b.by}
 }
 
-function Make-LocalTimeWarpPlan([double]$center,[double]$dt,[int]$dx,[int]$dy){
+function New-LocalTimeWarpPlan([double]$center,[double]$dt,[int]$dx,[int]$dy){
   $name = [IO.Path]::GetFileNameWithoutExtension($BasePlan)
   $cMs  = Ms $center
   $dtMs = Ms $dt
@@ -62,34 +62,34 @@ function Make-LocalTimeWarpPlan([double]$center,[double]$dt,[int]$dx,[int]$dy){
     $t = $row.t
     $a = [double](Hann $t $center $HalfWidth)
     $tt = $t + $a*$dt
-    $samp = Sample-PlanAtT $tt
+    $samp = Get-PlanAtT $tt
     $bx = $samp.bx + $a*$dx
     $by = $samp.by + $a*$dy
-    if (Has-Prop $o 'bx_stab') { $o.bx_stab = $bx } elseif (Has-Prop $o 'bx') { $o.bx = $bx } else { $o | Add-Member bx $bx }
-    if (Has-Prop $o 'by_stab') { $o.by_stab = $by } elseif (Has-Prop $o 'by') { $o.by = $by } else { $o | Add-Member by $by }
+    if (Test-HasProperty $o 'bx_stab') { $o.bx_stab = $bx } elseif (Test-HasProperty $o 'bx') { $o.bx = $bx } else { $o | Add-Member bx $bx }
+    if (Test-HasProperty $o 'by_stab') { $o.by_stab = $by } elseif (Test-HasProperty $o 'by') { $o.by = $by } else { $o | Add-Member by $by }
     $lines.Add(($o | ConvertTo-Json -Compress))
   }
   Write-Utf8NoBom -Path $Out -Lines $lines
   return $Out
 }
 
-function Make-Overlay([string]$PlanPath){
+function New-Overlay([string]$PlanPath){
   $ov = $PlanPath -replace '\.jsonl$','__overlay.jsonl'
   $enc = New-Object System.Text.UTF8Encoding($false)
   $outLines = New-Object System.Collections.Generic.List[string]
   [double]$lastBx=[double]::NaN; [double]$lastBy=[double]::NaN; $seen=$false
-  Get-Content $PlanPath | ? { $_ -and $_.Trim() } | % {
+  Get-Content $PlanPath | Where-Object { $_ -and $_.Trim() } | ForEach-Object {
     $o = $_ | ConvertFrom-Json
     $bx=$null;$by=$null
-    if (Has-Prop $o 'bx_stab') { $bx=$o.bx_stab } elseif (Has-Prop $o 'bx') { $bx=$o.bx }
-    if (Has-Prop $o 'by_stab') { $by=$o.by_stab } elseif (Has-Prop $o 'by') { $by=$o.by }
-    $bxN = ($bx -ne $null -and -not [double]::IsNaN([double]$bx))
-    $byN = ($by -ne $null -and -not [double]::IsNaN([double]$by))
+    if (Test-HasProperty $o 'bx_stab') { $bx=$o.bx_stab } elseif (Test-HasProperty $o 'bx') { $bx=$o.bx }
+    if (Test-HasProperty $o 'by_stab') { $by=$o.by_stab } elseif (Test-HasProperty $o 'by') { $by=$o.by }
+    $bxN = ($null -ne $bx -and -not [double]::IsNaN([double]$bx))
+    $byN = ($null -ne $by -and -not [double]::IsNaN([double]$by))
     if (-not $seen) { if ($bxN -and $byN) { $seen=$true; $lastBx=[double]$bx; $lastBy=[double]$by } }
     else {
       if (-not $bxN -and -not [double]::IsNaN($lastBx)) { $bx=$lastBx }
       if (-not $byN -and -not [double]::IsNaN($lastBy)) { $by=$lastBy }
-      if ($bx -ne $null -and $by -ne $null -and -not [double]::IsNaN([double]$bx) -and -not [double]::IsNaN([double]$by)) { $lastBx=$bx; $lastBy=$by }
+      if ($null -ne $bx -and $null -ne $by -and -not [double]::IsNaN([double]$bx) -and -not [double]::IsNaN([double]$by)) { $lastBx=$bx; $lastBy=$by }
     }
     $o|Add-Member -Force bx $bx; $o|Add-Member -Force by $by
     $outLines.Add(($o | ConvertTo-Json -Compress))
@@ -100,10 +100,10 @@ function Make-Overlay([string]$PlanPath){
   return $dbg
 }
 
-function Score-Coverage([string]$PlanPath){
+function Measure-Coverage([string]$PlanPath){
   # Run coverage_check and capture all output (stdout+stderr)
-  $args = @("--ball", $PlanPath, "--w","1920","--h","1080","--crop-w","486","--crop-h","864","--margin","90","--smooth","0.25")
-  $p = & python tools\coverage_check.py @args 2>&1
+  $pythonArgs = @("--ball", $PlanPath, "--w","1920","--h","1080","--crop-w","486","--crop-h","864","--margin","90","--smooth","0.25")
+  $p = & python tools\coverage_check.py @pythonArgs 2>&1
 
   # Normalize to single string for regex
   $text = ($p | Out-String)
@@ -128,8 +128,8 @@ $dtList = @(); for($dt=-0.15; $dt -le 0.15+1e-9; $dt+=0.01){ $dtList += [math]::
 $coarse = New-Object System.Collections.Generic.List[object]
 foreach($c in $centers){
   foreach($dt in $dtList){
-    $cand = Make-LocalTimeWarpPlan $c $dt 0 0
-    $score = Score-Coverage $cand
+    $cand = New-LocalTimeWarpPlan $c $dt 0 0
+    $score = Measure-Coverage $cand
     $coarse.Add([pscustomobject]@{plan=$cand; center=$c; dt=$dt; coverage=$score.coverage})
   }
 }
@@ -144,8 +144,8 @@ $dyList = -12..12 | Where-Object { $_ % 2 -eq 0 }
 $fine = New-Object System.Collections.Generic.List[object]
 foreach($dx in $dxList){
   foreach($dy in $dyList){
-    $cand = Make-LocalTimeWarpPlan $bestCoarse.center $bestCoarse.dt $dx $dy
-    $score = Score-Coverage $cand
+    $cand = New-LocalTimeWarpPlan $bestCoarse.center $bestCoarse.dt $dx $dy
+    $score = Measure-Coverage $cand
     $fine.Add([pscustomobject]@{plan=$cand; dt=$bestCoarse.dt; center=$bestCoarse.center; dx=$dx; dy=$dy; coverage=$score.coverage})
   }
 }
@@ -153,5 +153,5 @@ $best = $fine | Sort-Object coverage -Descending | Select-Object -First 1
 Write-Host "=== LOCAL TIME-WARP BEST (fine) ==="
 $best | Format-Table center,dt,dx,dy,coverage -AutoSize
 
-$dbg = Make-Overlay $best.plan
+$dbg = New-Overlay $best.plan
 Write-Host ("Overlay: {0}" -f $dbg)

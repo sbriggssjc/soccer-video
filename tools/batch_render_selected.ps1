@@ -1,4 +1,4 @@
-ï»¿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$Index = "out\events_selected_for_build.csv",
   [string]$Portrait = "1080x1920",
@@ -188,9 +188,9 @@ if ($clips.Count -gt 0) { Write-Host "First clip: $($clips[0])" }
 
 if ($clips.Count -eq 0) {
   Write-Warning "Nothing matched. Quick checklist:"
-  Write-Host "  â€¢ Does your CSV contain either base IDs like 022__SHOT__t3028.10-t3059.70 OR full mp4 paths?"
-  Write-Host "  â€¢ Do the files exist under out\atomic_clips (and not in \quarantine\ or named *_copy.mp4)?"
-  Write-Host "  â€¢ If your CSV uses a different ID pattern, send me one example row."
+  Write-Host "  • Does your CSV contain either base IDs like 022__SHOT__t3028.10-t3059.70 OR full mp4 paths?"
+  Write-Host "  • Do the files exist under out\atomic_clips (and not in \quarantine\ or named *_copy.mp4)?"
+  Write-Host "  • If your CSV uses a different ID pattern, send me one example row."
   throw "No eligible clips after filtering."
 }
 
@@ -259,7 +259,7 @@ foreach ($clip in $clips) {
   # DEBUG overlay
   $dbg = Join-Path $parent ("{0}__x2.mp4" -f $base)
   python tools\sanitize_telemetry.py --in $tel
-  python tools\overlay_debug.py --in $clip --telemetry $tel --out $dbg
+  python -m tools.overlay_debug --in $clip --telemetry $tel --out $dbg
 }
 
 Write-Host "`nAll done."
