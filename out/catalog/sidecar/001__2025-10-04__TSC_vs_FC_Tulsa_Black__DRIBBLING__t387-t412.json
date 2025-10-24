@@ -1,0 +1,14 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-10-04__TSC_vs_FC_Tulsa_Black\\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t387-t412.mp4",
+  "source_sha1_64": "cdfa981b61bcf705",
+  "meta": {
+    "duration_s": 25.0,
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/full_game_stabilized_ENH_SMARTSHOTS.mp4",
+  "master_rel": "out/full_game_stabilized_ENH_SMARTSHOTS.mp4"
+}
