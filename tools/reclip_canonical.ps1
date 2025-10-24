@@ -1,23 +1,33 @@
 param(
-  [string]$Manifest = "C:\\Users\\scott\\soccer-video\\out\\indexes\\atomic_index.csv",
-  [string]$OutRoot  = "C:\\Users\\scott\\soccer-video\\out\\atomic_clips",
-  [ValidateSet("copy","encode")][string]$Mode = "encode"  # "copy" is GOP-safe only if cuts fall on keyframes
+  [Parameter(Mandatory=$true)][string]$Manifest,
+  [Parameter(Mandatory=$true)][string]$OutRoot,
+  [ValidateSet("copy","encode")][string]$Mode = "encode"
 )
 
 $ErrorActionPreference = "Stop"
-function Parse-Num($v) {
+
+function Parse-Num([object]$v) {
   if ($null -eq $v) { return $null }
   $s = [string]$v
   $m = [regex]::Matches($s, "[-+]?\d*\.?\d+")
   if ($m.Count -eq 0) { return $null }
   return [double]::Parse($m[0].Value, [System.Globalization.CultureInfo]::InvariantCulture)
 }
+
 function Extract-GameKey([string]$clipName) {
-  # Expect names like: 123__YYYY-MM-DD__TSC_vs_Whatever__LABEL__t123-t456.mp4
-  if ($clipName -match "\d{4}-\d{2}-\d{2}__[^_]+__[^_]+") { return $Matches[0] }
+  # expects names like: 123__YYYY-MM-DD__Team_vs_Opponent__LABEL__t123-t456.mp4
+  if ($clipName -match "\d{4}-\d{2}-\d{2}__[^_]+_vs_[^_]+") { return $Matches[0] }
   return "misc"
 }
+
+function Coalesce-Label($r) {
+  if ($r.label) { return $r.label }
+  if ($r.label_norm) { return $r.label_norm }
+  return ""
+}
+
 function Cut-Clip([string]$In, [double]$Start, [double]$End, [string]$Out, [string]$Mode) {
+  if (-not (Test-Path $In)) { throw "Master not found: $In" }
   $dur = [Math]::Max(0.01, $End - $Start)
   $args = @("-hide_banner","-loglevel","error","-ss",("{0:n3}" -f $Start),"-i",$In,"-t",("{0:n3}" -f $dur))
   if ($Mode -eq "copy") {
@@ -26,52 +36,63 @@ function Cut-Clip([string]$In, [double]$Start, [double]$End, [string]$Out, [stri
     $args += @("-c:v","libx264","-preset","veryfast","-crf","18","-c:a","aac","-b:a","128k","-movflags","+faststart","-y",$Out)
   }
   $p = Start-Process -FilePath ffmpeg -ArgumentList $args -NoNewWindow -PassThru -Wait
-  if ($p.ExitCode -ne 0) { throw "ffmpeg failed ($($p.ExitCode)) for $Out" }
+  if ($p.ExitCode -ne 0) { throw "ffmpeg exit $($p.ExitCode) for: $Out" }
 }
 
+# Load manifest
 if (!(Test-Path $Manifest)) { throw "Manifest not found: $Manifest" }
 $rows = Import-Csv $Manifest
 
-# Try to use t_start_s / t_end_s. If empty, fall back to parsing from clip_name (__t123-t456)
+# Normalize & build canonical list
+$norm = @()
 foreach ($r in $rows) {
-  $r.t_start_s = Parse-Num $r.t_start_s
-  $r.t_end_s   = Parse-Num $r.t_end_s
-  if (-not $r.t_start_s -or -not $r.t_end_s) {
+  $t1 = Parse-Num $r.t_start_s
+  $t2 = Parse-Num $r.t_end_s
+  if (-not $t1 -or -not $t2) {
     if ($r.clip_name -match "__t([0-9]+(?:\.[0-9]+)?)\s*[-_]\s*t?([0-9]+(?:\.[0-9]+)?)") {
-      $r.t_start_s = [double]$Matches[1]
-      $r.t_end_s   = [double]$Matches[2]
+      $t1 = [double]$Matches[1]
+      $t2 = [double]$Matches[2]
     }
+  }
+  if (-not $r.master_path -or -not $r.clip_name -or $null -eq $t1 -or $null -eq $t2) { continue }
+
+  $label = Coalesce-Label $r
+  $key = ($r.master_path + "|" + $label + "|" +
+          ([math]::Round([double]$t1,1)) + "-" + ([math]::Round([double]$t2,1)))
+
+  $norm += New-Object psobject -Property ([ordered]@{
+    key         = $key
+    master_path = $r.master_path
+    clip_name   = $r.clip_name
+    label       = $label
+    t1          = [double]$t1
+    t2          = [double]$t2
+  })
+}
+
+# Deduplicate by key (keep first)
+$canon = @()
+$seen  = @{}
+foreach ($n in $norm) {
+  if (-not $seen.ContainsKey($n.key)) {
+    $seen[$n.key] = $true
+    $canon += $n
   }
 }
 
-# Canonical key: master + label + start/end (rounded tenths)
-$canon = $rows |
-  Where-Object { $_.master_path -and $_.clip_name -and $_.t_start_s -ne $null -and $_.t_end_s -ne $null } |
-  ForEach-Object {
-    $_ | Add-Member -NotePropertyName key -NotePropertyValue (
-      ($_.master_path + "|" + ($_.label ?? $_.label_norm ?? "") + "|" +
-       ([math]::Round([double]$_.t_start_s,1)) + "-" + ([math]::Round([double]$_.t_end_s,1)))
-    ) -Force
-    $_
-  } |
-  Group-Object key | ForEach-Object { $_.Group | Select-Object -First 1 }
-
+# Write outputs
 $made = 0
 foreach ($r in $canon) {
-  $master = $r.master_path
-  if (!(Test-Path $master)) { Write-Warning "Missing master: $master"; continue }
-
-  # Ensure out dir by game
   $gameKey = Extract-GameKey $r.clip_name
   $outDir = Join-Path $OutRoot $gameKey
   if (!(Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
-
   $outPath = Join-Path $outDir $r.clip_name
   try {
-    Cut-Clip -In $master -Start ([double]$r.t_start_s) -End ([double]$r.t_end_s) -Out $outPath -Mode $Mode
+    Cut-Clip -In $r.master_path -Start $r.t1 -End $r.t2 -Out $outPath -Mode $Mode
     $made++
   } catch {
     Write-Warning $_
   }
 }
+
 Write-Host "Reclip complete. Wrote $made file(s)."
