@@ -56,20 +56,13 @@ function Ensure-PlanJsonl {
   $existing = Find-PlanJsonl -Stem $Stem
   if ($existing) { return $existing }
 
-  # Default plan path using your naming convention
-  $plan = Join-Path $script:OutDir ("follow_diag\{0}\auto_hill\plan_dx-48_dy-108_sh-2.jsonl" -f $Stem)
+  $plan = Join-Path $script:OutDir ("follow_diag\{0}\auto_hill\plan.jsonl" -f $Stem)
   New-Item -Force -ItemType Directory -Path (Split-Path $plan) | Out-Null
 
   try {
-    & $script:PythonExe $script:BallPlanner `
-      --in "$ClipPath" `
-      --out "$plan" `
-      --dx -48 --dy -108 --sh 2
+    & $script:PythonExe $script:BallPlanner --in "$ClipPath" --out "$plan" --search-r 120 --max-cands 5
     if (Test-Path $plan) { return $plan }
-  } catch {
-    Write-Warning ("[PLAN] Auto-generation failed for {0}: {1}" -f $Stem, $_.Exception.Message)
-  }
-
+  } catch { }
   return $null
 }
 
