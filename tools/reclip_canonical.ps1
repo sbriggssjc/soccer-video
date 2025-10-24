@@ -21,7 +21,7 @@ function Extract-GameKey([string]$clipName) {
 }
 
 function Coalesce-Label($r) {
-  if ($r.label) { return $r.label }
+  if ($r.label)      { return $r.label }
   if ($r.label_norm) { return $r.label_norm }
   return ""
 }
@@ -29,15 +29,18 @@ function Coalesce-Label($r) {
 function Cut-Clip([string]$In, [double]$Start, [double]$End, [string]$Out, [string]$Mode) {
   if (-not (Test-Path $In)) { throw "Master not found: $In" }
   $dur = [Math]::Max(0.01, $End - $Start)
-  # IMPORTANT: format numbers WITHOUT thousands separators using invariant culture
-  $ss = $Start.ToString("0.###", $Invariant)
-  $tt = $dur  .ToString("0.###", $Invariant)
+
+  # Locale-safe formatting (no thousands separators)
+  $ss = [string]::Format($Invariant, "{0:0.###}", $Start)
+  $tt = [string]::Format($Invariant, "{0:0.###}", $dur)
+
   $args = @("-hide_banner","-loglevel","error","-ss",$ss,"-i",$In,"-t",$tt)
   if ($Mode -eq "copy") {
     $args += @("-c","copy","-y",$Out)
   } else {
     $args += @("-c:v","libx264","-preset","veryfast","-crf","18","-c:a","aac","-b:a","128k","-movflags","+faststart","-y",$Out)
   }
+
   $p = Start-Process -FilePath ffmpeg -ArgumentList $args -NoNewWindow -PassThru -Wait
   if ($p.ExitCode -ne 0) { throw "ffmpeg exit $($p.ExitCode) for: $Out" }
 }
@@ -45,6 +48,7 @@ function Cut-Clip([string]$In, [double]$Start, [double]$End, [string]$Out, [stri
 if (!(Test-Path $Manifest)) { throw "Manifest not found: $Manifest" }
 $rows = Import-Csv $Manifest
 
+# Normalize rows and build canonical keys
 $norm = @()
 foreach ($r in $rows) {
   $t1 = Parse-Num $r.t_start_s
@@ -56,15 +60,14 @@ foreach ($r in $rows) {
     }
   }
 
-  # guard rails
   if ($null -eq $t1 -or $null -eq $t2) { continue }
   if ($t2 -le $t1) { continue }
   if (-not $r.master_path -or -not $r.clip_name) { continue }
 
   $label = Coalesce-Label $r
   $key = ($r.master_path + "|" + $label + "|" +
-          ([math]::Round([double]$t1,1).ToString($Invariant)) + "-" +
-          ([math]::Round([double]$t2,1).ToString($Invariant)))
+          [string]::Format($Invariant, "{0:0.0}", [math]::Round([double]$t1,1)) + "-" +
+          [string]::Format($Invariant, "{0:0.0}", [math]::Round([double]$t2,1)))
 
   $norm += [pscustomobject]@{
     key         = $key
@@ -76,6 +79,7 @@ foreach ($r in $rows) {
   }
 }
 
+# Deduplicate by key (keep first)
 $canon = @()
 $seen  = @{}
 foreach ($n in $norm) {
@@ -85,6 +89,7 @@ foreach ($n in $norm) {
   }
 }
 
+# Write outputs
 $made = 0
 foreach ($r in $canon) {
   $gameKey = Extract-GameKey $r.clip_name
