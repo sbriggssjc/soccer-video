@@ -1,0 +1,7 @@
+﻿"game","expected_count","staged_count","finals_count","missing_in_staged","missing_in_finals","ballfollow_ok","ballfollow_missing","expected_csv_used"
+"2025-09-13__TSC_vs_NEOFC","7","0","7","001 002 003 004 005 006 022","","0","8","C:\Users\scott\soccer-video\out\catalog\__flat_2025-09-13__TSC_vs_NEOFC.csv"
+"2025-09-20__TSC_vs_Greenwood","0","0","0","","","0","0","C:\Users\scott\soccer-video\out\catalog\__flat_2025-09-20__TSC_vs_Greenwood.csv"
+"2025-09-20__TSC_vs_RVFC","0","0","0","","","0","0","C:\Users\scott\soccer-video\out\catalog\__flat_2025-09-20__TSC_vs_RVFC.csv"
+"2025-10-04__TSC_vs_FC_Tulsa_Black","0","0","15","","","0","15","C:\Users\scott\soccer-video\out\catalog\__compare_flat_2025-10-04__TSC_vs_FC_Tulsa_Black.csv"
+"atomic_index","0","0","0","","","0","0","C:\Users\scott\soccer-video\out\catalog\atomic_index.csv"
+"pipeline_status","0","0","0","","","0","0","C:\Users\scott\soccer-video\out\catalog\pipeline_status.csv"
