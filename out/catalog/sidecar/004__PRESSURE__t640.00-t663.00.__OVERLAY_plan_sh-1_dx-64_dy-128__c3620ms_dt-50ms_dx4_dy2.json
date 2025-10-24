@@ -1,0 +1,14 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-10-12__TSC_SLSG_FallFestival\\004__PRESSURE__t640.00-t663.00.__OVERLAY_plan_sh-1_dx-64_dy-128__c3620ms_dt-50ms_dx4_dy2.mp4",
+  "source_sha1_64": "e25d090fe11fa797",
+  "meta": {
+    "duration_s": 23.0,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/atomic_clips/MASTER.mp4",
+  "master_rel": "out/atomic_clips/MASTER.mp4"
+}

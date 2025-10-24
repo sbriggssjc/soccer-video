@@ -1,0 +1,15 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-10-07__HOME_vs_AWAY\\188__2025-10-07__HOME_vs_AWAY__SHOT__t3028.10-t3059.70.mp4",
+  "source_sha1_64": "1bc345451011c9d9",
+  "meta": {},
+  "steps": {},
+  "errors": [
+    {
+      "step": "scan",
+      "message": "No video stream detected",
+      "at": "2025-10-24T12:21:36+00:00"
+    }
+  ],
+  "master_path": "C:/Users/scott/soccer-video/out/atomic_clips/MASTER.mp4",
+  "master_rel": "out/atomic_clips/MASTER.mp4"
+}

@@ -1,0 +1,15 @@
+{
+  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\006__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP_GOAL__t40440.00-t43020.00.__DEBUG.mp4",
+  "source_sha1_64": "86b1d80dc620cc00",
+  "meta": {},
+  "steps": {},
+  "errors": [
+    {
+      "step": "scan",
+      "message": "No video stream detected",
+      "at": "2025-10-24T12:22:02+00:00"
+    }
+  ],
+  "master_path": "C:/Users/scott/soccer-video/out/atomic_clips/MASTER.mp4",
+  "master_rel": "out/atomic_clips/MASTER.mp4"
+}
