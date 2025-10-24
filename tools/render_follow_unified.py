@@ -122,6 +122,37 @@ def _clamp_cam(cx, cy, W, H, crop_w, crop_h):
     return cx, cy
 
 
+def _motion_centroid(
+    prev_gray: Optional[np.ndarray],
+    cur_gray: Optional[np.ndarray],
+    field_mask: Optional[np.ndarray],
+    flow_thresh_px: float = 1.6,
+) -> Optional[Tuple[float, float]]:
+    if prev_gray is None or cur_gray is None:
+        return None
+    try:
+        flow = cv2.calcOpticalFlowFarneback(
+            prev_gray, cur_gray, None, 0.5, 3, 21, 3, 5, 1.2, 0
+        )
+    except cv2.error:
+        return None
+    mag = cv2.magnitude(flow[..., 0], flow[..., 1])
+    mot = (mag >= float(flow_thresh_px)).astype(np.uint8) * 255
+    if field_mask is not None and field_mask.size == mag.size:
+        mot = cv2.bitwise_and(mot, field_mask)
+    mot = cv2.morphologyEx(mot, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    cnts, _ = cv2.findContours(mot, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    c = max(cnts, key=cv2.contourArea)
+    M = cv2.moments(c)
+    if M["m00"] <= 1e-3:
+        return None
+    cx = float(M["m10"] / M["m00"])
+    cy = float(M["m01"] / M["m00"])
+    return cx, cy
+
+
 def _get_ball_xy_src(rec, src_w, src_h):
     """
     Return ball center in *source pixel space* (x,y), regardless of which fields exist in the record.
@@ -2248,6 +2279,9 @@ class Renderer:
         lost_hold_ms: int = 500,
         lost_pan_ms: int = 1200,
         lost_lookahead_s: float = 6.0,
+        lost_chase_motion_ms: int = 900,
+        lost_motion_thresh: float = 1.6,
+        lost_use_motion: bool = False,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -2287,6 +2321,7 @@ class Renderer:
         self.follow_zoom_edge_frac = zoom_edge_frac
         self.lost_hold_ms = max(0, int(lost_hold_ms))
         self.lost_pan_ms = max(0, int(lost_pan_ms))
+        self.lost_chase_motion_ms = max(0, int(lost_chase_motion_ms))
         try:
             lost_lookahead_s = float(lost_lookahead_s)
         except (TypeError, ValueError):
@@ -2294,6 +2329,14 @@ class Renderer:
         if not math.isfinite(lost_lookahead_s) or lost_lookahead_s < 0.0:
             lost_lookahead_s = 0.0
         self.lost_lookahead_s = lost_lookahead_s
+        try:
+            motion_thresh_value = float(lost_motion_thresh)
+        except (TypeError, ValueError):
+            motion_thresh_value = 1.6
+        if not math.isfinite(motion_thresh_value):
+            motion_thresh_value = 1.6
+        self.lost_motion_thresh = max(0.0, motion_thresh_value)
+        self.lost_use_motion = bool(lost_use_motion)
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -2804,6 +2847,11 @@ class Renderer:
             lost_cy = float(prev_cy)
             pan_from: Tuple[float, float] = (float(prev_cx), float(prev_cy))
             pan_to: Tuple[float, float] = (float(prev_cx), float(prev_cy))
+            lost_phase: str = "none"
+            lost_phase_ms: int = 0
+            prev_gray_frame: Optional[np.ndarray] = None
+            cur_gray_frame: Optional[np.ndarray] = None
+            field_mask: Optional[np.ndarray] = None
 
             def _resolve_lost_target(
                 bx_value: Optional[float],
@@ -2815,7 +2863,7 @@ class Renderer:
                 time_s: float,
                 frame_index: int,
             ) -> Tuple[float, float, str, Optional[Tuple[float, float]]]:
-                nonlocal lost_state, lost_t0, lost_cx, lost_cy, pan_from, pan_to
+                nonlocal lost_state, lost_t0, lost_cx, lost_cy, pan_from, pan_to, lost_phase, lost_phase_ms
                 state_label = "track"
                 pan_target: Optional[Tuple[float, float]] = None
                 if follower is None:
@@ -2843,9 +2891,53 @@ class Renderer:
                     )
                 now_s = float(time_s)
                 hold_dur = max(0.0, float(self.lost_hold_ms) / 1000.0)
-                pan_dur = max(0.0, float(self.lost_pan_ms) / 1000.0)
                 lookahead_s = max(0.0, float(self.lost_lookahead_s))
+
+                def _find_reentry_target() -> Tuple[float, float]:
+                    fps_lookup = (
+                        render_fps
+                        if render_fps and render_fps > 0.0
+                        else (
+                            src_fps
+                            if src_fps and src_fps > 0.0
+                            else (float(self.fps_in) if self.fps_in > 0.0 else 30.0)
+                        )
+                    )
+                    if fps_lookup <= 0.0:
+                        fps_lookup = 30.0
+                    max_ahead_frames = int(max(0.0, lookahead_s * fps_lookup))
+                    re_cx = float(follower.cx)
+                    re_cy = float(follower.cy)
+                    if plan_pts and max_ahead_frames > 0:
+                        j = min(max(frame_index, 0), len(plan_pts) - 1)
+                        for offset in range(1, max_ahead_frames + 1):
+                            jj = min(j + offset, len(plan_pts) - 1)
+                            _, bx_future, by_future = plan_pts[jj]
+                            cx_future, cy_future = _clamp_cam(
+                                float(bx_future),
+                                float(by_future),
+                                float(src_w_f),
+                                float(src_h_f),
+                                float(crop_w_inside),
+                                float(crop_h_inside),
+                            )
+                            if _inside_crop(
+                                float(bx_future),
+                                float(by_future),
+                                cx_future,
+                                cy_future,
+                                float(crop_w_inside),
+                                float(crop_h_inside),
+                                margin_val,
+                            ):
+                                re_cx, re_cy = cx_future, cy_future
+                                break
+                    return re_cx, re_cy
+
                 if lost_state == "track":
+                    if lost_phase != "none" or lost_phase_ms != 0:
+                        lost_phase = "none"
+                        lost_phase_ms = 0
                     if not inside:
                         lost_state = "hold"
                         lost_t0 = now_s
@@ -2855,57 +2947,56 @@ class Renderer:
                 if lost_state == "hold":
                     if inside:
                         lost_state = "track"
+                        lost_phase = "none"
+                        lost_phase_ms = 0
                     elif (now_s - lost_t0) >= hold_dur:
-                        fps_lookup = (
-                            render_fps
-                            if render_fps and render_fps > 0.0
-                            else (
-                                src_fps
-                                if src_fps and src_fps > 0.0
-                                else (float(self.fps_in) if self.fps_in > 0.0 else 30.0)
-                            )
-                        )
-                        if fps_lookup <= 0.0:
-                            fps_lookup = 30.0
-                        max_ahead_frames = int(max(0.0, lookahead_s * fps_lookup))
-                        re_cx = float(follower.cx)
-                        re_cy = float(follower.cy)
-                        if plan_pts and max_ahead_frames > 0:
-                            j = min(max(frame_index, 0), len(plan_pts) - 1)
-                            for offset in range(1, max_ahead_frames + 1):
-                                jj = min(j + offset, len(plan_pts) - 1)
-                                _, bx_future, by_future = plan_pts[jj]
-                                cx_future, cy_future = _clamp_cam(
-                                    float(bx_future),
-                                    float(by_future),
-                                    float(src_w_f),
-                                    float(src_h_f),
-                                    float(crop_w_inside),
-                                    float(crop_h_inside),
-                                )
-                                if _inside_crop(
-                                    float(bx_future),
-                                    float(by_future),
-                                    cx_future,
-                                    cy_future,
-                                    float(crop_w_inside),
-                                    float(crop_h_inside),
-                                    margin_val,
-                                ):
-                                    re_cx, re_cy = cx_future, cy_future
-                                    break
                         pan_from = (float(follower.cx), float(follower.cy))
-                        pan_to = (re_cx, re_cy)
+                        pan_to = pan_from
+                        lost_phase = "none"
+                        lost_phase_ms = 0
+                        motion_target: Optional[Tuple[float, float]] = None
+                        if self.lost_use_motion:
+                            motion_target = _motion_centroid(
+                                prev_gray_frame,
+                                cur_gray_frame,
+                                field_mask,
+                                self.lost_motion_thresh,
+                            )
+                        if motion_target is not None:
+                            mx, my = motion_target
+                            mx, my = _clamp_cam(
+                                float(mx),
+                                float(my),
+                                float(src_w_f),
+                                float(src_h_f),
+                                float(crop_w_inside),
+                                float(crop_h_inside),
+                            )
+                            pan_to = (mx, my)
+                            lost_phase = "motion"
+                            lost_phase_ms = self.lost_chase_motion_ms
+                        else:
+                            re_cx, re_cy = _find_reentry_target()
+                            pan_to = (re_cx, re_cy)
+                            lost_phase = "reentry"
+                            lost_phase_ms = self.lost_pan_ms
                         lost_state = "pan"
                         lost_t0 = now_s
                 if lost_state == "pan":
                     if inside:
                         lost_state = "track"
+                        lost_phase = "none"
+                        lost_phase_ms = 0
                     else:
-                        if pan_dur <= 1e-6:
+                        if lost_phase != "none":
+                            phase_ms = float(lost_phase_ms)
+                        else:
+                            phase_ms = float(self.lost_pan_ms)
+                        phase_dur = max(0.0, phase_ms / 1000.0)
+                        if phase_dur <= 1e-6:
                             alpha = 1.0
                         else:
-                            alpha = min(1.0, max(0.0, (now_s - lost_t0) / max(pan_dur, 1e-6)))
+                            alpha = min(1.0, max(0.0, (now_s - lost_t0) / max(phase_dur, 1e-6)))
                         a = alpha * alpha * (3.0 - 2.0 * alpha)
                         cx_interp = pan_from[0] + a * (pan_to[0] - pan_from[0])
                         cy_interp = pan_from[1] + a * (pan_to[1] - pan_from[1])
@@ -2919,6 +3010,13 @@ class Renderer:
                         )
                         state_label = "lost_pan"
                         pan_target = (cx_interp, cy_interp)
+                        if alpha >= 1.0 and lost_phase == "motion":
+                            re_cx, re_cy = _find_reentry_target()
+                            pan_from = (cx_interp, cy_interp)
+                            pan_to = (re_cx, re_cy)
+                            lost_phase = "reentry"
+                            lost_phase_ms = self.lost_pan_ms
+                            lost_t0 = now_s
                         return cx_interp, cy_interp, state_label, pan_target
                 if lost_state == "hold":
                     hold_cx, hold_cy = _clamp_cam(
@@ -2932,6 +3030,8 @@ class Renderer:
                     state_label = "lost_hold"
                     return hold_cx, hold_cy, state_label, pan_target
                 lost_state = "track"
+                lost_phase = "none"
+                lost_phase_ms = 0
                 state_label = "track"
                 clamped_target = _clamp_cam(
                     float(base_target[0]),
@@ -2951,6 +3051,8 @@ class Renderer:
                         break
                     if self.flip180:
                         frame = cv2.rotate(frame, cv2.ROTATE_180)
+
+                    cur_gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
                     n = state.frame
                     t = n / float(render_fps) if render_fps else 0.0
@@ -3849,6 +3951,12 @@ class Renderer:
                             telemetry_rec["crop"] = crop_list
                             telemetry_rec["crop_src"] = list(crop_list)
                             telemetry_rec["state"] = frame_follow_state
+                            if frame_follow_state == "lost_pan":
+                                telemetry_rec["lost_phase"] = lost_phase
+                            elif frame_follow_state == "lost_hold":
+                                telemetry_rec["lost_phase"] = "hold"
+                            else:
+                                telemetry_rec["lost_phase"] = "none"
                             if frame_pan_target is not None:
                                 telemetry_rec["target_cx"] = float(frame_pan_target[0])
                                 telemetry_rec["target_cy"] = float(frame_pan_target[1])
@@ -3978,11 +4086,12 @@ class Renderer:
                     )
     
                     composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
-    
+
                     out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
                     success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
                     if not success:
                         raise RuntimeError(f"Failed to write frame to {out_path}")
+                    prev_gray_frame = cur_gray_frame
                 except Exception as exc:
                     if simple_tf:
                         err = {"error": str(exc), "t": float(t) if "t" in locals() else None}
@@ -4453,6 +4562,9 @@ def run(
     lost_hold_ms = getattr(args, "lost_hold_ms", 500)
     lost_pan_ms = getattr(args, "lost_pan_ms", 1200)
     lost_lookahead_s = getattr(args, "lost_lookahead_s", 6.0)
+    lost_chase_motion_ms = getattr(args, "lost_chase_motion_ms", 900)
+    lost_motion_thresh = getattr(args, "lost_motion_thresh", 1.6)
+    lost_use_motion = bool(getattr(args, "lost_use_motion", False))
     try:
         lost_hold_ms = int(lost_hold_ms)
     except (TypeError, ValueError):
@@ -4465,6 +4577,14 @@ def run(
         lost_lookahead_s = float(lost_lookahead_s)
     except (TypeError, ValueError):
         lost_lookahead_s = 6.0
+    try:
+        lost_chase_motion_ms = int(lost_chase_motion_ms)
+    except (TypeError, ValueError):
+        lost_chase_motion_ms = 900
+    try:
+        lost_motion_thresh = float(lost_motion_thresh)
+    except (TypeError, ValueError):
+        lost_motion_thresh = 1.6
 
     lead_time_s = 0.0
     lead_val = follow_config.get("lead_time") if follow_config else None
@@ -4639,6 +4759,9 @@ def run(
             lost_hold_ms=lost_hold_ms,
             lost_pan_ms=lost_pan_ms,
             lost_lookahead_s=lost_lookahead_s,
+            lost_chase_motion_ms=lost_chase_motion_ms,
+            lost_motion_thresh=lost_motion_thresh,
+            lost_use_motion=lost_use_motion,
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         logging.info(
@@ -4700,6 +4823,9 @@ def run(
                     lost_hold_ms=lost_hold_ms,
                     lost_pan_ms=lost_pan_ms,
                     lost_lookahead_s=lost_lookahead_s,
+                    lost_chase_motion_ms=lost_chase_motion_ms,
+                    lost_motion_thresh=lost_motion_thresh,
+                    lost_use_motion=lost_use_motion,
                 )
                 jerk95 = renderer.write_frames(states)
             finally:
@@ -4891,6 +5017,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1200,
         help="duration of the slow pan toward re-entry (ms)",
+    )
+    parser.add_argument(
+        "--lost-chase-motion-ms",
+        type=int,
+        default=900,
+        help="during LOST, time to pan toward motion centroid before re-entry (ms)",
+    )
+    parser.add_argument(
+        "--lost-motion-thresh",
+        type=float,
+        default=1.6,
+        help="optical flow magnitude threshold (px/frame) to pick 'action' blobs",
+    )
+    parser.add_argument(
+        "--lost-use-motion",
+        action="store_true",
+        help="enable motion centroid chase while ball is out",
     )
     parser.add_argument(
         "--lost-lookahead-s",
