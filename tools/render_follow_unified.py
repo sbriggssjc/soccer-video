@@ -741,6 +741,7 @@ def plan_camera_from_ball(
     pan_alpha=0.15,
     lead=0.10,
     bounds_pad=16,
+    center_frac=0.5,
 ):
     """
     bx/by are STABILIZED ball coords per-frame (not raw detector jitter).
@@ -759,6 +760,8 @@ def plan_camera_from_ball(
 
     cx = smooth_series(bx_look, alpha=pan_alpha)
     cy = smooth_series(by_look, alpha=pan_alpha)
+    bias_px = (0.5 - float(np.clip(center_frac, 0.0, 1.0))) * frame_h
+    cy = cy + bias_px
 
     # compute zoom per-frame
     zp = ZoomPlanner(z_min=1.0, z_max=1.9, s_lo=2.5, s_hi=22.0, hysteresis=0.18, max_step=0.025)
@@ -897,6 +900,7 @@ def plan_crop_from_ball(
     zoom_max=0.95,
     pad=24,
     state=None,
+    center_frac: float = 0.5,
 ):
     """Return integer (x0,y0,w,h) portrait crop centered on (bx,by) with damped smoothing."""
 
@@ -1036,6 +1040,7 @@ def plan_crop_from_ball(
 
     cx = (1 - alpha_center) * prev_cx + alpha_center * bx
     cy = (1 - alpha_center) * prev_cy + alpha_center * by
+    cy = cy + (0.5 - float(np.clip(center_frac, 0.0, 1.0))) * src_h
 
     cw = (1 - alpha_zoom) * prev_w + alpha_zoom * target_crop_w
     ch = (1 - alpha_zoom) * prev_h + alpha_zoom * target_crop_h
@@ -1700,6 +1705,7 @@ class CameraPlanner:
         keepinview_nudge_gain: float = 0.5,
         keepinview_zoom_gain: float = 0.4,
         keepinview_zoom_out_max: float = 1.6,
+        center_frac: float = 0.5,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -1723,6 +1729,15 @@ class CameraPlanner:
         self.keepinview_nudge_gain = max(0.0, float(keepinview_nudge_gain))
         self.keepinview_zoom_gain = max(0.0, float(keepinview_zoom_gain))
         self.keepinview_zoom_out_max = max(1.0, float(keepinview_zoom_out_max))
+
+        try:
+            center_frac = float(center_frac)
+        except (TypeError, ValueError):
+            center_frac = 0.5
+        if not math.isfinite(center_frac):
+            center_frac = 0.5
+        self.center_frac = float(np.clip(center_frac, 0.0, 1.0))
+        self.center_bias_px = (0.5 - self.center_frac) * self.height
 
         render_fps = self.fps if self.fps > 0 else 30.0
         if render_fps <= 0:
@@ -1787,9 +1802,9 @@ class CameraPlanner:
         frame_count = len(positions)
         states: List[CamState] = []
         prev_cx = self.width / 2.0
-        prev_cy = self.height / 2.0
+        prev_cy = self.height * self.center_frac
         prev_zoom = self.base_zoom
-        fallback_center = np.array([prev_cx, self.height * 0.45], dtype=np.float32)
+        fallback_center = np.array([prev_cx, self.height * self.center_frac], dtype=np.float32)
         fallback_alpha = 0.05
         render_fps = self.render_fps
         px_per_sec_x = self.speed_limit * 1.35
@@ -1895,7 +1910,9 @@ class CameraPlanner:
                             lead_pos = positions[lead_idx]
                             target = 0.6 * target + 0.4 * lead_pos
             else:
-                fallback_target = np.array([self.width / 2.0, self.height * 0.40], dtype=np.float32)
+                fallback_target = np.array(
+                    [self.width / 2.0, self.height * self.center_frac], dtype=np.float32
+                )
                 fallback_center = (
                     fallback_alpha * fallback_target + (1.0 - fallback_alpha) * fallback_center
                 )
@@ -1914,7 +1931,14 @@ class CameraPlanner:
             bx_used = float(target[0])
             by_used = float(target[1])
 
-            speed_pf = math.hypot(bx_used - prev_target_x, by_used - prev_target_y)
+            if has_position:
+                target_center_y = float(
+                    np.clip(by_used + self.center_bias_px, 0.0, self.height)
+                )
+            else:
+                target_center_y = float(np.clip(by_used, 0.0, self.height))
+
+            speed_pf = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
             if self.speed_zoom_config:
                 config = self.speed_zoom_config
                 v_lo = config["v_lo"]
@@ -1936,7 +1960,7 @@ class CameraPlanner:
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
             cx = center_alpha * bx_used + (1.0 - center_alpha) * prev_cx
-            cy = center_alpha * by_used + (1.0 - center_alpha) * prev_cy
+            cy = center_alpha * target_center_y + (1.0 - center_alpha) * prev_cy
 
             ball_point: Optional[Tuple[float, float]] = None
             if has_position:
@@ -2196,7 +2220,7 @@ class CameraPlanner:
             prev_cy = actual_cy
             prev_zoom = zoom
             prev_target_x = bx_used
-            prev_target_y = by_used
+            prev_target_y = target_center_y
 
             states.append(
                 CamState(
@@ -2276,6 +2300,7 @@ class Renderer:
         follow_pre_smooth: float = 0.0,
         follow_zoom_out_max: float = 1.35,
         follow_zoom_edge_frac: float = 1.0,
+        follow_center_frac: float = 0.5,
         lost_hold_ms: int = 500,
         lost_pan_ms: int = 1200,
         lost_lookahead_s: float = 6.0,
@@ -2319,6 +2344,13 @@ class Renderer:
         if not math.isfinite(zoom_edge_frac) or zoom_edge_frac <= 0.0:
             zoom_edge_frac = 1.0
         self.follow_zoom_edge_frac = zoom_edge_frac
+        try:
+            follow_center_frac = float(follow_center_frac)
+        except (TypeError, ValueError):
+            follow_center_frac = 0.5
+        if not math.isfinite(follow_center_frac):
+            follow_center_frac = 0.5
+        self.follow_center_frac = float(np.clip(follow_center_frac, 0.0, 1.0))
         self.lost_hold_ms = max(0, int(lost_hold_ms))
         self.lost_pan_ms = max(0, int(lost_pan_ms))
         self.lost_chase_motion_ms = max(0, int(lost_chase_motion_ms))
@@ -2444,6 +2476,20 @@ class Renderer:
                 hold.reset_target(cx, cy)
             centers.append((cx, cy))
         return centers
+
+    @staticmethod
+    def _center_bias_px_for_height(frame_h: float, center_frac: float) -> float:
+        try:
+            frame_h = float(frame_h)
+        except (TypeError, ValueError):
+            frame_h = 0.0
+        try:
+            center_frac = float(center_frac)
+        except (TypeError, ValueError):
+            center_frac = 0.5
+        if not math.isfinite(center_frac):
+            center_frac = 0.5
+        return (0.5 - center_frac) * frame_h
 
     def _compose_frame(
         self,
@@ -2598,6 +2644,7 @@ class Renderer:
         zoom_max = float(self.zoom_max)
         src_w_f = float(width)
         src_h_f = float(height)
+        center_bias_px = self._center_bias_px_for_height(src_h_f, self.follow_center_frac)
         speed_px_sec = float(self.speed_limit or 3000.0)
 
         offline_plan_data: Optional[dict[str, np.ndarray]] = None
@@ -2656,7 +2703,7 @@ class Renderer:
                     return out
 
                 default_cx = float(width) / 2.0
-                default_cy = float(height) * 0.45
+                default_cy = float(height) * self.follow_center_frac
                 if not np.isfinite(bx_arr[0]):
                     bx_arr[0] = default_cx
                 if not np.isfinite(by_arr[0]):
@@ -2669,6 +2716,8 @@ class Renderer:
                 by_list = by_arr.astype(float).tolist()
                 if self.follow_pre_smooth > 0:
                     bx_list, by_list = ema_path(bx_list, by_list, self.follow_pre_smooth)
+                bias_px = self._center_bias_px_for_height(src_h_f, self.follow_center_frac)
+                by_list = [float(np.clip(y + bias_px, 0.0, src_h_f)) for y in by_list]
                 follow_targets = (bx_list, by_list)
                 follow_valid_mask = valid_mask_arr.astype(bool).tolist()
 
@@ -2697,6 +2746,7 @@ class Renderer:
                     pan_alpha=pan_alpha,
                     lead=lead_seconds,
                     bounds_pad=bounds_pad,
+                    center_frac=self.follow_center_frac,
                 )
 
                 offline_plan_len = len(plan_x0)
@@ -3310,7 +3360,9 @@ class Renderer:
                                 ball_path_entry = (eff_bx, eff_by)
                         if not planner_handled:
                             base_target_x = float(eff_bx)
-                            base_target_y = float(eff_by)
+                            base_target_y = float(
+                                np.clip(eff_by + center_bias_px, 0.0, src_h_f)
+                            )
                             if have_ball and follow_targets and follow_targets_len > 0:
                                 idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
                                 base_target_x = float(follow_targets[0][idx])
@@ -3339,8 +3391,8 @@ class Renderer:
                                 vx = 0.5 * (bx_next_plan - bx_prev_plan) * fps_for_vel
                                 vy = 0.5 * (by_next_plan - by_prev_plan) * fps_for_vel
                             elif n > 0:
-                                vx = float(base_target_x - prev_bx)
-                                vy = float(base_target_y - prev_by)
+                                vx = float(base_target_x - prev_cx)
+                                vy = float(base_target_y - prev_cy)
 
                             lead_k = 0.02
                             target_x = float(base_target_x + lead_k * vx)
@@ -3460,6 +3512,7 @@ class Renderer:
                                 zoom_max=zoom_max,
                                 pad=self.pad,
                                 state=portrait_plan_state,
+                                center_frac=self.follow_center_frac,
                             )
                             zoom = float(height) / float(max(crop_h, 1.0))
                             if zoom_max >= zoom_min:
@@ -3556,11 +3609,11 @@ class Renderer:
                         if follow_targets and follow_targets_len > 0:
                             idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
                             target_x = float(follow_targets[0][idx])
-                            target_y = float(follow_targets[1][idx])
+                            target_y = float(np.clip(follow_targets[1][idx], 0.0, src_h_f))
                         if target_x is None or target_y is None:
                             if bx_val is not None and by_val is not None:
                                 target_x = bx_val
-                                target_y = by_val
+                                target_y = float(np.clip(by_val + center_bias_px, 0.0, src_h_f))
                             else:
                                 target_x = float(pcx)
                                 target_y = float(pcy)
@@ -3660,6 +3713,7 @@ class Renderer:
                                 zoom_max=zoom_max,
                                 pad=self.pad,
                                 state=portrait_plan_state,
+                                center_frac=self.follow_center_frac,
                             )
                             zoom = float(height) / float(max(crop_h, 1.0))
                             if zoom_max >= zoom_min:
@@ -3742,6 +3796,7 @@ class Renderer:
                                     zoom_max=zoom_max,
                                     pad=self.pad,
                                     state=portrait_plan_state,
+                                    center_frac=self.follow_center_frac,
                                 )
                                 zoom = float(height) / float(max(crop_h, 1.0))
                                 if zoom_max >= zoom_min:
@@ -4376,6 +4431,13 @@ def run(
     speed_limit = float(args.speed_limit) if args.speed_limit is not None else float(preset_config.get("speed_limit", 480))
     zoom_min = float(args.zoom_min) if args.zoom_min is not None else float(preset_config.get("zoom_min", 1.0))
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
+    try:
+        cy_frac = float(args.cy_frac)
+    except (TypeError, ValueError, AttributeError):
+        cy_frac = 0.46
+    if not math.isfinite(cy_frac):
+        cy_frac = 0.46
+    cy_frac = float(np.clip(cy_frac, 0.0, 1.0))
     crf = int(args.crf) if args.crf is not None else int(preset_config.get("crf", 19))
     keyint_factor = int(args.keyint_factor) if args.keyint_factor is not None else int(preset_config.get("keyint_factor", 4))
 
@@ -4692,6 +4754,7 @@ def run(
         keepinview_nudge_gain=keepinview_nudge,
         keepinview_zoom_gain=keepinview_zoom_gain,
         keepinview_zoom_out_max=keepinview_zoom_cap,
+        center_frac=cy_frac,
     )
     states = planner.plan(positions, used_mask)
 
@@ -4756,6 +4819,7 @@ def run(
             follow_pre_smooth=follow_pre_smooth,
             follow_zoom_out_max=follow_zoom_out_max,
             follow_zoom_edge_frac=follow_zoom_edge_frac,
+            follow_center_frac=cy_frac,
             lost_hold_ms=lost_hold_ms,
             lost_pan_ms=lost_pan_ms,
             lost_lookahead_s=lost_lookahead_s,
@@ -4991,6 +5055,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.80,
         help="Fraction of safe margin where zoom-out begins to ease out",
+    )
+    parser.add_argument(
+        "--cy-frac",
+        dest="cy_frac",
+        type=float,
+        default=0.46,
+        help=(
+            "Desired ball vertical position as a fraction of frame height (0=top, 1=bottom). "
+            "Default 0.46 puts ball slightly above center to avoid bottom-edge saturation."
+        ),
     )
     parser.add_argument(
         "--emergency-gain",
