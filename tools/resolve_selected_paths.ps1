@@ -13,6 +13,18 @@ Write-Host "PWD: $(Get-Location)"
 Write-Host "Using column: $CsvCol"
 Write-Host "Scanning $ClipsRoot for .mp4 ..."
 
+function Get-BaseName([string]$s){
+  if(-not $s){ return "" }
+  # strip surrounding quotes/backticks/whitespace
+  $s = $s -replace '^[\uFEFF\s"`'']+','' -replace '[\s"`'']+$',''
+  # normalize slashes
+  $s = $s -replace '/','\'
+  # keep just the last path component
+  $leaf = [IO.Path]::GetFileName($s)
+  # drop extension if present
+  return [IO.Path]::GetFileNameWithoutExtension($leaf)
+}
+
 function Parse-Num([string]$s){
   if(-not $s){ return $null }
   $s = $s -replace '[^0-9\.,-]',''
@@ -86,11 +98,25 @@ $byTail3 = $diskItems | Group-Object Tail3 -AsHashTable -AsString
 
 $rows = Import-Csv -LiteralPath $SrcCsv
 $need = @()
+$unres = @()
 foreach($r in $rows){
   $raw = [string]$r.$CsvCol
   if(-not $raw){ continue }
-  $name = [IO.Path]::GetFileNameWithoutExtension($raw -replace '"','')
+  $name = Get-BaseName $raw
   $ps = Parse-Stem $name
+  if(-not $ps){
+    $unres += [pscustomobject]@{
+      Raw   = $raw
+      Prefix= $null
+      Canon = $null
+      Tail2 = $null
+      Tail3 = $null
+      T1    = $null
+      T2    = $null
+      Note  = "Bad stem format"
+    }
+    continue
+  }
   if($ps){
     $need += [pscustomobject]@{
       Raw     = $raw
@@ -130,13 +156,17 @@ function Try-Resolve($wanted){
 }
 
 $resolved = @()
-$unres    = @()
 
 foreach($w in $need){
   $hit = Try-Resolve $w
   if($hit){
     $resolved += [pscustomobject]@{ mp4 = $hit.Full }
   } else {
+    if($w.PSObject.Properties.Match('Note').Count){
+      $w.Note = "No matching clip"
+    } else {
+      $w | Add-Member -NotePropertyName Note -NotePropertyValue "No matching clip"
+    }
     $unres += $w
   }
 }
@@ -146,7 +176,11 @@ if(-not $resolved -or $resolved.Count -eq 0){
   if($unres.Count){
     "First unresolved:"
     $unres | Select-Object -First 10 | ForEach-Object {
-      "  - $($_.Prefix)__t$($_.T1)-t$($_.T2)"
+      if($_.Note){
+        "  - $($_.Raw) [$($_.Note)]"
+      } else {
+        "  - $($_.Prefix)__t$($_.T1)-t$($_.T2)"
+      }
     }
   }
   throw "Stopping."
