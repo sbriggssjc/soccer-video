@@ -8,6 +8,21 @@ Param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Parse-Num([string]$s){
+  if(-not $s){ return $null }
+  # keep digits, comma, dot, minus
+  $s = $s -replace '[^0-9\.,-]',''
+  # drop thousands commas
+  $s = $s -replace ',',''
+  # collapse multiple dots: keep first as decimal, remove the rest
+  if(($s.Split('.').Count -gt 2)){
+    $parts = $s.Split('.')
+    $s = $parts[0] + '.' + (($parts[1..($parts.Count-1)]) -join '')
+  }
+  # finally parse invariant
+  return [double]::Parse($s, [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Normalize-Time([double]$v){
   if($v -gt 1000){ $v = $v / 60.0 }     # convert framecount@60fps to seconds
   [math]::Round($v, 2)
@@ -21,9 +36,18 @@ function Parse-Stem([string]$stem){
   $parts = $s -split '__t'
   if($parts.Count -ne 2){ return $null }
   $prefix = $parts[0]
-  if($parts[1] -notmatch '^([0-9.]+)-t([0-9.]+)$'){ return $null }
-  $t1 = Normalize-Time([double]$Matches[1])
-  $t2 = Normalize-Time([double]$Matches[2])
+  # accept digits, commas, dots in the time fields
+  if($parts[1] -notmatch '^([0-9\.,]+)-t([0-9\.,]+)$'){ return $null }
+
+  $raw1 = $Matches[1]
+  $raw2 = $Matches[2]
+
+  $n1 = Parse-Num $raw1
+  $n2 = Parse-Num $raw2
+  if($null -eq $n1 -or $null -eq $n2){ return $null }
+
+  $t1 = Normalize-Time($n1)
+  $t2 = Normalize-Time($n2)
   [pscustomobject]@{ Prefix=$prefix; T1=$t1; T2=$t2 }
 }
 
