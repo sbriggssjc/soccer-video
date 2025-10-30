@@ -2824,6 +2824,10 @@ class Renderer:
             initial_target=(prev_cx, prev_cy),
         )
 
+        # --- PATCH: initialize tracking flags so they always exist ---
+        have_ball = False
+        bx = by = None
+
         jerk95 = 0.0
         if follow_targets_len and render_fps > 0:
             centers = self._simulate_follow_centers(
@@ -3130,6 +3134,7 @@ class Renderer:
                     frame_follow_state = "track"
                     frame_pan_target: Optional[Tuple[float, float]] = None
 
+                    have_ball = False
                     bx = by = None
                     ball_available = False
                     label_available = False
@@ -3142,6 +3147,8 @@ class Renderer:
                     planner_spd: Optional[float] = None
                     planner_zoom: Optional[float] = None
                     edge_zoom_scale_follow = 1.0
+                    eff_bx: Optional[float] = None
+                    eff_by: Optional[float] = None
     
                     def _refresh_template(cx_val: float, cy_val: float) -> None:
                         nonlocal template
@@ -3307,21 +3314,22 @@ class Renderer:
                         bx = bx_src
                     if by_src is not None:
                         by = by_src
-    
+
+                    have_ball = bool(ball_available and bx is not None and by is not None)
+
                     if used_tag == "offline_path":
                         W = float(width)
                         H = float(height)
                         prev_ball_bx = float(prev_bx)
                         prev_ball_by = float(prev_by)
-                        have_ball = bool(ball_available and bx is not None and by is not None)
-    
+
                         if have_ball:
-                            eff_bx = float(bx)
-                            eff_by = float(by)
+                            eff_bx = float(bx) if bx is not None else None
+                            eff_by = float(by) if by is not None else None
                         else:
                             eff_bx = prev_ball_bx
                             eff_by = prev_ball_by
-    
+
                         planner_handled = False
                         holding_follow = False
                         if offline_plan_data is not None and n < offline_plan_len:
@@ -3356,14 +3364,20 @@ class Renderer:
                             prev_bx = eff_bx
                             prev_by = eff_by
                             follow_hold.reset_target(cx, cy)
-                            if have_ball:
+                            if have_ball and eff_bx is not None and eff_by is not None:
                                 ball_path_entry = (eff_bx, eff_by)
                         if not planner_handled:
                             base_target_x = float(eff_bx)
                             base_target_y = float(
                                 np.clip(eff_by + center_bias_px, 0.0, src_h_f)
                             )
-                            if have_ball and follow_targets and follow_targets_len > 0:
+                            if (
+                                have_ball
+                                and eff_bx is not None
+                                and eff_by is not None
+                                and follow_targets
+                                and follow_targets_len > 0
+                            ):
                                 idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
                                 base_target_x = float(follow_targets[0][idx])
                                 base_target_y = float(follow_targets[1][idx])
@@ -3399,8 +3413,12 @@ class Renderer:
                             target_y = float(base_target_y + lead_k * vy)
                             if follower is not None:
                                 target_x, target_y, frame_follow_state, frame_pan_target = _resolve_lost_target(
-                                    float(eff_bx) if have_ball else None,
-                                    float(eff_by) if have_ball else None,
+                                    float(eff_bx)
+                                    if have_ball and eff_bx is not None
+                                    else None,
+                                    float(eff_by)
+                                    if have_ball and eff_by is not None
+                                    else None,
                                     (target_x, target_y),
                                     float(prev_crop_w_val),
                                     float(prev_crop_h_val),
@@ -3408,7 +3426,9 @@ class Renderer:
                                     t,
                                     i,
                                 )
-                            valid_for_hold = bool(have_ball)
+                            valid_for_hold = bool(
+                                have_ball and eff_bx is not None and eff_by is not None
+                            )
                             if follow_valid_mask and n < len(follow_valid_mask):
                                 valid_for_hold = valid_for_hold and bool(follow_valid_mask[n])
                             if lost_state == "track":
@@ -3530,7 +3550,13 @@ class Renderer:
                                 self.pad,
                             )
     
-                        if have_ball and crop_w > 1 and crop_h > 1:
+                        if (
+                            have_ball
+                            and eff_bx is not None
+                            and eff_by is not None
+                            and crop_w > 1
+                            and crop_h > 1
+                        ):
                             x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
                                 x0,
                                 y0,
@@ -3546,7 +3572,13 @@ class Renderer:
                                 margin=self.pad,
                             )
     
-                            if have_ball and crop_w > 1 and crop_h > 1:
+                            if (
+                                have_ball
+                                and eff_bx is not None
+                                and eff_by is not None
+                                and crop_w > 1
+                                and crop_h > 1
+                            ):
                                 x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
                                     x0,
                                     y0,
@@ -3575,7 +3607,7 @@ class Renderer:
                             prev_cx = float(cx)
                             prev_cy = float(cy)
                             prev_zoom = float(zoom)
-                            if have_ball:
+                            if have_ball and eff_bx is not None and eff_by is not None:
                                 prev_bx = eff_bx
                                 prev_by = eff_by
                             if not holding_follow:
@@ -3840,12 +3872,10 @@ class Renderer:
                             prev_by = float(by)
                     zoom_ball_x: Optional[float] = None
                     zoom_ball_y: Optional[float] = None
-                    if have_ball:
+                    if have_ball and eff_bx is not None and eff_by is not None:
                         try:
                             zoom_ball_x = float(eff_bx)
                             zoom_ball_y = float(eff_by)
-                        except NameError:
-                            zoom_ball_x = zoom_ball_y = None
                         except (TypeError, ValueError):
                             zoom_ball_x = zoom_ball_y = None
                     if (
