@@ -488,8 +488,31 @@ function Export-InventoryOutputs {
 
     $probablePath = Join-Path $InventoryDir 'duplicates_probable.csv'
     $probableRows = @()
-    $Records | Where-Object { $_.Duration -and $_.Width -and $_.Height } |
-        Group-Object -Property { "{0}-{1}-{2}" -f [Math]::Round($_.Duration,1), [Math]::Round($_.Width/10)*10, [Math]::Round($_.Height/10)*10 } |
+    $Records |
+        Group-Object -Property {
+            $dur = $_.Duration
+            if ($null -eq $dur -or -not ($dur -as [double])) {
+                $durKey = 'NA'
+            } else {
+                $durKey = [Math]::Round([double]$dur, 1)
+            }
+
+            $widthVal = $_.Width
+            if ($null -eq $widthVal -or -not ($widthVal -as [double])) {
+                $widthKey = 'NA'
+            } else {
+                $widthKey = [Math]::Round(([double]$widthVal) / 10) * 10
+            }
+
+            $heightVal = $_.Height
+            if ($null -eq $heightVal -or -not ($heightVal -as [double])) {
+                $heightKey = 'NA'
+            } else {
+                $heightKey = [Math]::Round(([double]$heightVal) / 10) * 10
+            }
+
+            '{0}-{1}-{2}' -f $durKey, $widthKey, $heightKey
+        } |
         Where-Object { $_.Count -gt 1 } |
         ForEach-Object {
             $keyParts = $_.Name -split '-'
