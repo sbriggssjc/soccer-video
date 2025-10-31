@@ -167,7 +167,7 @@ function Get-FileEnumeration {
         try {
             $children = Get-ChildItem -LiteralPath $current.Path -Force:$IncludeHidden -ErrorAction Stop
         } catch {
-            Write-Log "Failed to enumerate $($current.Path): $($_.Exception.Message)" 'WARN'
+            Write-Log ("Failed to enumerate {0}: {1}" -f $current.Path, $_.Exception.Message) 'WARN'
             continue
         }
         foreach ($child in $children) {
@@ -380,7 +380,7 @@ function Get-InventoryRecords {
                     $hashObj = Get-FileHash -Algorithm $HashAlgo -LiteralPath $file.FullName
                     $hash = $hashObj.Hash
                 } catch {
-                    Write-Log "Failed to hash ${relative}: $($_.Exception.Message)" 'WARN'
+                    Write-Log ("Failed to hash {0}: {1}" -f $relative, $_.Exception.Message) 'WARN'
                 }
             }
         }
@@ -454,7 +454,7 @@ function Enhance-HashesForFastMode {
                         Hash          = $record.Hash
                     }
                 } catch {
-                    Write-Log "Fast hash upgrade failed for $($record.RelativePath): $($_.Exception.Message)" 'WARN'
+                    Write-Log ("Fast hash upgrade failed for {0}: {1}" -f $record.RelativePath, $_.Exception.Message) 'WARN'
                 }
             }
         }
