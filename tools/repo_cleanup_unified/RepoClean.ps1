@@ -8,9 +8,8 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [ValidateSet('Inventory','Plan','Execute','Index','Doctor','FindExistingTools')]
-    [string]$Mode,
+    [string]$Mode = 'Inventory',
 
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
 
@@ -696,8 +695,11 @@ function Invoke-CleanupExecution {
         [switch]$ConfirmRun,
         [int]$Concurrent
     )
-    if ($DryRun -or -not $ConfirmRun) {
-        throw 'Execution refused: pass both -ConfirmRun and -DryRun:$false to proceed.'
+    if (-not $ConfirmRun) {
+        throw 'Refusing to act: you must pass -ConfirmRun.'
+    }
+    if ($DryRun) {
+        throw 'Refusing to act: you passed -DryRun (default). Use -DryRun:$false to operate.'
     }
     if (-not (Test-Path -LiteralPath $PlanPath)) {
         throw "Plan file not found at $PlanPath"
@@ -912,6 +914,12 @@ switch ($Mode) {
         Write-Log "Plan written to $planPath" 'SUCCESS'
     }
     'Execute' {
+        if (-not $ConfirmRun) {
+            throw 'Refusing to act: you must pass -ConfirmRun.'
+        }
+        if ($DryRun) {
+            throw 'Refusing to act: you passed -DryRun (default). Use -DryRun:$false to operate.'
+        }
         $planPath = Join-Path $outputPaths.Plans 'cleanup_plan.csv'
         Invoke-CleanupExecution -PlanPath $planPath -RootPath $repoRoot -LogsDir $outputPaths.Logs -DryRun:$DryRun -ConfirmRun:$ConfirmRun -Concurrent $Concurrent
         Write-Log 'Execution complete.' 'SUCCESS'
