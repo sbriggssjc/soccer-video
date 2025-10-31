@@ -597,6 +597,7 @@ function New-CleanupPlan {
         throw "Inventory file not found. Run -Mode Inventory first."
     }
     $records = Import-Csv -LiteralPath $inventoryFile
+    if ($null -eq $records) { $records = @() } else { $records = @($records) }
     $plan = @()
     $hardlinkPlan = @()
     $quarantineRoot = Join-Path $RootPath '_quarantine'
@@ -613,7 +614,7 @@ function New-CleanupPlan {
             $reason = 'Not covered by keep rules'
         }
         if ($item.Hash) {
-            $duplicates = $records | Where-Object { $_.Hash -eq $item.Hash }
+            $duplicates = @($records | Where-Object { $_.Hash -eq $item.Hash })
             if ($duplicates.Count -gt 1) {
                 $canonical = $duplicates | Sort-Object -Property RelativePath | Select-Object -First 1
                 if ($canonical.RelativePath -ne $item.RelativePath) {
@@ -709,6 +710,7 @@ function Invoke-CleanupExecution {
         throw 'Plan is older than 48 hours. Generate a fresh plan before executing.'
     }
     $planRaw = Import-Csv -LiteralPath $PlanPath
+    if ($null -eq $planRaw) { $planRaw = @() } else { $planRaw = @($planRaw) }
     if ($planRaw.Count -eq 0) {
         Write-Log 'Plan is empty; nothing to execute.' 'INFO'
         return
@@ -828,13 +830,14 @@ function Build-SeasonIndex {
         throw 'Inventory not found. Run -Mode Inventory first.'
     }
     $records = Import-Csv -LiteralPath $inventoryFile
-    $kept = $records | Where-Object { $_.Status -like 'KEEP*' }
+    if ($null -eq $records) { $records = @() } else { $records = @($records) }
+    $kept = @($records | Where-Object { $_.Status -like 'KEEP*' })
     $index = @()
-    $groups = $kept | Group-Object -Property { ($_.RelativePath -split [System.IO.Path]::DirectorySeparatorChar)[0] }
+    $groups = @($kept | Group-Object -Property { ($_.RelativePath -split [System.IO.Path]::DirectorySeparatorChar)[0] })
     foreach ($group in $groups) {
-        $atomics = $group.Group | Where-Object { $_.RelativePath -match 'atomic' }
-        $reels = $group.Group | Where-Object { $_.RelativePath -match 'reel' -or $_.RelativePath -match 'postable' }
-        $masters = $group.Group | Where-Object { $_.RelativePath -match 'master' -or $_.RelativePath -match 'Game ' }
+        $atomics = @($group.Group | Where-Object { $_.RelativePath -match 'atomic' })
+        $reels = @($group.Group | Where-Object { $_.RelativePath -match 'reel' -or $_.RelativePath -match 'postable' })
+        $masters = @($group.Group | Where-Object { $_.RelativePath -match 'master' -or $_.RelativePath -match 'Game ' })
         $durationTotal = ($atomics | Measure-Object -Property Duration -Sum).Sum
         $durationValue = if ($durationTotal) { $durationTotal } else { 0 }
         $index += [PSCustomObject]@{
@@ -910,6 +913,10 @@ switch ($Mode) {
         Write-Log 'Inventory complete.' 'SUCCESS'
     }
     'Plan' {
+        $inventoryFile = Join-Path $outputPaths.Inventory 'repo_inventory.csv'
+        if (-not (Test-Path -LiteralPath $inventoryFile)) {
+            throw 'No inventory found. Run -Mode Inventory first.'
+        }
         $planPath = New-CleanupPlan -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -PlansDir $outputPaths.Plans -Strategy $Strategy -EnableHardlink:$EnableHardlink -Permanent:$Permanent
         Write-Log "Plan written to $planPath" 'SUCCESS'
     }
