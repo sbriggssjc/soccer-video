@@ -380,7 +380,7 @@ function Get-InventoryRecords {
                     $hashObj = Get-FileHash -Algorithm $HashAlgo -LiteralPath $file.FullName
                     $hash = $hashObj.Hash
                 } catch {
-                    Write-Log "Failed to hash $relative: $($_.Exception.Message)" 'WARN'
+                    Write-Log "Failed to hash ${relative}: $($_.Exception.Message)" 'WARN'
                 }
             }
         }
@@ -811,10 +811,11 @@ function Build-SeasonIndex {
         $reels = $group.Group | Where-Object { $_.RelativePath -match 'reel' -or $_.RelativePath -match 'postable' }
         $masters = $group.Group | Where-Object { $_.RelativePath -match 'master' -or $_.RelativePath -match 'Game ' }
         $durationTotal = ($atomics | Measure-Object -Property Duration -Sum).Sum
+        $durationValue = if ($durationTotal) { $durationTotal } else { 0 }
         $index += [PSCustomObject]@{
             Bucket            = $group.Name
             AtomicClipCount   = $atomics.Count
-            AtomicDurationSec = [Math]::Round(($durationTotal ? $durationTotal : 0),2)
+            AtomicDurationSec = [Math]::Round([double]$durationValue, 2)
             MasterCount       = $masters.Count
             ReelCount         = $reels.Count
             MissingReel       = if ($atomics.Count -gt 0 -and $reels.Count -eq 0) { $true } else { $false }
