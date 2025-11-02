@@ -417,7 +417,7 @@ function Get-InventoryRecords {
     } else {
         Write-Log 'ffprobe not available; duration/resolution metadata will be skipped.' 'WARN'
     }
-    $records = @()
+    $records = [System.Collections.Generic.List[pscustomobject]]::new()
     $mediaExtensions = @('.mp4','.mov','.mkv','.avi','.m4v','.mpg','.mpeg')
     $durationLookup = @{}
     foreach ($file in $Files) {
@@ -524,7 +524,7 @@ function Get-InventoryRecords {
         Set-Prop -Obj $file -Name 'Width' -Value $width
         Set-Prop -Obj $file -Name 'Height' -Value $height
         Set-Prop -Obj $file -Name 'Codec' -Value $codec
-        $records += $file
+        [void]$records.Add($file)
         if ($hash) {
             $HashCache[$cacheKey] = [PSCustomObject]@{
                 Path          = $cacheKey
@@ -534,7 +534,7 @@ function Get-InventoryRecords {
             }
         }
     }
-    return @($records)
+    return $records
 }
 
 function Enhance-HashesForFastMode {
