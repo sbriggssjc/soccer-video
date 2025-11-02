@@ -1041,12 +1041,17 @@ switch ($Mode) {
         # Safety: force array even if single/zero results
         $files = @($files)
         Write-Log "Inventory seeded with $($files.Count) rows" 'INFO'
-        $records = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
-        if ($Fast) {
-            Enhance-HashesForFastMode -Records $records -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
+        $Inventory = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
+        if (-not ($Inventory -is [System.Collections.Generic.IList[object]])) {
+            $tmp = [System.Collections.Generic.List[object]]::new()
+            foreach ($r in $Inventory) { [void]$tmp.Add($r) }
+            $Inventory = $tmp
         }
-        Export-InventoryOutputs -Records $records -InventoryDir $outputPaths.Inventory
-        Build-MappingFiles -Records $records -InventoryDir $outputPaths.Inventory
+        if ($Fast) {
+            Enhance-HashesForFastMode -Records $Inventory -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
+        }
+        Export-InventoryOutputs -Records $Inventory -InventoryDir $outputPaths.Inventory
+        Build-MappingFiles -Records $Inventory -InventoryDir $outputPaths.Inventory
         Save-HashCache -Cache $hashCache -CachePath $hashCachePath
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
         Write-Log 'Inventory complete.' 'SUCCESS'
