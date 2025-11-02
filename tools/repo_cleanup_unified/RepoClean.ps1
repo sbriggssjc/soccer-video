@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Unified repository cleanup, inventory, deduplication, and indexing tool for the soccer-video project.
 .DESCRIPTION
@@ -589,7 +589,6 @@ function Get-InventoryRecords {
         }
     }
     return $records
-}
 
 function Enhance-HashesForFastMode {
     param(
