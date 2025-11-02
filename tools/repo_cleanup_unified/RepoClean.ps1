@@ -31,6 +31,9 @@ param(
     [int]$Concurrent = 4
 )
 
+# Load shared helpers
+. "$PSScriptRoot\RepoClean.Core.ps1"
+
 function New-RecordList {
     return [System.Collections.Generic.List[psobject]]::new()
 }
