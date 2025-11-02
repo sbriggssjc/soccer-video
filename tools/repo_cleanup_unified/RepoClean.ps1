@@ -31,6 +31,17 @@ param(
     [int]$Concurrent = 4
 )
 
+function Set-Prop {
+    param(
+        [Parameter(Mandatory)]$Obj,
+        [Parameter(Mandatory)][string]$Name,
+        $Value
+    )
+    $p = $Obj.PSObject.Properties[$Name]
+    if ($p) { $p.Value = $Value }
+    else    { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force }
+}
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -413,18 +424,14 @@ function Get-InventoryRecords {
         } else {
             $extension = $extension.ToLowerInvariant()
         }
-        if ($file.PSObject.Properties.Match('Ext')) {
-            $file.Ext = $extension
-        } else {
-            $file | Add-Member -NotePropertyName Ext -NotePropertyValue $extension
-        }
+        Set-Prop -Obj $file -Name 'Ext' -Value $extension
         $sizeBytes = 0
         if ($file.PSObject.Properties.Match('SizeBytes') -and $null -ne $file.SizeBytes) {
             $sizeBytes = [int64]$file.SizeBytes
         }
         if ($sizeBytes -le 0) {
             try { $sizeBytes = [int64](Get-Item -LiteralPath $fullPath).Length } catch { $sizeBytes = 0 }
-            $file.SizeBytes = $sizeBytes
+            Set-Prop -Obj $file -Name 'SizeBytes' -Value $sizeBytes
         }
         $lastWrite = $null
         if ($file.PSObject.Properties.Match('LastWriteTime') -and $file.LastWriteTime) {
@@ -432,7 +439,7 @@ function Get-InventoryRecords {
         }
         if (-not $lastWrite) {
             try { $lastWrite = (Get-Item -LiteralPath $fullPath).LastWriteTime } catch { $lastWrite = $null }
-            $file.LastWriteTime = $lastWrite
+            Set-Prop -Obj $file -Name 'LastWriteTime' -Value $lastWrite
         }
         $duration = $null
         $width = $null
@@ -467,9 +474,7 @@ function Get-InventoryRecords {
                 Write-Log ("Failed to hash {0}: {1}" -f $relative, $_.Exception.Message) 'WARN'
             }
         }
-        if ($file.PSObject.Properties.Match('Hash')) {
-            $file.Hash = $hash
-        }
+        Set-Prop -Obj $file -Name 'Hash' -Value $hash
         $status = if ($file.PSObject.Properties.Match('Status') -and $file.Status -and $file.Status -ne 'UNKNOWN') { $file.Status } else { 'ORPHAN' }
         $relLower = $relative.Replace([System.IO.Path]::AltDirectorySeparatorChar, [System.IO.Path]::DirectorySeparatorChar)
         if (Test-PatternListMatch -Patterns $KeepPatterns -Path $relLower) {
@@ -480,51 +485,15 @@ function Get-InventoryRecords {
         if ($status -eq 'KEEP' -and $SidecarExts -contains $extension.ToLowerInvariant()) {
             $status = 'KEEP_SIDECAR'
         }
-        if ($file.PSObject.Properties.Match('RelativePath')) {
-            $file.RelativePath = $relative
-        } else {
-            $file | Add-Member -NotePropertyName RelativePath -NotePropertyValue $relative
-        }
-        if ($file.PSObject.Properties.Match('SizeBytes')) {
-            $file.SizeBytes = $sizeBytes
-        } else {
-            $file | Add-Member -NotePropertyName SizeBytes -NotePropertyValue $sizeBytes
-        }
-        if ($file.PSObject.Properties.Match('LastWriteTime')) {
-            $file.LastWriteTime = $lastWrite
-        } else {
-            $file | Add-Member -NotePropertyName LastWriteTime -NotePropertyValue $lastWrite
-        }
-        if ($file.PSObject.Properties.Match('Extension')) {
-            $file.Extension = $extension
-        } else {
-            $file | Add-Member -NotePropertyName Extension -NotePropertyValue $extension
-        }
-        if ($file.PSObject.Properties.Match('Hash')) {
-            $file.Hash = $hash
-        } else {
-            $file | Add-Member -NotePropertyName Hash -NotePropertyValue $hash
-        }
-        if ($file.PSObject.Properties.Match('Status')) {
-            $file.Status = $status
-        } else {
-            $file | Add-Member -NotePropertyName Status -NotePropertyValue $status
-        }
-        if ($file.PSObject.Properties.Match('Duration')) {
-            $file.Duration = $duration
-        } else {
-            $file | Add-Member -NotePropertyName Duration -NotePropertyValue $duration
-        }
-        if ($file.PSObject.Properties.Match('Width')) {
-            $file.Width = $width
-        } else {
-            $file | Add-Member -NotePropertyName Width -NotePropertyValue $width
-        }
-        if ($file.PSObject.Properties.Match('Height')) {
-            $file.Height = $height
-        } else {
-            $file | Add-Member -NotePropertyName Height -NotePropertyValue $height
-        }
+        Set-Prop -Obj $file -Name 'RelativePath' -Value $relative
+        Set-Prop -Obj $file -Name 'SizeBytes' -Value $sizeBytes
+        Set-Prop -Obj $file -Name 'LastWriteTime' -Value $lastWrite
+        Set-Prop -Obj $file -Name 'Extension' -Value $extension
+        Set-Prop -Obj $file -Name 'Hash' -Value $hash
+        Set-Prop -Obj $file -Name 'Status' -Value $status
+        Set-Prop -Obj $file -Name 'Duration' -Value $duration
+        Set-Prop -Obj $file -Name 'Width' -Value $width
+        Set-Prop -Obj $file -Name 'Height' -Value $height
         $records += $file
         if ($hash) {
             $HashCache[$cacheKey] = [PSCustomObject]@{
@@ -573,12 +542,12 @@ function Enhance-HashesForFastMode {
             if ([string]::IsNullOrWhiteSpace($record.Hash)) {
                 $cacheKey = $record.RelativePath
                 if ($HashCache.ContainsKey($cacheKey)) {
-                    $record.Hash = $HashCache[$cacheKey].Hash
+                    Set-Prop -Obj $record -Name 'Hash' -Value $HashCache[$cacheKey].Hash
                     continue
                 }
                 try {
                     $hashObj = Get-FileHash -Algorithm $HashAlgo -LiteralPath $record.FullPath
-                    $record.Hash = $hashObj.Hash
+                    Set-Prop -Obj $record -Name 'Hash' -Value $hashObj.Hash
                     $HashCache[$cacheKey] = [PSCustomObject]@{
                         Path          = $cacheKey
                         SizeBytes     = $record.SizeBytes
