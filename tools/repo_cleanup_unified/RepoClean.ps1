@@ -14,7 +14,7 @@ param(
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
 
     [switch]$ConfirmRun,
-    [switch]$DryRun = $true,
+    [switch]$DryRun,
     [switch]$Fast,
 
     [ValidateSet('SHA1','SHA256','MD5')]
@@ -33,6 +33,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+if (-not $PSBoundParameters.ContainsKey('DryRun')) {
+    $DryRun = [System.Management.Automation.SwitchParameter]::new($true)
+}
 
 if ($Mode -eq 'Execute') {
     if (-not $ConfirmRun) {
@@ -400,14 +404,19 @@ function Get-InventoryRecords {
         if (-not $fullPath) { continue }
         $relative = if ($file.PSObject.Properties.Match('RelativePath')) { $file.RelativePath } else { $null }
         if (-not $relative) { $relative = ConvertTo-RelativePath -Root $RootPath -FullPath $fullPath }
-        $extension = if ($file.PSObject.Properties.Match('Ext') -and $file.Ext) { $file.Ext } else { '' }
-        if ([string]::IsNullOrEmpty($extension)) {
-            $extension = ([System.IO.Path]::GetExtension($fullPath) ?? '').ToLowerInvariant()
-            if ($file.PSObject.Properties.Match('Ext')) {
-                $file.Ext = $extension
-            } else {
-                $file | Add-Member -NotePropertyName Ext -NotePropertyValue $extension
-            }
+        $extension = if ($file.PSObject.Properties.Match('Ext') -and $file.Ext) { $file.Ext } else { $null }
+        if ([string]::IsNullOrWhiteSpace($extension)) {
+            $extension = [System.IO.Path]::GetExtension($fullPath)
+        }
+        if ([string]::IsNullOrWhiteSpace($extension)) {
+            $extension = ''
+        } else {
+            $extension = $extension.ToLowerInvariant()
+        }
+        if ($file.PSObject.Properties.Match('Ext')) {
+            $file.Ext = $extension
+        } else {
+            $file | Add-Member -NotePropertyName Ext -NotePropertyValue $extension
         }
         $sizeBytes = 0
         if ($file.PSObject.Properties.Match('SizeBytes') -and $null -ne $file.SizeBytes) {
