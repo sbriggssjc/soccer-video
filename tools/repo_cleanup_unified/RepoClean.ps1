@@ -90,17 +90,22 @@ function New-FileRow {
         [Parameter(Mandatory)] [System.IO.FileInfo]$File
     )
     $rel = Get-RelativePath -Root $Root -FullPath $File.FullName
-    $ext = if ($null -ne $File.Extension) { $File.Extension.ToLowerInvariant() } else { '' }
+    $ext = [System.IO.Path]::GetExtension($File.FullName)
+    if ([string]::IsNullOrWhiteSpace($ext)) { $ext = '' }
+    else { $ext = $ext.ToLowerInvariant() }
     [pscustomobject]@{
         RelativePath  = $rel
         FullPath      = $File.FullName
         SizeBytes     = [int64]$File.Length
         LastWriteTime = $File.LastWriteTime
         Ext           = $ext
+        Extension     = $ext
         Status        = 'UNKNOWN'
+        Kind          = $null
         Width         = $null
         Height        = $null
         DurationSec   = $null
+        Codec         = $null
         Hash          = $null
     }
 }
@@ -260,17 +265,22 @@ function Invoke-Ffprobe {
         [string]$TargetPath
     )
     if (-not $FfprobePath) { return $null }
-    $psi = @('-v','error','-select_streams','v:0','-show_entries','stream=width,height','-show_entries','format=duration','-of','json',$TargetPath)
+    $psi = @('-v','error','-select_streams','v:0','-show_entries','stream=width,height,codec_name:format=duration','-of','json',$TargetPath)
     try {
         $result = & $FfprobePath @psi 2>$null
         if (-not $result) { return $null }
         $parsed = $result | ConvertFrom-Json -ErrorAction Stop
-        $duration = [double]::Parse($parsed.format.duration, [System.Globalization.CultureInfo]::InvariantCulture)
+        $duration = $null
+        if ($parsed.format.duration) {
+            $duration = [double]::Parse($parsed.format.duration, [System.Globalization.CultureInfo]::InvariantCulture)
+        }
         $stream = $parsed.streams | Where-Object { $_.width -and $_.height } | Select-Object -First 1
+        $codec = if ($stream -and $stream.codec_name) { $stream.codec_name } else { $null }
         return [PSCustomObject]@{
-            Duration = $duration
-            Width    = $stream.width
-            Height   = $stream.height
+            DurationSec = $duration
+            Width       = if ($stream) { $stream.width } else { $null }
+            Height      = if ($stream) { $stream.height } else { $null }
+            Codec       = $codec
         }
     } catch {
         return $null
@@ -415,7 +425,12 @@ function Get-InventoryRecords {
         if (-not $fullPath) { continue }
         $relative = if ($file.PSObject.Properties.Match('RelativePath')) { $file.RelativePath } else { $null }
         if (-not $relative) { $relative = ConvertTo-RelativePath -Root $RootPath -FullPath $fullPath }
-        $extension = if ($file.PSObject.Properties.Match('Ext') -and $file.Ext) { $file.Ext } else { $null }
+        $extension = $null
+        if ($file.PSObject.Properties.Match('Ext') -and -not [string]::IsNullOrWhiteSpace($file.Ext)) {
+            $extension = $file.Ext
+        } elseif ($file.PSObject.Properties.Match('Extension') -and -not [string]::IsNullOrWhiteSpace($file.Extension)) {
+            $extension = $file.Extension
+        }
         if ([string]::IsNullOrWhiteSpace($extension)) {
             $extension = [System.IO.Path]::GetExtension($fullPath)
         }
@@ -425,6 +440,7 @@ function Get-InventoryRecords {
             $extension = $extension.ToLowerInvariant()
         }
         Set-Prop -Obj $file -Name 'Ext' -Value $extension
+        Set-Prop -Obj $file -Name 'Extension' -Value $extension
         $sizeBytes = 0
         if ($file.PSObject.Properties.Match('SizeBytes') -and $null -ne $file.SizeBytes) {
             $sizeBytes = [int64]$file.SizeBytes
@@ -441,18 +457,28 @@ function Get-InventoryRecords {
             try { $lastWrite = (Get-Item -LiteralPath $fullPath).LastWriteTime } catch { $lastWrite = $null }
             Set-Prop -Obj $file -Name 'LastWriteTime' -Value $lastWrite
         }
-        $duration = $null
+        $durationSec = $null
         $width = $null
         $height = $null
+        $codec = $null
         if ($ffprobeCmd -and $mediaExtensions -contains $extension) {
             $meta = Invoke-Ffprobe -FfprobePath $ffprobeCmd.Source -TargetPath $fullPath
             if ($meta) {
-                $duration = [Math]::Round($meta.Duration, 3)
-                $width = $meta.Width
-                $height = $meta.Height
+                if ($meta.PSObject.Properties.Match('DurationSec') -and $meta.DurationSec) {
+                    $durationSec = [Math]::Round([double]$meta.DurationSec, 3)
+                }
+                if ($meta.PSObject.Properties.Match('Width') -and $meta.Width) {
+                    $width = [int]$meta.Width
+                }
+                if ($meta.PSObject.Properties.Match('Height') -and $meta.Height) {
+                    $height = [int]$meta.Height
+                }
+                if ($meta.PSObject.Properties.Match('Codec') -and $meta.Codec) {
+                    $codec = $meta.Codec
+                }
             }
         }
-        if ($duration) { $durationLookup[$fullPath] = $duration }
+        if ($durationSec) { $durationLookup[$fullPath] = $durationSec }
         $hash = if ($file.PSObject.Properties.Match('Hash')) { $file.Hash } else { $null }
         $cacheKey = ConvertTo-RelativePath -Root $RootPath -FullPath $fullPath
         if ($HashCache.ContainsKey($cacheKey)) {
@@ -462,7 +488,7 @@ function Get-InventoryRecords {
             }
         }
         $needsHash = -not $Fast
-        if ($Fast -and $duration) {
+        if ($Fast -and $durationSec) {
             # Hash later only for probable duplicates
             $needsHash = $false
         }
@@ -474,6 +500,7 @@ function Get-InventoryRecords {
                 Write-Log ("Failed to hash {0}: {1}" -f $relative, $_.Exception.Message) 'WARN'
             }
         }
+        $kind = if ($mediaExtensions -contains $extension) { 'MEDIA' } else { 'FILE' }
         Set-Prop -Obj $file -Name 'Hash' -Value $hash
         $status = if ($file.PSObject.Properties.Match('Status') -and $file.Status -and $file.Status -ne 'UNKNOWN') { $file.Status } else { 'ORPHAN' }
         $relLower = $relative.Replace([System.IO.Path]::AltDirectorySeparatorChar, [System.IO.Path]::DirectorySeparatorChar)
@@ -491,9 +518,12 @@ function Get-InventoryRecords {
         Set-Prop -Obj $file -Name 'Extension' -Value $extension
         Set-Prop -Obj $file -Name 'Hash' -Value $hash
         Set-Prop -Obj $file -Name 'Status' -Value $status
-        Set-Prop -Obj $file -Name 'Duration' -Value $duration
+        Set-Prop -Obj $file -Name 'Kind' -Value $kind
+        Set-Prop -Obj $file -Name 'DurationSec' -Value $durationSec
+        Set-Prop -Obj $file -Name 'Duration' -Value $durationSec
         Set-Prop -Obj $file -Name 'Width' -Value $width
         Set-Prop -Obj $file -Name 'Height' -Value $height
+        Set-Prop -Obj $file -Name 'Codec' -Value $codec
         $records += $file
         if ($hash) {
             $HashCache[$cacheKey] = [PSCustomObject]@{
@@ -523,7 +553,7 @@ function Enhance-HashesForFastMode {
             $sizeBucket = [Math]::Round(([double]$sizeValue) / 16)
         }
 
-        $durationValue = $record.Duration
+        $durationValue = if ($record.PSObject.Properties.Match('DurationSec')) { $record.DurationSec } else { $record.Duration }
         if ($null -eq $durationValue -or -not ($durationValue -as [double])) {
             $durationBucket = 'NA'
         } else {
@@ -578,11 +608,12 @@ function Export-InventoryOutputs {
     $exactRows = @()
     foreach ($group in $hashGroups) {
         foreach ($item in $group.Group) {
+            $durationValue = if ($item.PSObject.Properties.Match('DurationSec')) { $item.DurationSec } else { $item.Duration }
             $exactRows += [PSCustomObject]@{
                 Hash         = $group.Name
                 RelativePath = $item.RelativePath
                 SizeBytes    = $item.SizeBytes
-                Duration     = $item.Duration
+                Duration     = $durationValue
             }
         }
     }
@@ -592,7 +623,7 @@ function Export-InventoryOutputs {
     $probableRows = @()
     $recordList |
         Group-Object -Property {
-            $dur = $_.Duration
+            $dur = if ($_.PSObject.Properties.Match('DurationSec')) { $_.DurationSec } else { $_.Duration }
             if ($null -eq $dur -or -not ($dur -as [double])) {
                 $durKey = 'NA'
             } else {
