@@ -13,7 +13,10 @@ param(
 
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
 
+    [switch]$ConfirmRun,
+    [switch]$DryRun = $true,
     [switch]$Fast,
+
     [ValidateSet('SHA1','SHA256','MD5')]
     [string]$HashAlgo = 'SHA256',
     [int]$MaxDepth = 0,
@@ -25,13 +28,20 @@ param(
     [switch]$EnableHardlink,
     [switch]$Permanent,
 
-    [switch]$ConfirmRun,
-    [switch]$DryRun = $true,
     [int]$Concurrent = 4
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+if ($Mode -eq 'Execute') {
+    if (-not $ConfirmRun) {
+        throw "Refusing to act: pass -ConfirmRun"
+    }
+    if ($DryRun) {
+        throw "Refusing to act: you left -DryRun on (default). Use -DryRun:`$false."
+    }
+}
 
 function Get-RelativePath {
     param(
@@ -175,7 +185,7 @@ function Load-HashCache {
                 $cache[$key] = $item
             }
         } catch {
-            Write-Log "Failed to read hash cache: $($_.Exception.Message)" 'WARN'
+            Write-Log ("Failed to read hash cache: {0}" -f $_.Exception.Message) 'WARN'
         }
     }
     return $cache
@@ -1041,12 +1051,6 @@ switch ($Mode) {
         Write-Log "Plan written to $planPath" 'SUCCESS'
     }
     'Execute' {
-        if (-not $ConfirmRun) {
-            throw 'Refusing to act: you must pass -ConfirmRun.'
-        }
-        if ($DryRun) {
-            throw 'Refusing to act: you passed -DryRun (default). Use -DryRun:$false to operate.'
-        }
         $planPath = Join-Path $outputPaths.Plans 'cleanup_plan.csv'
         Invoke-CleanupExecution -PlanPath $planPath -RootPath $repoRoot -LogsDir $outputPaths.Logs -DryRun:$DryRun -ConfirmRun:$ConfirmRun -Concurrent $Concurrent
         Write-Log 'Execution complete.' 'SUCCESS'
