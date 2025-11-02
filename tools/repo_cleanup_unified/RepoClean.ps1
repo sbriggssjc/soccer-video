@@ -326,8 +326,8 @@ function Get-FunctionNames {
         '.ps1' { 'function\s+([A-Za-z0-9_-]+)' }
         '.psm1' { 'function\s+([A-Za-z0-9_-]+)' }
         '.py' { 'def\s+([A-Za-z0-9_]+)\s*\(' }
-        '.sh' { '^([A-Za-z0-9_]+)\s*\(\)\s*\{' }
-        '.bash' { '^([A-Za-z0-9_]+)\s*\(\)\s*\{' }
+        '.sh' { '^([A-Za-z0-9_]+)\s*\(\)\s*\x7b' }
+        '.bash' { '^([A-Za-z0-9_]+)\s*\(\)\s*\x7b' }
         default { $null }
     }
     if (-not $pattern) { return '' }
