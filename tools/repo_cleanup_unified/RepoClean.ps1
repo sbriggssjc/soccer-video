@@ -31,6 +31,17 @@ param(
     [int]$Concurrent = 4
 )
 
+function New-RecordList {
+    return [System.Collections.Generic.List[psobject]]::new()
+}
+
+function To-RecordList {
+    param([System.Collections.IEnumerable]$Items)
+    $list = New-RecordList
+    foreach ($it in $Items) { [void]$list.Add($it) }
+    return $list
+}
+
 function Set-Prop {
     param(
         [Parameter(Mandatory)]$Obj,
@@ -38,8 +49,33 @@ function Set-Prop {
         $Value
     )
     $p = $Obj.PSObject.Properties[$Name]
-    if ($p) { $p.Value = $Value }
-    else { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force }
+    if ($null -eq $p) {
+        $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+    } else {
+        $Obj.$Name = $Value
+    }
+}
+
+function New-InventoryRecord {
+    param(
+        [string]$RelativePath = '',
+        [string]$FullPath     = '',
+        [nullable[int64]]$SizeBytes = $null,
+        [datetime]$LastWriteTime = [datetime]::MinValue
+    )
+    return [PSCustomObject]@{
+        RelativePath  = $RelativePath
+        FullPath      = $FullPath
+        SizeBytes     = $SizeBytes
+        LastWriteTime = $LastWriteTime
+        Extension     = ''
+        Codec         = $null
+        Width         = $null
+        Height        = $null
+        Hash          = $null
+        Status        = $null
+        Notes         = $null
+    }
 }
 
 function Get-RelPath([string]$Base,[string]$Path) {
@@ -60,7 +96,7 @@ function Run-Inventory {
     Write-Host ("{0} [INFO] Inventory seeded with {1} rows" -f (Get-Date -Format u), $files.Count)
 
     # Use a growable list; avoid .Add() on fixed-size arrays
-    $rows = New-Object System.Collections.Generic.List[object]
+    $rows = New-RecordList
 
     foreach ($f in $files) {
         $ext = [System.IO.Path]::GetExtension($f.FullName)
@@ -454,7 +490,7 @@ function Find-ExistingTools {
 
 function Get-InventoryRecords {
     param(
-        [pscustomobject[]]$Files,
+        [System.Collections.IEnumerable]$Files,
         [string]$RootPath,
         [switch]$Fast,
         [string]$HashAlgo,
@@ -470,7 +506,7 @@ function Get-InventoryRecords {
     } else {
         Write-Log 'ffprobe not available; duration/resolution metadata will be skipped.' 'WARN'
     }
-    $records = [System.Collections.Generic.List[pscustomobject]]::new()
+    $records = New-RecordList
     $mediaExtensions = @('.mp4','.mov','.mkv','.avi','.m4v','.mpg','.mpeg')
     $durationLookup = @{}
     foreach ($file in $Files) {
@@ -492,7 +528,6 @@ function Get-InventoryRecords {
         }
         if ([string]::IsNullOrWhiteSpace($extension)) { $extension = '' }
         $extension = $extension.ToLowerInvariant()
-        }
         Set-Prop -Obj $file -Name 'Ext' -Value $extension
         Set-Prop -Obj $file -Name 'Extension' -Value $extension
         $sizeBytes = 0
@@ -615,7 +650,7 @@ function Enhance-HashesForFastMode {
 
         $key = "S${sizeBucket}-D${durationBucket}"
         if (-not $buckets.ContainsKey($key)) {
-            $buckets[$key] = New-Object System.Collections.Generic.List[psobject]
+            $buckets[$key] = New-RecordList
         }
         $buckets[$key].Add($record)
     }
@@ -654,7 +689,7 @@ function Export-InventoryOutputs {
         [string]$InventoryDir,
         [string]$RootPath = $null
     )
-    $recordList = @($Records)
+    $recordList = To-RecordList $Records
     foreach ($row in $recordList) {
         if (-not $row.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($row.RelativePath)) {
             if ($RootPath -and $row.FullPath) { Set-Prop $row 'RelativePath' (Get-RelPath $RootPath $row.FullPath) }
@@ -954,7 +989,7 @@ function Invoke-CleanupExecution {
     }
     $logPath = Join-Path $LogsDir ("repo_cleanup_run_{0:yyyyMMdd_HHmmss}.log" -f (Get-Date))
     $failPath = Join-Path $LogsDir 'failed_actions.csv'
-    $failed = New-Object System.Collections.Generic.List[psobject]
+    $failed = New-RecordList
     $totalBytes = [long]0
     $isWindows = $env:OS -like '*Windows*' -or $PSVersionTable.Platform -eq 'Win32NT'
     $executeBlock = {
@@ -1123,13 +1158,13 @@ switch ($Mode.ToLowerInvariant()) {
         $excludes = $excludeDirs | ForEach-Object { ('*' + $_ + '*') }
 
         $seedPath = Run-Inventory -Root $repoRoot -Fast:$Fast
-        $seedRows = @()
+        $seedRows = $null
         if ($seedPath -and (Test-Path -LiteralPath $seedPath)) {
             $seedRows = Import-Csv -LiteralPath $seedPath
         }
-        if ($null -eq $seedRows) { $seedRows = @() } else { $seedRows = @($seedRows) }
+        if ($null -eq $seedRows) { $seedRows = New-RecordList } else { $seedRows = To-RecordList $seedRows }
 
-        $filesList = New-Object System.Collections.Generic.List[object]
+        $filesList = New-RecordList
         foreach ($row in $seedRows) {
             if (-not $row) { continue }
             $full = $row.FullPath
@@ -1162,14 +1197,10 @@ switch ($Mode.ToLowerInvariant()) {
             [void]$filesList.Add($fileRow)
         }
 
-        $files = $filesList.ToArray()
+        $files = $filesList
         Write-Log "Inventory seeded with $($files.Count) rows" 'INFO'
         $Inventory = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
-        if (-not ($Inventory -is [System.Collections.Generic.IList[object]])) {
-            $tmp = [System.Collections.Generic.List[object]]::new()
-            foreach ($r in $Inventory) { [void]$tmp.Add($r) }
-            $Inventory = $tmp
-        }
+        $Inventory = To-RecordList $Inventory
         if ($Fast) {
             Enhance-HashesForFastMode -Records $Inventory -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
         }
