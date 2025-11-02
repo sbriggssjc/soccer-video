@@ -32,14 +32,20 @@ param(
 )
 
 function Set-Prop {
-    param(
-        [Parameter(Mandatory)]$Obj,
-        [Parameter(Mandatory)][string]$Name,
-        $Value
-    )
+    param([Parameter(Mandatory)]$Obj,[Parameter(Mandatory)][string]$Name,$Value)
     $p = $Obj.PSObject.Properties[$Name]
-    if ($p) { $p.Value = $Value }
-    else    { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force }
+    if ($p) { $p.Value = $Value } else { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force }
+}
+
+function Get-RelPath([string]$Base,[string]$Path) {
+    try {
+        $b = (Resolve-Path -LiteralPath $Base).Path
+        $p = (Resolve-Path -LiteralPath $Path).Path
+    } catch { return $Path }
+    if ($p.StartsWith($b,[System.StringComparison]::OrdinalIgnoreCase)) {
+        return $p.Substring($b.Length).TrimStart('\\','/')
+    }
+    return $p
 }
 
 $ErrorActionPreference = 'Stop'
@@ -89,25 +95,26 @@ function New-FileRow {
         [Parameter(Mandatory)] [string]$Root,
         [Parameter(Mandatory)] [System.IO.FileInfo]$File
     )
-    $rel = Get-RelativePath -Root $Root -FullPath $File.FullName
+    $row = [pscustomobject]@{
+        FullPath     = $File.FullName
+        RelativePath = Get-RelPath $Root $File.FullName
+        SizeBytes    = [int64]$File.Length
+    }
     $ext = [System.IO.Path]::GetExtension($File.FullName)
     if ([string]::IsNullOrWhiteSpace($ext)) { $ext = '' }
-    else { $ext = $ext.ToLowerInvariant() }
-    [pscustomobject]@{
-        RelativePath  = $rel
-        FullPath      = $File.FullName
-        SizeBytes     = [int64]$File.Length
-        LastWriteTime = $File.LastWriteTime
-        Ext           = $ext
-        Extension     = $ext
-        Status        = 'UNKNOWN'
-        Kind          = $null
-        Width         = $null
-        Height        = $null
-        DurationSec   = $null
-        Codec         = $null
-        Hash          = $null
-    }
+    $ext = $ext.ToLowerInvariant()
+    Set-Prop $row 'Ext' $ext
+    Set-Prop $row 'Extension' $ext
+    Set-Prop $row 'LastWriteTime' $File.LastWriteTime
+    Set-Prop $row 'Status' 'UNKNOWN'
+    Set-Prop $row 'Kind' $null
+    Set-Prop $row 'Width' $null
+    Set-Prop $row 'Height' $null
+    Set-Prop $row 'DurationSec' $null
+    Set-Prop $row 'Duration' $null
+    Set-Prop $row 'Codec' $null
+    Set-Prop $row 'Hash' $null
+    return $row
 }
 
 function Get-RepoRoot {
@@ -397,6 +404,9 @@ function Find-ExistingTools {
     $compatPath = Join-Path $DocsDir 'SCRIPT_COMPAT_MATRIX.md'
     $lines = @('# Script Compatibility Matrix', '', '| Old Script | New Subcommand |', '| --- | --- |')
     foreach ($match in ($matches | Sort-Object RelativePath)) {
+        if (-not $match.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($match.RelativePath)) {
+            if ($match.FullPath) { Set-Prop $match 'RelativePath' (Get-RelPath $RootPath $match.FullPath) }
+        }
         $lines += "| $($match.RelativePath) | $($match.SuggestedMode) |"
     }
     Set-Content -LiteralPath $compatPath -Value $lines
@@ -427,6 +437,9 @@ function Get-InventoryRecords {
     foreach ($file in $Files) {
         $fullPath = $file.FullPath
         if (-not $fullPath) { continue }
+        if (-not $file.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($file.RelativePath)) {
+            if ($file.FullPath) { Set-Prop $file 'RelativePath' (Get-RelPath $RootPath $file.FullPath) }
+        }
         $relative = if ($file.PSObject.Properties.Match('RelativePath')) { $file.RelativePath } else { $null }
         if (-not $relative) { $relative = ConvertTo-RelativePath -Root $RootPath -FullPath $fullPath }
         $extension = $null
@@ -438,10 +451,8 @@ function Get-InventoryRecords {
         if ([string]::IsNullOrWhiteSpace($extension)) {
             $extension = [System.IO.Path]::GetExtension($fullPath)
         }
-        if ([string]::IsNullOrWhiteSpace($extension)) {
-            $extension = ''
-        } else {
-            $extension = $extension.ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($extension)) { $extension = '' }
+        $extension = $extension.ToLowerInvariant()
         }
         Set-Prop -Obj $file -Name 'Ext' -Value $extension
         Set-Prop -Obj $file -Name 'Extension' -Value $extension
@@ -574,6 +585,9 @@ function Enhance-HashesForFastMode {
         if ($bucket.Value.Count -le 1) { continue }
         foreach ($record in $bucket.Value) {
             if ([string]::IsNullOrWhiteSpace($record.Hash)) {
+                if (-not $record.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($record.RelativePath)) {
+                    if ($record.FullPath) { Set-Prop $record 'RelativePath' (Get-RelPath $RootPath $record.FullPath) }
+                }
                 $cacheKey = $record.RelativePath
                 if ($HashCache.ContainsKey($cacheKey)) {
                     Set-Prop -Obj $record -Name 'Hash' -Value $HashCache[$cacheKey].Hash
@@ -599,9 +613,15 @@ function Enhance-HashesForFastMode {
 function Export-InventoryOutputs {
     param(
         [System.Collections.IEnumerable]$Records,
-        [string]$InventoryDir
+        [string]$InventoryDir,
+        [string]$RootPath = $null
     )
     $recordList = @($Records)
+    foreach ($row in $recordList) {
+        if (-not $row.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($row.RelativePath)) {
+            if ($RootPath -and $row.FullPath) { Set-Prop $row 'RelativePath' (Get-RelPath $RootPath $row.FullPath) }
+        }
+    }
     $jsonPath = Join-Path $InventoryDir 'repo_inventory.json'
     $csvPath = Join-Path $InventoryDir 'repo_inventory.csv'
     $recordList | Export-Csv -LiteralPath $csvPath -NoTypeInformation
@@ -690,9 +710,15 @@ function Export-InventoryOutputs {
 function Build-MappingFiles {
     param(
         [System.Collections.IEnumerable]$Records,
-        [string]$InventoryDir
+        [string]$InventoryDir,
+        [string]$RootPath = $null
     )
     $recordList = @($Records)
+    foreach ($row in $recordList) {
+        if (-not $row.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($row.RelativePath)) {
+            if ($RootPath -and $row.FullPath) { Set-Prop $row 'RelativePath' (Get-RelPath $RootPath $row.FullPath) }
+        }
+    }
     $masters = $recordList | Where-Object { $_.RelativePath -match 'master' -or $_.RelativePath -match 'Game ' }
     $atomics = $recordList | Where-Object { $_.RelativePath -match 'atomic' }
     $reels   = $recordList | Where-Object { $_.RelativePath -match 'reel' -or $_.RelativePath -match 'postable' }
@@ -742,6 +768,9 @@ function New-CleanupPlan {
     $quarantineRoot = Join-Path $RootPath '_quarantine'
     $planIndex = 0
     foreach ($item in $records) {
+        if (-not $item.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($item.RelativePath)) {
+            if ($item.FullPath) { Set-Prop $item 'RelativePath' (Get-RelPath $RootPath $item.FullPath) }
+        }
         if ($item.Status -like 'KEEP*') { continue }
         $action = 'Skip'
         $reason = ''
@@ -756,6 +785,9 @@ function New-CleanupPlan {
             $duplicates = @($records | Where-Object { $_.Hash -eq $item.Hash })
             if ($duplicates.Count -gt 1) {
                 $canonical = $duplicates | Sort-Object -Property RelativePath | Select-Object -First 1
+                if ($canonical -and (-not $canonical.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($canonical.RelativePath))) {
+                    if ($canonical.FullPath) { Set-Prop $canonical 'RelativePath' (Get-RelPath $RootPath $canonical.FullPath) }
+                }
                 if ($canonical.RelativePath -ne $item.RelativePath) {
                     if ($EnableHardlink) {
                         $hardlinkPlan += [PSCustomObject]@{
@@ -864,6 +896,9 @@ function Invoke-CleanupExecution {
     }
     $plan = @()
     foreach ($row in $planRaw) {
+        if (-not $row.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($row.RelativePath)) {
+            if ($row.FullPath) { Set-Prop $row 'RelativePath' (Get-RelPath $RootPath $row.FullPath) }
+        }
         $lastWrite = $null
         if ($row.LastWriteTime) {
             try { $lastWrite = [datetime]::Parse($row.LastWriteTime) } catch { $lastWrite = $null }
@@ -962,7 +997,8 @@ function Invoke-CleanupExecution {
 function Build-SeasonIndex {
     param(
         [string]$InventoryDir,
-        [string]$IndexDir
+        [string]$IndexDir,
+        [string]$RootPath = $null
     )
     $inventoryFile = Join-Path $InventoryDir 'repo_inventory.csv'
     if (-not (Test-Path -LiteralPath $inventoryFile)) {
@@ -970,6 +1006,11 @@ function Build-SeasonIndex {
     }
     $records = Import-Csv -LiteralPath $inventoryFile
     if ($null -eq $records) { $records = @() } else { $records = @($records) }
+    foreach ($record in $records) {
+        if (-not $record.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($record.RelativePath)) {
+            if ($RootPath -and $record.FullPath) { Set-Prop $record 'RelativePath' (Get-RelPath $RootPath $record.FullPath) }
+        }
+    }
     $kept = @($records | Where-Object { $_.Status -like 'KEEP*' })
     $index = @()
     $groups = @($kept | Group-Object -Property { ($_.RelativePath -split [System.IO.Path]::DirectorySeparatorChar)[0] })
@@ -1061,16 +1102,21 @@ switch ($Mode) {
             $rawFiles = Get-ChildItem @gciParams
         }
 
-        $files = $rawFiles |
-          Where-Object {
-            if (-not $_) { return $false }
-            if (-not $FollowJunctions -and ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { return $false }
-            $full = $_.FullName
-            -not ($excludes | Where-Object { $full -like $_ })
-          } |
-          ForEach-Object {
-            New-FileRow -Root $repoRoot -File $_
-          }
+        $files = foreach ($f in $rawFiles) {
+            if (-not $f) { continue }
+            if (-not $FollowJunctions -and ($f.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { continue }
+            $full = $f.FullName
+            $skip = $false
+            foreach ($pattern in $excludes) {
+                if ($full -like $pattern) { $skip = $true; break }
+            }
+            if ($skip) { continue }
+            $row = New-FileRow -Root $repoRoot -File $f
+            if (-not $row.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($row.RelativePath)) {
+                if ($row.FullPath) { Set-Prop $row 'RelativePath' (Get-RelPath $repoRoot $row.FullPath) }
+            }
+            $row
+        }
 
         # Safety: force array even if single/zero results
         $files = @($files)
@@ -1084,8 +1130,8 @@ switch ($Mode) {
         if ($Fast) {
             Enhance-HashesForFastMode -Records $Inventory -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
         }
-        Export-InventoryOutputs -Records $Inventory -InventoryDir $outputPaths.Inventory
-        Build-MappingFiles -Records $Inventory -InventoryDir $outputPaths.Inventory
+        Export-InventoryOutputs -Records $Inventory -InventoryDir $outputPaths.Inventory -RootPath $repoRoot
+        Build-MappingFiles -Records $Inventory -InventoryDir $outputPaths.Inventory -RootPath $repoRoot
         Save-HashCache -Cache $hashCache -CachePath $hashCachePath
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
         Write-Log 'Inventory complete.' 'SUCCESS'
@@ -1104,7 +1150,7 @@ switch ($Mode) {
         Write-Log 'Execution complete.' 'SUCCESS'
     }
     'Index' {
-        Build-SeasonIndex -InventoryDir $outputPaths.Inventory -IndexDir $outputPaths.Index
+        Build-SeasonIndex -InventoryDir $outputPaths.Inventory -IndexDir $outputPaths.Index -RootPath $repoRoot
         Write-Log 'Index refreshed.' 'SUCCESS'
     }
     'Doctor' {
