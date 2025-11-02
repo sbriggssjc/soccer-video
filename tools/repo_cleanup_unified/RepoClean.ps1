@@ -396,7 +396,7 @@ function Get-InventoryRecords {
     } else {
         Write-Log 'ffprobe not available; duration/resolution metadata will be skipped.' 'WARN'
     }
-    $records = New-Object System.Collections.Generic.List[psobject]
+    $records = @()
     $mediaExtensions = @('.mp4','.mov','.mkv','.avi','.m4v','.mpg','.mpeg')
     $durationLookup = @{}
     foreach ($file in $Files) {
@@ -480,24 +480,52 @@ function Get-InventoryRecords {
         if ($status -eq 'KEEP' -and $SidecarExts -contains $extension.ToLowerInvariant()) {
             $status = 'KEEP_SIDECAR'
         }
-        $record = [PSCustomObject]@{
-            RelativePath  = $relative
-            FullPath      = $fullPath
-            SizeBytes     = $sizeBytes
-            LastWriteTime = $lastWrite
-            Extension     = $extension
-            Duration      = $null
-            Width         = $null
-            Height        = $null
-            Hash          = $hash
-            Status        = $status
+        if ($file.PSObject.Properties.Match('RelativePath')) {
+            $file.RelativePath = $relative
+        } else {
+            $file | Add-Member -NotePropertyName RelativePath -NotePropertyValue $relative
         }
-        $records.Add($record)
-        # Add metadata without replacing the object so previously attached fields (e.g., RelativePath) persist.
-        $record.Duration = $duration
-        $record.Width = $width
-        $record.Height = $height
-        $records += $record
+        if ($file.PSObject.Properties.Match('SizeBytes')) {
+            $file.SizeBytes = $sizeBytes
+        } else {
+            $file | Add-Member -NotePropertyName SizeBytes -NotePropertyValue $sizeBytes
+        }
+        if ($file.PSObject.Properties.Match('LastWriteTime')) {
+            $file.LastWriteTime = $lastWrite
+        } else {
+            $file | Add-Member -NotePropertyName LastWriteTime -NotePropertyValue $lastWrite
+        }
+        if ($file.PSObject.Properties.Match('Extension')) {
+            $file.Extension = $extension
+        } else {
+            $file | Add-Member -NotePropertyName Extension -NotePropertyValue $extension
+        }
+        if ($file.PSObject.Properties.Match('Hash')) {
+            $file.Hash = $hash
+        } else {
+            $file | Add-Member -NotePropertyName Hash -NotePropertyValue $hash
+        }
+        if ($file.PSObject.Properties.Match('Status')) {
+            $file.Status = $status
+        } else {
+            $file | Add-Member -NotePropertyName Status -NotePropertyValue $status
+        }
+        if ($file.PSObject.Properties.Match('Duration')) {
+            $file.Duration = $duration
+        } else {
+            $file | Add-Member -NotePropertyName Duration -NotePropertyValue $duration
+        }
+        if ($file.PSObject.Properties.Match('Width')) {
+            $file.Width = $width
+        } else {
+            $file | Add-Member -NotePropertyName Width -NotePropertyValue $width
+        }
+        if ($file.PSObject.Properties.Match('Height')) {
+            $file.Height = $height
+        } else {
+            $file | Add-Member -NotePropertyName Height -NotePropertyValue $height
+        }
+        $records += $file
         if ($hash) {
             $HashCache[$cacheKey] = [PSCustomObject]@{
                 Path          = $cacheKey
@@ -507,7 +535,7 @@ function Get-InventoryRecords {
             }
         }
     }
-    return $records
+    return @($records)
 }
 
 function Enhance-HashesForFastMode {
@@ -567,15 +595,16 @@ function Enhance-HashesForFastMode {
 
 function Export-InventoryOutputs {
     param(
-        [System.Collections.Generic.List[object]]$Records,
+        [System.Collections.IEnumerable]$Records,
         [string]$InventoryDir
     )
+    $recordList = @($Records)
     $jsonPath = Join-Path $InventoryDir 'repo_inventory.json'
     $csvPath = Join-Path $InventoryDir 'repo_inventory.csv'
-    $Records | Export-Csv -LiteralPath $csvPath -NoTypeInformation
-    $Records | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $jsonPath
+    $recordList | Export-Csv -LiteralPath $csvPath -NoTypeInformation
+    $recordList | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $jsonPath
 
-    $hashGroups = $Records | Where-Object { $_.Hash } | Group-Object Hash | Where-Object { $_.Count -gt 1 }
+    $hashGroups = $recordList | Where-Object { $_.Hash } | Group-Object Hash | Where-Object { $_.Count -gt 1 }
     $dupeExactPath = Join-Path $InventoryDir 'duplicates_exact.csv'
     $exactRows = @()
     foreach ($group in $hashGroups) {
@@ -592,7 +621,7 @@ function Export-InventoryOutputs {
 
     $probablePath = Join-Path $InventoryDir 'duplicates_probable.csv'
     $probableRows = @()
-    $Records |
+    $recordList |
         Group-Object -Property {
             $dur = $_.Duration
             if ($null -eq $dur -or -not ($dur -as [double])) {
@@ -636,12 +665,12 @@ function Export-InventoryOutputs {
     $keepPath = Join-Path $InventoryDir 'keep_candidates.csv'
     $removePath = Join-Path $InventoryDir 'remove_candidates.csv'
     $orphansPath = Join-Path $InventoryDir 'orphans.csv'
-    ($Records | Where-Object { $_.Status -like 'KEEP*' }) | Export-Csv -LiteralPath $keepPath -NoTypeInformation
-    ($Records | Where-Object { $_.Status -eq 'CANDIDATE_REMOVE' }) | Export-Csv -LiteralPath $removePath -NoTypeInformation
-    ($Records | Where-Object { $_.Status -eq 'ORPHAN' }) | Export-Csv -LiteralPath $orphansPath -NoTypeInformation
+    ($recordList | Where-Object { $_.Status -like 'KEEP*' }) | Export-Csv -LiteralPath $keepPath -NoTypeInformation
+    ($recordList | Where-Object { $_.Status -eq 'CANDIDATE_REMOVE' }) | Export-Csv -LiteralPath $removePath -NoTypeInformation
+    ($recordList | Where-Object { $_.Status -eq 'ORPHAN' }) | Export-Csv -LiteralPath $orphansPath -NoTypeInformation
 
     $summaryPath = Join-Path $InventoryDir 'summary_sizes_by_type.csv'
-    $Records |
+    $recordList |
         Group-Object -Property Extension |
         ForEach-Object {
             [PSCustomObject]@{
@@ -656,12 +685,13 @@ function Export-InventoryOutputs {
 
 function Build-MappingFiles {
     param(
-        [System.Collections.Generic.List[object]]$Records,
+        [System.Collections.IEnumerable]$Records,
         [string]$InventoryDir
     )
-    $masters = $Records | Where-Object { $_.RelativePath -match 'master' -or $_.RelativePath -match 'Game ' }
-    $atomics = $Records | Where-Object { $_.RelativePath -match 'atomic' }
-    $reels   = $Records | Where-Object { $_.RelativePath -match 'reel' -or $_.RelativePath -match 'postable' }
+    $recordList = @($Records)
+    $masters = $recordList | Where-Object { $_.RelativePath -match 'master' -or $_.RelativePath -match 'Game ' }
+    $atomics = $recordList | Where-Object { $_.RelativePath -match 'atomic' }
+    $reels   = $recordList | Where-Object { $_.RelativePath -match 'reel' -or $_.RelativePath -match 'postable' }
 
     $atomicMap = @()
     foreach ($atomic in $atomics) {
@@ -1041,12 +1071,17 @@ switch ($Mode) {
         # Safety: force array even if single/zero results
         $files = @($files)
         Write-Log "Inventory seeded with $($files.Count) rows" 'INFO'
-        $records = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
-        if ($Fast) {
-            Enhance-HashesForFastMode -Records $records -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
+        $Inventory = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
+        if (-not ($Inventory -is [System.Collections.Generic.IList[object]])) {
+            $tmp = [System.Collections.Generic.List[object]]::new()
+            foreach ($r in $Inventory) { [void]$tmp.Add($r) }
+            $Inventory = $tmp
         }
-        Export-InventoryOutputs -Records $records -InventoryDir $outputPaths.Inventory
-        Build-MappingFiles -Records $records -InventoryDir $outputPaths.Inventory
+        if ($Fast) {
+            Enhance-HashesForFastMode -Records $Inventory -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
+        }
+        Export-InventoryOutputs -Records $Inventory -InventoryDir $outputPaths.Inventory
+        Build-MappingFiles -Records $Inventory -InventoryDir $outputPaths.Inventory
         Save-HashCache -Cache $hashCache -CachePath $hashCachePath
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
         Write-Log 'Inventory complete.' 'SUCCESS'
