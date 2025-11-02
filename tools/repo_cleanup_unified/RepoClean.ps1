@@ -33,6 +33,53 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Get-RelativePath {
+    param(
+        [string]$Root,
+        [string]$FullPath
+    )
+    if (-not $FullPath) { return $null }
+    $resolvedRoot = if ([string]::IsNullOrWhiteSpace($Root)) { $null } else { [System.IO.Path]::GetFullPath($Root) }
+    $resolvedFull = [System.IO.Path]::GetFullPath($FullPath)
+    if ($resolvedRoot) {
+        $trimmedRoot = $resolvedRoot.TrimEnd('\','/')
+        $candidates = @(
+            $trimmedRoot + [System.IO.Path]::DirectorySeparatorChar,
+            $trimmedRoot + [System.IO.Path]::AltDirectorySeparatorChar
+        ) | Where-Object { -not [string]::IsNullOrEmpty($_) }
+        foreach ($rootNorm in ($candidates | Select-Object -Unique)) {
+            if ($resolvedFull.StartsWith($rootNorm, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $relative = $resolvedFull.Substring($rootNorm.Length)
+                $relative = $relative.TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+                if ([string]::IsNullOrEmpty($relative)) { return '.' }
+                return $relative
+            }
+        }
+    }
+    return $resolvedFull
+}
+
+function New-FileRow {
+    param(
+        [Parameter(Mandatory)] [string]$Root,
+        [Parameter(Mandatory)] [System.IO.FileInfo]$File
+    )
+    $rel = Get-RelativePath -Root $Root -FullPath $File.FullName
+    $ext = if ($null -ne $File.Extension) { $File.Extension.ToLowerInvariant() } else { '' }
+    [pscustomobject]@{
+        RelativePath  = $rel
+        FullPath      = $File.FullName
+        SizeBytes     = [int64]$File.Length
+        LastWriteTime = $File.LastWriteTime
+        Ext           = $ext
+        Status        = 'UNKNOWN'
+        Width         = $null
+        Height        = $null
+        DurationSec   = $null
+        Hash          = $null
+    }
+}
+
 function Get-RepoRoot {
     param([string]$RootPath)
     if ([string]::IsNullOrWhiteSpace($RootPath)) {
@@ -88,14 +135,11 @@ function ConvertTo-RelativePath {
         [string]$Root,
         [string]$FullPath
     )
-    $rootWithSep = [System.IO.Path]::GetFullPath($Root)
-    $full = [System.IO.Path]::GetFullPath($FullPath)
-    if ($full.StartsWith($rootWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
-        $relative = $full.Substring($rootWithSep.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-        if ([string]::IsNullOrEmpty($relative)) { return '.' }
-        return $relative
-    }
-    return $full
+    $relative = Get-RelativePath -Root $Root -FullPath $FullPath
+    if ([string]::IsNullOrEmpty($relative)) { return $relative }
+    $relative = $relative.TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    if ([string]::IsNullOrEmpty($relative)) { return '.' }
+    return $relative
 }
 
 function Get-WildcardSet {
@@ -322,7 +366,7 @@ function Find-ExistingTools {
 
 function Get-InventoryRecords {
     param(
-        [System.IO.FileInfo[]]$Files,
+        [pscustomobject[]]$Files,
         [string]$RootPath,
         [switch]$Fast,
         [string]$HashAlgo,
@@ -338,52 +382,76 @@ function Get-InventoryRecords {
     } else {
         Write-Log 'ffprobe not available; duration/resolution metadata will be skipped.' 'WARN'
     }
-    $records = @()
+    $records = New-Object System.Collections.Generic.List[psobject]
     $mediaExtensions = @('.mp4','.mov','.mkv','.avi','.m4v','.mpg','.mpeg')
     $durationLookup = @{}
     foreach ($file in $Files) {
-        $relative = ConvertTo-RelativePath -Root $RootPath -FullPath $file.FullName
-        $extension = $file.Extension.ToLowerInvariant()
+        $fullPath = $file.FullPath
+        if (-not $fullPath) { continue }
+        $relative = if ($file.PSObject.Properties.Match('RelativePath')) { $file.RelativePath } else { $null }
+        if (-not $relative) { $relative = ConvertTo-RelativePath -Root $RootPath -FullPath $fullPath }
+        $extension = if ($file.PSObject.Properties.Match('Ext') -and $file.Ext) { $file.Ext } else { '' }
+        if ([string]::IsNullOrEmpty($extension)) {
+            $extension = ([System.IO.Path]::GetExtension($fullPath) ?? '').ToLowerInvariant()
+            if ($file.PSObject.Properties.Match('Ext')) {
+                $file.Ext = $extension
+            } else {
+                $file | Add-Member -NotePropertyName Ext -NotePropertyValue $extension
+            }
+        }
+        $sizeBytes = 0
+        if ($file.PSObject.Properties.Match('SizeBytes') -and $null -ne $file.SizeBytes) {
+            $sizeBytes = [int64]$file.SizeBytes
+        }
+        if ($sizeBytes -le 0) {
+            try { $sizeBytes = [int64](Get-Item -LiteralPath $fullPath).Length } catch { $sizeBytes = 0 }
+            $file.SizeBytes = $sizeBytes
+        }
+        $lastWrite = $null
+        if ($file.PSObject.Properties.Match('LastWriteTime') -and $file.LastWriteTime) {
+            $lastWrite = $file.LastWriteTime
+        }
+        if (-not $lastWrite) {
+            try { $lastWrite = (Get-Item -LiteralPath $fullPath).LastWriteTime } catch { $lastWrite = $null }
+            $file.LastWriteTime = $lastWrite
+        }
         $duration = $null
         $width = $null
         $height = $null
         if ($ffprobeCmd -and $mediaExtensions -contains $extension) {
-            $meta = Invoke-Ffprobe -FfprobePath $ffprobeCmd.Source -TargetPath $file.FullName
+            $meta = Invoke-Ffprobe -FfprobePath $ffprobeCmd.Source -TargetPath $fullPath
             if ($meta) {
                 $duration = [Math]::Round($meta.Duration, 3)
                 $width = $meta.Width
                 $height = $meta.Height
             }
         }
-        if ($duration) { $durationLookup[$file.FullName] = $duration }
-        $hash = $null
-        $cacheKey = ConvertTo-RelativePath -Root $RootPath -FullPath $file.FullName
+        if ($duration) { $durationLookup[$fullPath] = $duration }
+        $hash = if ($file.PSObject.Properties.Match('Hash')) { $file.Hash } else { $null }
+        $cacheKey = ConvertTo-RelativePath -Root $RootPath -FullPath $fullPath
         if ($HashCache.ContainsKey($cacheKey)) {
             $entry = $HashCache[$cacheKey]
-            if ([double]$entry.SizeBytes -eq $file.Length -and [datetime]$entry.LastWriteTime -eq $file.LastWriteTime) {
+            if ([double]$entry.SizeBytes -eq $sizeBytes -and [datetime]$entry.LastWriteTime -eq $lastWrite) {
                 $hash = $entry.Hash
             }
         }
-        $needsHash = $true
-        if ($Fast) { $needsHash = $false }
+        $needsHash = -not $Fast
         if ($Fast -and $duration) {
             # Hash later only for probable duplicates
             $needsHash = $false
         }
-        if (-not $needsHash) {
-            # Keep placeholder; may compute later in dedupe pass
-            $hash = $hash
-        } else {
-            if (-not $hash) {
-                try {
-                    $hashObj = Get-FileHash -Algorithm $HashAlgo -LiteralPath $file.FullName
-                    $hash = $hashObj.Hash
-                } catch {
-                    Write-Log ("Failed to hash {0}: {1}" -f $relative, $_.Exception.Message) 'WARN'
-                }
+        if ($needsHash -and -not $hash) {
+            try {
+                $hashObj = Get-FileHash -Algorithm $HashAlgo -LiteralPath $fullPath
+                $hash = $hashObj.Hash
+            } catch {
+                Write-Log ("Failed to hash {0}: {1}" -f $relative, $_.Exception.Message) 'WARN'
             }
         }
-        $status = 'ORPHAN'
+        if ($file.PSObject.Properties.Match('Hash')) {
+            $file.Hash = $hash
+        }
+        $status = if ($file.PSObject.Properties.Match('Status') -and $file.Status -and $file.Status -ne 'UNKNOWN') { $file.Status } else { 'ORPHAN' }
         $relLower = $relative.Replace([System.IO.Path]::AltDirectorySeparatorChar, [System.IO.Path]::DirectorySeparatorChar)
         if (Test-PatternListMatch -Patterns $KeepPatterns -Path $relLower) {
             $status = 'KEEP'
@@ -393,11 +461,11 @@ function Get-InventoryRecords {
         if ($status -eq 'KEEP' -and $SidecarExts -contains $extension.ToLowerInvariant()) {
             $status = 'KEEP_SIDECAR'
         }
-        $records += [PSCustomObject]@{
+        $record = [PSCustomObject]@{
             RelativePath  = $relative
-            FullPath      = $file.FullName
-            SizeBytes     = $file.Length
-            LastWriteTime = $file.LastWriteTime
+            FullPath      = $fullPath
+            SizeBytes     = $sizeBytes
+            LastWriteTime = $lastWrite
             Extension     = $extension
             Duration      = $duration
             Width         = $width
@@ -405,11 +473,12 @@ function Get-InventoryRecords {
             Hash          = $hash
             Status        = $status
         }
+        $records.Add($record)
         if ($hash) {
             $HashCache[$cacheKey] = [PSCustomObject]@{
                 Path          = $cacheKey
-                SizeBytes     = $file.Length
-                LastWriteTime = $file.LastWriteTime
+                SizeBytes     = $sizeBytes
+                LastWriteTime = $lastWrite
                 Hash          = $hash
             }
         }
@@ -900,8 +969,42 @@ switch ($Mode) {
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
     }
     'Inventory' {
-        $files = Get-FileEnumeration -RootPath $repoRoot -MaxDepth:$MaxDepth -IncludeHidden:$IncludeHidden -FollowJunctions:$FollowJunctions
-        Write-Log "Enumerated $($files.Count) files" 'INFO'
+        # Fast, resilient file enumeration
+        $excludeDirs = @('.git', '.venv', 'out\esrgan', 'out\render_logs\scratch', '_trash', '_quarantine')
+        $excludes = $excludeDirs | ForEach-Object { ('*' + $_ + '*') }
+
+        $rawFiles = $null
+        $gciParams = @{
+            LiteralPath = $repoRoot
+            Recurse     = $true
+            File        = $true
+            ErrorAction = 'SilentlyContinue'
+            Force       = [bool]$IncludeHidden
+        }
+        $supportsDepth = $PSVersionTable.PSVersion.Major -ge 7
+        if ($MaxDepth -gt 0 -and $supportsDepth) {
+            $gciParams['Depth'] = $MaxDepth
+        }
+        if ($MaxDepth -gt 0 -and -not $supportsDepth) {
+            $rawFiles = Get-FileEnumeration -RootPath $repoRoot -MaxDepth:$MaxDepth -IncludeHidden:$IncludeHidden -FollowJunctions:$FollowJunctions
+        } else {
+            $rawFiles = Get-ChildItem @gciParams
+        }
+
+        $files = $rawFiles |
+          Where-Object {
+            if (-not $_) { return $false }
+            if (-not $FollowJunctions -and ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { return $false }
+            $full = $_.FullName
+            -not ($excludes | Where-Object { $full -like $_ })
+          } |
+          ForEach-Object {
+            New-FileRow -Root $repoRoot -File $_
+          }
+
+        # Safety: force array even if single/zero results
+        $files = @($files)
+        Write-Log "Inventory seeded with $($files.Count) rows" 'INFO'
         $records = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
         if ($Fast) {
             Enhance-HashesForFastMode -Records $records -RootPath $repoRoot -HashAlgo $HashAlgo -HashCache $hashCache
