@@ -312,7 +312,9 @@ function Get-PurposeGuess {
 
 function Get-FunctionNames {
     param([string]$Path)
-    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    $extension = [System.IO.Path]::GetExtension($Path)
+    if ([string]::IsNullOrWhiteSpace($extension)) { $extension = '' }
+    $extension = $extension.ToLowerInvariant()
     $pattern = switch ($extension) {
         '.ps1' { 'function\s+([A-Za-z0-9_-]+)' }
         '.psm1' { 'function\s+([A-Za-z0-9_-]+)' }
@@ -362,7 +364,9 @@ function Find-ExistingTools {
     $files = Get-FileEnumeration -RootPath $RootPath -MaxDepth 0 -IncludeHidden -FollowJunctions:$false
     $matches = @()
     foreach ($file in $files) {
-        $ext = [System.IO.Path]::GetExtension($file.FullName).ToLowerInvariant()
+        $ext = [System.IO.Path]::GetExtension($file.FullName)
+        if ([string]::IsNullOrWhiteSpace($ext)) { $ext = '' }
+        $ext = $ext.ToLowerInvariant()
         if (-not ($extensions -contains $ext)) { continue }
         $name = $file.Name.ToLowerInvariant()
         $hit = $false
