@@ -32,9 +32,14 @@ param(
 )
 
 function Set-Prop {
-    param([Parameter(Mandatory)]$Obj,[Parameter(Mandatory)][string]$Name,$Value)
+    param(
+        [Parameter(Mandatory)]$Obj,
+        [Parameter(Mandatory)][string]$Name,
+        $Value
+    )
     $p = $Obj.PSObject.Properties[$Name]
-    if ($p) { $p.Value = $Value } else { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force }
+    if ($p) { $p.Value = $Value }
+    else { $Obj | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force }
 }
 
 function Get-RelPath([string]$Base,[string]$Path) {
@@ -46,6 +51,40 @@ function Get-RelPath([string]$Base,[string]$Path) {
         return $p.Substring($b.Length).TrimStart('\\','/')
     }
     return $p
+}
+
+function Run-Inventory {
+    param([Parameter(Mandatory)][string]$Root, [switch]$Fast)
+
+    $files = Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue
+    Write-Host ("{0} [INFO] Inventory seeded with {1} rows" -f (Get-Date -Format u), $files.Count)
+
+    # Use a growable list; avoid .Add() on fixed-size arrays
+    $rows = New-Object System.Collections.Generic.List[object]
+
+    foreach ($f in $files) {
+        $ext = [System.IO.Path]::GetExtension($f.FullName)
+        if ([string]::IsNullOrWhiteSpace($ext)) { $ext = '' }
+        $ext = $ext.ToLowerInvariant()
+
+        $row = [pscustomobject]@{
+            FullPath     = $f.FullName
+            RelativePath = Get-RelPath $Root $f.FullName
+            SizeBytes    = [int64]$f.Length
+            Ext          = $ext
+        }
+        # Maintain compatibility with any downstream code expecting 'Extension'
+        Set-Prop $row 'Extension' $ext
+
+        [void]$rows.Add($row)
+    }
+
+    $outDir = Join-Path $Root 'out\inventory'
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    $csv = Join-Path $outDir 'inventory.csv'
+    $rows | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $csv
+
+    return $csv
 }
 
 $ErrorActionPreference = 'Stop'
@@ -1075,51 +1114,56 @@ $removePatterns = Get-WildcardSet -Patterns $rules.RemoveGlobs
 $hashCachePath = Join-Path $outputPaths.Inventory 'hash_cache.csv'
 $hashCache = Load-HashCache -CachePath $hashCachePath
 
-switch ($Mode) {
-    'FindExistingTools' {
+switch ($Mode.ToLowerInvariant()) {
+    'findexistingtools' {
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
+        break
     }
-    'Inventory' {
-        # Fast, resilient file enumeration
+    'inventory' {
         $excludeDirs = @('.git', '.venv', 'out\esrgan', 'out\render_logs\scratch', '_trash', '_quarantine')
         $excludes = $excludeDirs | ForEach-Object { ('*' + $_ + '*') }
 
-        $rawFiles = $null
-        $gciParams = @{
-            LiteralPath = $repoRoot
-            Recurse     = $true
-            File        = $true
-            ErrorAction = 'SilentlyContinue'
-            Force       = [bool]$IncludeHidden
+        $seedPath = Run-Inventory -Root $repoRoot -Fast:$Fast
+        $seedRows = @()
+        if ($seedPath -and (Test-Path -LiteralPath $seedPath)) {
+            $seedRows = Import-Csv -LiteralPath $seedPath
         }
-        $supportsDepth = $PSVersionTable.PSVersion.Major -ge 7
-        if ($MaxDepth -gt 0 -and $supportsDepth) {
-            $gciParams['Depth'] = $MaxDepth
-        }
-        if ($MaxDepth -gt 0 -and -not $supportsDepth) {
-            $rawFiles = Get-FileEnumeration -RootPath $repoRoot -MaxDepth:$MaxDepth -IncludeHidden:$IncludeHidden -FollowJunctions:$FollowJunctions
-        } else {
-            $rawFiles = Get-ChildItem @gciParams
-        }
+        if ($null -eq $seedRows) { $seedRows = @() } else { $seedRows = @($seedRows) }
 
-        $files = foreach ($f in $rawFiles) {
-            if (-not $f) { continue }
-            if (-not $FollowJunctions -and ($f.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { continue }
-            $full = $f.FullName
+        $filesList = New-Object System.Collections.Generic.List[object]
+        foreach ($row in $seedRows) {
+            if (-not $row) { continue }
+            $full = $row.FullPath
+            if (-not $full) { continue }
             $skip = $false
             foreach ($pattern in $excludes) {
                 if ($full -like $pattern) { $skip = $true; break }
+                if ($row.RelativePath -and $row.RelativePath -like $pattern) { $skip = $true; break }
             }
             if ($skip) { continue }
-            $row = New-FileRow -Root $repoRoot -File $f
-            if (-not $row.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($row.RelativePath)) {
-                if ($row.FullPath) { Set-Prop $row 'RelativePath' (Get-RelPath $repoRoot $row.FullPath) }
+            try {
+                $fileInfo = Get-Item -LiteralPath $full -ErrorAction Stop
+            } catch {
+                continue
             }
-            $row
+            if (-not $FollowJunctions -and ($fileInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { continue }
+            if (-not $IncludeHidden -and ($fileInfo.Attributes -band [System.IO.FileAttributes]::Hidden)) { continue }
+            if ($MaxDepth -gt 0) {
+                $relative = $row.RelativePath
+                if (-not $relative) { $relative = Get-RelPath $repoRoot $full }
+                if (-not [string]::IsNullOrEmpty($relative) -and $relative -ne '.') {
+                    $segments = ($relative -split '[\\/]+') | Where-Object { $_ }
+                    if ($segments.Count -gt $MaxDepth) { continue }
+                }
+            }
+            $fileRow = New-FileRow -Root $repoRoot -File $fileInfo
+            if (-not $fileRow.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($fileRow.RelativePath)) {
+                if ($fileRow.FullPath) { Set-Prop $fileRow 'RelativePath' (Get-RelPath $repoRoot $fileRow.FullPath) }
+            }
+            [void]$filesList.Add($fileRow)
         }
 
-        # Safety: force array even if single/zero results
-        $files = @($files)
+        $files = $filesList.ToArray()
         Write-Log "Inventory seeded with $($files.Count) rows" 'INFO'
         $Inventory = Get-InventoryRecords -Files $files -RootPath $repoRoot -Fast:$Fast -HashAlgo $HashAlgo -KeepPatterns $keepPatterns -RemovePatterns $removePatterns -SidecarExts $rules.SidecarExts -HashCache $hashCache -HashCachePath $hashCachePath
         if (-not ($Inventory -is [System.Collections.Generic.IList[object]])) {
@@ -1135,26 +1179,34 @@ switch ($Mode) {
         Save-HashCache -Cache $hashCache -CachePath $hashCachePath
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
         Write-Log 'Inventory complete.' 'SUCCESS'
+        break
     }
-    'Plan' {
+    'plan' {
         $inventoryFile = Join-Path $outputPaths.Inventory 'repo_inventory.csv'
         if (-not (Test-Path -LiteralPath $inventoryFile)) {
             throw 'No inventory found. Run -Mode Inventory first.'
         }
         $planPath = New-CleanupPlan -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -PlansDir $outputPaths.Plans -Strategy $Strategy -EnableHardlink:$EnableHardlink -Permanent:$Permanent
         Write-Log "Plan written to $planPath" 'SUCCESS'
+        break
     }
-    'Execute' {
+    'execute' {
         $planPath = Join-Path $outputPaths.Plans 'cleanup_plan.csv'
         Invoke-CleanupExecution -PlanPath $planPath -RootPath $repoRoot -LogsDir $outputPaths.Logs -DryRun:$DryRun -ConfirmRun:$ConfirmRun -Concurrent $Concurrent
         Write-Log 'Execution complete.' 'SUCCESS'
+        break
     }
-    'Index' {
+    'index' {
         Build-SeasonIndex -InventoryDir $outputPaths.Inventory -IndexDir $outputPaths.Index -RootPath $repoRoot
         Write-Log 'Index refreshed.' 'SUCCESS'
+        break
     }
-    'Doctor' {
+    'doctor' {
         Run-Doctor -RootPath $repoRoot -InventoryDir $outputPaths.Inventory
         Find-ExistingTools -RootPath $repoRoot -InventoryDir $outputPaths.Inventory -DocsDir $docsDir | Out-Null
+        break
+    }
+    default {
+        throw "Unknown -Mode '$Mode'."
     }
 }
