@@ -640,7 +640,7 @@ function Get-InventoryRecords {
 
     foreach ($file in $Files) {
         $fullPath = $file.FullName
-        $relPath  = [IO.Path]::GetRelativePath($RootPath, $fullPath)
+        $relPath  = Get-RelativePath -Root $RootPath -Child $fullPath
         $size     = $file.Length
         $mtime    = $file.LastWriteTimeUtc
 
