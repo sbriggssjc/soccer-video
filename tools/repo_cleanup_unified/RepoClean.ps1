@@ -500,8 +500,20 @@ function Enhance-HashesForFastMode {
     )
     $buckets = @{}
     foreach ($record in $Records) {
-        $sizeBucket = [Math]::Round($record.SizeBytes / 16)
-        $durationBucket = if ($record.Duration) { [Math]::Round($record.Duration,1) } else { 'na' }
+        $sizeValue = $record.SizeBytes
+        if ($null -eq $sizeValue -or -not ($sizeValue -as [double])) {
+            $sizeBucket = 'NA'
+        } else {
+            $sizeBucket = [Math]::Round(([double]$sizeValue) / 16)
+        }
+
+        $durationValue = $record.Duration
+        if ($null -eq $durationValue -or -not ($durationValue -as [double])) {
+            $durationBucket = 'NA'
+        } else {
+            $durationBucket = [Math]::Round([double]$durationValue, 1)
+        }
+
         $key = "S${sizeBucket}-D${durationBucket}"
         if (-not $buckets.ContainsKey($key)) {
             $buckets[$key] = New-Object System.Collections.Generic.List[psobject]
