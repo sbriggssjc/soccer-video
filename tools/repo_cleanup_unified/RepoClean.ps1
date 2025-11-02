@@ -1510,8 +1510,37 @@ function New-CleanupPlan {
     if (-not (Test-Path -LiteralPath $inventoryFile)) {
         throw "Inventory file not found. Run -Mode Inventory first."
     }
-    $records = Import-Csv -LiteralPath $inventoryFile
-    if ($null -eq $records) { $records = @() } else { $records = @($records) }
+    $rawRecords = Import-Csv -LiteralPath $inventoryFile
+    if ($null -eq $rawRecords) { $rawRecords = @() } else { $rawRecords = @($rawRecords) }
+
+    $normalized = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($r in $rawRecords) {
+        $sizeValue = $null
+        if ($r.PSObject.Properties.Match('SizeBytes') -and -not [string]::IsNullOrWhiteSpace($r.SizeBytes)) {
+            try { $sizeValue = [long]$r.SizeBytes } catch { $sizeValue = $null }
+        }
+
+        $lastWriteValue = $null
+        if ($r.PSObject.Properties.Match('LastWriteTime') -and -not [string]::IsNullOrWhiteSpace($r.LastWriteTime)) {
+            try { $lastWriteValue = [datetime]$r.LastWriteTime } catch { $lastWriteValue = $r.LastWriteTime }
+        }
+
+        $normalized.Add([PSCustomObject]@{
+            RelativePath  = $r.RelativePath
+            FullPath      = $r.FullPath
+            SizeBytes     = $sizeValue
+            LastWriteTime = $lastWriteValue
+            Extension     = $r.Extension
+            Codec         = $r.Codec
+            Width         = $r.Width
+            Height        = $r.Height
+            Hash          = $r.Hash
+            Status        = $r.Status
+            Notes         = $r.Notes
+        })
+    }
+
+    $records = $normalized.ToArray()
     $plan = @()
     $hardlinkPlan = @()
     $quarantineRoot = Join-Path $RootPath '_quarantine'
@@ -1753,8 +1782,37 @@ function Build-SeasonIndex {
     if (-not (Test-Path -LiteralPath $inventoryFile)) {
         throw 'Inventory not found. Run -Mode Inventory first.'
     }
-    $records = Import-Csv -LiteralPath $inventoryFile
-    if ($null -eq $records) { $records = @() } else { $records = @($records) }
+    $rawRecords = Import-Csv -LiteralPath $inventoryFile
+    if ($null -eq $rawRecords) { $rawRecords = @() } else { $rawRecords = @($rawRecords) }
+
+    $normalized = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($r in $rawRecords) {
+        $sizeValue = $null
+        if ($r.PSObject.Properties.Match('SizeBytes') -and -not [string]::IsNullOrWhiteSpace($r.SizeBytes)) {
+            try { $sizeValue = [long]$r.SizeBytes } catch { $sizeValue = $null }
+        }
+
+        $lastWriteValue = $null
+        if ($r.PSObject.Properties.Match('LastWriteTime') -and -not [string]::IsNullOrWhiteSpace($r.LastWriteTime)) {
+            try { $lastWriteValue = [datetime]$r.LastWriteTime } catch { $lastWriteValue = $r.LastWriteTime }
+        }
+
+        $normalized.Add([PSCustomObject]@{
+            RelativePath  = $r.RelativePath
+            FullPath      = $r.FullPath
+            SizeBytes     = $sizeValue
+            LastWriteTime = $lastWriteValue
+            Extension     = $r.Extension
+            Codec         = $r.Codec
+            Width         = $r.Width
+            Height        = $r.Height
+            Hash          = $r.Hash
+            Status        = $r.Status
+            Notes         = $r.Notes
+        })
+    }
+
+    $records = $normalized.ToArray()
     foreach ($record in $records) {
         if (-not $record.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($record.RelativePath)) {
             if ($RootPath -and $record.FullPath) { Set-Prop $record 'RelativePath' (Get-RelPath $RootPath $record.FullPath) }
@@ -2147,8 +2205,37 @@ function New-CleanupPlan {
     if (-not (Test-Path -LiteralPath $inventoryFile)) {
         throw "Inventory file not found. Run -Mode Inventory first."
     }
-    $records = Import-Csv -LiteralPath $inventoryFile
-    if ($null -eq $records) { $records = @() } else { $records = @($records) }
+    $rawRecords = Import-Csv -LiteralPath $inventoryFile
+    if ($null -eq $rawRecords) { $rawRecords = @() } else { $rawRecords = @($rawRecords) }
+
+    $normalized = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($r in $rawRecords) {
+        $sizeValue = $null
+        if ($r.PSObject.Properties.Match('SizeBytes') -and -not [string]::IsNullOrWhiteSpace($r.SizeBytes)) {
+            try { $sizeValue = [long]$r.SizeBytes } catch { $sizeValue = $null }
+        }
+
+        $lastWriteValue = $null
+        if ($r.PSObject.Properties.Match('LastWriteTime') -and -not [string]::IsNullOrWhiteSpace($r.LastWriteTime)) {
+            try { $lastWriteValue = [datetime]$r.LastWriteTime } catch { $lastWriteValue = $r.LastWriteTime }
+        }
+
+        $normalized.Add([PSCustomObject]@{
+            RelativePath  = $r.RelativePath
+            FullPath      = $r.FullPath
+            SizeBytes     = $sizeValue
+            LastWriteTime = $lastWriteValue
+            Extension     = $r.Extension
+            Codec         = $r.Codec
+            Width         = $r.Width
+            Height        = $r.Height
+            Hash          = $r.Hash
+            Status        = $r.Status
+            Notes         = $r.Notes
+        })
+    }
+
+    $records = $normalized.ToArray()
     $plan = @()
     $hardlinkPlan = @()
     $quarantineRoot = Join-Path $RootPath '_quarantine'
@@ -2390,8 +2477,37 @@ function Build-SeasonIndex {
     if (-not (Test-Path -LiteralPath $inventoryFile)) {
         throw 'Inventory not found. Run -Mode Inventory first.'
     }
-    $records = Import-Csv -LiteralPath $inventoryFile
-    if ($null -eq $records) { $records = @() } else { $records = @($records) }
+    $rawRecords = Import-Csv -LiteralPath $inventoryFile
+    if ($null -eq $rawRecords) { $rawRecords = @() } else { $rawRecords = @($rawRecords) }
+
+    $normalized = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($r in $rawRecords) {
+        $sizeValue = $null
+        if ($r.PSObject.Properties.Match('SizeBytes') -and -not [string]::IsNullOrWhiteSpace($r.SizeBytes)) {
+            try { $sizeValue = [long]$r.SizeBytes } catch { $sizeValue = $null }
+        }
+
+        $lastWriteValue = $null
+        if ($r.PSObject.Properties.Match('LastWriteTime') -and -not [string]::IsNullOrWhiteSpace($r.LastWriteTime)) {
+            try { $lastWriteValue = [datetime]$r.LastWriteTime } catch { $lastWriteValue = $r.LastWriteTime }
+        }
+
+        $normalized.Add([PSCustomObject]@{
+            RelativePath  = $r.RelativePath
+            FullPath      = $r.FullPath
+            SizeBytes     = $sizeValue
+            LastWriteTime = $lastWriteValue
+            Extension     = $r.Extension
+            Codec         = $r.Codec
+            Width         = $r.Width
+            Height        = $r.Height
+            Hash          = $r.Hash
+            Status        = $r.Status
+            Notes         = $r.Notes
+        })
+    }
+
+    $records = $normalized.ToArray()
     foreach ($record in $records) {
         if (-not $record.PSObject.Properties['RelativePath'] -or [string]::IsNullOrWhiteSpace($record.RelativePath)) {
             if ($RootPath -and $record.FullPath) { Set-Prop $record 'RelativePath' (Get-RelPath $RootPath $record.FullPath) }
