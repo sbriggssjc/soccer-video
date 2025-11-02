@@ -44,7 +44,7 @@ function Get-InventoryRecords {
             FullPath      = $fullPath
             SizeBytes     = $size
             LastWriteTime = $mtime
-            Extension     = ([IO.Path]::GetExtension($fullPath) ?? '' | ForEach-Object { $_ })  # will be '' on PS5
+            Extension     = ''
             Codec         = $null
             Width         = $null
             Height        = $null
@@ -52,8 +52,10 @@ function Get-InventoryRecords {
             Status        = $null
             Notes         = $null
         }
-        if ([string]::IsNullOrEmpty($rec.Extension)) { $rec.Extension = '' }
-        else { $rec.Extension = $rec.Extension.ToLowerInvariant() }
+        $extension = [IO.Path]::GetExtension($fullPath)
+        if ([string]::IsNullOrEmpty($extension)) { $extension = '' }
+        else { $extension = $extension.ToLowerInvariant() }
+        $rec.Extension = $extension
 
         if ($HashCache) {
             $cacheKey = "$relPath|$size|$mtime"
