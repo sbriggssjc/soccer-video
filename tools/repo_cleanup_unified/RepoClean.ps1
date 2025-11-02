@@ -393,18 +393,23 @@ function Get-InventoryRecords {
         if ($status -eq 'KEEP' -and $SidecarExts -contains $extension.ToLowerInvariant()) {
             $status = 'KEEP_SIDECAR'
         }
-        $records += [PSCustomObject]@{
+        $record = [PSCustomObject]@{
             RelativePath  = $relative
             FullPath      = $file.FullName
             SizeBytes     = $file.Length
             LastWriteTime = $file.LastWriteTime
             Extension     = $extension
-            Duration      = $duration
-            Width         = $width
-            Height        = $height
+            Duration      = $null
+            Width         = $null
+            Height        = $null
             Hash          = $hash
             Status        = $status
         }
+        # Add metadata without replacing the object so previously attached fields (e.g., RelativePath) persist.
+        $record.Duration = $duration
+        $record.Width = $width
+        $record.Height = $height
+        $records += $record
         if ($hash) {
             $HashCache[$cacheKey] = [PSCustomObject]@{
                 Path          = $cacheKey
