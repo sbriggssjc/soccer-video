@@ -637,6 +637,7 @@ function Get-InventoryRecords {
 
     # Always return a growable List
     $records = [System.Collections.Generic.List[psobject]]::new()
+    $targetExtensions = @('.mp4','.mov','.mkv','.avi','.m4v','.jpg','.jpeg','.png','.gif','.webp')
 
     foreach ($file in $Files) {
         $fullPath = $file.FullName
@@ -664,8 +665,14 @@ function Get-InventoryRecords {
         if ([string]::IsNullOrEmpty($ext)) { $ext = '' }
         $rec.Extension = $ext.ToLowerInvariant()
 
+        # Skip zero-byte files and non-target extensions when hashing/dupe checking
+        $shouldHash = $true
+        if ($size -le 0 -or ($targetExtensions -notcontains $rec.Extension)) {
+            $shouldHash = $false
+        }
+
         # Optional: hash with cache
-        if ($HashCache) {
+        if ($HashCache -and $shouldHash) {
             $cacheKey = "$relPath|$size|$mtime"
             if ($HashCache.ContainsKey($cacheKey)) {
                 $rec.Hash = $HashCache[$cacheKey].Hash
