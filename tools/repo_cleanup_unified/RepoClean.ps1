@@ -1380,8 +1380,10 @@ function Export-InventoryOutputs {
     }
     $jsonPath = Join-Path $InventoryDir 'repo_inventory.json'
     $csvPath = Join-Path $InventoryDir 'repo_inventory.csv'
-    $recordList | Export-Csv -LiteralPath $csvPath -NoTypeInformation
-    $recordList | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $jsonPath
+    $repoRecords = @($recordList)
+    $repoRecords | Export-Csv -LiteralPath $csvPath -NoTypeInformation
+    $repoJson = $repoRecords | ConvertTo-Json -Depth 5
+    $repoJson | Set-Content -LiteralPath $jsonPath
 
     $recordsForDupes = $recordList | Where-Object {
         $_.RelativePath -and $_.RelativePath -notmatch '\\out\\inventory(\\|$)' -and
@@ -1449,9 +1451,16 @@ function Export-InventoryOutputs {
     $keepPath = Join-Path $InventoryDir 'keep_candidates.csv'
     $removePath = Join-Path $InventoryDir 'remove_candidates.csv'
     $orphansPath = Join-Path $InventoryDir 'orphans.csv'
-    ($recordList | Where-Object { $_.Status -like 'KEEP*' }) | Export-Csv -LiteralPath $keepPath -NoTypeInformation
-    ($recordList | Where-Object { $_.Status -eq 'CANDIDATE_REMOVE' }) | Export-Csv -LiteralPath $removePath -NoTypeInformation
-    ($recordList | Where-Object { $_.Status -eq 'ORPHAN' }) | Export-Csv -LiteralPath $orphansPath -NoTypeInformation
+    ($repoRecords | Where-Object { $_.Status -like 'KEEP*' }) | Export-Csv -LiteralPath $keepPath -NoTypeInformation
+    ($repoRecords | Where-Object { $_.Status -eq 'CANDIDATE_REMOVE' }) | Export-Csv -LiteralPath $removePath -NoTypeInformation
+
+    $orphans = @($repoRecords | Where-Object { $_.Status -eq 'ORPHAN' })
+    if ($orphans.Count -eq $repoRecords.Count -and
+        ($orphans | ConvertTo-Json -Depth 5) -eq $repoJson) {
+        if (Test-Path -LiteralPath $orphansPath) { Remove-Item -LiteralPath $orphansPath }
+    } else {
+        $orphans | Export-Csv -LiteralPath $orphansPath -NoTypeInformation
+    }
 
     $summaryPath = Join-Path $InventoryDir 'summary_sizes_by_type.csv'
     $recordList |
