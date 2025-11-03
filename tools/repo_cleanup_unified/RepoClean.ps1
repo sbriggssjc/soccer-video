@@ -1383,7 +1383,11 @@ function Export-InventoryOutputs {
     $recordList | Export-Csv -LiteralPath $csvPath -NoTypeInformation
     $recordList | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $jsonPath
 
-    $hashGroups = $recordList | Where-Object { $_.Hash } | Group-Object Hash | Where-Object { $_.Count -gt 1 }
+    $recordsForDupes = $recordList | Where-Object {
+        $_.RelativePath -and $_.RelativePath -notmatch '\\out\\inventory(\\|$)' -and
+        $_.Hash -and $_.SizeBytes -gt 0
+    }
+    $hashGroups = $recordsForDupes | Group-Object Hash | Where-Object { $_.Count -gt 1 }
     $dupeExactPath = Join-Path $InventoryDir 'duplicates_exact.csv'
     $exactRows = @()
     foreach ($group in $hashGroups) {
@@ -2078,7 +2082,11 @@ function Export-InventoryOutputs {
     $recordList | Export-Csv -LiteralPath $csvPath -NoTypeInformation
     $recordList | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $jsonPath
 
-    $hashGroups = $recordList | Where-Object { $_.Hash } | Group-Object Hash | Where-Object { $_.Count -gt 1 }
+    $recordsForDupes = $recordList | Where-Object {
+        $_.RelativePath -and $_.RelativePath -notmatch '\\out\\inventory(\\|$)' -and
+        $_.Hash -and $_.SizeBytes -gt 0
+    }
+    $hashGroups = $recordsForDupes | Group-Object Hash | Where-Object { $_.Count -gt 1 }
     $dupeExactPath = Join-Path $InventoryDir 'duplicates_exact.csv'
     $exactRows = @()
     foreach ($group in $hashGroups) {
