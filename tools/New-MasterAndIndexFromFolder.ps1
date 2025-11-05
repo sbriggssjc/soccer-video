@@ -150,10 +150,18 @@ $EventsInv  = Join-Path $InvDir "atomic_events.csv"
 if(!(Test-Path -LiteralPath $MastersInv)){
   Set-Content -LiteralPath $MastersInv -Value "date_recorded,game_label,brand,master_path,duration_s,source_dir" -Encoding UTF8
 }
-# Append/Upsert simple row (avoid dupes)
+
+# Build the line exactly once
 $invLine = "{0:yyyy-MM-dd},{1},{2},{3},{4},{5}" -f $dt0,$GameLabel,$Brand,$MasterMp4,$MasterDuration,$SrcDir
-$exists = Select-String -Path $MastersInv -Pattern [regex]::Escape($invLine) -SimpleMatch -Quiet -ErrorAction SilentlyContinue
-if(-not $exists){ Add-Content -LiteralPath $MastersInv -Value $invLine }
+
+# Simple/robust dedupe: use -contains over file lines (no regex parsing issues)
+$hasLine = $false
+if(Test-Path -LiteralPath $MastersInv){
+  $hasLine = (Get-Content -LiteralPath $MastersInv) -contains $invLine
+}
+if(-not $hasLine){
+  Add-Content -LiteralPath $MastersInv -Value $invLine
+}
 
 if(!(Test-Path -LiteralPath $EventsInv)){
   Set-Content -LiteralPath $EventsInv -Value "game_label,id,brand,master_path,master_start,master_end,playtag,phase,side,formation,notes,tag_right_left,score_impact,player,assist" -Encoding UTF8
