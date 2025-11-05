@@ -52,7 +52,9 @@ function Make-Slug([string]$s){
 
 # --- Discover source files ---
 if(!(Test-Path -LiteralPath $SrcDir)){ throw "SrcDir not found: $SrcDir" }
-$all = Get-ChildItem -LiteralPath $SrcDir -File -Include *.mp4,*.mov,*.m4v | Where-Object { $_.Length -gt 0 }
+$all = Get-ChildItem -LiteralPath $SrcDir -File | Where-Object {
+  $_.Length -gt 0 -and $_.Extension -match '^\.(mp4|mov|m4v)$'
+}
 if(!$all){ throw "No video files found in: $SrcDir" }
 
 # Sort clips by capture time
@@ -84,10 +86,17 @@ Ensure-Dir $GameRoot
 Ensure-Dir $CatalogRoot
 Ensure-Dir $InvDir
 
-# --- Concat list ---
+# --- Concat list (no BOM) ---
 $listPath = Join-Path $GameRoot "concat_list.txt"
-$listTxt  = $clips | ForEach-Object { "file '$($_.File.FullName.Replace("'", "''"))'" }
-Set-Content -LiteralPath $listPath -Value $listTxt -Encoding UTF8
+$listLines = $clips | ForEach-Object { "file '$($_.File.FullName.Replace("'", "''"))'" }
+
+# Ensure no BOM: ffmpeg hates BOM at the start (it becomes "﻿file")
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllLines($listPath, $listLines, $utf8NoBom)
+
+# Optional: quick sanity echo
+Write-Host "concat_list.txt preview:" -ForegroundColor DarkGray
+$listLines | Select-Object -First 3 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
 
 # --- Master output path ---
 $MasterMp4 = Join-Path $GameRoot ("{0}__master.mp4" -f $GameLabel)
