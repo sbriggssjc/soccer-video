@@ -28,11 +28,6 @@ function Get-InventoryRecords {
         [string]$HashAlgo = 'MD5'
     )
     $records = [System.Collections.Generic.List[psobject]]::new()
-<<<<<<< HEAD
-=======
-    $targetExtensions = @('.mp4','.mov','.mkv','.avi','.m4v','.jpg','.jpeg','.png','.gif','.webp')
-
->>>>>>> b4dd1783ba0074a744acbc923797559f17534643
     foreach ($file in $Files) {
         $fullPath = $file.FullName
         $relPath  = Get-RelativePath -Root $RootPath -Child $fullPath

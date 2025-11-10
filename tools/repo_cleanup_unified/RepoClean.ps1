@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('Inventory')]
     [string]$Mode = 'Inventory',
@@ -63,3 +63,66 @@ switch ($Mode) {
         throw "Mode '$Mode' is not implemented in this build."
     }
 }
+
+function Get-InventoryRecords {
+    param(
+        [Parameter(Mandatory)][System.Collections.IEnumerable]$Files,
+        [Parameter(Mandatory)][string]$RootPath,
+        [hashtable]$HashCache = $null,
+        [string]$HashAlgo = 'MD5'
+    )
+
+    $records = [System.Collections.Generic.List[psobject]]::new()
+
+    foreach ($file in $Files) {
+        $fullPath = $file.FullName
+        $relPath  = [IO.Path]::GetRelativePath($RootPath, $fullPath)
+        $size     = $file.Length
+        $mtime    = $file.LastWriteTimeUtc
+
+        $rec = [PSCustomObject]@{
+            RelativePath  = $relPath
+            FullPath      = $fullPath
+            SizeBytes     = $size
+            LastWriteTime = $mtime
+            Extension     = ''
+            Codec         = $null
+            Width         = $null
+            Height        = $null
+            Hash          = $null
+            Status        = $null
+            Notes         = $null
+        }
+
+        $ext = [IO.Path]::GetExtension($fullPath)
+        if ([string]::IsNullOrEmpty($ext)) { $ext = '' }
+        $rec.Extension = $ext.ToLowerInvariant()
+
+        if ($HashCache) {
+            $cacheKey = "$relPath|$size|$mtime"
+            if ($HashCache.ContainsKey($cacheKey)) {
+                $rec.Hash = $HashCache[$cacheKey].Hash
+            } else {
+                try {
+                    $hasher = [System.Security.Cryptography.HashAlgorithm]::Create($HashAlgo)
+                    $fs = [IO.File]::OpenRead($fullPath)
+                    try {
+                        $hash = ($hasher.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }) -join ''
+                        $rec.Hash = $hash
+                        $HashCache[$cacheKey] = [PSCustomObject]@{
+                            Path          = $cacheKey
+                            SizeBytes     = $size
+                            LastWriteTime = $mtime
+                            Hash          = $hash
+                        }
+                    } finally { $fs.Dispose() }
+                } catch { }
+            }
+        }
+
+        [void]$records.Add($rec)
+    }
+
+    return $records
+}
+
