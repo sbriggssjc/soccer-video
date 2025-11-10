@@ -20,12 +20,25 @@ function Get-RelativePath {
     return $child
 }
 
+function Get-ContentHash {
+    param(
+        [string]$Path,
+        [string]$HashMode = 'sha256'
+    )
+    try {
+        switch ($HashMode) {
+            'sha256' { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+            'size'   { return (Get-Item -LiteralPath $Path).Length.ToString() }
+            default  { return '' }
+        }
+    } catch { return '' }
+}
+
 function Get-InventoryRecords {
     param(
         [Parameter(Mandatory)][System.Collections.IEnumerable]$Files,
         [Parameter(Mandatory)][string]$RootPath,
-        [hashtable]$HashCache = $null,
-        [string]$HashAlgo = 'MD5',
+        [string]$HashMode = 'sha256',
         [string[]]$Extensions = $script:targetExtensions
     )
     $records = [System.Collections.Generic.List[psobject]]::new()
@@ -57,28 +70,12 @@ function Get-InventoryRecords {
             $shouldHash = $false
         }
 
-        if ($HashCache -and $shouldHash) {
-            $cacheKey = "$relPath|$size|$mtime"
-            if ($HashCache.ContainsKey($cacheKey)) {
-                $rec.Hash = $HashCache[$cacheKey].Hash
-            } else {
-                try {
-                    $hasher = [System.Security.Cryptography.HashAlgorithm]::Create($HashAlgo)
-                    $fs = [IO.File]::OpenRead($fullPath)
-                    try {
-                        $bytes = $hasher.ComputeHash($fs)
-                        $hash  = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
-                        $rec.Hash = $hash
-                        $HashCache[$cacheKey] = [PSCustomObject]@{
-                            Path          = $cacheKey
-                            SizeBytes     = $size
-                            LastWriteTime = $mtime
-                            Hash          = $hash
-                        }
-                    } finally { $fs.Dispose() }
-                } catch { }
-            }
+        $hash = ''
+        if ($shouldHash) {
+            $hash = Get-ContentHash -Path $fullPath -HashMode $HashMode
         }
+        $rec.Hash = $hash
+
         [void]$records.Add($rec)
     }
     return $records
