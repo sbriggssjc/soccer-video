@@ -8,8 +8,23 @@ param(
 
     [string]$InventoryDirectory = $null,
 
-    [string]$HashAlgorithm = 'MD5'
+    [string]$HashAlgorithm = 'MD5',
+
+    [string[]]$ExcludeFolders = @('out_trash\', 'out_trash\dedupe_exact\')
 )
+
+# --- default for excludeFolders if not set by caller ---
+if (-not (Get-Variable -Name excludeFolders -Scope Global -ErrorAction SilentlyContinue)) {
+    $global:excludeFolders = @('out_trash\', 'out_trash\dedupe_exact\')
+}
+
+# ensure it's an array
+if (-not ($global:excludeFolders -is [System.Collections.IEnumerable])) {
+    $global:excludeFolders = @($global:excludeFolders)
+}
+
+# sync param -> global for any helper functions that read the global
+$global:excludeFolders = $ExcludeFolders
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -28,7 +43,7 @@ if (-not $InventoryDirectory) {
 
 switch ($Mode) {
     'Inventory' {
-        $exclude = @('out_trash\', 'out_trash\dedupe_exact\')
+        $exclude = @()
         if ($global:excludeFolders) {
             $exclude += $global:excludeFolders
         }
