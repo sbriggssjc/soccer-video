@@ -13,24 +13,41 @@ param(
     [string[]]$ExcludeFolders = @('out_trash\', 'out_trash\dedupe_exact\')
 )
 
-# --- default for excludeFolders if not set by caller ---
-if (-not (Get-Variable -Name excludeFolders -Scope Global -ErrorAction SilentlyContinue)) {
-    $global:excludeFolders = @('out_trash\', 'out_trash\dedupe_exact\')
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir 'RepoClean.Core.ps1')
+
+# --- Self-contained defaults / guards ---
+
+# exclude folders: define if missing
+if (-not (Get-Variable -Name excludeFolders -Scope Script -ErrorAction SilentlyContinue) -and
+    -not (Get-Variable -Name excludeFolders -Scope Global -ErrorAction SilentlyContinue)) {
+  $script:excludeFolders = @('out_trash\','out_trash\dedupe_exact\')
+} elseif (-not (Get-Variable -Name excludeFolders -Scope Script -ErrorAction SilentlyContinue)) {
+  $script:excludeFolders = $global:excludeFolders
 }
 
-# ensure it's an array
-if (-not ($global:excludeFolders -is [System.Collections.IEnumerable])) {
-    $global:excludeFolders = @($global:excludeFolders)
+# target extensions: define in script: scope if missing
+if (-not (Get-Variable -Name targetExtensions -Scope Script -ErrorAction SilentlyContinue) -and
+    -not (Get-Variable -Name targetExtensions -Scope Global -ErrorAction SilentlyContinue)) {
+  $script:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi')
+} elseif (-not (Get-Variable -Name targetExtensions -Scope Script -ErrorAction SilentlyContinue)) {
+  $script:targetExtensions = $global:targetExtensions
 }
 
-# sync param -> global for any helper functions that read the global
-$global:excludeFolders = $ExcludeFolders
+# inventory directory: ensure exists (adjust if you store inventory elsewhere)
+if (-not (Get-Variable -Name InvDir -Scope Script -ErrorAction SilentlyContinue)) {
+  $script:InvDir = Join-Path $Root 'out\inventory'
+  New-Item -ItemType Directory -Force -Path $script:InvDir | Out-Null
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-. (Join-Path $scriptDir 'RepoClean.Core.ps1')
+if ($null -eq $ExcludeFolders) {
+    $script:excludeFolders = @()
+} else {
+    $script:excludeFolders = @($ExcludeFolders)
+}
 
 if (-not (Test-Path -LiteralPath $Root)) {
     throw "Root path '$Root' was not found."
@@ -41,11 +58,14 @@ if (-not $InventoryDirectory) {
     $InventoryDirectory = Join-Path -Path (Join-Path -Path $resolvedRoot -ChildPath 'out') -ChildPath 'inventory'
 }
 
+$script:InvDir = $InventoryDirectory
+New-Item -ItemType Directory -Force -Path $script:InvDir | Out-Null
+
 switch ($Mode) {
     'Inventory' {
         $exclude = @()
-        if ($global:excludeFolders) {
-            $exclude += $global:excludeFolders
+        if ($script:excludeFolders) {
+            $exclude += $script:excludeFolders
         }
 
         function ShouldSkip([string]$p) {
@@ -61,7 +81,7 @@ switch ($Mode) {
         $files = Get-ChildItem -LiteralPath $resolvedRoot -Recurse -File -ErrorAction SilentlyContinue |
                  Where-Object { -not (ShouldSkip $_.FullName) }
 
-        $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashAlgo $HashAlgorithm
+        $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashAlgo $HashAlgorithm -Extensions $script:targetExtensions
 
         $rows = [System.Collections.Generic.List[psobject]]::new()
         foreach ($record in $records) {
@@ -84,7 +104,8 @@ function Get-InventoryRecords {
         [Parameter(Mandatory)][System.Collections.IEnumerable]$Files,
         [Parameter(Mandatory)][string]$RootPath,
         [hashtable]$HashCache = $null,
-        [string]$HashAlgo = 'MD5'
+        [string]$HashAlgo = 'MD5',
+        [string[]]$Extensions = $script:targetExtensions
     )
 
     $records = [System.Collections.Generic.List[psobject]]::new()
@@ -113,7 +134,14 @@ function Get-InventoryRecords {
         if ([string]::IsNullOrEmpty($ext)) { $ext = '' }
         $rec.Extension = $ext.ToLowerInvariant()
 
-        if ($HashCache) {
+        $shouldHash = $true
+        if ($size -le 0) {
+            $shouldHash = $false
+        } elseif ($Extensions -and ($Extensions -notcontains $rec.Extension)) {
+            $shouldHash = $false
+        }
+
+        if ($HashCache -and $shouldHash) {
             $cacheKey = "$relPath|$size|$mtime"
             if ($HashCache.ContainsKey($cacheKey)) {
                 $rec.Hash = $HashCache[$cacheKey].Hash
@@ -140,4 +168,3 @@ function Get-InventoryRecords {
 
     return $records
 }
-

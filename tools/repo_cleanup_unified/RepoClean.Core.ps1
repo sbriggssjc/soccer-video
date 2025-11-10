@@ -25,7 +25,8 @@ function Get-InventoryRecords {
         [Parameter(Mandatory)][System.Collections.IEnumerable]$Files,
         [Parameter(Mandatory)][string]$RootPath,
         [hashtable]$HashCache = $null,
-        [string]$HashAlgo = 'MD5'
+        [string]$HashAlgo = 'MD5',
+        [string[]]$Extensions = $script:targetExtensions
     )
     $records = [System.Collections.Generic.List[psobject]]::new()
     foreach ($file in $Files) {
@@ -52,7 +53,7 @@ function Get-InventoryRecords {
 
         # Skip zero-byte files and non-target extensions when hashing/dupe checking
         $shouldHash = $true
-        if ($size -le 0 -or ($targetExtensions -notcontains $rec.Extension)) {
+        if ($size -le 0 -or ($Extensions -and ($Extensions -notcontains $rec.Extension))) {
             $shouldHash = $false
         }
 
