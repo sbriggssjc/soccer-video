@@ -16,9 +16,7 @@ param(
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $scriptDir 'RepoClean.Core.ps1')
 
-# --- Self-contained defaults / guards ---
-
-# exclude folders: define if missing
+# Defaults (self-contained)
 if (-not (Get-Variable -Name excludeFolders -Scope Script -ErrorAction SilentlyContinue) -and
     -not (Get-Variable -Name excludeFolders -Scope Global -ErrorAction SilentlyContinue)) {
   $script:excludeFolders = @('out_trash\','out_trash\dedupe_exact\')
@@ -26,7 +24,6 @@ if (-not (Get-Variable -Name excludeFolders -Scope Script -ErrorAction SilentlyC
   $script:excludeFolders = $global:excludeFolders
 }
 
-# target extensions: define in script: scope if missing
 if (-not (Get-Variable -Name targetExtensions -Scope Script -ErrorAction SilentlyContinue) -and
     -not (Get-Variable -Name targetExtensions -Scope Global -ErrorAction SilentlyContinue)) {
   $script:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi')
@@ -34,7 +31,6 @@ if (-not (Get-Variable -Name targetExtensions -Scope Script -ErrorAction Silentl
   $script:targetExtensions = $global:targetExtensions
 }
 
-# inventory directory: ensure exists (adjust if you store inventory elsewhere)
 if (-not (Get-Variable -Name InvDir -Scope Script -ErrorAction SilentlyContinue)) {
   $script:InvDir = Join-Path $Root 'out\inventory'
   New-Item -ItemType Directory -Force -Path $script:InvDir | Out-Null
@@ -83,16 +79,11 @@ switch ($Mode) {
 
         $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashAlgo $HashAlgorithm -Extensions $script:targetExtensions
 
-        $rows = [System.Collections.Generic.List[psobject]]::new()
-        foreach ($record in $records) {
-            [void]$rows.Add($record)
-        }
+        $invCsv = Join-Path $script:InvDir 'repo_inventory.csv'
+        $records | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $invCsv
+        Add-Content -Path $invCsv -Value "# generated: $(Get-Date -Format o)"
 
-        $csvPath = Join-Path -Path $InventoryDirectory -ChildPath 'repo_inventory.csv'
-        New-Item -ItemType Directory -Force -Path $InventoryDirectory | Out-Null
-
-        $rows | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8 -Force
-        Add-Content -Path $csvPath -Value "# generated: $(Get-Date -Format o)"
+        Write-Host ("[Inventory] Wrote {0:n0} rows -> {1}" -f $records.Count, $invCsv)
     }
     default {
         throw "Mode '$Mode' is not implemented in this build."
