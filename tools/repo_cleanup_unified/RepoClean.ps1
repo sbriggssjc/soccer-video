@@ -8,7 +8,8 @@ param(
 
     [string]$InventoryDirectory = $null,
 
-    [string]$HashAlgorithm = 'MD5',
+    [ValidateSet('none','sha256','size')]
+    [string]$HashMode = 'sha256',
 
     [string[]]$ExcludeFolders = @('out_trash\', 'out_trash\dedupe_exact\')
 )
@@ -77,7 +78,7 @@ switch ($Mode) {
         $files = Get-ChildItem -LiteralPath $resolvedRoot -Recurse -File -ErrorAction SilentlyContinue |
                  Where-Object { -not (ShouldSkip $_.FullName) }
 
-        $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashAlgo $HashAlgorithm -Extensions $script:targetExtensions
+        $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashMode $HashMode -Extensions $script:targetExtensions
 
         $invCsv = Join-Path $script:InvDir 'repo_inventory.csv'
         $records | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $invCsv
@@ -90,12 +91,25 @@ switch ($Mode) {
     }
 }
 
+function Get-ContentHash {
+    param(
+        [string]$Path,
+        [string]$HashMode = 'sha256'
+    )
+    try {
+        switch ($HashMode) {
+            'sha256' { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+            'size'   { return (Get-Item -LiteralPath $Path).Length.ToString() }
+            default  { return '' }
+        }
+    } catch { return '' }
+}
+
 function Get-InventoryRecords {
     param(
         [Parameter(Mandatory)][System.Collections.IEnumerable]$Files,
         [Parameter(Mandatory)][string]$RootPath,
-        [hashtable]$HashCache = $null,
-        [string]$HashAlgo = 'MD5',
+        [string]$HashMode = 'sha256',
         [string[]]$Extensions = $script:targetExtensions
     )
 
@@ -132,27 +146,11 @@ function Get-InventoryRecords {
             $shouldHash = $false
         }
 
-        if ($HashCache -and $shouldHash) {
-            $cacheKey = "$relPath|$size|$mtime"
-            if ($HashCache.ContainsKey($cacheKey)) {
-                $rec.Hash = $HashCache[$cacheKey].Hash
-            } else {
-                try {
-                    $hasher = [System.Security.Cryptography.HashAlgorithm]::Create($HashAlgo)
-                    $fs = [IO.File]::OpenRead($fullPath)
-                    try {
-                        $hash = ($hasher.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }) -join ''
-                        $rec.Hash = $hash
-                        $HashCache[$cacheKey] = [PSCustomObject]@{
-                            Path          = $cacheKey
-                            SizeBytes     = $size
-                            LastWriteTime = $mtime
-                            Hash          = $hash
-                        }
-                    } finally { $fs.Dispose() }
-                } catch { }
-            }
+        $hash = ''
+        if ($shouldHash) {
+            $hash = Get-ContentHash -Path $fullPath -HashMode $HashMode
         }
+        $rec.Hash = $hash
 
         [void]$records.Add($rec)
     }
