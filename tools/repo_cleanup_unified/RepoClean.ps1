@@ -1,4 +1,12 @@
-﻿[CmdletBinding()]
+﻿if (-not $global:excludeFolders) {
+  $global:excludeFolders = @('out_trash\','out_trash\dedupe_exact\','out\scratch\',
+                             '.git','node_modules','venv','env','site-packages','__pycache__')
+}
+if (-not $global:targetExtensions) {
+  $global:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi')
+}
+
+[CmdletBinding()]
 param(
   [ValidateSet('Inventory')]
   [string]$Mode = 'Inventory',
@@ -8,11 +16,13 @@ param(
   [string]$HashMode = 'sha256',
   [string]$InventoryDirectory = $null,
   [string[]]$ExcludeFolders = @('out_trash\','out_trash\dedupe_exact\'),
+  [switch]$ComputeHashes,
+  [switch]$DedupExact
   [switch]$QuarantineZeroByte
 )
 
-if (-not $script:targetExtensions) { $script:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi') }
-if (-not $script:excludeFolders)   { $script:excludeFolders   = @('out_trash\','out_trash\dedupe_exact\') }
+if (-not $script:targetExtensions) { $script:targetExtensions = $global:targetExtensions }
+if (-not $script:excludeFolders)   { $script:excludeFolders   = $global:excludeFolders }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $scriptDir 'RepoClean.Core.ps1')
@@ -62,6 +72,17 @@ switch ($Mode) {
 
         $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashMode $HashMode
 
+        if ($ComputeHashes) {
+          $wantExt = $global:targetExtensions | ForEach-Object { $_.ToLower() }
+          $i = 0
+          foreach ($r in $records) {
+            if (-not $r.FullPath) { continue }
+            $ext = [IO.Path]::GetExtension($r.FullPath).ToLower()
+            if ($wantExt -contains $ext -and (Test-Path -LiteralPath $r.FullPath)) {
+              $i++; if ($i % 500 -eq 0) { "…hashed $i files" | Out-Host }
+              try { $r.Hash = (Get-FileHash -LiteralPath $r.FullPath -Algorithm SHA256).Hash } catch {}
+            }
+          }
         if ($QuarantineZeroByte) {
             $EMPTY_HASH = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
             $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
@@ -92,6 +113,71 @@ switch ($Mode) {
         Add-Content -Path $invCsv -Value "# generated: $(Get-Date -Format o)"
 
         Write-Host ("[Inventory] Wrote {0:n0} rows -> {1}" -f $records.Count, $invCsv)
+
+        if ($DedupExact) {
+          $Root   = (Resolve-Path $Root).Path
+          $InvCsv = Join-Path $Root 'out\inventory\repo_inventory.csv'
+          $inv    = Import-Csv -LiteralPath $InvCsv | Where-Object {
+            $_.Hash -and $_.Hash.Trim() -ne '' -and $_.FullPath -and $_.FullPath.Trim() -ne '' `
+            -and (($_.FullPath -replace '/','\') -notlike '*\out\_trash\*') -and (Test-Path -LiteralPath $_.FullPath)
+          }
+
+          function Get-Bucket([string]$rel){
+            $rel = ($rel -replace '/','\')
+            if ($rel -like 'out\reels\portrait_1080x1920\*') { return 'portrait_export' }
+            if ($rel -like 'out\reels\portrait_branded\*')    { return 'portrait_branded' }
+            if ($rel -like 'out\atomic_clips\*')              { return 'atomic_clips' }
+            if ($rel -like 'out\games\*')                     { return 'games' }
+            if ($rel -like 'out\masters\*')                   { return 'masters' }
+            if ($rel -like 'out\follow_diag\*')               { return 'follow_diag' }
+            return 'other'
+          }
+          function Get-Score($rel,$ts){ return (Get-Date $ts).ToFileTimeUtc() }  # newest first
+
+          $priority = @('portrait_branded','portrait_export','masters','games','atomic_clips','follow_diag','other')
+          $prioMap  = @{}; 0..($priority.Count-1) | % { $prioMap[$priority[$_]] = $_ }
+
+          $groups = $inv | Group-Object Hash | Where-Object Count -gt 1
+          if ($groups.Count) {
+            $stamp  = Get-Date -Format yyyyMMdd_HHmmss
+            $quar   = Join-Path $Root "out\_trash\dedupe_exact\$stamp"
+            $logCsv = Join-Path $Root "out\inventory\R_keep_one_per_hash_$stamp.csv"
+            $toMove = @()
+
+            foreach($g in $groups){
+              $grp = $g.Group
+              $buckets = $grp | ForEach-Object { Get-Bucket $_.RelativePath } | Sort-Object -Unique
+              $keepBucket = ($buckets | Sort-Object { if($prioMap.ContainsKey($_)){ $prioMap[$_] } else { 999 } } | Select-Object -First 1)
+              $keepers = $grp | Where-Object { (Get-Bucket $_.RelativePath) -eq $keepBucket }
+              $keep = $keepers | Sort-Object `
+                        @{e={ -1 * (Get-Score $_.RelativePath $_.LastWriteTime) }}, `
+                        @{e={$_.SizeBytes}; Descending=$true}, `
+                        @{e={$_.RelativePath}} | Select-Object -First 1
+
+              foreach($x in ($grp | Where-Object { $_.FullPath -ne $keep.FullPath })){
+                $toMove += [pscustomobject]@{
+                  Hash         = $x.Hash
+                  KeepRel      = $keep.RelativePath
+                  RelativePath = $x.RelativePath
+                  FullPath     = $x.FullPath
+                  SizeBytes    = $x.SizeBytes
+                  Reason       = "keep-$keepBucket"
+                }
+              }
+            }
+
+            if ($toMove.Count) {
+              New-Item -ItemType Directory -Force -Path $quar | Out-Null
+              $toMove | Export-Csv $logCsv -NoTypeInformation -Encoding UTF8 | Out-Null
+              foreach($r in $toMove){
+                if(-not (Test-Path -LiteralPath $r.FullPath)) { continue }
+                $dst = Join-Path $quar ($r.RelativePath -replace '/','\')
+                New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($dst)) | Out-Null
+                try { Move-Item "\\?\$($r.FullPath)" "\\?\$dst" -Force -ErrorAction Stop } catch {}
+              }
+            }
+          }
+        }
     }
     default {
         throw "Mode '$Mode' is not implemented in this build."
@@ -146,11 +232,7 @@ function Get-InventoryRecords {
         $ext = $ext.ToLowerInvariant()
         $rec.Extension = $ext
 
-        $hash = ''
-        if ($script:targetExtensions -contains $ext) {
-            $hash = Get-ContentHash -Path $fullPath -HashMode $HashMode
-        }
-        $rec.Hash = $hash
+        $rec.Hash = ''
 
         [void]$records.Add($rec)
     }
