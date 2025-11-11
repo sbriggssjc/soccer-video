@@ -27,7 +27,7 @@ if (-not $global:targetExtensions) {
 }
 
 function Test-Excluded([string]$root, [string]$fullPath){
-  $rel = ($fullPath.Substring($root.Length)).TrimStart('\\','/')
+  $rel = ($fullPath.Substring($root.Length)).TrimStart([char[]]'\/')
   foreach($ex in $global:excludeFolders){
     $ex = ($ex -replace '/','\\').TrimEnd('\\')
     if ($rel -like "$ex*") { return $true }
@@ -55,7 +55,7 @@ function Get-InventoryRecords([string]$RootPath){
   $records = [System.Collections.Generic.List[psobject]]::new()
   foreach($f in $files){
     if (Test-Excluded -root $resolvedRoot -fullPath $f.FullName) { continue }
-    $rel  = ($f.FullName.Substring($resolvedRoot.Length)).TrimStart('\\','/')
+    $rel  = ($f.FullName.Substring($resolvedRoot.Length)).TrimStart([char[]]'\/')
     $hash = ''
     if ($ComputeHashes -and ($global:targetExtensions -contains $f.Extension.ToLower())){
       try { $hash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash } catch {}
