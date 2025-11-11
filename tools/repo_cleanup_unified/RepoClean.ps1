@@ -17,7 +17,7 @@ param(
   [string]$InventoryDirectory = $null,
   [string[]]$ExcludeFolders = @('out_trash\','out_trash\dedupe_exact\'),
   [switch]$ComputeHashes,
-  [switch]$DedupExact
+  [switch]$DedupExact,
   [switch]$QuarantineZeroByte
 )
 
@@ -83,6 +83,7 @@ switch ($Mode) {
               try { $r.Hash = (Get-FileHash -LiteralPath $r.FullPath -Algorithm SHA256).Hash } catch {}
             }
           }
+        }
         if ($QuarantineZeroByte) {
             $EMPTY_HASH = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
             $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
