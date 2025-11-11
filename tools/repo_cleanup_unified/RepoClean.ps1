@@ -1,49 +1,30 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Inventory')]
-    [string]$Mode = 'Inventory',
-
-    [Parameter(Mandatory)]
-    [string]$Root,
-
-    [string]$InventoryDirectory = $null,
-
-    [ValidateSet('none','sha256','size')]
-    [string]$HashMode = 'sha256',
-
-    [string[]]$ExcludeFolders = @('out_trash\', 'out_trash\dedupe_exact\')
+  [ValidateSet('Inventory')]
+  [string]$Mode = 'Inventory',
+  [Parameter(Mandatory=$true)]
+  [string]$Root,
+  [ValidateSet('none','sha256','size')]
+  [string]$HashMode = 'sha256',
+  [string]$InventoryDirectory = $null,
+  [string[]]$ExcludeFolders = @('out_trash\','out_trash\dedupe_exact\')
 )
+
+if (-not $script:targetExtensions) { $script:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi') }
+if (-not $script:excludeFolders)   { $script:excludeFolders   = @('out_trash\','out_trash\dedupe_exact\') }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $scriptDir 'RepoClean.Core.ps1')
 
-# Defaults (self-contained)
-if (-not (Get-Variable -Name excludeFolders -Scope Script -ErrorAction SilentlyContinue) -and
-    -not (Get-Variable -Name excludeFolders -Scope Global -ErrorAction SilentlyContinue)) {
-  $script:excludeFolders = @('out_trash\','out_trash\dedupe_exact\')
-} elseif (-not (Get-Variable -Name excludeFolders -Scope Script -ErrorAction SilentlyContinue)) {
-  $script:excludeFolders = $global:excludeFolders
-}
-
-if (-not (Get-Variable -Name targetExtensions -Scope Script -ErrorAction SilentlyContinue) -and
-    -not (Get-Variable -Name targetExtensions -Scope Global -ErrorAction SilentlyContinue)) {
-  $script:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi')
-} elseif (-not (Get-Variable -Name targetExtensions -Scope Script -ErrorAction SilentlyContinue)) {
-  $script:targetExtensions = $global:targetExtensions
-}
-
-if (-not (Get-Variable -Name InvDir -Scope Script -ErrorAction SilentlyContinue)) {
-  $script:InvDir = Join-Path $Root 'out\inventory'
-  New-Item -ItemType Directory -Force -Path $script:InvDir | Out-Null
-}
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($null -eq $ExcludeFolders) {
-    $script:excludeFolders = @()
-} else {
-    $script:excludeFolders = @($ExcludeFolders)
+if ($PSBoundParameters.ContainsKey('ExcludeFolders')) {
+    if ($null -eq $ExcludeFolders) {
+        $script:excludeFolders = @()
+    } else {
+        $script:excludeFolders = @($ExcludeFolders)
+    }
 }
 
 if (-not (Test-Path -LiteralPath $Root)) {
@@ -78,7 +59,7 @@ switch ($Mode) {
         $files = Get-ChildItem -LiteralPath $resolvedRoot -Recurse -File -ErrorAction SilentlyContinue |
                  Where-Object { -not (ShouldSkip $_.FullName) }
 
-        $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashMode $HashMode -Extensions $script:targetExtensions
+        $records = Get-InventoryRecords -Files $files -RootPath $resolvedRoot -HashMode $HashMode
 
         $invCsv = Join-Path $script:InvDir 'repo_inventory.csv'
         $records | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $invCsv
@@ -109,8 +90,7 @@ function Get-InventoryRecords {
     param(
         [Parameter(Mandatory)][System.Collections.IEnumerable]$Files,
         [Parameter(Mandatory)][string]$RootPath,
-        [string]$HashMode = 'sha256',
-        [string[]]$Extensions = $script:targetExtensions
+        [string]$HashMode = 'sha256'
     )
 
     $records = [System.Collections.Generic.List[psobject]]::new()
@@ -137,17 +117,11 @@ function Get-InventoryRecords {
 
         $ext = [IO.Path]::GetExtension($fullPath)
         if ([string]::IsNullOrEmpty($ext)) { $ext = '' }
-        $rec.Extension = $ext.ToLowerInvariant()
-
-        $shouldHash = $true
-        if ($size -le 0) {
-            $shouldHash = $false
-        } elseif ($Extensions -and ($Extensions -notcontains $rec.Extension)) {
-            $shouldHash = $false
-        }
+        $ext = $ext.ToLowerInvariant()
+        $rec.Extension = $ext
 
         $hash = ''
-        if ($shouldHash) {
+        if ($script:targetExtensions -contains $ext) {
             $hash = Get-ContentHash -Path $fullPath -HashMode $HashMode
         }
         $rec.Hash = $hash
