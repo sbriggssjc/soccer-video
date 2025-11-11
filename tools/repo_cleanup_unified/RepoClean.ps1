@@ -1,4 +1,25 @@
-﻿if (-not $global:excludeFolders) {
+﻿[CmdletBinding()]
+param(
+  [Parameter(Mandatory=$true)]
+  [ValidateSet('Inventory')]
+  [string]$Mode,
+
+  [Parameter(Mandatory=$true)]
+  [string]$Root,
+
+  [switch]$ComputeHashes,
+  [switch]$DedupExact
+)
+
+# --- Safe defaults if caller didn't predefine these globals ---
+if (-not $global:excludeFolders) {
+  $global:excludeFolders = @('out\_trash\','out\_trash\dedupe_exact\','out\scratch\',
+                             '.git\','node_modules\','venv\','env\','site-packages\','__pycache__\')
+}
+if (-not $global:targetExtensions) {
+  $global:targetExtensions = @('.mp4','.mov','.m4v','.mkv','.avi')
+}
+if (-not $global:excludeFolders) {
   $global:excludeFolders = @('out_trash\','out_trash\dedupe_exact\','out\scratch\',
                              '.git','node_modules','venv','env','site-packages','__pycache__')
 }
