@@ -18,6 +18,7 @@ param(
   [string[]]$ExcludeFolders = @('out_trash\','out_trash\dedupe_exact\'),
   [switch]$ComputeHashes,
   [switch]$DedupExact
+  [switch]$QuarantineZeroByte
 )
 
 if (-not $script:targetExtensions) { $script:targetExtensions = $global:targetExtensions }
@@ -82,6 +83,29 @@ switch ($Mode) {
               try { $r.Hash = (Get-FileHash -LiteralPath $r.FullPath -Algorithm SHA256).Hash } catch {}
             }
           }
+        if ($QuarantineZeroByte) {
+            $EMPTY_HASH = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
+            $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+            $quarRoot = Join-Path -Path $Root -ChildPath 'out_trash'
+            $quarRoot = Join-Path -Path $quarRoot -ChildPath 'zero_byte'
+            $quar = Join-Path -Path $quarRoot -ChildPath $stamp
+            $zeros = @($records | Where-Object {
+                $_.Hash -eq $EMPTY_HASH -and $_.FullPath -and $_.FullPath.Trim() -ne '' -and
+                (($_.FullPath -replace '/','\') -notlike '*\out_trash\*')
+            })
+            if ($zeros.Count) {
+                foreach ($r in $zeros) {
+                    if (-not (Test-Path -LiteralPath $r.FullPath)) { continue }
+                    $dst = Join-Path -Path $quar -ChildPath ($r.RelativePath -replace '/','\')
+                    $dstDir = [IO.Path]::GetDirectoryName($dst)
+                    if ($dstDir) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+                    try {
+                        Move-Item "\\?\$($r.FullPath)" "\\?\$dst" -Force -ErrorAction Stop
+                    } catch {
+                    }
+                }
+                Write-Host ("[Inventory] Quarantined {0:n0} zero-byte files -> {1}" -f $zeros.Count, $quar)
+            }
         }
 
         $invCsv = Join-Path $script:InvDir 'repo_inventory.csv'
