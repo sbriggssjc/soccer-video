@@ -1,10 +1,9 @@
-param(
+﻿param(
   [switch]$Run,      # actually execute commands
   [switch]$DryRun    # force preview even if -Run is present
 )
 
 $ErrorActionPreference = 'Stop'
-$PSStyle.OutputRendering = 'PlainText' 2>$null
 
 # repo + inputs
 $Repo = (Get-Location).Path
@@ -173,3 +172,5 @@ $work |
   }
 
 Write-Host "Done. Log: $log"
+
+
