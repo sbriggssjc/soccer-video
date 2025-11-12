@@ -1,150 +1,161 @@
 param(
-  [switch]$Run,      # actually execute
-  [switch]$DryRun    # force preview
+  [switch]$Run,      # actually execute commands
+  [switch]$DryRun    # force preview even if -Run is present
 )
 
 $ErrorActionPreference = 'Stop'
-$Repo = $PWD
-$CSV  = Join-Path $Repo 'out\reports\pipeline_status.csv'
-if (!(Test-Path $CSV)) { throw "Not found: $CSV" }
+$PSStyle.OutputRendering = 'PlainText' 2>$null
 
-# Detect tools you already have
+# repo + inputs
+$Repo = (Get-Location).Path
+$CSV  = Join-Path $Repo 'out\reports\pipeline_status.csv'
+if (!(Test-Path -LiteralPath $CSV)) { throw "Not found: $CSV" }
+
+# tool discovery (adjust to your actual tools if names differ)
 $FollowPY   = Join-Path $Repo 'tools\render_follow_unified.py'
 $UpscalePY  = Join-Path $Repo 'tools\upscale.py'
 $EnhancePS1 = Join-Path $Repo 'tools\auto_enhance\auto_enhance.ps1'
 $BrandPS1   = Join-Path $Repo 'tools\tsc_brand.ps1'
 
-function Use-Tool([string]$Path){ Test-Path -LiteralPath $Path }
+function Test-Tool { param([string]$Path) return [bool](Test-Path -LiteralPath $Path) }
 
+# ensure output folders
+foreach($rel in @(
+  'out\atomic_clips_follow','out\upscaled','out\enhanced','out\portrait_reels\clean','out\logs'
+)){
+  $p = Join-Path $Repo $rel
+  if (!(Test-Path -LiteralPath $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
+}
+
+# exec mode
 $DoRun = $false
 if ($Run.IsPresent -and -not $DryRun.IsPresent) { $DoRun = $true }
 
-# Ensure output folders exist
-$ensure = @(
-  'out\atomic_clips_follow',
-  'out\upscaled',
-  'out\enhanced',
-  'out\portrait_reels\clean',
-  'out\logs'
-) | % { Join-Path $Repo $_ } | % { New-Item -ItemType Directory -Force -Path $_ | Out-Null }
-
-$rows = Import-Csv $CSV
-$work = @()
+$rows = Import-Csv -LiteralPath $CSV
+$work = New-Object System.Collections.Generic.List[object]
 
 foreach ($r in $rows) {
   $clipID = $r.ClipID
   $atomic = $r.AtomicPath
-  if (!(Test-Path $atomic)) { continue }
+  if (-not $clipID -or -not $atomic -or -not (Test-Path -LiteralPath $atomic)) { continue }
 
-  # === FOLLOW/STABILIZE ===
-  if ($r.Stage_Follow -ne 'True') {
-    if (Use-Tool $FollowPY) {
-      $outFollow = Join-Path $Repo ("out\\atomic_clips_follow\\{0}__FOLLOW.mp4" -f $clipID)
-      $work += [pscustomobject]@{
-        Stage='FOLLOW'; MatchKey=$r.MatchKey; ClipID=$clipID
-        In=$atomic; Out=$outFollow
-        Cmd=@('python', $FollowPY, '--in', $atomic, '--out', $outFollow, '--preset', 'cinematic', '--clean-temp')
-      }
-    }
+  # Possible intermediates (compute paths)
+  $outFollow = Join-Path $Repo ("out\\atomic_clips_follow\\{0}__FOLLOW.mp4" -f $clipID)
+  $outUp     = Join-Path $Repo ("out\\upscaled\\{0}__UP.mp4"            -f $clipID)
+  $outEnh    = Join-Path $Repo ("out\\enhanced\\{0}__ENH.mp4"           -f $clipID)
+  $outBrand  = Join-Path $Repo ("out\\portrait_reels\\clean\\{0}__BRAND.mp4" -f $clipID)
+
+  # FOLLOW (stabilize/zoom/pan/ball follow)
+  if ($r.Stage_Follow -ne 'True' -and (Test-Tool $FollowPY)) {
+    $work.Add([pscustomobject]@{
+      Stage='FOLLOW'; MatchKey=$r.MatchKey; ClipID=$clipID
+      In=$atomic; Out=$outFollow
+      Cmd=@('python', $FollowPY, '--in', $atomic, '--out', $outFollow, '--preset', 'cinematic', '--clean-temp')
+    })
   }
 
-  # pick best available input for later stages
-  $inFollow = Join-Path $Repo ("out\\atomic_clips_follow\\{0}__FOLLOW.mp4" -f $clipID)
-  $bestForUpscale = (Test-Path $inFollow) ? $inFollow : $atomic
+  # Choose best source for UPSCALE: prefer follow if exists
+  $bestForUpscale = $atomic
+  if (Test-Path -LiteralPath $outFollow) { $bestForUpscale = $outFollow }
 
-  # === UPSCALE ===
+  # UPSCALE
   if ($r.Stage_Upscaled -ne 'True') {
-    $outUp = Join-Path $Repo ("out\\upscaled\\{0}__UP.mp4" -f $clipID)
-    if (Use-Tool $UpscalePY) {
-      $work += [pscustomobject]@{
+    if (Test-Tool $UpscalePY) {
+      # Use your repo's Python upscaler if present
+      $work.Add([pscustomobject]@{
         Stage='UPSCALE'; MatchKey=$r.MatchKey; ClipID=$clipID
         In=$bestForUpscale; Out=$outUp
         Cmd=@('python','-c',("import sys; sys.path.insert(0, r'{0}'); from upscale import upscale_video; upscale_video(r'{1}', scale=2)" -f (Split-Path $UpscalePY -Parent), $bestForUpscale))
-      }
+      })
     } else {
-      $work += [pscustomobject]@{
+      # Fallback to ffmpeg
+      $work.Add([pscustomobject]@{
         Stage='UPSCALE'; MatchKey=$r.MatchKey; ClipID=$clipID
         In=$bestForUpscale; Out=$outUp
-        Cmd=@('ffmpeg','-hide_banner','-y','-i', $bestForUpscale, '-vf','scale=1080:1920:flags=lanczos','-c:v','libx264','-preset','slow','-crf','18', $outUp)
-      }
+        Cmd=@('ffmpeg','-hide_banner','-y','-i', $bestForUpscale,'-vf','scale=1080:1920:flags=lanczos','-c:v','libx264','-preset','slow','-crf','18', $outUp)
+      })
     }
   }
 
-  # choose best input for enhance
-  $inUp = Join-Path $Repo ("out\\upscaled\\{0}__UP.mp4" -f $clipID)
-  $bestForEnh = (Test-Path $inUp) ? $inUp : $bestForUpscale
+  # Choose best source for ENHANCE: prefer upscaled if exists
+  $bestForEnh = $bestForUpscale
+  if (Test-Path -LiteralPath $outUp) { $bestForEnh = $outUp }
 
-  # === ENHANCE ===
+  # ENHANCE
   if ($r.Stage_Enhanced -ne 'True') {
-    $outEnh = Join-Path $Repo ("out\\enhanced\\{0}__ENH.mp4" -f $clipID)
-    if (Use-Tool $EnhancePS1) {
-      $work += [pscustomobject]@{
+    if (Test-Tool $EnhancePS1) {
+      $work.Add([pscustomobject]@{
         Stage='ENHANCE'; MatchKey=$r.MatchKey; ClipID=$clipID
         In=$bestForEnh; Out=$outEnh
         Cmd=@('powershell','-NoProfile','-ExecutionPolicy','Bypass','-File', $EnhancePS1, '-In', $bestForEnh, '-Out', $outEnh)
-      }
+      })
     } else {
-      $work += [pscustomobject]@{
+      $work.Add([pscustomobject]@{
         Stage='ENHANCE'; MatchKey=$r.MatchKey; ClipID=$clipID
         In=$bestForEnh; Out=$outEnh
-        Cmd=@('ffmpeg','-hide_banner','-y','-i', $bestForEnh, '-vf','hqdn3d=2:1:3:3,unsharp=5:5:0.5:5:5:0.0','-c:v','libx264','-preset','slow','-crf','18', $outEnh)
-      }
+        Cmd=@('ffmpeg','-hide_banner','-y','-i', $bestForEnh,'-vf','hqdn3d=2:1:3:3,unsharp=5:5:0.5:5:5:0.0','-c:v','libx264','-preset','slow','-crf','18', $outEnh)
+      })
     }
   }
 
-  # choose best input for brand
-  $bestForBrand = (Test-Path $outEnh) ? $outEnh : ((Test-Path $inUp) ? $inUp : $bestForUpscale)
+  # Choose best source for BRAND: prefer enhanced, else upscaled, else follow/atomic
+  $bestForBrand = $bestForEnh
+  if (Test-Path -LiteralPath $outEnh) {
+    $bestForBrand = $outEnh
+  } elseif (Test-Path -LiteralPath $outUp) {
+    $bestForBrand = $outUp
+  } elseif (Test-Path -LiteralPath $outFollow) {
+    $bestForBrand = $outFollow
+  } else {
+    $bestForBrand = $atomic
+  }
 
-  # === BRAND ===
-  if ($r.Stage_Branded -ne 'True') {
-    $outBrand = Join-Path $Repo ("out\\portrait_reels\\clean\\{0}__BRAND.mp4" -f $clipID)
-    if (Use-Tool $BrandPS1) {
-      $work += [pscustomobject]@{
-        Stage='BRAND'; MatchKey=$r.MatchKey; ClipID=$clipID
-        In=$bestForBrand; Out=$outBrand
-        Cmd=@('powershell','-NoProfile','-ExecutionPolicy','Bypass','-File', $BrandPS1, '-In', $bestForBrand, '-Out', $outBrand, '-Aspect','9x16')
-      }
-    }
-    else {
-      # if no branding script, skip (or add your ffmpeg overlay here)
-    }
+  # BRAND (only if you have a branding script)
+  if ($r.Stage_Branded -ne 'True' -and (Test-Tool $BrandPS1)) {
+    $work.Add([pscustomobject]@{
+      Stage='BRAND'; MatchKey=$r.MatchKey; ClipID=$clipID
+      In=$bestForBrand; Out=$outBrand
+      Cmd=@('powershell','-NoProfile','-ExecutionPolicy','Bypass','-File', $BrandPS1, '-In', $bestForBrand, '-Out', $outBrand, '-Aspect','9x16')
+    })
   }
 }
 
-if (-not $work.Count) { Write-Host 'No pending stages (from CSV).'; return }
+if ($work.Count -eq 0) {
+  Write-Host 'No pending stages (from CSV).'
+  return
+}
 
-# Group & run
 $log = Join-Path $Repo ("out\\logs\\advance_from_csv.{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-"Log: $log"
+Write-Host ("Log: {0}" -f $log)
 
-$work | Sort-Object Stage, MatchKey, ClipID |
+$work |
+  Sort-Object Stage, MatchKey, ClipID |
   Group-Object Stage | ForEach-Object {
     Write-Host ("### Stage: {0}" -f $_.Name) -ForegroundColor Cyan
     $_.Group | Group-Object MatchKey | ForEach-Object {
       Write-Host ("# Match: {0}" -f $_.Name) -ForegroundColor Yellow
       foreach ($w in $_.Group) {
         $cmd = $w.Cmd
-        $cmdString = ($cmd | % { '"' + $_ + '"' }) -join ' '
+        $cmdString = ($cmd | ForEach-Object { '"' + $_ + '"' }) -join ' '
         Add-Content -Path $log -Value $cmdString
 
         # idempotent: skip if Out newer than In
         $skip = $false
-        if ((Test-Path $w.In) -and (Test-Path $w.Out)) {
-          $inItem  = Get-Item $w.In
-          $outItem = Get-Item $w.Out
+        if ((Test-Path -LiteralPath $w.In) -and (Test-Path -LiteralPath $w.Out)) {
+          $inItem  = Get-Item -LiteralPath $w.In
+          $outItem = Get-Item -LiteralPath $w.Out
           if ($outItem.LastWriteTimeUtc -ge $inItem.LastWriteTimeUtc) { $skip = $true }
         }
+        if (-not $DoRun) { Write-Host "[RUN?] $cmdString"; continue }
         if ($skip) { Write-Host "[SKIP] $cmdString"; Add-Content -Path $log -Value '[SKIP]'; continue }
 
-        if (-not $DoRun) { Write-Host "[RUN?] $cmdString"; continue }
-
         $dir = Split-Path -Parent $w.Out
-        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $cmd[0]
         if ($cmd.Count -gt 1) {
-          $psi.Arguments = [string]::Join(' ', ($cmd[1..($cmd.Count-1)] | % { '"' + $_ + '"' }))
+          $psi.Arguments = [string]::Join(' ', ($cmd[1..($cmd.Count-1)] | ForEach-Object { '"' + $_ + '"' }))
         }
         $psi.WorkingDirectory = $Repo
         $psi.UseShellExecute = $false
