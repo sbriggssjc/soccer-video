@@ -520,8 +520,18 @@ def print_summary(clips: Sequence[ClipStageInfo]) -> None:
         print(",".join(row))
 
 
+def find_repo_root(start: Path) -> Path:
+    cur = start
+    for _ in range(8):
+        if (cur / ".git").exists() or (cur / "out" / "atomic_clips").exists():
+            return cur
+        cur = cur.parent
+    return start  # fallback
+
+
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    here = Path(__file__).resolve()
+    repo_root = find_repo_root(here.parent)
     clips, commands = generate_reports(repo_root)
     status_csv = write_status_csv(repo_root, clips)
     command_script = write_command_script(repo_root, commands)
