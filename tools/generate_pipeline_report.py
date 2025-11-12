@@ -386,13 +386,16 @@ def write_command_script(repo_root: Path, commands: Sequence[Dict[str, object]])
     script_path = out_dir / "pipeline_commands_to_run.ps1"
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
-    log_rel = f"out\\logs\\advance_pipeline.{timestamp}.log"
-
     with script_path.open("w", encoding="utf-8") as handle:
         handle.write("param([bool]$WhatIf = $true)\n")
         handle.write("$ErrorActionPreference = 'Stop'\n")
-        handle.write("$script:RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path\n")
-        handle.write("$logPath = Join-Path $script:RepoRoot '{}'\n".format(log_rel.replace("/", "\\")))
+        repo_root_str = str(repo_root).replace("\\", "\\\\")
+        handle.write("$script:RepoRoot = '{}'\n".format(repo_root_str))
+        handle.write(
+            "$logPath = Join-Path $script:RepoRoot '{}'\n".format(
+                "out\\logs\\advance_pipeline.{0}.log".format(timestamp)
+            )
+        )
         handle.write("$null = New-Item -ItemType Directory -Force -Path (Split-Path $logPath)\n")
         handle.write("$logStream = New-Item -ItemType File -Force -Path $logPath\n")
         handle.write("$commands = @()\n")
