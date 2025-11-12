@@ -1,4 +1,4 @@
-﻿"""Metrics utilities for Smart Soccer Highlight Selector."""
+"""Metrics utilities for Smart Soccer Highlight Selector."""
 from __future__ import annotations
 
 import json

@@ -1,4 +1,4 @@
-﻿param([string]$Csv = ".\atomic_clips_index.rebuilt.csv")
+param([string]$Csv = ".\atomic_clips_index.rebuilt.csv")
 
 $rows = Import-Csv -LiteralPath $Csv
 

@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 
 if len(sys.argv)<3: raise SystemExit("usage: plan_camera.py <track_csv> <out_ps1>")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
@@ -69,7 +69,7 @@ cy = jerk_limit(rate_limit(cy, dx_max=7.5))
 spd = ema(speed,0.35)
 mx_base, my_base = 170.0, 200.0      # wider margins so ball stays in frame during bursts
 wide_boost = np.clip((spd-240.0)/220.0, 0, 1) + np.clip((0.35-conf)/0.35, 0, 1)*0.8
-mx = mx_base*(1.0+0.55*wide_boost)   # was 0.35 → 0.55
+mx = mx_base*(1.0+0.55*wide_boost)   # was 0.35 ? 0.55
 my = my_base*(1.0+0.55*wide_boost)
 
 dx = np.minimum(cx, w-cx) - mx
@@ -82,7 +82,7 @@ z = np.maximum(1.0, np.maximum(z_need_x, z_need_y))
 z = np.minimum(1.50, 0.80*z + 0.20)       # cap lower than before for steadier look
 z = ema(z, 0.32)
 
-# Hard per-frame zoom-rate cap to remove “pumping”
+# Hard per-frame zoom-rate cap to remove �pumping�
 def zoom_rate_limit(z, dz_max=0.018):     # ~1.8% per frame at source fps
     out = np.copy(z)
     for i in range(1,len(out)):

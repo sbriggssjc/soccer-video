@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 if len(sys.argv) < 3: raise SystemExit("usage: plan_adaptive_speed.py <track_csv> <out_ps1>")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 

@@ -1,4 +1,4 @@
-﻿# --- RepoClean.Core.ps1 ---
+# --- RepoClean.Core.ps1 ---
 
 function Get-RelativePath {
     param(

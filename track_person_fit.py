@@ -1,4 +1,4 @@
-﻿import argparse, pathlib, math, numpy as np, cv2
+import argparse, pathlib, math, numpy as np, cv2
 from ultralytics import YOLO
 
 def choose_track(tracks, W, H):

@@ -1,4 +1,4 @@
-﻿import argparse, pathlib, sys, math, os, traceback
+import argparse, pathlib, sys, math, os, traceback
 import numpy as np, cv2
 from collections import defaultdict
 

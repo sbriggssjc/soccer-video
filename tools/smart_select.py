@@ -1,4 +1,4 @@
-﻿"""CLI entry point for the Smart Soccer Highlight Selector pipeline."""
+"""CLI entry point for the Smart Soccer Highlight Selector pipeline."""
 from __future__ import annotations
 
 import argparse

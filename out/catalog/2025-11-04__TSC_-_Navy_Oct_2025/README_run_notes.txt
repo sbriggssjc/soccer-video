@@ -1,7 +1,7 @@
-﻿How to use:
+How to use:
 
 1) Open the CSV and set 'master_start'/'master_end' (in seconds) for each row you want.
-   - Keep 'id' as a 3-digit sequence (001, 002, â€¦).
+   - Keep 'id' as a 3-digit sequence (001, 002, …).
    - Fill 'playtag' / 'phase' / 'side' / etc. as needed for overlays & inventory.
 
 2) Generate atomic clips (existing pipeline examples):

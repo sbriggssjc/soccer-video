@@ -1,4 +1,4 @@
-﻿import os,sys,cv2,numpy as np
+import os,sys,cv2,numpy as np
 vid=sys.argv[1]; outdir=sys.argv[2]; weights=sys.argv[3]
 use_yolo=False; yolo=None
 if os.path.exists(weights) and os.path.getsize(weights)>0:

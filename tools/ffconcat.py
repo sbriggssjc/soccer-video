@@ -1,4 +1,4 @@
-﻿"""Helpers for building ``ffconcat`` playlists used by ``ffmpeg``."""
+"""Helpers for building ``ffconcat`` playlists used by ``ffmpeg``."""
 from __future__ import annotations
 
 import dataclasses

@@ -1,4 +1,4 @@
-﻿import pandas as pd, pathlib
+import pandas as pd, pathlib
 p = pathlib.Path(r".\out\in_play.csv")
 df = pd.read_csv(p)
 

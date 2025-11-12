@@ -1,4 +1,4 @@
-﻿import argparse, json, math, pathlib, traceback, cv2, numpy as np
+import argparse, json, math, pathlib, traceback, cv2, numpy as np
 
 def clamp(v,a,b): return a if v<a else (b if v>b else v)
 def polyfit_expr(ns, vs, deg):
@@ -90,7 +90,7 @@ def choose_with_identity(cands, prev_box, target_hist):
     for (box, hist, cx, cy, iouv) in cands:
         app = bhatta(target_hist, hist)           # 0 is best
         di  = 1.0 - iouv
-        dc  = math.hypot(cx-pcx, cy-pcy) / 80.0   # ~80px ≈ 1 unit
+        dc  = math.hypot(cx-pcx, cy-pcy) / 80.0   # ~80px � 1 unit
         cost = 0.55*app + 0.30*di + 0.15*dc
         if cost < best_cost:
             best_cost, best = cost, box

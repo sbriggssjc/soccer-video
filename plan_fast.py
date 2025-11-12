@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 if len(sys.argv)<3: raise SystemExit("usage: plan_fast.py track.csv out.ps1vars")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -13,7 +13,7 @@ N=np.array(N); X=np.array(X); Y=np.array(Y); C=np.array(C); T=len(N)
 fps = fps if fps and fps>1e-6 else 24.0; dt=1.0/fps
 
 # knobs
-SPEED = 1.9   # global aggressiveness (raise if still too slow: 2.1–2.3)
+SPEED = 1.9   # global aggressiveness (raise if still too slow: 2.1�2.3)
 EDGE  = 40.0  # emergency keep-in distance
 MX,MY = 180.0,220.0  # margins to compute zoom
 

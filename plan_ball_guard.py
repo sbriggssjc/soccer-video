@@ -1,4 +1,4 @@
-﻿import sys, csv, math, numpy as np
+import sys, csv, math, numpy as np
 if len(sys.argv) < 3: raise SystemExit("usage: plan_ball_guard.py <track_csv> <out_ps1>")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -37,7 +37,7 @@ xs,ys,vx,vy = kalman_cv(CX,CY,CONF,dt)
 spd = np.hypot(vx,vy)
 
 # --- Predictive lead + directional bias ---
-lead_s = 0.50 + np.clip((spd-180.0)/260.0,0,1)*0.30     # 0.50s base → up to +0.30s
+lead_s = 0.50 + np.clip((spd-180.0)/260.0,0,1)*0.30     # 0.50s base ? up to +0.30s
 kfrm   = np.clip(np.round(lead_s/dt).astype(int),0,60)
 px = xs + vx*(kfrm*dt); py = ys + vy*(kfrm*dt)
 vnorm = np.maximum(spd,1e-6)
@@ -78,7 +78,7 @@ warm=min(6,T-1); aw=np.linspace(0,1,warm)
 px[:warm] = px[:warm]*aw + CX[:warm]*(1-aw)
 py[:warm] = py[:warm]*aw + CY[:warm]*(1-aw)
 
-# --- Zoom: demand from margins + error/uncertainty → widen ---
+# --- Zoom: demand from margins + error/uncertainty ? widen ---
 mx,my = 170.0, 210.0
 dx = np.minimum(px, w-px) - mx
 dy = np.minimum(py, h-py) - my

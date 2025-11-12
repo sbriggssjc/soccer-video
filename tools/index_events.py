@@ -1,4 +1,4 @@
-﻿"""Aggregate and normalise soccer event CSV files."""
+"""Aggregate and normalise soccer event CSV files."""
 from __future__ import annotations
 
 import argparse

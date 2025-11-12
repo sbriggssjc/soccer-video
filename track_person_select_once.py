@@ -1,4 +1,4 @@
-ï»¿import argparse, os, pathlib, cv2, numpy as np, math
+import argparse, os, pathlib, cv2, numpy as np, math
 from typing import Tuple
 
 # ---------- small helpers ----------
@@ -115,7 +115,7 @@ def main():
         half_w_edge = max(8.0, min(left,right))
         # z upper bound so crop half-size >= need and <= edge:
         # half_h = H/(2z) >= half_h_need  -> z <= H/(2*half_h_need)
-        # half_h <= half_h_edge           -> z >= H/(2*half_h_edge)  (donâ€™t zoom in more than edges allow)
+        # half_h <= half_h_edge           -> z >= H/(2*half_h_edge)  (don’t zoom in more than edges allow)
         # same for width
         z_from_need_h = H/(2.0*max(half_h_need,1.0))
         z_from_need_w = (H*9/16)/(2.0*max(half_w_need,1.0))
@@ -124,7 +124,7 @@ def main():
 
         # allowable z range intersection
         z_upper = min(z_from_need_h, z_from_need_w, zmax)
-        z_lower = max(zmin, z_from_edge_h, z_from_edge_w, 1.0)  # donâ€™t zoom *in* past edges
+        z_lower = max(zmin, z_from_edge_h, z_from_edge_w, 1.0)  # don’t zoom *in* past edges
         z = max(z_lower, min(z_upper, zmax))
         return float(np.clip(z, zmin, zmax))
 

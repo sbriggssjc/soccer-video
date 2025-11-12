@@ -1,4 +1,4 @@
-﻿import sys, csv, math, numpy as np
+import sys, csv, math, numpy as np
 if len(sys.argv)<3: raise SystemExit("usage: plan_piecewise_guard.py track.csv out.ps1vars")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 

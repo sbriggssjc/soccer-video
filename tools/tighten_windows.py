@@ -1,4 +1,4 @@
-﻿"""Refine event windows to produce concise highlight clips."""
+"""Refine event windows to produce concise highlight clips."""
 from __future__ import annotations
 
 import argparse

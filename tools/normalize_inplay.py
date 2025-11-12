@@ -1,4 +1,4 @@
-﻿import csv, io, re, pathlib
+import csv, io, re, pathlib
 import pandas as pd
 
 p = pathlib.Path(r".\out\in_play.csv")

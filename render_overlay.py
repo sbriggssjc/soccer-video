@@ -1,4 +1,4 @@
-﻿import sys, csv, ast, numpy as np, cv2
+import sys, csv, ast, numpy as np, cv2
 
 stable, ball_csv, vars_ps1, out_mp4 = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 

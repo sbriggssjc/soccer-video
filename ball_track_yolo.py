@@ -1,4 +1,4 @@
-﻿import sys, csv, os, cv2
+import sys, csv, os, cv2
 # args: <in> <out_csv> [weights_or_NONE] [conf]
 args = sys.argv[1:]
 if len(args) < 2:

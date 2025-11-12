@@ -1,4 +1,4 @@
-﻿param(
+param(
   [Parameter(Mandatory=$true)][string]$Manifest,
   [Parameter(Mandatory=$true)][string]$OutRoot,
   [ValidateSet("copy","encode")][string]$Mode = "encode"

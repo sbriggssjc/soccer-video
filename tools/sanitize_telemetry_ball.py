@@ -1,4 +1,4 @@
-﻿import json, math, sys, pathlib as p
+import json, math, sys, pathlib as p
 from typing import Any
 
 inp = p.Path(sys.argv[1])

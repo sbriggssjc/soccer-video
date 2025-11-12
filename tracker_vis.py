@@ -1,4 +1,4 @@
-﻿import sys, os, csv, cv2, numpy as np
+import sys, os, csv, cv2, numpy as np
 vid, csv_path, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(out_dir, exist_ok=True)
 cap=cv2.VideoCapture(vid)

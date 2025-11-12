@@ -1,4 +1,4 @@
-﻿param(
+param(
   [ValidateSet("DryRun","Execute")]
   [string]$Mode = "DryRun",
   [string]$Trash = ("out\_TRASH_{0:yyyy-MM-dd_HHmmss}" -f (Get-Date)),

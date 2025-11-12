@@ -1,4 +1,4 @@
-﻿import sys, os, csv
+import sys, os, csv
 import numpy as np, cv2, math, time
 
 

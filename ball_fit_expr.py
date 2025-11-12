@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -31,9 +31,9 @@ cx_s = ema(cx_s, 0.20); cy_s = ema(cy_s, 0.20)
 # finite differences in *frames*
 vx = np.gradient(cx_s); vy = np.gradient(cy_s)
 ax = np.gradient(vx);  ay = np.gradient(vy)
-# lookahead in frames grows with speed (faster ball → further look)
+# lookahead in frames grows with speed (faster ball ? further look)
 speed = np.sqrt(vx*vx + vy*vy)
-L = np.clip(6 + 0.20*speed, 6, 18)  # ~0.25–0.75s @24fps
+L = np.clip(6 + 0.20*speed, 6, 18)  # ~0.25�0.75s @24fps
 cx_pred = cx_s + vx*L + 0.5*ax*(L**2)
 cy_pred = cy_s + vy*L + 0.5*ay*(L**2)
 # clamp predictions

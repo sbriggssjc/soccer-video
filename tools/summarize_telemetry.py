@@ -1,4 +1,4 @@
-﻿import json, collections, sys
+import json, collections, sys
 p = r"out\render_logs\tester_022__SHOT.jsonl"
 xs=[]; ys=[]; used=collections.Counter()
 with open(p,"r",encoding="utf-8") as f:

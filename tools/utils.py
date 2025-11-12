@@ -1,4 +1,4 @@
-﻿"""Utility helpers for soccer highlight tooling."""
+"""Utility helpers for soccer highlight tooling."""
 from __future__ import annotations
 
 import math

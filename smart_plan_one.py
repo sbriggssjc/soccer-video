@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 try:
     from numpy import RankWarning
 except Exception:
@@ -32,8 +32,8 @@ vx = np.gradient(cx_s, dt); vy = np.gradient(cy_s, dt)
 ax = np.gradient(vx, dt);   ay = np.gradient(vy, dt)
 
 # ---- LEAD PREDICTION (increase if still behind) ----
-LA_s     = 2.20    # seconds of lead (↑)
-ACC_GAIN = 0.25    # accel influence (↓ slightly to avoid overshoot)
+LA_s     = 2.20    # seconds of lead (?)
+ACC_GAIN = 0.25    # accel influence (? slightly to avoid overshoot)
 A_CLAMP  = 2600.0  # px/s^2
 ax = np.clip(ax, -A_CLAMP, A_CLAMP); ay = np.clip(ay, -A_CLAMP, A_CLAMP)
 cx_pred = cx_s + vx*LA_s + 0.5*ACC_GAIN*ax*(LA_s**2)
@@ -85,7 +85,7 @@ z_soft = z_plan*(1-alpha) + z_needed*alpha
 z_hard = np.maximum(z_soft, np.minimum(2.60, z_needed*1.17))
 z_final= np.minimum(z_hard, 2.60)
 
-# ---- Piecewise fit → ffmpeg expr ----
+# ---- Piecewise fit ? ffmpeg expr ----
 def piecewise(n,y,seg=12,deg=3):
     S=[]; i=0
     while i<len(n):

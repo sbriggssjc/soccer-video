@@ -1,4 +1,4 @@
-﻿import argparse, json, math, pathlib, traceback, cv2, numpy as np
+import argparse, json, math, pathlib, traceback, cv2, numpy as np
 
 def clamp(v,a,b): return a if v<a else (b if v>b else v)
 

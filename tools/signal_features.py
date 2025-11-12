@@ -1,4 +1,4 @@
-﻿"""Signal feature extraction for Smart Soccer Highlight Selector."""
+"""Signal feature extraction for Smart Soccer Highlight Selector."""
 from __future__ import annotations
 
 import dataclasses

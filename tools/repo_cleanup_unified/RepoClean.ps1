@@ -1,4 +1,4 @@
-﻿# REPOCLEAN WRAPPER (safe, self-contained)
+# REPOCLEAN WRAPPER (safe, self-contained)
 # tools\repo_cleanup_unified\RepoClean.ps1
 [CmdletBinding()]
 param(

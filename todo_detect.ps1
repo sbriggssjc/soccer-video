@@ -1,1 +1,1 @@
-﻿# Run transforms detect (vidstabdetect) for missing TRF
+# Run transforms detect (vidstabdetect) for missing TRF

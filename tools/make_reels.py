@@ -1,4 +1,4 @@
-﻿"""Build highlight reels from ffconcat playlists."""
+"""Build highlight reels from ffconcat playlists."""
 from __future__ import annotations
 
 import argparse

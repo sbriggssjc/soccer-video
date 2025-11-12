@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$IndexCsv   = ".\atomic_clips_index.rebuilt.csv",
   [string]$AtomicRoot = ".\out\atomic_clips",
   [switch]$DoCut,

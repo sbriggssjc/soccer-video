@@ -1,4 +1,4 @@
-﻿import sys, csv, math, numpy as np
+import sys, csv, math, numpy as np
 if len(sys.argv)<3: raise SystemExit("usage: plan_kalman.py <track_csv> <out_ps1>")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -98,7 +98,7 @@ def rate_cap(p, dv_max=6.0, da_max=0.35):
 px = rate_cap(px, dv_max=6.0, da_max=0.35)
 py = rate_cap(py, dv_max=6.0, da_max=0.35)
 
-# Start warm-up: blend from center → target over ~36 frames
+# Start warm-up: blend from center ? target over ~36 frames
 warm = min(36, T-1)
 aw = np.linspace(0,1,warm)
 px[:warm] = px[:warm]*aw + (w/2.0)*(1-aw)

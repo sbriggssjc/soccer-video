@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$Video = ".\out\full_game_stabilized.mp4",
 
   [ValidateSet("ignore","strict","loose")]

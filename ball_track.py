@@ -1,4 +1,4 @@
-﻿import sys, csv, os, cv2, numpy as np
+import sys, csv, os, cv2, numpy as np
 
 # Usage: ball_track.py <in> <out_csv> [weights_or_NONE] [conf]
 args = sys.argv[1:]
@@ -65,7 +65,7 @@ lk_params      = dict(winSize=(21,21), maxLevel=3,
                       criteria=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT, 30, 0.01))
 
 def global_reacquire(frame_gray):
-    # tile scan: pick tile with highest median gradient → centroid
+    # tile scan: pick tile with highest median gradient ? centroid
     H,W = frame_gray.shape
     tx,ty = 8,4
     best=None; best_val=-1; best_box=None

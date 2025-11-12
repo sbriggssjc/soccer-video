@@ -1,4 +1,4 @@
-﻿import argparse, json, pathlib, cv2
+import argparse, json, pathlib, cv2
 
 def main():
     ap = argparse.ArgumentParser()
@@ -11,7 +11,7 @@ def main():
     N = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
-    win = "Select Player (frames: 0..%d) – press S to select, ENTER to accept, ESC to quit" % (N-1)
+    win = "Select Player (frames: 0..%d) � press S to select, ENTER to accept, ESC to quit" % (N-1)
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
 
     cur = 0

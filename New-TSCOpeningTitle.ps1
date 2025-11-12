@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)] [string]$PlayerImg,
   [Parameter(Mandatory=$true)] [string]$PlayerName,

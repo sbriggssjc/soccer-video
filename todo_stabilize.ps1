@@ -1,1 +1,1 @@
-﻿# Run stabilization (vidstabtransform) for missing stabilized.mp4
+# Run stabilization (vidstabtransform) for missing stabilized.mp4

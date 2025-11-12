@@ -1,4 +1,4 @@
-﻿# tools/force_events_audio.py
+# tools/force_events_audio.py
 import argparse, numpy as np, pandas as pd, librosa
 from scipy.signal import find_peaks
 

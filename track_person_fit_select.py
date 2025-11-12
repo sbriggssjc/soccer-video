@@ -1,4 +1,4 @@
-﻿import argparse, pathlib, math, numpy as np, cv2, sys, time
+import argparse, pathlib, math, numpy as np, cv2, sys, time
 from ultralytics import YOLO
 
 def poly_fit_expr(ns, vs, deg=3):

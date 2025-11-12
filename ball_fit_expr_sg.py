@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 from math import ceil
 try:
     from scipy.signal import savgol_filter
@@ -35,7 +35,7 @@ def ema(arr, a):
 cx1, cy1 = ema(cx, 0.35), ema(cy, 0.35)
 cx2, cy2 = ema(cx1, 0.20), ema(cy1, 0.20)
 
-# Savitzky–Golay (if available) to remove micro wiggles
+# Savitzky�Golay (if available) to remove micro wiggles
 if USE_SG:
     # choose odd window around ~0.25s, order 3
     win = max(5, int(round((fps*0.25)))|1)  # force odd
@@ -50,7 +50,7 @@ def lead_shift(a, k):
     return np.concatenate([a[k:], pad])
 cx3 = lead_shift(cx2, lead); cy3 = lead_shift(cy2, lead)
 
-# margins → needed zoom
+# margins ? needed zoom
 margin_x, margin_y = 120.0, 150.0
 dx = np.minimum(cx3, w-cx3) - margin_x
 dy = np.minimum(cy3, h-cy3) - margin_y

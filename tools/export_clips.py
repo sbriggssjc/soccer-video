@@ -1,4 +1,4 @@
-﻿"""Export per-event highlight clips and playlists."""
+"""Export per-event highlight clips and playlists."""
 from __future__ import annotations
 
 import argparse

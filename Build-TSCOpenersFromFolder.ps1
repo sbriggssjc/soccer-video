@@ -1,4 +1,4 @@
-﻿<# Build-TSCOpenersFromFolder.ps1
+<# Build-TSCOpenersFromFolder.ps1
    Loops over a folder of images named like "Claire Briggs - 14.jpg",
    extracts Name + Number, and calls New-TSCOpeningTitle.ps1 for each.
 
@@ -75,7 +75,7 @@ if (!(Test-Path $OpenerScript)) { throw "Opener script not found: $OpenerScript"
 $null = New-Item -ItemType Directory -Force -Path $OutRoot
 
 # Accept hyphen, en dash, em dash, minus, etc.
-# Example matches: "Claire Briggs - 14.jpg" / "Claire Briggs – 14.JPG"
+# Example matches: "Claire Briggs - 14.jpg" / "Claire Briggs � 14.JPG"
 $regex = '^(?<name>.+?)\s*[\p{Pd}]\s*(?<num>\d+)\.(jpg|jpeg|png)$'
 $manifest = @()
 

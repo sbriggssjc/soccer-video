@@ -1,4 +1,4 @@
-﻿import io, re, pathlib, pandas as pd
+import io, re, pathlib, pandas as pd
 
 p = pathlib.Path(r".\out\in_play.csv")
 text = p.read_text(encoding="utf-8-sig", errors="replace")

@@ -1,4 +1,4 @@
-﻿import argparse, os, pathlib, math, cv2, numpy as np, sys, traceback
+import argparse, os, pathlib, math, cv2, numpy as np, sys, traceback
 
 # ---------- small utils ----------
 def clamp(v,a,b): return a if v<a else (b if v>b else v)
@@ -42,7 +42,7 @@ def zoom_for_subject(W,H,cx,cy,w,h,zmin,zmax,margin):
     z1 = H/(2.0*max(half_h_need,1.0))
     z2 = (H*9/16)/(2.0*max(half_w_need,1.0))
     z_req = min(z1, z2)
-    # guardrails near edges (don’t let crop slam into borders)
+    # guardrails near edges (don�t let crop slam into borders)
     half_h_edge = max(24.0, min(cy, H-cy))
     half_w_edge = max(24.0, min(cx, W-cx))
     z_edge_h = H/(2.0*half_h_edge)
@@ -212,7 +212,7 @@ def plan_path(W,H,N, cx,cy,bw,bh, lookahead=18, vmax=64.0, amax=10.0, edge_margi
     cy_f = moving_avg_future(cy, lookahead)
     cx_s = vel_accel_limit(cx_f, vmax, amax)
     cy_s = vel_accel_limit(cy_f, vmax, amax)
-    # adaptive margin: move faster ⇒ slightly more margin
+    # adaptive margin: move faster ? slightly more margin
     z_list=[]
     for i in range(N):
         sp = 0.0 if i==0 else min(1.0, math.hypot(cx_s[i]-cx_s[i-1], cy_s[i]-cy_s[i-1])/12.0)

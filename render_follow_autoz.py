@@ -1,4 +1,4 @@
-﻿import pandas as pd, numpy as np, cv2, os, subprocess
+import pandas as pd, numpy as np, cv2, os, subprocess
 from scipy.signal import savgol_filter
 
 # ---- Inputs / outputs ----

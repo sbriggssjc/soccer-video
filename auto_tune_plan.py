@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 try:
     from numpy import RankWarning
 except Exception:
@@ -119,7 +119,7 @@ for LA_s in LA_space:
             cx_ff = slew_follow(cx_t, cx_s, DZ_X, GAIN, SLEW)
             cy_ff = slew_follow(cy_t, cy_s, DZ_Y, GAIN, SLEW)
 
-            # evaluate at median safety (we’ll pick best safety later for zoom expr)
+            # evaluate at median safety (we�ll pick best safety later for zoom expr)
             score, p95_lead, mae = metrics(cx_ff, cy_ff, base_mx, base_my, 1.08)
             if (best is None) or (score < best[0]):
                 best = (score, p95_lead, mae, LA_s, ACC, GAIN, SLEW, base_mx, base_my, cx_ff, cy_ff)

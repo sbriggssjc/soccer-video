@@ -1,4 +1,4 @@
-﻿import sys, csv, math, numpy as np
+import sys, csv, math, numpy as np
 if len(sys.argv)<3: raise SystemExit("usage: plan_kalman_fast.py <track_csv> <out_ps1>")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -75,7 +75,7 @@ for i in range(T):
 px = np.clip(px, 1, w-2)
 py = np.clip(py, 1, h-2)
 
-# Smoothing: a bit less than before → quicker reaction
+# Smoothing: a bit less than before ? quicker reaction
 def ema(a, alpha):
     o = np.copy(a)
     for i in range(1,len(a)): o[i]=alpha*a[i]+(1-alpha)*o[i-1]
@@ -104,12 +104,12 @@ aw = np.linspace(0,1,warm)
 px[:warm] = px[:warm]*aw + (w/2.0)*(1-aw)
 py[:warm] = py[:warm]*aw + (h/2.0)*(1-aw)
 
-# -------- Zoom: WIDEN when speed ↑ or confidence ↓ (opposite of before) --------
+# -------- Zoom: WIDEN when speed ? or confidence ? (opposite of before) --------
 spd_s = ema(speed,0.30)
 conf_s = ema(CONF,0.35)
 
 # Compute tight zoom need from margins
-mx_tight, my_tight = 160.0, 190.0           # less margin → less forced zoom-in
+mx_tight, my_tight = 160.0, 190.0           # less margin ? less forced zoom-in
 dx = np.minimum(px, w-px) - mx_tight
 dy = np.minimum(py, h-py) - my_tight
 dx = np.clip(dx,1,None); dy = np.clip(dy,1,None)
@@ -121,7 +121,7 @@ z_need = np.maximum(1.0, np.maximum(z_need_x, z_need_y))
 # Wide-on-speed/low-conf: blend toward 1.0 (wider FOV), not tighter
 wide_bias = np.clip((spd_s-200.0)/320.0, 0, 1) + np.clip((0.35-conf_s)/0.35, 0, 1)*0.8
 wide_bias = np.clip(wide_bias, 0, 1)        # 0..1
-alpha = 0.70 - 0.55*wide_bias               # alpha↓ as speed↑/conf↓ (more wide)
+alpha = 0.70 - 0.55*wide_bias               # alpha? as speed?/conf? (more wide)
 alpha = np.clip(alpha, 0.25, 0.70)
 
 # Final zoom: mix (need vs. 1.0) + mild EMA + rate cap + lower ceiling

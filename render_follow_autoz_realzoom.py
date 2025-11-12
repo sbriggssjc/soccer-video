@@ -1,4 +1,4 @@
-ï»¿import pandas as pd, numpy as np, cv2, os, subprocess
+import pandas as pd, numpy as np, cv2, os, subprocess
 from scipy.signal import savgol_filter
 
 def letterbox_to_size(img, out_w, out_h):
@@ -31,12 +31,12 @@ aspect = W_out / H_out
 
 # ---- Behavior knobs ----
 tau = 0.24              # s of look-ahead (pan lead)
-# Pan limits (px/s and px/s^2) â€” apply to both x and y
+# Pan limits (px/s and px/s^2) — apply to both x and y
 slew_max_pan   = 300.0
 accel_max_pan  = 1400.0
 # Zoom: min/max scale (relative to widest same-aspect crop)
-min_scale      = 0.60   # smaller = tighter zoom-in allowed (e.g., 0.60 â‰ˆ 1.67x in)
-# Speed that counts as â€œfastâ€ play (px/s). Faster => zoom out
+min_scale      = 0.60   # smaller = tighter zoom-in allowed (e.g., 0.60 ˜ 1.67x in)
+# Speed that counts as “fast” play (px/s). Faster => zoom out
 speed_fast_px  = 900.0
 # Zoom responsiveness (scale change per second, and its accel)
 max_zoom_rate   = 1.5    # scale units / s

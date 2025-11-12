@@ -1,8 +1,8 @@
-﻿import re, pathlib, sys
+import re, pathlib, sys
 p = pathlib.Path(r".\tools\selector.py")
 t = p.read_text(encoding="utf-8")
 
-# Normalize tabs → 4 spaces to avoid mix issues
+# Normalize tabs ? 4 spaces to avoid mix issues
 t = t.replace("\t", "    ")
 
 # Remove any stray bare guard line that might exist

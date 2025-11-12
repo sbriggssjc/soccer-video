@@ -1,4 +1,4 @@
-ï»¿import argparse, json, pathlib, cv2
+import argparse, json, pathlib, cv2
 
 def main():
     ap = argparse.ArgumentParser()
@@ -11,7 +11,7 @@ def main():
     N = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
-    win = "Multi-Select Player â€” use frame slider; press A to add selection; ENTER to save; ESC to quit"
+    win = "Multi-Select Player — use frame slider; press A to add selection; ENTER to save; ESC to quit"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     cur = 0; anchors = []  # list of {frame,x,y,w,h}
 
@@ -48,7 +48,7 @@ def main():
             if r is not None and r[2] > 4 and r[3] > 8:
                 anchors.append({"frame": int(cur), "x": float(r[0]), "y": float(r[1]), "w": float(r[2]), "h": float(r[3])})
                 show_frame(cur)
-        elif key in (10,13):  # ENTER â€” save
+        elif key in (10,13):  # ENTER — save
             if anchors:
                 anchors = sorted(anchors, key=lambda a: a["frame"])
                 out = {"fps": fps, "anchors": anchors}

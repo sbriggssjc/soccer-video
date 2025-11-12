@@ -1,4 +1,4 @@
-﻿import argparse, json, sys
+import argparse, json, sys
 
 ap = argparse.ArgumentParser()
 ap.add_argument("telemetry", help="Path to JSONL telemetry")

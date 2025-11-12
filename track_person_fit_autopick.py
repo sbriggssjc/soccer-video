@@ -1,4 +1,4 @@
-﻿import argparse, pathlib, sys, math
+import argparse, pathlib, sys, math
 import numpy as np, cv2
 from ultralytics import YOLO
 from collections import defaultdict

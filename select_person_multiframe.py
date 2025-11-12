@@ -1,4 +1,4 @@
-ï»¿import json, os, sys, cv2
+import json, os, sys, cv2
 
 def msg(s): print(s, flush=True)
 
@@ -28,7 +28,7 @@ def main():
         return (i, frame) if ok else (i, None)
 
     anchors = []
-    win = "Select: s=box  J/K=Â±1  A/D=Â±30  W/S=Â±150  ENTER=save box  SPACE=next anchor  Q=quit"
+    win = "Select: s=box  J/K=±1  A/D=±30  W/S=±150  ENTER=save box  SPACE=next anchor  Q=quit"
     msg("Select a ROI and then press ENTER (repeat until you reach the requested number).")
     msg("Keys: J/K=1  A/D=30  W/S=150  S=draw box  ENTER=confirm box  SPACE=next anchor  Q=quit")
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)

@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 if len(sys.argv)<3: raise SystemExit("usage: plan_widefirst.py track.csv out.ps1vars")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -21,7 +21,7 @@ Xs=ema(X,0.32); Ys=ema(Y,0.32); Xs=ema(Xs,0.18); Ys=ema(Ys,0.18)
 Vx=np.gradient(Xs, dt); Vy=np.gradient(Ys, dt)
 spd = np.hypot(Vx,Vy)
 
-# predictive lead (shorter in turns), but we’ll keep camera intentionally wide
+# predictive lead (shorter in turns), but we�ll keep camera intentionally wide
 turn = np.abs(np.gradient(np.unwrap(np.arctan2(Vy,Vx+1e-6)), dt))
 lead_s = 0.28 + 0.30*np.clip((spd-140)/240,0,1) - 0.18*np.clip(turn/6,0,1)
 lead_s = np.clip(lead_s, 0.18, 0.70)
@@ -60,7 +60,7 @@ z_need = z_needed(cx,cy)
 z_pred = 1.00 + 0.12*np.clip((spd-140)/260,0,1)   # widen up to +0.12 with bursts
 z = np.minimum(1.45, np.maximum(z_base, z_need, z_pred))
 
-# emergency inclusion (keep ball ≥36px from edge)
+# emergency inclusion (keep ball =36px from edge)
 edge=36.0
 for i in range(T):
     cw = min((h*9/16)/z[i], w); ch = min(h/z[i], h)

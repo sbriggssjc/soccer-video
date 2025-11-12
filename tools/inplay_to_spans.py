@@ -1,4 +1,4 @@
-﻿import argparse, pandas as pd, numpy as np
+import argparse, pandas as pd, numpy as np
 
 def to_spans(df, thr=0.5, merge_gap=0.75, min_len=2.0, reset_pad=3.0, ignore_resets=True):
     """

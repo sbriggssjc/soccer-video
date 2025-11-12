@@ -1,4 +1,4 @@
-﻿param(
+param(
   [Parameter(Mandatory=$true)][string]$Video,
   [ValidateSet("ignore","strict","loose")][string]$GoalMode = "strict",
   [int]$MaxGoals = 6,

@@ -1,4 +1,4 @@
-﻿# render_overlay_seq.py  — robust ffmpeg-expr parser + PNG sequence output
+# render_overlay_seq.py  � robust ffmpeg-expr parser + PNG sequence output
 import sys, csv, numpy as np, cv2, os, math, re
 
 stable, vars_ps1, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]

@@ -1,4 +1,4 @@
-﻿import pandas as pd, numpy as np, cv2, os, subprocess
+import pandas as pd, numpy as np, cv2, os, subprocess
 from scipy.signal import savgol_filter
 
 clip = r'.\out\atomic_clips\004__GOAL__t266.50-t283.10.mp4'

@@ -1,4 +1,4 @@
-ï»¿import argparse, os, pathlib, math, cv2, numpy as np
+import argparse, os, pathlib, math, cv2, numpy as np
 
 # Small helpers
 def ema(prev, val, a): return val if prev is None else (a*val + (1.0-a)*prev)
@@ -28,7 +28,7 @@ def zoom_for_subject(W,H,cx,cy,w,h,zmin,zmax,margin,speed):
     z_from_need_w = (H*9/16)/(2.0*max(need_w,1.0))
     z_upper = min(z_from_need_h, z_from_need_w, zmax)
 
-    # Also donâ€™t zoom in so much that crop half-size exceeds edge (avoid border hits) => z >= bounds_from_edge
+    # Also don’t zoom in so much that crop half-size exceeds edge (avoid border hits) => z >= bounds_from_edge
     z_from_edge_h = H/(2.0*max(half_h_edge,1.0))
     z_from_edge_w = (H*9/16)/(2.0*max(half_w_edge,1.0))
     z_lower = max(zmin, z_from_edge_h, z_from_edge_w, 1.0)
@@ -129,7 +129,7 @@ def main():
                         lost = 0
 
         if not ok:
-            # still lost â€” widen crop by zooming out a bit, keep last center if we had one
+            # still lost — widen crop by zooming out a bit, keep last center if we had one
             if len(cxs)>0:
                 cx,cy = cxs[-1], cys[-1]
                 w_sub = h_sub = min(W,H)*0.1

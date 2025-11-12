@@ -46,3 +46,26 @@ Scan-AtomicClips.ps1.bak_*
 *.old
 *.tmp
 
+
+# root backup litter
+Scan-AtomicClips.ps1.bak*
+*.bad
+*.bak
+
+# Caches / diagnostics / quarantines
+out/_trash/
+out/autoframe_work/
+out/follow_diag/
+out/tracked/
+out/yolo/
+out/render_logs/
+out/diag_masks/
+out/diag_path/
+out/diag_trace/
+out/diag_templates/
+# Debug/previews
+out/reels/portrait_1080x1920/_quarantine/
+out/reels/scratch/
+out/portrait_reels/previews/
+# Python venv
+.venv/

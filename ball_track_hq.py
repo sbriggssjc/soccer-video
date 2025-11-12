@@ -1,4 +1,4 @@
-﻿import sys, csv, cv2, numpy as np
+import sys, csv, cv2, numpy as np
 
 # usage: ball_track_hq.py <in> <out_csv>
 if len(sys.argv) < 3: raise SystemExit("usage: ball_track_hq.py <in> <out_csv>")
@@ -81,7 +81,7 @@ while True:
             measured = (0.6*measured[0] + 0.4*lkx, 0.6*measured[1] + 0.4*lky)
             csrt_conf = max(csrt_conf, 0.6)
 
-    # 3) If confidence low for a few frames → re-detect & re-init CSRT
+    # 3) If confidence low for a few frames ? re-detect & re-init CSRT
     if measured is None:
         lost_frames += 1
         if lost_frames >= 5:
@@ -98,7 +98,7 @@ while True:
         lost_frames = 0
 
     if measured is None:
-        # still nothing → hold last
+        # still nothing ? hold last
         mx,my = last_xy; conf = 0.10
     else:
         mx,my = measured; conf = csrt_conf

@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 if len(sys.argv)<3: raise SystemExit("usage: plan_hyper.py track.csv out.ps1vars")
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 

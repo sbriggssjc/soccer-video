@@ -1,4 +1,4 @@
-﻿import sys, csv, math, cv2, numpy as np
+import sys, csv, math, cv2, numpy as np
 
 if len(sys.argv)<3: raise SystemExit("usage: track_ball_plus.py <in> <out_csv>")
 in_path, out_csv = sys.argv[1], sys.argv[2]

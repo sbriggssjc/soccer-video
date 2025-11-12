@@ -1,4 +1,4 @@
-﻿import json, collections
+import json, collections
 p=r"out\render_logs\tester_022__SHOT.jsonl"
 u=collections.Counter()
 for l in open(p,'r',encoding='utf-8'):

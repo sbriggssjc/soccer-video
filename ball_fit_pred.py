@@ -1,4 +1,4 @@
-﻿import sys, csv, numpy as np
+import sys, csv, numpy as np
 
 in_csv, out_ps1 = sys.argv[1], sys.argv[2]
 
@@ -73,7 +73,7 @@ z = (1-alpha)*z_base + alpha*z_emerg
 
 # Panic zoom when confidence drops (quickly widen until reacquire)
 conf_s = ema(conf, 0.35)
-panic = np.clip((0.20 - conf_s)/0.20, 0, 1)     # 0 when conf>=0.20; →1 as conf→0
+panic = np.clip((0.20 - conf_s)/0.20, 0, 1)     # 0 when conf>=0.20; ?1 as conf?0
 z = (1-0.6*panic)*z + (0.6*panic)*np.maximum(1.0, z_needed)
 
 # Final smooth & small poly fit

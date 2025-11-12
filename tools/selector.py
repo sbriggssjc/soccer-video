@@ -1,4 +1,4 @@
-﻿"""Event selection logic for Smart Soccer Highlight Selector."""
+"""Event selection logic for Smart Soccer Highlight Selector."""
 from __future__ import annotations
 
 import dataclasses
@@ -93,7 +93,7 @@ def _interp(base_time: np.ndarray, source: pd.DataFrame, column: str) -> np.ndar
 
     m = np.isfinite(x) & np.isfinite(y)
     if m.sum() < 2:
-        # Not enough points to interpolate â€“ return NaNs
+        # Not enough points to interpolate – return NaNs
         return np.full_like(base_time, np.nan, dtype=float)
 
     # Let np.interp handle endpoints (no custom left/right scalars needed)

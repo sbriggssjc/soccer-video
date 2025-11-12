@@ -1,4 +1,4 @@
-﻿# === curate_merge_render_v5.ps1 ===
+# === curate_merge_render_v5.ps1 ===
 # One-shot Top-10 curation with exclusions, overlap merge, pre-roll, tighter zoom,
 # per-clip stabilization (vidstab), image cleanup, audio offset + fades, and a manual
 # tweak for highlight #2 (start earlier, end sooner).
@@ -14,7 +14,7 @@ $gapJoin      = 0.9           # merge windows if overlap or within this many sec
 $fade         = 0.12          # audio fade at part edges (s)
 
 # audio sync: if AUDIO is ahead of VIDEO, DELAY it slightly (positive value)
-# try 0.06 .. 0.12. Negative means â€œplay audio earlierâ€.
+# try 0.06 .. 0.12. Negative means “play audio earlier”.
 $audioOffset  = 0.08
 
 $crf          = 20
@@ -25,7 +25,7 @@ $ci           = [System.Globalization.CultureInfo]::InvariantCulture
 $secondStartLead = 2.5        # start this many seconds earlier
 $secondEndTrim   = 1.0        # trim this many seconds off the end
 
-# optional OpenCV â€œfollow the ballâ€ pass (requires smart_zoom.py)
+# optional OpenCV “follow the ball” pass (requires smart_zoom.py)
 $followBall   = $false
 $followZoom   = 1.55
 $followSmooth = 0.85
@@ -71,7 +71,7 @@ foreach ($cand in $pool) {
   $key = '{0}|{1:F2}' -f (Get-ClipKey $cand.path), $cand.inpoint
   if (-not $used.Contains($key)) { $keep.Add($cand); [void]$used.Add($key) }
 }
-if ($keep.Count -lt $take) { Write-Host "Only $($keep.Count) base clips after exclusionsâ€”continuing." -ForegroundColor Yellow }
+if ($keep.Count -lt $take) { Write-Host "Only $($keep.Count) base clips after exclusions—continuing." -ForegroundColor Yellow }
 
 # -------- merge overlaps / neighbors per clip key --------
 function Merge-Intervals {
@@ -170,7 +170,7 @@ for ($i=0; $i -lt $moments.Count; $i++) {
     $trf = Join-Path $trfDir ("{0}.trf" -f ([IO.Path]::GetFileNameWithoutExtension($src)))
     if (-not (Test-Path $trf)) {
       & ffmpeg -hide_banner -loglevel warning -y -i $src -vf ("vidstabdetect=shakiness=5:accuracy=15:result='{0}'" -f $trf) -f null NUL
-      if ($LASTEXITCODE -ne 0) { Write-Host "vidstabdetect failed on $src â€” falling back to no stabilization for this source." -ForegroundColor Yellow; $trf = $null }
+      if ($LASTEXITCODE -ne 0) { Write-Host "vidstabdetect failed on $src — falling back to no stabilization for this source." -ForegroundColor Yellow; $trf = $null }
 #FIX commented to repair brace mismatch:     }
     $trfFor[$src] = $trf
 #FIX commented to repair brace mismatch:   }
@@ -216,13 +216,13 @@ $concatLines | Set-Content -Encoding ascii $concatList
 $final = '.\out\smart10_clean_zoom.mp4'
 & ffmpeg -hide_banner -loglevel warning -y -safe 0 -f concat -i $concatList -c copy $final
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "Stream-copy concat had trouble; re-encoding to eliminate timestamp issuesâ€¦" -ForegroundColor Yellow
+  Write-Host "Stream-copy concat had trouble; re-encoding to eliminate timestamp issues…" -ForegroundColor Yellow
   & ffmpeg -hide_banner -loglevel warning -y -safe 0 -f concat -i $concatList `
     -c:v libx264 -preset $preset -crf $crf -c:a aac -b:a 160k -movflags +faststart $final
   if ($LASTEXITCODE -ne 0) { throw "Final concat failed." }
 }
 
-Write-Host "âœ… Done -> $final" -ForegroundColor Green
+Write-Host "✅ Done -> $final" -ForegroundColor Green
 
 
 # ===== SAFE vfCore override (post-define) =====

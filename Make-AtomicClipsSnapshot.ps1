@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 
 $rows = @()
 
@@ -25,7 +25,7 @@ Get-ChildItem ".\out\autoframe_work\cinematic" -Directory -Recurse |
     }
 }
 
-# Also record any branded files that aren’t hardlinked back (ideally none)
+# Also record any branded files that aren�t hardlinked back (ideally none)
 Get-ChildItem ".\out\portrait_reels\branded" -File -Filter *.mp4 | ForEach-Object {
   $links = & fsutil hardlink list $_.FullName 2>$null
   $hasCine = $links | Where-Object { $_ -match '\\out\\autoframe_work\\cinematic\\.*\\follow\\stabilized\.mp4$' }
