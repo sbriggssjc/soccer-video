@@ -5,12 +5,15 @@
   )
 
   # Glob patterns to ban from portrait reels
-  BannedPortrait = @('*__DEBUG__*','*_x2.mp4','*\unique_from_upscaled\*','*FOLLOW_SMARTAUDIO_TWEAK*')
+  BannedPortrait = @(
+    '*__DEBUG__*',
+    '*__x2.mp4'       # keep if you truly need x2; remove this if not
+  )
 
   Prune = @{
-    RootBackupsKeep = 3            # keep last N root_backups_*
+    RootBackupsKeep = 2
     EmptyDirs       = $true
-    TmpDaysOld      = 7            # delete files older than this in _tmp
-    QuarantineDays  = 14           # auto-delete quarantine leftovers older than this
+    TmpDaysOld      = 2    # delete _tmp files older than 2 days
+    QuarantineDays  = 3    # delete quarantine files older than 3 days
   }
 }
