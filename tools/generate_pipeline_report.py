@@ -134,6 +134,14 @@ def _find_stabilized(repo_root: Path, clip_stem: str) -> List[Path]:
 
 
 def _find_follow_outputs(clip_path: Path) -> List[Path]:
+    """Return any follow render variants associated with ``clip_path``.
+
+    Historically the follow stage has produced multiple stabilized renders
+    such as ``__CINEMATIC`` and ``__REALZOOM``. Recent follow automation also
+    emits ``__FOLLOW.mp4`` for the direct camera track, so the discovery list
+    explicitly includes that suffix alongside the existing variants.
+    """
+
     parent = clip_path.parent
     stem = clip_path.stem
     suffixes = ["__CINEMATIC", "__GENTLE", "__REALZOOM", "__FOLLOW"]
