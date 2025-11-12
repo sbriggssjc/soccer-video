@@ -1,14 +1,60 @@
 param(
-  [string]$Root="C:\\Users\\scott\\soccer-video\\out",
-  [string]$PolicyPath=("$Root\\OutPolicy.psd1"),
+  [string]$Root="C:\Users\scott\soccer-video\out",
+  [string]$PolicyPath = ($Root + "\OutPolicy.psd1"),
   [switch]$Commit
 )
 
-# Helper: match any wildcard in a set
+# ---------- Local helpers (PS5-safe) ----------
+# Only define if not already present in session
+if (-not (Get-Command Resolve-JunctionTarget -ErrorAction SilentlyContinue)) {
+  function Resolve-JunctionTarget {
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+      $it = Get-Item -LiteralPath $Path -Force
+      $t  = $null
+      try { $t = $it.Target } catch {}
+      if ($t -and (Test-Path -LiteralPath $t)) { return $t }
+      $guess = Join-Path (Split-Path $Path -Parent) 'reels\portrait_1080x1920'
+      if (Test-Path -LiteralPath $guess) { return $guess }
+    } catch {}
+    return $null
+  }
+}
+
+if (-not (Get-Command Prune-OldBackups -ErrorAction SilentlyContinue)) {
+  function Prune-OldBackups {
+    param(
+      [string]$Root = "C:\Users\scott\soccer-video\out",
+      [int]$Keep = 3,
+      [switch]$Commit
+    )
+    $dirs = Get-ChildItem -LiteralPath $Root -Force -Directory -EA SilentlyContinue |
+            Where-Object { $_.Name -like "root_backups_*" } |
+            Sort-Object LastWriteTime -Desc
+    if ($dirs.Count -le $Keep) { Write-Host "Nothing to prune. Found $($dirs.Count), keeping $Keep."; return }
+    $toRemove = $dirs | Select-Object -Skip $Keep
+    $bytes = 0
+    foreach($d in $toRemove){
+      $sum = (Get-ChildItem -LiteralPath $d.FullName -Recurse -File -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+      if ($sum) { $bytes += $sum }
+    }
+    $gb = [math]::Round($bytes/1GB,2)
+    Write-Host ("Would remove {0} backup dirs (~{1} GB):" -f $toRemove.Count, $gb)
+    $toRemove | Select Name,LastWriteTime | Format-Table -Auto
+    if ($Commit) {
+      $toRemove | Remove-Item -Recurse -Force
+      Write-Host "Pruned."
+    } else {
+      Write-Host "Re-run with -Commit to actually delete."
+    }
+  }
+}
+
 function Test-MatchesAny([string]$Path,[string[]]$Patterns){
   foreach($p in $Patterns){ if($Path -like $p){ return $true } }
   return $false
 }
+# ----------------------------------------------
 
 # Load policy
 $P = Import-PowerShellDataFile -LiteralPath $PolicyPath
@@ -24,8 +70,8 @@ if ($portrait) {
   if ($Commit -and $cands.Count) { $cands | Remove-Item -Force }
 }
 
-# 2) Prune old root backups (PowerShell 5 friendly splat)
-$pruneSplat = @{ Root = $Root; Keep = $P.Prune.RootBackupsKeep }
+# 2) Prune old root backups (PS5-friendly splat)
+$pruneSplat = @{ Root = $Root; Keep = [int]$P.Prune.RootBackupsKeep }
 if ($Commit){ $pruneSplat['Commit'] = $true }
 Prune-OldBackups @pruneSplat
 
@@ -59,5 +105,5 @@ if ($P.Prune.QuarantineDays -gt 0) {
   }
 }
 
-# 6) Size rollup (eyes-on)
-powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\\OutTidyAndReport.ps1') -OutRoot $Root -Top 25
+# 6) One-pass report (re-uses your existing script)
+powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\OutTidyAndReport.ps1') -OutRoot $Root -Top 25
