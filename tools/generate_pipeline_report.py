@@ -263,14 +263,38 @@ def build_command_entry(stage: str, info: ClipStageInfo, repo_root: Path) -> Opt
     elif stage == "Stage_Upscaled":
         source = info.best_source_for_upscale()
         out_path = repo_root / "out" / "upscaled" / f"{clip_stem}__x{UPSCALE_DEFAULT}.mp4"
-        command = [
-            "python",
-            "-c",
-            (
-                "import sys; from tools.upscale import upscale_video; "
-                f"upscale_video(r'{_win_path(source)}', scale={UPSCALE_DEFAULT})"
-            ),
-        ]
+        upscale_py = repo_root / "tools" / "upscale.py"
+        if upscale_py.exists():
+            command = [
+                "python",
+                "-c",
+                (
+                    "import sys; sys.path.insert(0, r'{}'); "
+                    "from upscale import upscale_video; "
+                    "upscale_video(r'{}', scale={})"
+                ).format(
+                    _win_path(upscale_py.parent),
+                    _win_path(source),
+                    UPSCALE_DEFAULT,
+                ),
+            ]
+        else:
+            command = [
+                "ffmpeg",
+                "-hide_banner",
+                "-y",
+                "-i",
+                _win_path(source),
+                "-vf",
+                "scale=1080:1920:flags=lanczos",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "slow",
+                "-crf",
+                "18",
+                _win_path(out_path),
+            ]
         input_path = source
     elif stage == "Stage_Enhanced":
         source = info.best_source_for_enhance()
