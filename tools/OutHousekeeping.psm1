@@ -47,13 +47,17 @@ function Get-NoisyPortraitCandidates {
   }
 }
 
-function Show-PortraitReports {
+function Get-PortraitReport {
   [CmdletBinding()]
   param(
-    [Parameter(Mandatory)][psobject]$PortraitReport,
+    [Parameter(Mandatory)][string]$Root,
+    [string]$PortraitSubPath = 'portrait_1080x1920',
+    [string[]]$Patterns = @(),
     [switch]$Commit
   )
-  $candidates = @($PortraitReport.Candidates)
+  $portraitReport = Get-NoisyPortraitCandidates -Root $Root -PortraitSubPath $PortraitSubPath -Patterns $Patterns
+  if (-not $portraitReport) { return $null }
+  $candidates = @($portraitReport.Candidates)
   $count = $candidates.Count
   $bytes = 0
   if ($count -gt 0) {
@@ -65,10 +69,15 @@ function Show-PortraitReports {
   if ($Commit -and $count -gt 0) {
     $candidates | Remove-Item -Force
   }
-  return $candidates
+  return [pscustomobject]@{
+    PortraitRoot = $portraitReport.PortraitRoot
+    Candidates   = $candidates
+    Count        = $count
+    SizeBytes    = $bytes
+  }
 }
 
-function Prune-OldBackups {
+function Clear-OldBackups {
   [CmdletBinding()]
   param(
     [string]$Root = "C:\\Users\\scott\\soccer-video\\out",
@@ -157,4 +166,62 @@ function Restore-FromManifest {
   return $missing
 }
 
-Export-ModuleMember -Function Resolve-JunctionTarget,Get-NoisyPortraitCandidates,Show-PortraitReports,Prune-OldBackups,Restore-FromManifest
+function Invoke-OutPolicy {
+  [CmdletBinding()]
+  param(
+    [string]$Root = "C:\\Users\\scott\\soccer-video\\out",
+    [string]$PolicyPath = (Join-Path $Root 'OutPolicy.psd1'),
+    [switch]$Commit
+  )
+  if (-not (Test-Path -LiteralPath $PolicyPath)) {
+    throw "Policy file not found: $PolicyPath"
+  }
+  $policy = Import-PowerShellDataFile -LiteralPath $PolicyPath
+
+  if ($policy.BannedPortrait) {
+    Get-PortraitReport -Root $Root -Patterns @($policy.BannedPortrait) -Commit:$Commit | Out-Null
+  }
+
+  $keep = if ($policy.Prune -and $policy.Prune.RootBackupsKeep) {
+    [int]$policy.Prune.RootBackupsKeep
+  } else {
+    3
+  }
+  $pruneSplat = @{ Root = $Root; Keep = $keep }
+  if ($Commit) { $pruneSplat['Commit'] = $true }
+  Clear-OldBackups @pruneSplat | Out-Null
+
+  if ($policy.Prune -and $policy.Prune.EmptyDirs) {
+    $empty = Get-ChildItem -LiteralPath $Root -Recurse -Directory -Force -EA SilentlyContinue |
+             Where-Object { @(Get-ChildItem -LiteralPath $_.FullName -Force -EA SilentlyContinue).Count -eq 0 }
+    Write-Host ("Empty dirs: {0}" -f $empty.Count)
+    if ($Commit -and $empty.Count) { $empty | Remove-Item -Force }
+  }
+
+  $tmpDays = if ($policy.Prune) { [int]$policy.Prune.TmpDaysOld } else { 0 }
+  if ($tmpDays -gt 0) {
+    $tmp = Join-Path $Root '_tmp'
+    if (Test-Path $tmp) {
+      $old = Get-ChildItem -LiteralPath $tmp -Recurse -File -Force -EA SilentlyContinue |
+             Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$tmpDays) }
+      Write-Host ("_tmp old files: {0}" -f $old.Count)
+      if ($Commit -and $old.Count) { $old | Remove-Item -Force }
+    }
+  }
+
+  $quarantineDays = if ($policy.Prune) { [int]$policy.Prune.QuarantineDays } else { 0 }
+  if ($quarantineDays -gt 0) {
+    $qr = Join-Path $Root '_quarantine'
+    if (Test-Path $qr) {
+      $old = Get-ChildItem -LiteralPath $qr -Recurse -File -Force -EA SilentlyContinue |
+             Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$quarantineDays) }
+      Write-Host ("Quarantine old files: {0}" -f $old.Count)
+      if ($Commit -and $old.Count) { $old | Remove-Item -Force }
+    }
+  }
+
+  $reportScript = Join-Path $PSScriptRoot '..\OutTidyAndReport.ps1'
+  powershell -ExecutionPolicy Bypass -File $reportScript -OutRoot $Root -Top 25
+}
+
+Export-ModuleMember -Function Clear-OldBackups, Get-PortraitReport, Invoke-OutPolicy, Resolve-JunctionTarget
