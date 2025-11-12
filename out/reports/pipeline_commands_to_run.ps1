@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Run,          # when present, actually execute commands
   [switch]$DryRun        # optional; forces dry-run even if -Run is used
 )
@@ -63,3 +63,4 @@ foreach ($stageGroup in ($commands | Sort-Object Stage, MatchKey, ClipID | Group
   }
 }
 Write-Host ('Log: {0}' -f $logPath)
+
