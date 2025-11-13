@@ -16,17 +16,27 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 RE_CLIP_ID = re.compile(r"(?P<id>\d{3}__[^\\/]+__t[-\d.]+-t[-\d.]+)")
 RE_MP4 = re.compile(r"(?P<path>[^\s\",']+\.mp4)", re.IGNORECASE)
 
-STAGE_NAMES = [
-    "Stage_Stabilized",
-    "Stage_Follow",
-    "Stage_Upscaled",
-    "Stage_Enhanced",
-    "Stage_Branded",
-]
+STAGE_KEY_MAP = {
+    "Stabilized": "Stage_Stabilized",
+    "Follow": "Stage_Follow",
+    "Upscaled": "Stage_Upscaled",
+    "Enhanced": "Stage_Enhanced",
+    "Branded": "Stage_Branded",
+}
+
+STAGE_NAMES = list(STAGE_KEY_MAP.values())
+wanted_stages = list(STAGE_NAMES)
 
 PRESET_DEFAULT = "cinematic"
 PORTRAIT_DEFAULT = "1080x1920"
 UPSCALE_DEFAULT = 2
+
+
+def _stage_order(name: str) -> int:
+    try:
+        return wanted_stages.index(name)
+    except ValueError:
+        return 999
 
 @dataclass
 class ClipStageInfo:
@@ -352,13 +362,17 @@ def build_command_entry(stage: str, info: ClipStageInfo, repo_root: Path) -> Opt
 
 
 def generate_reports(
-    repo_root: Path, *, include_unselected: bool = True
+    repo_root: Path,
+    *,
+    selected_only: bool = False,
+    stage_filters: Optional[Sequence[str]] = None,
 ) -> Tuple[List[ClipStageInfo], List[Dict[str, object]]]:
     clips = collect_clips(repo_root)
     commands: List[Dict[str, object]] = []
+    active_filters = list(stage_filters or wanted_stages)
 
     for info in clips:
-        if not include_unselected and not info.selected_manual:
+        if selected_only and not info.selected_manual:
             continue
         stage_presence = {
             "Stage_Stabilized": stage_done(info.stabilized_paths),
@@ -368,10 +382,20 @@ def generate_reports(
             "Stage_Branded": stage_done(info.branded_paths),
         }
         for stage, done in stage_presence.items():
+            if stage not in active_filters:
+                continue
             if not done:
                 entry = build_command_entry(stage, info, repo_root)
                 if entry is not None:
                     commands.append(entry)
+
+    commands.sort(
+        key=lambda entry: (
+            _stage_order(entry["Stage"]),
+            entry["MatchKey"],
+            entry["ClipID"],
+        )
+    )
 
     return clips, commands
 
@@ -423,85 +447,97 @@ def write_command_script(repo_root: Path, commands: Sequence[Dict[str, object]])
     script_path = out_dir / "pipeline_commands_to_run.ps1"
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ps_lines = []
+    ps_lines.append("param([switch]$Run,[switch]$DryRun)")
+    ps_lines.append("$Exec = ($Run.IsPresent -and -not $DryRun.IsPresent)")
+    ps_lines.append("$ErrorActionPreference = 'Stop'")
+    repo_root_str = str(repo_root).replace("\\", "\\\\")
+    ps_lines.append("$script:RepoRoot = '{}'".format(repo_root_str))
+    ps_lines.append(
+        "$logPath = Join-Path $script:RepoRoot '{}'".format(
+            "out\\logs\\advance_pipeline.{0}.log".format(timestamp)
+        )
+    )
+    ps_lines.append("$null = New-Item -ItemType Directory -Force -Path (Split-Path $logPath)")
+    ps_lines.append("$logStream = New-Item -ItemType File -Force -Path $logPath")
+    ps_lines.append("$commands = @()")
+    for entry in commands:
+        command_parts = entry["Command"]
+        ps_array = ",".join("'" + _ps_quote(str(part)) + "'" for part in command_parts)
+        ps_lines.append(
+            "${{commands}} += [pscustomobject]@{{ Stage='{}'; MatchKey='{}'; ClipID='{}'; Input='{}'; Output='{}'; Command=@({}) }}".format(
+                _ps_quote(str(entry["Stage"])),
+                _ps_quote(str(entry["MatchKey"])),
+                _ps_quote(str(entry["ClipID"])),
+                _ps_quote(str(entry["Input"])),
+                _ps_quote(str(entry["Output"])),
+                ps_array,
+            )
+        )
+    ps_lines.append("if ($commands.Count -eq 0) { Write-Host 'No pending stages.'; return }")
+    ps_lines.append(
+        "foreach ($stageGroup in ($commands | Sort-Object Stage, MatchKey, ClipID | Group-Object Stage)) {"
+    )
+    ps_lines.append("  Write-Host ('### Stage: {0}' -f $stageGroup.Name) -ForegroundColor Cyan")
+    ps_lines.append("  foreach ($matchGroup in ($stageGroup.Group | Group-Object MatchKey)) {")
+    ps_lines.append("    Write-Host ('# Match: {0}' -f $matchGroup.Name) -ForegroundColor Yellow")
+    ps_lines.append("    foreach ($entry in $matchGroup.Group) {")
+    ps_lines.append("      $inPath = $entry.Input")
+    ps_lines.append("      $outPath = $entry.Output")
+    ps_lines.append("      $cmd = $entry.Command")
+    ps_lines.append("      $cmdString = ($cmd | ForEach-Object { '\"' + $_ + '\"' }) -join ' '")
+    ps_lines.append("      Add-Content -Path $logPath -Value $cmdString")
+    ps_lines.append("      $outDir = Split-Path -Parent $outPath")
+    ps_lines.append(
+        "      if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }"
+    )
+    ps_lines.append("      $shouldSkip = $false")
+    ps_lines.append("      if ((Test-Path $inPath) -and (Test-Path $outPath)) {")
+    ps_lines.append("        $inItem = Get-Item $inPath")
+    ps_lines.append("        $outItem = Get-Item $outPath")
+    ps_lines.append(
+        "        if ($outItem.LastWriteTimeUtc -ge $inItem.LastWriteTimeUtc) { $shouldSkip = $true }"
+    )
+    ps_lines.append("      }")
+    ps_lines.append("      if ($shouldSkip) {")
+    ps_lines.append("        Write-Host ('[SKIP] {0} :: up-to-date' -f $cmdString)")
+    ps_lines.append("        Add-Content -Path $logPath -Value '[SKIP] up-to-date'")
+    ps_lines.append("        continue")
+    ps_lines.append("      }")
+    ps_lines.append("      Write-Host ('[RUN ] {0}' -f $cmdString)")
+    ps_lines.append("      if (-not $Exec) {")
+    ps_lines.append("        Write-Host '       Preview: not executed.' -ForegroundColor Green")
+    ps_lines.append("        Add-Content -Path $logPath -Value '[Preview] not executed'")
+    ps_lines.append("        continue")
+    ps_lines.append("      }")
+    ps_lines.append("      $psi = New-Object System.Diagnostics.ProcessStartInfo")
+    ps_lines.append("      $psi.FileName = $cmd[0]")
+    ps_lines.append(
+        "      if ($cmd.Count -gt 1) { $psi.Arguments = [string]::Join(' ', ($cmd[1..($cmd.Count-1)] | ForEach-Object { '\"' + $_ + '\"' })) }"
+    )
+    ps_lines.append("      $psi.WorkingDirectory = $script:RepoRoot")
+    ps_lines.append("      $psi.UseShellExecute = $false")
+    ps_lines.append("      $psi.RedirectStandardOutput = $true")
+    ps_lines.append("      $psi.RedirectStandardError = $true")
+    ps_lines.append("      $proc = [System.Diagnostics.Process]::Start($psi)")
+    ps_lines.append("      $stdout = $proc.StandardOutput.ReadToEnd()")
+    ps_lines.append("      $stderr = $proc.StandardError.ReadToEnd()")
+    ps_lines.append("      $proc.WaitForExit()")
+    ps_lines.append("      if ($stdout) { Add-Content -Path $logPath -Value $stdout }")
+    ps_lines.append("      if ($stderr) { Add-Content -Path $logPath -Value $stderr }")
+    ps_lines.append("      if ($proc.ExitCode -ne 0) {")
+    ps_lines.append("        Write-Warning ('Command exited with code {0}' -f $proc.ExitCode)")
+    ps_lines.append(
+        "        Add-Content -Path $logPath -Value ('ExitCode={0}' -f $proc.ExitCode)"
+    )
+    ps_lines.append("      }")
+    ps_lines.append("    }")
+    ps_lines.append("  }")
+    ps_lines.append("}")
+    ps_lines.append("Write-Host ('Log: {0}' -f $logPath)")
+
     with script_path.open("w", encoding="utf-8") as handle:
-        handle.write("param([bool]$WhatIf = $true)\n")
-        handle.write("$ErrorActionPreference = 'Stop'\n")
-        repo_root_str = str(repo_root).replace("\\", "\\\\")
-        handle.write("$script:RepoRoot = '{}'\n".format(repo_root_str))
-        handle.write(
-            "$logPath = Join-Path $script:RepoRoot '{}'\n".format(
-                "out\\logs\\advance_pipeline.{0}.log".format(timestamp)
-            )
-        )
-        handle.write("$null = New-Item -ItemType Directory -Force -Path (Split-Path $logPath)\n")
-        handle.write("$logStream = New-Item -ItemType File -Force -Path $logPath\n")
-        handle.write("$commands = @()\n")
-        for entry in commands:
-            command_parts = entry["Command"]
-            ps_array = ",".join("'" + _ps_quote(str(part)) + "'" for part in command_parts)
-            handle.write(
-                "${{commands}} += [pscustomobject]@{{ Stage='{}'; MatchKey='{}'; ClipID='{}'; Input='{}'; Output='{}'; Command=@({}) }}\n".format(
-                    _ps_quote(str(entry["Stage"])),
-                    _ps_quote(str(entry["MatchKey"])),
-                    _ps_quote(str(entry["ClipID"])),
-                    _ps_quote(str(entry["Input"])),
-                    _ps_quote(str(entry["Output"])),
-                    ps_array,
-                )
-            )
-        handle.write("if ($commands.Count -eq 0) { Write-Host 'No pending stages.'; return }\n")
-        handle.write(
-            "foreach ($stageGroup in ($commands | Sort-Object Stage, MatchKey, ClipID | Group-Object Stage)) {\n"
-        )
-        handle.write("  Write-Host ('### Stage: {0}' -f $stageGroup.Name) -ForegroundColor Cyan\n")
-        handle.write("  foreach ($matchGroup in ($stageGroup.Group | Group-Object MatchKey)) {\n")
-        handle.write("    Write-Host ('# Match: {0}' -f $matchGroup.Name) -ForegroundColor Yellow\n")
-        handle.write("    foreach ($entry in $matchGroup.Group) {\n")
-        handle.write("      $inPath = $entry.Input\n")
-        handle.write("      $outPath = $entry.Output\n")
-        handle.write("      $cmd = $entry.Command\n")
-        handle.write("      $cmdString = ($cmd | ForEach-Object { '\"' + $_ + '\"' }) -join ' ' \n")
-        handle.write("      Add-Content -Path $logPath -Value $cmdString\n")
-        handle.write("      $outDir = Split-Path -Parent $outPath\n")
-        handle.write("      if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }\n")
-        handle.write("      $shouldSkip = $false\n")
-        handle.write("      if ((Test-Path $inPath) -and (Test-Path $outPath)) {\n")
-        handle.write("        $inItem = Get-Item $inPath\n")
-        handle.write("        $outItem = Get-Item $outPath\n")
-        handle.write("        if ($outItem.LastWriteTimeUtc -ge $inItem.LastWriteTimeUtc) { $shouldSkip = $true }\n")
-        handle.write("      }\n")
-        handle.write("      if ($shouldSkip) {\n")
-        handle.write("        Write-Host ('[SKIP] {0} :: up-to-date' -f $cmdString)\n")
-        handle.write("        Add-Content -Path $logPath -Value '[SKIP] up-to-date'\n")
-        handle.write("        continue\n")
-        handle.write("      }\n")
-        handle.write("      Write-Host ('[RUN ] {0}' -f $cmdString)\n")
-        handle.write("      if ($WhatIf) {\n")
-        handle.write("        Write-Host '       WhatIf: not executed.' -ForegroundColor Green\n")
-        handle.write("        Add-Content -Path $logPath -Value '[WhatIf] not executed'\n")
-        handle.write("        continue\n")
-        handle.write("      }\n")
-        handle.write("      $psi = New-Object System.Diagnostics.ProcessStartInfo\n")
-        handle.write("      $psi.FileName = $cmd[0]\n")
-        handle.write("      if ($cmd.Count -gt 1) { $psi.Arguments = [string]::Join(' ', ($cmd[1..($cmd.Count-1)] | ForEach-Object { '\"' + $_ + '\"' })) }\n")
-        handle.write("      $psi.WorkingDirectory = $script:RepoRoot\n")
-        handle.write("      $psi.UseShellExecute = $false\n")
-        handle.write("      $psi.RedirectStandardOutput = $true\n")
-        handle.write("      $psi.RedirectStandardError = $true\n")
-        handle.write("      $proc = [System.Diagnostics.Process]::Start($psi)\n")
-        handle.write("      $stdout = $proc.StandardOutput.ReadToEnd()\n")
-        handle.write("      $stderr = $proc.StandardError.ReadToEnd()\n")
-        handle.write("      $proc.WaitForExit()\n")
-        handle.write("      if ($stdout) { Add-Content -Path $logPath -Value $stdout }\n")
-        handle.write("      if ($stderr) { Add-Content -Path $logPath -Value $stderr }\n")
-        handle.write("      if ($proc.ExitCode -ne 0) {\n")
-        handle.write("        Write-Warning ('Command exited with code {0}' -f $proc.ExitCode)\n")
-        handle.write("        Add-Content -Path $logPath -Value ('ExitCode={0}' -f $proc.ExitCode)\n")
-        handle.write("      }\n")
-        handle.write("    }\n")
-        handle.write("  }\n")
-        handle.write("}\n")
-        handle.write("Write-Host ('Log: {0}' -f $logPath)\n")
+        handle.write("\n".join(ps_lines) + "\n")
     return script_path
 
 
@@ -574,29 +610,33 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Pipeline status + command generator"
     )
     parser.add_argument(
-        "--include-unselected",
+        "--selected-only",
         action="store_true",
-        default=True,
-        help="Include unselected atomic clips in pending work (defaults to True)",
+        help="Queue only manually selected clips (default: all)",
     )
     parser.add_argument(
-        "--selected-only",
-        dest="include_unselected",
-        action="store_false",
-        help="Only include manually selected atomic clips in pending work",
+        "--stages",
+        type=str,
+        default="Stabilized,Follow,Upscaled,Enhanced,Branded",
+        help="Comma-separated stage order/subset to emit",
     )
-    args = parser.parse_args(argv)
-    if not hasattr(args, "include_unselected"):
-        args.include_unselected = True
-    return args
+    return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     here = Path(__file__).resolve()
     repo_root = find_repo_root(here.parent)
+    requested_stages = [s.strip() for s in args.stages.split(",") if s.strip()]
+    stage_filters = [STAGE_KEY_MAP[s] for s in requested_stages if s in STAGE_KEY_MAP]
+    if not stage_filters:
+        stage_filters = list(STAGE_NAMES)
+    global wanted_stages
+    wanted_stages = stage_filters
     clips, commands = generate_reports(
-        repo_root, include_unselected=bool(args.include_unselected)
+        repo_root,
+        selected_only=bool(args.selected_only),
+        stage_filters=stage_filters,
     )
     status_csv = write_status_csv(repo_root, clips)
     command_script = write_command_script(repo_root, commands)
@@ -605,7 +645,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     print(f"Wrote command script: {command_script}")
     print("\nHow to run:")
     print("  powershell -ExecutionPolicy Bypass -File {}".format(command_script))
-    print("  powershell -ExecutionPolicy Bypass -File {} -WhatIf:$false".format(command_script))
+    print("  powershell -ExecutionPolicy Bypass -File {} -Run".format(command_script))
+    print("  powershell -ExecutionPolicy Bypass -File {} -DryRun".format(command_script))
     print_summary(clips)
 
 
