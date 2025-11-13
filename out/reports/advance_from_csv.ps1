@@ -166,7 +166,13 @@ $work |
         $p.WaitForExit()
         if ($stdout) { Add-Content -Path $log -Value $stdout }
         if ($stderr) { Add-Content -Path $log -Value $stderr }
-        if ($p.ExitCode -ne 0) { Write-Warning "ExitCode=$($p.ExitCode)" }
+        $ec = $p.ExitCode
+        if ($ec -ne 0) {
+          Write-Warning ("ExitCode={0}" -f $ec)
+          Write-Warning ("CMD: {0}" -f ($cmd -join ' '))
+          $err = $stderr
+          Write-Warning ("STDERR: {0}" -f (($err | Out-String).TrimEnd()))
+        }
       }
     }
   }
