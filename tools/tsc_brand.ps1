@@ -9,7 +9,10 @@ param(
   [switch]$EndCard,
   [switch]$ShowGuides,
   [int]$BitrateMbps = 20,
-  [string]$FontFile = "$PSScriptRoot\\..\\fonts\\Montserrat-ExtraBold.ttf"
+  [string]$FontFile = "$PSScriptRoot\\..\\fonts\\Montserrat-ExtraBold.ttf",
+  [string]$RibbonPNG,
+  [string]$LogoPNG,
+  [string]$HandleTxt
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,6 +67,55 @@ function Get-DrawTextPath {
   return $forward
 }
 
+function New-BrandFilterGraph {
+  param(
+    [string]$BaseLabel = 'base',
+    [string]$RibbonPath,
+    [string]$LogoPath,
+    [string]$HandleText,
+    [int]$W = 1080,
+    [int]$H = 1920
+  )
+
+  $inputs  = @()
+  $filters = @()
+  $filters += "[0:v]scale=${W}:${H}:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[$BaseLabel]"
+
+  $nextIn = 1
+  $curLabel = $BaseLabel
+
+  if ($RibbonPath -and (Test-Path $RibbonPath)) {
+    $inputs += @('-i', $RibbonPath)
+    $nextLabel = "ov$nextIn"
+    $filters += "[$curLabel][$($nextIn):v]overlay=0:0:format=auto[$nextLabel]"
+    $curLabel = $nextLabel
+    $nextIn++
+  }
+
+  if ($LogoPath -and (Test-Path $LogoPath)) {
+    $inputs += @('-i', $LogoPath)
+    $nextLabel = "ov$nextIn"
+    $filters += "[$curLabel][$($nextIn):v]overlay=32:main_h-overlay_h-32:format=auto[$nextLabel]"
+    $curLabel = $nextLabel
+    $nextIn++
+  }
+
+  if ($HandleText) {
+    $escaped = Escape-DrawText $HandleText
+    $nextLabel = "ov$nextIn"
+    $filters += "[$curLabel]drawtext=text='$escaped':fontsize=44:fontcolor=white@0.95:borderw=2:bordercolor=black@0.55:x=36:y=H-th-36[$nextLabel]"
+    $curLabel = $nextLabel
+    $nextIn++
+  }
+
+  return @{
+    Inputs    = $inputs
+    FilterGraph = $filters
+    OutLabel  = $curLabel
+    NextIndex = $nextIn
+  }
+}
+
 if (-not (Test-Path $In)) {
   throw "Input video not found: $In"
 }
@@ -90,37 +142,60 @@ if (-not $ffmpegCmd) {
 $brandRoot = Join-Path $PSScriptRoot '..\brand\tsc'
 $brandPath = (Resolve-Path -LiteralPath $brandRoot -ErrorAction Stop).Path
 
-$aspectAssets = @{}
 switch ($Aspect) {
-  '16x9' {
-    $aspectAssets['title'] = Join-Path $brandPath 'title_ribbon_1920x1080.png'
-    $aspectAssets['endcard'] = Join-Path $brandPath 'end_card_1920x1080.png'
-    $aspectAssets['guides'] = Join-Path $brandPath 'safe_guides_16x9.png'
-  }
-  '9x16' {
-    $aspectAssets['title'] = Join-Path $brandPath 'title_ribbon_1080x1920.png'
-    $aspectAssets['endcard'] = Join-Path $brandPath 'end_card_1080x1920.png'
-    $aspectAssets['guides'] = Join-Path $brandPath 'safe_guides_9x16.png'
-  }
+  '16x9' { $targetWidth = 1920; $targetHeight = 1080 }
+  '9x16' { $targetWidth = 1080; $targetHeight = 1920 }
+}
+
+$aspectAssets = @{}
+$aspectAssets['title'] = if ($Aspect -eq '16x9') {
+  Join-Path $brandPath 'title_ribbon_1920x1080.png'
+} else {
+  Join-Path $brandPath 'title_ribbon_1080x1920.png'
+}
+$aspectAssets['endcard'] = if ($Aspect -eq '16x9') {
+  Join-Path $brandPath 'end_card_1920x1080.png'
+} else {
+  Join-Path $brandPath 'end_card_1080x1920.png'
+}
+$aspectAssets['guides'] = if ($Aspect -eq '16x9') {
+  Join-Path $brandPath 'safe_guides_16x9.png'
+} else {
+  Join-Path $brandPath 'safe_guides_9x16.png'
 }
 
 $watermarkPath = Join-Path $brandPath 'watermark_corner_256.png'
 $lowerThirdPath = Join-Path $brandPath 'lower_third_1920x220.png'
 
-if (($Title -or $Subtitle) -and -not (Test-Path $aspectAssets['title'])) {
-  throw "Missing title ribbon asset for aspect $Aspect"
+if (-not $PSBoundParameters.ContainsKey('RibbonPNG')) {
+  if ($Title -or $Subtitle) {
+    $RibbonPNG = $aspectAssets['title']
+  }
 }
-if ($Watermark -and -not (Test-Path $watermarkPath)) {
-  throw "Missing watermark asset: $watermarkPath"
+if ($RibbonPNG -and -not (Test-Path $RibbonPNG)) {
+  throw "Missing title ribbon asset: $RibbonPNG"
 }
-if ($LowerThird -and -not (Test-Path $lowerThirdPath)) {
-  throw "Missing lower third asset: $lowerThirdPath"
+
+if (-not $PSBoundParameters.ContainsKey('LogoPNG')) {
+  if ($Watermark) {
+    $LogoPNG = $watermarkPath
+  }
 }
+if (-not $Watermark) {
+  $LogoPNG = $null
+}
+if ($LogoPNG -and -not (Test-Path $LogoPNG)) {
+  throw "Missing watermark asset: $LogoPNG"
+}
+
 if ($ShowGuides -and -not (Test-Path $aspectAssets['guides'])) {
   throw "Missing safe guide asset for aspect $Aspect"
 }
 if ($EndCard -and -not (Test-Path $aspectAssets['endcard'])) {
   throw "Missing end card asset for aspect $Aspect"
+}
+if ($LowerThird -and -not (Test-Path $lowerThirdPath)) {
+  throw "Missing lower third asset: $lowerThirdPath"
 }
 
 $fontMissing = $false
@@ -148,107 +223,115 @@ if ($LowerThird -and $mediumFontMissing) {
   Write-Warning "Medium font missing for lower third: $mediumFont"
 }
 
-$ffArgs = @('-y', '-i', $In)
-$filterParts = @('[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0]')
-$videoLabel = 'v0'
-$inputIndex = 1
+$brand = New-BrandFilterGraph -BaseLabel 'base' -RibbonPath $RibbonPNG -LogoPath $LogoPNG -HandleText $HandleTxt -W $targetWidth -H $targetHeight
 
-if ($Title -or $Subtitle) {
-  $ffArgs += '-i'
-  $ffArgs += $aspectAssets['title']
-  $filterParts += "[$videoLabel][$inputIndex:v]overlay=x=0:y=0:format=auto[v$inputIndex]"
-  $videoLabel = "v$inputIndex"
-  $inputIndex++
-
-  if ($Title -and -not $fontMissing) {
-    $titleText = Escape-DrawText $Title
-    $titleFont = Get-DrawTextPath $FontFile
-    $filterParts += "[$videoLabel]drawtext=fontfile='$titleFont':text='$titleText':fontcolor=white:fontsize=72:x=260:y=80:shadowcolor=black@0.45:shadowx=2:shadowy=2[v$inputIndex]"
-    $videoLabel = "v$inputIndex"
-    $inputIndex++
-  }
-  if ($Subtitle -and -not $semiFontMissing) {
-    $subtitleText = Escape-DrawText $Subtitle
-    $subtitleFont = Get-DrawTextPath $semiFont
-    $filterParts += "[$videoLabel]drawtext=fontfile='$subtitleFont':text='$subtitleText':fontcolor=white:fontsize=48:x=260:y=150:shadowcolor=black@0.45:shadowx=2:shadowy=2[v$inputIndex]"
-    $videoLabel = "v$inputIndex"
-    $inputIndex++
-  }
+$ffArgs = @('-hide_banner','-y','-i', $In)
+if ($brand.Inputs.Count -gt 0) {
+  $ffArgs += $brand.Inputs
 }
 
-if ($Watermark) {
-  $ffArgs += '-i'
-  $ffArgs += $watermarkPath
-  $filterParts += "[$videoLabel][$inputIndex:v]overlay=x=32:y=main_h-overlay_h-32:format=auto[v$inputIndex]"
-  $videoLabel = "v$inputIndex"
-  $inputIndex++
+$filterParts = @()
+foreach ($part in @($brand.FilterGraph)) {
+  if ($part) { $filterParts += $part }
+}
+
+$currentLabel = $brand.OutLabel
+$nextIndex = $brand.NextIndex
+if ($filterParts.Count -eq 0) {
+  $filterParts += "[0:v]scale=${targetWidth}:${targetHeight}:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[$currentLabel]"
+  $currentLabel = 'base'
+  $nextIndex = 1
+}
+
+if ($Title -and -not $fontMissing) {
+  $titleText = Escape-DrawText $Title
+  $titleFont = Get-DrawTextPath $FontFile
+  $nextLabel = "ov$nextIndex"
+  $filterParts += "[$currentLabel]drawtext=fontfile='$titleFont':text='$titleText':fontcolor=white:fontsize=72:x=260:y=80:shadowcolor=black@0.45:shadowx=2:shadowy=2[$nextLabel]"
+  $currentLabel = $nextLabel
+  $nextIndex++
+}
+
+if ($Subtitle -and -not $semiFontMissing) {
+  $subtitleText = Escape-DrawText $Subtitle
+  $subtitleFont = Get-DrawTextPath $semiFont
+  $nextLabel = "ov$nextIndex"
+  $filterParts += "[$currentLabel]drawtext=fontfile='$subtitleFont':text='$subtitleText':fontcolor=white:fontsize=48:x=260:y=150:shadowcolor=black@0.45:shadowx=2:shadowy=2[$nextLabel]"
+  $currentLabel = $nextLabel
+  $nextIndex++
 }
 
 if ($LowerThird) {
-  $ffArgs += '-i'
-  $ffArgs += $lowerThirdPath
-  $filterParts += "[$videoLabel][$inputIndex:v]overlay=x=(main_w-overlay_w)/2:y=main_h-overlay_h-120:format=auto[v$inputIndex]"
-  $videoLabel = "v$inputIndex"
-  $inputIndex++
+  $ffArgs += @('-i', $lowerThirdPath)
+  $nextLabel = "ov$nextIndex"
+  $filterParts += "[$currentLabel][$($nextIndex):v]overlay=x=(main_w-overlay_w)/2:y=main_h-overlay_h-120:format=auto[$nextLabel]"
+  $currentLabel = $nextLabel
+  $nextIndex++
 
   if ($Title -and -not $boldFontMissing) {
     $ltName = Escape-DrawText $Title
     $boldPath = Get-DrawTextPath $boldFont
-    $filterParts += "[$videoLabel]drawtext=fontfile='$boldPath':text='$ltName':fontcolor=white:fontsize=64:x=(w-1920)/2+220:y=h-220+48:shadowcolor=black@0.4:shadowx=2:shadowy=2[v$inputIndex]"
-    $videoLabel = "v$inputIndex"
-    $inputIndex++
+    $nextLabel = "ov$nextIndex"
+    $filterParts += "[$currentLabel]drawtext=fontfile='$boldPath':text='$ltName':fontcolor=white:fontsize=64:x=(w-1920)/2+220:y=h-220+48:shadowcolor=black@0.4:shadowx=2:shadowy=2[$nextLabel]"
+    $currentLabel = $nextLabel
+    $nextIndex++
   }
   if ($Subtitle -and -not $mediumFontMissing) {
     $ltRole = Escape-DrawText $Subtitle
     $mediumPath = Get-DrawTextPath $mediumFont
-    $filterParts += "[$videoLabel]drawtext=fontfile='$mediumPath':text='$ltRole':fontcolor=white:fontsize=40:x=(w-1920)/2+220:y=h-220+110:shadowcolor=black@0.4:shadowx=2:shadowy=2[v$inputIndex]"
-    $videoLabel = "v$inputIndex"
-    $inputIndex++
+    $nextLabel = "ov$nextIndex"
+    $filterParts += "[$currentLabel]drawtext=fontfile='$mediumPath':text='$ltRole':fontcolor=white:fontsize=40:x=(w-1920)/2+220:y=h-220+110:shadowcolor=black@0.4:shadowx=2:shadowy=2[$nextLabel]"
+    $currentLabel = $nextLabel
+    $nextIndex++
   }
 }
 
 if ($ShowGuides) {
-  $ffArgs += '-i'
-  $ffArgs += $aspectAssets['guides']
-  $filterParts += "[$videoLabel][$inputIndex:v]overlay=x=0:y=0:format=auto[v$inputIndex]"
-  $videoLabel = "v$inputIndex"
-  $inputIndex++
+  $ffArgs += @('-i', $aspectAssets['guides'])
+  $nextLabel = "ov$nextIndex"
+  $filterParts += "[$currentLabel][$($nextIndex):v]overlay=x=0:y=0:format=auto[$nextLabel]"
+  $currentLabel = $nextLabel
+  $nextIndex++
 }
-
-$finalLabel = $videoLabel
 
 if ($EndCard) {
-  $ffArgs += '-loop'; $ffArgs += '1'; $ffArgs += '-t'; $ffArgs += '2'; $ffArgs += '-i'; $ffArgs += $aspectAssets['endcard']
-  $endIndex = $inputIndex
+  $ffArgs += @('-loop','1','-t','2','-i', $aspectAssets['endcard'])
+  $endIndex = $nextIndex
   $baseRef = "base_$endIndex"
-  $filterParts += "[$endIndex:v][$finalLabel]scale2ref=flags=lanczos[endcard$endIndex][$baseRef]"
+  $filterParts += "[$($endIndex):v][$currentLabel]scale2ref=flags=lanczos[endcard$endIndex][$baseRef]"
   $filterParts += "[endcard$endIndex]trim=duration=2,setpts=PTS-STARTPTS[endcard_trim$endIndex]"
-  $filterParts += "[$baseRef][endcard_trim$endIndex]concat=n=2:v=1:a=0[vout]"
-  $finalLabel = 'vout'
-} else {
-  $filterParts += "[$finalLabel]format=yuv420p[vout]"
-  $finalLabel = 'vout'
+  $concatLabel = "ov$nextIndex"
+  $filterParts += "[$baseRef][endcard_trim$endIndex]concat=n=2:v=1:a=0[$concatLabel]"
+  $currentLabel = $concatLabel
+  $nextIndex++
 }
 
-$filterComplex = ($filterParts -join ';')
+$finalLabel = "ov$nextIndex"
+$filterParts += "[$currentLabel]format=yuv420p[$finalLabel]"
+$currentLabel = $finalLabel
+$nextIndex++
+
+$filterComplex = $filterParts -join ';'
 
 $bitrateStr = ($BitrateMbps.ToString('0.###', [System.Globalization.CultureInfo]::InvariantCulture)) + 'M'
 $bufsizeStr = ($BitrateMbps * 2).ToString('0.###', [System.Globalization.CultureInfo]::InvariantCulture) + 'M'
 
-$ffArgs += '-filter_complex'; $ffArgs += $filterComplex
-$ffArgs += '-map'; $ffArgs += '[vout]'
-$ffArgs += '-map'; $ffArgs += '0:a?'
-$ffArgs += '-c:v'; $ffArgs += 'libx264'
-$ffArgs += '-profile:v'; $ffArgs += 'high'
-$ffArgs += '-pix_fmt'; $ffArgs += 'yuv420p'
-$ffArgs += '-b:v'; $ffArgs += $bitrateStr
-$ffArgs += '-maxrate'; $ffArgs += $bitrateStr
-$ffArgs += '-bufsize'; $ffArgs += $bufsizeStr
-$ffArgs += '-c:a'; $ffArgs += 'aac'
-$ffArgs += '-b:a'; $ffArgs += '192k'
-$ffArgs += '-ar'; $ffArgs += '48000'
-$ffArgs += '-movflags'; $ffArgs += '+faststart'
-$ffArgs += $Out
+$ffArgs += @(
+  '-filter_complex', $filterComplex,
+  '-map', "[$currentLabel]",
+  '-map', '0:a?',
+  '-c:v', 'libx264',
+  '-profile:v', 'high',
+  '-pix_fmt', 'yuv420p',
+  '-b:v', $bitrateStr,
+  '-maxrate', $bitrateStr,
+  '-bufsize', $bufsizeStr,
+  '-c:a', 'aac',
+  '-b:a', '192k',
+  '-ar', '48000',
+  '-movflags', '+faststart',
+  $Out
+)
 
 Write-Host "[brand] ffmpeg $($ffArgs -join ' ')"
 & ffmpeg @ffArgs
