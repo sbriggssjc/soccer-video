@@ -54,8 +54,11 @@ foreach ($r in $rows) {
   }
 
   # Choose best source for UPSCALE: prefer follow if exists
-  $bestForUpscale = $atomic
-  if (Test-Path -LiteralPath $outFollow) { $bestForUpscale = $outFollow }
+  if (Test-Path -LiteralPath $outFollow) {
+    $bestForUpscale = $outFollow
+  } else {
+    $bestForUpscale = $atomic
+  }
 
   # UPSCALE
   if ($r.Stage_Upscaled -ne 'True') {
@@ -77,8 +80,11 @@ foreach ($r in $rows) {
   }
 
   # Choose best source for ENHANCE: prefer upscaled if exists
-  $bestForEnh = $bestForUpscale
-  if (Test-Path -LiteralPath $outUp) { $bestForEnh = $outUp }
+  if (Test-Path -LiteralPath $outUp) {
+    $bestForEnh = $outUp
+  } else {
+    $bestForEnh = $bestForUpscale
+  }
 
   # ENHANCE
   if ($r.Stage_Enhanced -ne 'True') {
@@ -98,7 +104,6 @@ foreach ($r in $rows) {
   }
 
   # Choose best source for BRAND: prefer enhanced, else upscaled, else follow/atomic
-  $bestForBrand = $bestForEnh
   if (Test-Path -LiteralPath $outEnh) {
     $bestForBrand = $outEnh
   } elseif (Test-Path -LiteralPath $outUp) {
@@ -106,7 +111,7 @@ foreach ($r in $rows) {
   } elseif (Test-Path -LiteralPath $outFollow) {
     $bestForBrand = $outFollow
   } else {
-    $bestForBrand = $atomic
+    $bestForBrand = $bestForUpscale
   }
 
   # BRAND (only if you have a branding script)

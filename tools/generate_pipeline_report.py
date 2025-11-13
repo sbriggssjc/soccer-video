@@ -3,6 +3,7 @@
 """Generate pipeline status report and PowerShell command script."""
 from __future__ import annotations
 
+import argparse
 import csv
 import datetime as dt
 import json
@@ -350,11 +351,15 @@ def build_command_entry(stage: str, info: ClipStageInfo, repo_root: Path) -> Opt
     }
 
 
-def generate_reports(repo_root: Path) -> Tuple[List[ClipStageInfo], List[Dict[str, object]]]:
+def generate_reports(
+    repo_root: Path, *, include_unselected: bool = True
+) -> Tuple[List[ClipStageInfo], List[Dict[str, object]]]:
     clips = collect_clips(repo_root)
     commands: List[Dict[str, object]] = []
 
     for info in clips:
+        if not include_unselected and not info.selected_manual:
+            continue
         stage_presence = {
             "Stage_Stabilized": stage_done(info.stabilized_paths),
             "Stage_Follow": stage_done(info.follow_paths),
@@ -564,10 +569,35 @@ def find_repo_root(start: Path) -> Path:
     return start  # fallback
 
 
-def main() -> None:
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Pipeline status + command generator"
+    )
+    parser.add_argument(
+        "--include-unselected",
+        action="store_true",
+        default=True,
+        help="Include unselected atomic clips in pending work (defaults to True)",
+    )
+    parser.add_argument(
+        "--selected-only",
+        dest="include_unselected",
+        action="store_false",
+        help="Only include manually selected atomic clips in pending work",
+    )
+    args = parser.parse_args(argv)
+    if not hasattr(args, "include_unselected"):
+        args.include_unselected = True
+    return args
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = parse_args(argv)
     here = Path(__file__).resolve()
     repo_root = find_repo_root(here.parent)
-    clips, commands = generate_reports(repo_root)
+    clips, commands = generate_reports(
+        repo_root, include_unselected=bool(args.include_unselected)
+    )
     status_csv = write_status_csv(repo_root, clips)
     command_script = write_command_script(repo_root, commands)
     print_stage_command_map()
