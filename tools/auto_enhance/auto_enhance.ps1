@@ -1,4 +1,4 @@
-<# 
+﻿<# 
 Auto-enhance video to broadcast-safe Rec.709 with gentle smart defaults.
 Usage:
   .\tools\auto_enhance\auto_enhance.ps1 -In "path\to\input.mp4"
@@ -78,7 +78,7 @@ function Get-Filter($profile) {
 function Invoke-FFMPEG($inPath, $filter, $crf, $preset, $dry) {
   $dir  = Split-Path $inPath -Parent
   $base = [IO.Path]::GetFileNameWithoutExtension($inPath)
-  $out  = Join-Path $dir ($base + "_ENH.mp4")
+  `$OutPath  = Join-Path $dir ($base + "_ENH.mp4")
 
   $args = @(
     '-hide_banner', '-y',
@@ -87,7 +87,7 @@ function Invoke-FFMPEG($inPath, $filter, $crf, $preset, $dry) {
     '-vf', $filter,
     '-c:v', 'libx264', '-preset', $preset, '-crf', $crf,
     '-c:a', 'aac', '-b:a', '192k',
-    $out
+    `$OutPath
   )
 
   Write-Host "`n=== Enhancing: $inPath"
@@ -98,7 +98,7 @@ function Invoke-FFMPEG($inPath, $filter, $crf, $preset, $dry) {
     if ($p.ExitCode -ne 0) {
       # Fallback: if normalize caused failure, retry without it (basic profile).
       if ($filter -match 'normalize=') {
-        Write-Warning "Normalize likely unsupported in this FFmpeg build. Retrying with rec709_basic…"
+        Write-Warning "Normalize likely unsupported in this FFmpeg build. Retrying with rec709_basicâ€¦"
         $fallback = (Get-Filter 'rec709_basic')
         $args[$args.IndexOf('-vf')+1] = $fallback
         $p2 = Start-Process -FilePath 'ffmpeg' -ArgumentList $args -NoNewWindow -PassThru -Wait
@@ -109,7 +109,7 @@ function Invoke-FFMPEG($inPath, $filter, $crf, $preset, $dry) {
     }
   }
 
-  return $out
+  return `$OutPath
 }
 
 $files = Get-VideoFiles -root $In -recurse:$Recurse
@@ -132,3 +132,4 @@ foreach ($f in $files) {
 
 Write-Host "`nDone. Outputs:"
 $outs | ForEach-Object { Write-Host "  $_" }
+
