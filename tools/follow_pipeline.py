@@ -216,11 +216,15 @@ def run_brand(output: Path, args: argparse.Namespace) -> None:
         os.fspath(script),
         "-In",
         os.fspath(output),
-        "-OutPath",
+        "-Out",              # <-- tsc_brand.ps1 expects -Out
         os.fspath(tmp),
     ]
 
-    logger.info("Branding %s → %s", output, tmp)
+    logger.info(
+        "Branding %s → %s",
+        os.fspath(output),
+        os.fspath(tmp),
+    )
     subprocess.run(cmd, check=True)
 
     # Replace the original with the branded result
