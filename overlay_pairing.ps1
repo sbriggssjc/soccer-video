@@ -19,7 +19,7 @@ function Require-File([string]$p, [string]$hint) {
 
 # --- choose the correct pair (video, telemetry) ---
 if ($Mode -eq "final") {
-  $Video = Join-Path $OutDir  ("{0}_portrait_FINAL.mp4" -f $Stem)
+  $Video = Join-Path $OutDir  ("{0}_WIDE_portrait_FINAL.mp4" -f $Stem)
   $Telem = Join-Path $LogsDir ("{0}.final.jsonl"       -f $Stem)
   Require-File $Video "Final portrait mp4"
   Require-File $Telem "Final telemetry jsonl"

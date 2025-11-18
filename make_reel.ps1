@@ -35,7 +35,10 @@ function Get-PortraitBaseName {
     if (-not $base) {
         $base = "reel"
     }
-    return ($base -replace "_portrait_FINAL$", "")
+    $base = $base -replace "_WIDE_portrait_FINAL$", ""
+    $base = $base -replace "_portrait_FINAL$", ""
+    $base = $base -replace "_WIDE$", ""
+    return $base
 }
 
 function Ensure-ParentDirectory {
@@ -54,7 +57,7 @@ if (-not $PSBoundParameters.ContainsKey('Output') -or -not $Output) {
         $cleanDir = Join-Path $reelRoot "clean"
         $baseName = Get-PortraitBaseName -InputPath $inputFull -VarsPath $varsFull
         Ensure-ParentDirectory (Join-Path $cleanDir "placeholder")
-        $Output = Join-Path $cleanDir ($baseName + "_portrait_FINAL.mp4")
+        $Output = Join-Path $cleanDir ($baseName + "_WIDE_portrait_FINAL.mp4")
     } else {
         $Output = "autoframe_crop.mp4"
     }
