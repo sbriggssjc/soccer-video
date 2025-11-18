@@ -98,4 +98,11 @@ if (Test-Path $reelsRoot) {
   }
 }
 
-Write-Host "Cleanup complete." -ForegroundColor Green
+$removed = ($script:Stats.GetEnumerator() | Measure-Object -Property Value -Sum).Sum
+if (-not $removed) { $removed = 0 }
+Write-Host "Cleanup complete. Removed $removed item(s)." -ForegroundColor Green
+if ($script:Stats.Count -gt 0) {
+  $script:Stats.GetEnumerator() | Sort-Object Name | ForEach-Object {
+    Write-Host ("  {0}: {1}" -f $_.Key, $_.Value) -ForegroundColor DarkGray
+  }
+}
