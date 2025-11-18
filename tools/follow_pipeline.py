@@ -1,4 +1,20 @@
-"""Unified offline follow + portrait pipeline entrypoint."""
+"""Unified offline follow + portrait pipeline entrypoint.
+
+Example (single clip, full pass)::
+
+    python tools/follow_pipeline.py \
+        --clip out/atomic_clips/ABC123.mp4 \
+        --preset cinematic --portrait 1080x1920 \
+        --brand-script tools/tsc_brand.ps1 --cleanup
+
+Key flags:
+
+* ``--preset`` selects the render_follow_unified preset.
+* ``--portrait`` toggles portrait planning/cropping (e.g. ``1080x1920``).
+* ``--brand-script`` points at ``tools/tsc_brand.ps1`` (or equivalent).
+* ``--cleanup`` runs ``Cleanup-Intermediates.ps1`` after all clips finish.
+* ``--extra`` forwards extra args directly to ``render_follow_unified.py``.
+"""
 
 from __future__ import annotations
 
@@ -172,7 +188,22 @@ def run_brand(output: Path, args: argparse.Namespace) -> None:
     if not shell:
         logging.warning("Skipping branding for %s; PowerShell not available", output)
         return
-    cmd = [shell, "-NoProfile", "-File", os.fspath(script), "-In", os.fspath(output), "-OutPath", os.fspath(output)]
+    clean_dest = output
+    if clean_dest.parent != PORTRAIT_ROOT:
+        clean_dest = PORTRAIT_ROOT / clean_dest.name
+    clean_dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        shell,
+        "-NoProfile",
+        "-File",
+        os.fspath(script),
+        "-In",
+        os.fspath(output),
+        "-Out",
+        os.fspath(clean_dest),
+        "-Aspect",
+        "9x16",
+    ]
     logging.info("Branding %s", output)
     subprocess.run(cmd, check=True)
 

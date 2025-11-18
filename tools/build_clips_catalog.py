@@ -1,5 +1,6 @@
 import csv
 import json
+import logging
 import subprocess
 from pathlib import Path
 from typing import Dict, List
@@ -58,9 +59,28 @@ def find_portraits() -> Dict[str, List[Path]]:
     mapping: Dict[str, List[Path]] = {}
     if not PORTRAIT_ROOT.exists():
         return mapping
+
+    def sort_key(path: Path) -> tuple:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        return (-mtime, str(path))
+
     for mp4 in PORTRAIT_ROOT.rglob("*_portrait_FINAL*.mp4"):
         clip = clip_id_from_name(mp4.name)
-        mapping.setdefault(clip, []).append(mp4)
+        entries = mapping.setdefault(clip, [])
+        if mp4 not in entries:
+            entries.append(mp4)
+
+    for clip, files in mapping.items():
+        files.sort(key=sort_key)
+        if len(files) > 1:
+            logging.warning(
+                "Multiple portrait reels remain for %s; keeping all (%s)",
+                clip,
+                "; ".join(str(p) for p in files),
+            )
     return mapping
 
 
@@ -79,6 +99,7 @@ def load_status() -> Dict[str, Dict[str, str]]:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
     portraits = find_portraits()
     status = load_status()
     clip_ids = sorted(set(portraits) | set(status))
@@ -104,7 +125,11 @@ def main() -> None:
             match = row.get("MatchKey") or ""
             portrait_list = portraits.get(clip_id, [])
             portrait_str = ";".join(str(p) for p in portrait_list)
-            metadata = probe_video(portrait_list[0]) if portrait_list else {"DurationSeconds": "", "Width": "", "Height": ""}
+            metadata = (
+                probe_video(portrait_list[0])
+                if portrait_list
+                else {"DurationSeconds": "", "Width": "", "Height": ""}
+            )
             writer.writerow(
                 {
                     "ClipID": clip_id,
