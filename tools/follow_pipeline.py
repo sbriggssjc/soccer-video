@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
+logger = logging.getLogger(__name__)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SELECTION = REPO_ROOT / "out" / "reports" / "pipeline_status.csv"
 PORTRAIT_ROOT = REPO_ROOT / "out" / "portrait_reels" / "clean"
@@ -178,34 +180,56 @@ def run_render(job: ClipJob, args: argparse.Namespace, ball_path: Optional[Path]
 
 
 def run_brand(output: Path, args: argparse.Namespace) -> None:
+    """
+    Run the external PowerShell branding script, writing to a temporary
+    file and then renaming back to *output* so ffmpeg never has to
+    read/write the same path.
+    """
     if not args.brand_script:
         return
-    script = args.brand_script
+
+    script = Path(args.brand_script)
     if not script.exists():
-        logging.warning("Branding script %s not found", script)
+        logger.warning("Brand script %s does not exist; skipping brand", script)
         return
-    shell = shutil.which("pwsh") or shutil.which("powershell")
-    if not shell:
-        logging.warning("Skipping branding for %s; PowerShell not available", output)
-        return
-    clean_dest = output
-    if clean_dest.parent != PORTRAIT_ROOT:
-        clean_dest = PORTRAIT_ROOT / clean_dest.name
-    clean_dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Choose PowerShell host
+    shell = os.environ.get(
+        "POWERSHELL",
+        "powershell" if os.name == "nt" else "pwsh",
+    )
+
+    # Temporary branded output (same folder, different name)
+    tmp = output.with_name(output.stem + ".__BRANDTMP" + output.suffix)
+    if tmp.exists():
+        try:
+            tmp.unlink()
+        except OSError as e:
+            logger.warning("Could not remove stale brand tmp %s: %s", tmp, e)
+
     cmd = [
         shell,
         "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
         "-File",
         os.fspath(script),
         "-In",
         os.fspath(output),
-        "-Out",
-        os.fspath(clean_dest),
-        "-Aspect",
-        "9x16",
+        "-OutPath",
+        os.fspath(tmp),
     ]
-    logging.info("Branding %s", output)
+
+    logger.info("Branding %s → %s", output, tmp)
     subprocess.run(cmd, check=True)
+
+    # Replace the original with the branded result
+    try:
+        tmp.replace(output)
+    except OSError:
+        import shutil
+
+        shutil.move(os.fspath(tmp), os.fspath(output))
 
 
 def run_cleanup(args: argparse.Namespace) -> None:
