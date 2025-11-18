@@ -36,6 +36,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.upscale import upscale_video
+from tools.offline_portrait_planner import OfflinePortraitPlanner, PlannerConfig
 
 
 def edge_zoom_out(
@@ -682,12 +683,6 @@ def smooth_series(x, alpha=0.15):
     return y
 
 
-def speed(px):
-    # |Δ| per frame (px/frame)
-    d = np.sqrt(np.sum(np.diff(px, axis=0) ** 2, axis=1))
-    return np.concatenate([[0.0], d])
-
-
 class ZoomPlanner:
     """
     Speed → zoom with hysteresis and slew-rate limiting.
@@ -743,47 +738,44 @@ def plan_camera_from_ball(
     bounds_pad=16,
     center_frac=0.5,
 ):
-    """
-    bx/by are STABILIZED ball coords per-frame (not raw detector jitter).
-    - pan_alpha: EWMA for camera center (higher = tighter follow)
-    - lead: amount of lookahead in seconds, implemented as future-index peek
-    """
+    """Plan a portrait crop using the offline cinematic planner."""
 
-    n = len(bx)
-    pts = np.stack([bx, by], axis=1)
-    spd = speed(pts)
+    if frame_w <= 0 or frame_h <= 0:
+        raise ValueError("Frame dimensions must be positive")
 
-    # lookahead index in frames (use fps already known in your script)
-    LA = int(round(lead * FPS)) if lead > 0 else 0
-    bx_look = np.concatenate([bx[LA:], np.repeat(bx[-1], LA)])
-    by_look = np.concatenate([by[LA:], np.repeat(by[-1], LA)])
+    fps = FPS if FPS > 0 else 30.0
+    smooth_window = max(3, int(round((1.0 - float(np.clip(pan_alpha, 0.01, 0.95))) * 12.0)) | 1)
+    headroom_frac = 0.5 - float(np.clip(center_frac, 0.0, 1.0))
+    lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
+    max_step_x = max(12.0, frame_w * 0.012)
+    max_step_y = max(8.0, frame_h * 0.008)
+    passes = 3 if pan_alpha < 0.3 else 2
 
-    cx = smooth_series(bx_look, alpha=pan_alpha)
-    cy = smooth_series(by_look, alpha=pan_alpha)
-    bias_px = (0.5 - float(np.clip(center_frac, 0.0, 1.0))) * frame_h
-    cy = cy + bias_px
+    cfg = PlannerConfig(
+        frame_size=(float(frame_w), float(frame_h)),
+        crop_aspect=float(target_aspect) if target_aspect > 0 else (9.0 / 16.0),
+        fps=float(fps),
+        margin_px=float(bounds_pad),
+        headroom_frac=float(headroom_frac),
+        lead_px=float(lead_px),
+        smooth_window=int(smooth_window),
+        max_step_x=float(max_step_x),
+        max_step_y=float(max_step_y),
+        accel_limit_x=float(max_step_x * 0.35),
+        accel_limit_y=float(max_step_y * 0.35),
+        smoothing_passes=passes,
+        portrait_pad=float(bounds_pad),
+    )
 
-    # compute zoom per-frame
-    zp = ZoomPlanner(z_min=1.0, z_max=1.9, s_lo=2.5, s_hi=22.0, hysteresis=0.18, max_step=0.025)
-    z = zp.plan(spd)
+    planner = OfflinePortraitPlanner(cfg)
+    plan = planner.plan(bx, by)
 
-    # convert zoom to crop size (height); ensure target aspect; keep in bounds
-    crop_h = np.clip(frame_h / z, 240, frame_h - 2 * bounds_pad)
-    crop_w = np.minimum(crop_h * target_aspect, frame_w - 2 * bounds_pad)
-    crop_h = crop_w / target_aspect  # enforce exact aspect
-
-    # clamp camera center so crop box stays inside frame
-    half_w = crop_w / 2.0
-    half_h = crop_h / 2.0
-    cx = np.clip(cx, half_w + bounds_pad, frame_w - half_w - bounds_pad)
-    cy = np.clip(cy, half_h + bounds_pad, frame_h - half_h - bounds_pad)
-
-    # produce integer crops
-    x0 = (cx - half_w).round().astype(int)
-    y0 = (cy - half_h).round().astype(int)
-    w = crop_w.round().astype(int)
-    h = crop_h.round().astype(int)
-
+    x0 = plan["x0"].round().astype(int)
+    y0 = plan["y0"].round().astype(int)
+    w = plan["w"].round().astype(int)
+    h = plan["h"].round().astype(int)
+    spd = plan["spd"].astype(float)
+    z = plan["z"].astype(float)
     return x0, y0, w, h, spd, z
 
 
