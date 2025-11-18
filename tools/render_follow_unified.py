@@ -737,6 +737,10 @@ def plan_camera_from_ball(
     lead=0.10,
     bounds_pad=16,
     center_frac=0.5,
+    *,
+    margin_px_override: Optional[float] = None,
+    headroom_frac_override: Optional[float] = None,
+    lead_px_override: Optional[float] = None,
 ):
     """Plan a portrait crop using the offline cinematic planner."""
 
@@ -746,17 +750,35 @@ def plan_camera_from_ball(
     fps = FPS if FPS > 0 else 30.0
     smooth_window = max(3, int(round((1.0 - float(np.clip(pan_alpha, 0.01, 0.95))) * 12.0)) | 1)
     headroom_frac = 0.5 - float(np.clip(center_frac, 0.0, 1.0))
+    default_headroom = max(0.08, min(0.20, headroom_frac))
+    if headroom_frac_override is not None:
+        try:
+            default_headroom = float(headroom_frac_override)
+        except (TypeError, ValueError):
+            default_headroom = max(0.08, min(0.20, headroom_frac))
     lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
+    if lead_px_override is not None:
+        try:
+            lead_px = max(0.0, float(lead_px_override))
+        except (TypeError, ValueError):
+            lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
     max_step_x = max(12.0, frame_w * 0.012)
     max_step_y = max(8.0, frame_h * 0.008)
     passes = 3 if pan_alpha < 0.3 else 2
+
+    margin_value = max(bounds_pad, 90.0)
+    if margin_px_override is not None:
+        try:
+            margin_value = max(bounds_pad, float(margin_px_override))
+        except (TypeError, ValueError):
+            margin_value = max(bounds_pad, 90.0)
 
     cfg = PlannerConfig(
         frame_size=(float(frame_w), float(frame_h)),
         crop_aspect=float(target_aspect) if target_aspect > 0 else (9.0 / 16.0),
         fps=float(fps),
-        margin_px=float(bounds_pad),
-        headroom_frac=float(headroom_frac),
+        margin_px=float(margin_value),
+        headroom_frac=float(default_headroom),
         lead_px=float(lead_px),
         smooth_window=int(smooth_window),
         max_step_x=float(max_step_x),
@@ -2009,6 +2031,13 @@ class CameraPlanner:
                 if math.isfinite(bx_guard) and math.isfinite(by_guard):
                     _, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
                     if kv_crop_w > 0.0 and kv_crop_h > 0.0:
+                        guard_frac = max(0.0, float(self.keepinview_min_band_frac))
+                        if guard_frac > 0.0:
+                            keepinview_margin = max(
+                                keepinview_margin,
+                                kv_crop_w * guard_frac,
+                                kv_crop_h * guard_frac,
+                            )
                         half_w = kv_crop_w * 0.5
                         half_h = kv_crop_h * 0.5
 
@@ -2334,6 +2363,9 @@ class Renderer:
         lost_chase_motion_ms: int = 900,
         lost_motion_thresh: float = 1.6,
         lost_use_motion: bool = False,
+        portrait_plan_margin_px: Optional[float] = None,
+        portrait_plan_headroom: Optional[float] = None,
+        portrait_plan_lead_px: Optional[float] = None,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -2396,6 +2428,19 @@ class Renderer:
             motion_thresh_value = 1.6
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
         self.lost_use_motion = bool(lost_use_motion)
+        self.keepinview_min_band_frac = 0.12
+
+        def _coerce_float(value: Optional[float]) -> Optional[float]:
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        self.portrait_plan_margin_px = _coerce_float(portrait_plan_margin_px)
+        self.portrait_plan_headroom_frac = _coerce_float(portrait_plan_headroom)
+        self.portrait_plan_lead_px = _coerce_float(portrait_plan_lead_px)
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -2764,27 +2809,38 @@ class Renderer:
                 bounds_pad = int(round(self.follow_margin_px)) if self.follow_margin_px > 0 else 16
                 bounds_pad = max(8, bounds_pad)
 
-                plan_x0, plan_y0, plan_w, plan_h, plan_spd, plan_zoom = plan_camera_from_ball(
-                    bx_arr,
-                    by_arr,
-                    float(width),
-                    float(height),
-                    float(target_aspect),
-                    pan_alpha=pan_alpha,
-                    lead=lead_seconds,
-                    bounds_pad=bounds_pad,
-                    center_frac=self.follow_center_frac,
+                planner_enabled = bool(
+                    is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
                 )
+                if planner_enabled:
+                    plan_x0, plan_y0, plan_w, plan_h, plan_spd, plan_zoom = plan_camera_from_ball(
+                        bx_arr,
+                        by_arr,
+                        float(width),
+                        float(height),
+                        float(target_aspect),
+                        pan_alpha=pan_alpha,
+                        lead=lead_seconds,
+                        bounds_pad=bounds_pad,
+                        center_frac=self.follow_center_frac,
+                        margin_px_override=self.portrait_plan_margin_px,
+                        headroom_frac_override=self.portrait_plan_headroom_frac,
+                        lead_px_override=self.portrait_plan_lead_px,
+                    )
 
-                offline_plan_len = len(plan_x0)
-                offline_plan_data = {
-                    "x0": plan_x0.astype(float),
-                    "y0": plan_y0.astype(float),
-                    "w": plan_w.astype(float),
-                    "h": plan_h.astype(float),
-                    "spd": plan_spd.astype(float),
-                    "z": plan_zoom.astype(float),
-                }
+                    offline_plan_len = len(plan_x0)
+                    offline_plan_data = {
+                        "x0": plan_x0.astype(float),
+                        "y0": plan_y0.astype(float),
+                        "w": plan_w.astype(float),
+                        "h": plan_h.astype(float),
+                        "spd": plan_spd.astype(float),
+                        "z": plan_zoom.astype(float),
+                    }
+
+                else:
+                    offline_plan_len = 0
+                    offline_plan_data = None
 
         kal: Optional[CV2DKalman] = None
         template: Optional[np.ndarray] = None
@@ -3358,6 +3414,9 @@ class Renderer:
                             eff_by = prev_ball_by
 
                         planner_handled = False
+                        planner_zoom = None
+                        planner_spd = None
+                        planned_crop: Optional[Tuple[float, float, float, float]] = None
                         holding_follow = False
                         if offline_plan_data is not None and n < offline_plan_len:
                             plan_x0 = float(offline_plan_data["x0"][n])
@@ -3368,16 +3427,8 @@ class Renderer:
                             planner_spd = float(offline_plan_data["spd"][n])
                             if planner_zoom <= 0:
                                 planner_zoom = float(H / plan_h) if plan_h > 0 else prev_zoom
-    
-                            x0 = plan_x0
-                            y0 = plan_y0
-                            crop_w = plan_w
-                            crop_h = plan_h
-                            cx = x0 + 0.5 * crop_w
-                            cy = y0 + 0.5 * crop_h
-                            zoom = planner_zoom
-                            telemetry_crop = (x0, y0, crop_w, crop_h)
-                            telemetry_ball_src = (eff_bx, eff_by)
+
+                            planned_crop = (plan_x0, plan_y0, plan_w, plan_h)
                             used_tag = "planner"
                             planner_handled = True
                             lost_state = "track"
@@ -3385,12 +3436,7 @@ class Renderer:
                             frame_pan_target = None
                             prev_ball_x = eff_bx
                             prev_ball_y = eff_by
-                            prev_cx = float(cx)
-                            prev_cy = float(cy)
-                            prev_zoom = float(zoom)
-                            prev_bx = eff_bx
-                            prev_by = eff_by
-                            follow_hold.reset_target(cx, cy)
+                            follow_hold.reset_target(plan_x0 + 0.5 * plan_w, plan_y0 + 0.5 * plan_h)
                             if have_ball and eff_bx is not None and eff_by is not None:
                                 ball_path_entry = (eff_bx, eff_by)
                         if not planner_handled:
@@ -3493,89 +3539,109 @@ class Renderer:
                             cam_x = cx
                             cam_y = cy
     
-                        crop_h = H / float(zoom) if zoom > 0 else H
-                        crop_w = crop_h * target_aspect
-                        if crop_w > W:
-                            crop_w = float(W)
-                            crop_h = crop_w / target_aspect if target_aspect else crop_h
-    
-                        margin_follow = (
-                            float(self.follow_margin_px)
-                            if self.follow_margin_px > 0
-                            else 16.0
-                        )
-                        margin_follow = max(0.0, float(margin_follow))
-                        half_w = 0.5 * float(crop_w)
-                        half_h = 0.5 * float(crop_h)
-                        max_margin = max(0.0, min(half_w, half_h) - 1.0)
-                        margin_follow = min(margin_follow, max_margin)
-    
-                        s_out = edge_zoom_out(
-                            float(cam_x),
-                            float(cam_y),
-                            float(eff_bx),
-                            float(eff_by),
-                            float(crop_w),
-                            float(crop_h),
-                            float(W),
-                            float(H),
-                            margin_px=margin_follow,
-                            s_cap=self.follow_zoom_out_max,
-                            edge_frac=self.follow_zoom_edge_frac,
-                        )
-                        eff_w = float(crop_w * s_out)
-                        eff_h = float(crop_h * s_out)
-                        hx = 0.5 * eff_w
-                        hy = 0.5 * eff_h
-                        cam_x = max(hx, min((W - 1.0) - hx, float(cam_x)))
-                        cam_y = max(hy, min((H - 1.0) - hy, float(cam_y)))
-                        x0 = max(0.0, min(W - eff_w, cam_x - hx))
-                        y0 = max(0.0, min(H - eff_h, cam_y - hy))
-    
-                        crop_w = eff_w
-                        crop_h = eff_h
-                        cx = float(cam_x)
-                        cy = float(cam_y)
-                        if eff_h > 1e-6:
-                            zoom = float(H / eff_h)
-    
-                        edge_zoom_scale_follow = float(s_out)
-    
-                        telemetry_ball_src = (eff_bx, eff_by)
-                        telemetry_crop = (x0, y0, crop_w, crop_h)
-    
-                        if is_portrait and have_ball:
-                            portrait_plan_state["zoom"] = float(
-                                max(zoom_min, min(zoom_max, float(zoom)))
-                            ) if zoom_max >= zoom_min else float(zoom)
-                            x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
-                                eff_bx,
-                                eff_by,
-                                width,
-                                height,
-                                out_w=portrait_w,
-                                out_h=portrait_h,
-                                zoom_min=zoom_min,
-                                zoom_max=zoom_max,
-                                pad=self.pad,
-                                state=portrait_plan_state,
-                                center_frac=self.follow_center_frac,
+                        if not planner_handled:
+                            crop_h = H / float(zoom) if zoom > 0 else H
+                            crop_w = crop_h * target_aspect
+                            if crop_w > W:
+                                crop_w = float(W)
+                                crop_h = crop_w / target_aspect if target_aspect else crop_h
+
+                            margin_follow = (
+                                float(self.follow_margin_px)
+                                if self.follow_margin_px > 0
+                                else 16.0
                             )
-                            zoom = float(height) / float(max(crop_h, 1.0))
-                            if zoom_max >= zoom_min:
-                                zoom = max(zoom_min, min(zoom_max, zoom))
+                            margin_follow = max(0.0, float(margin_follow))
+                            half_w = 0.5 * float(crop_w)
+                            half_h = 0.5 * float(crop_h)
+                            max_margin = max(0.0, min(half_w, half_h) - 1.0)
+                            margin_follow = min(margin_follow, max_margin)
+
+                            s_out = edge_zoom_out(
+                                float(cam_x),
+                                float(cam_y),
+                                float(eff_bx),
+                                float(eff_by),
+                                float(crop_w),
+                                float(crop_h),
+                                float(W),
+                                float(H),
+                                margin_px=margin_follow,
+                                s_cap=self.follow_zoom_out_max,
+                                edge_frac=self.follow_zoom_edge_frac,
+                            )
+                            eff_w = float(crop_w * s_out)
+                            eff_h = float(crop_h * s_out)
+                            hx = 0.5 * eff_w
+                            hy = 0.5 * eff_h
+                            cam_x = max(hx, min((W - 1.0) - hx, float(cam_x)))
+                            cam_y = max(hy, min((H - 1.0) - hy, float(cam_y)))
+                            x0 = max(0.0, min(W - eff_w, cam_x - hx))
+                            y0 = max(0.0, min(H - eff_h, cam_y - hy))
+
+                            crop_w = eff_w
+                            crop_h = eff_h
+                            cx = float(cam_x)
+                            cy = float(cam_y)
+                            if eff_h > 1e-6:
+                                zoom = float(H / eff_h)
+
+                            edge_zoom_scale_follow = float(s_out)
+
+                            telemetry_ball_src = (eff_bx, eff_by)
+                            telemetry_crop = (x0, y0, crop_w, crop_h)
+
+                            if is_portrait and have_ball:
+                                portrait_plan_state["zoom"] = float(
+                                    max(zoom_min, min(zoom_max, float(zoom)))
+                                ) if zoom_max >= zoom_min else float(zoom)
+                                x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
+                                    eff_bx,
+                                    eff_by,
+                                    width,
+                                    height,
+                                    out_w=portrait_w,
+                                    out_h=portrait_h,
+                                    zoom_min=zoom_min,
+                                    zoom_max=zoom_max,
+                                    pad=self.pad,
+                                    state=portrait_plan_state,
+                                    center_frac=self.follow_center_frac,
+                                )
+                                zoom = float(height) / float(max(crop_h, 1.0))
+                                if zoom_max >= zoom_min:
+                                    zoom = max(zoom_min, min(zoom_max, zoom))
+                                cx = float(x0 + 0.5 * crop_w)
+                                cy = float(y0 + 0.5 * crop_h)
+                            else:
+                                x0, y0, crop_w, crop_h = compute_portrait_crop(
+                                    float(cx),
+                                    float(cy),
+                                    float(zoom),
+                                    width,
+                                    height,
+                                    target_aspect,
+                                    self.pad,
+                                )
+                        else:
+                            if planned_crop is not None:
+                                x0, y0, crop_w, crop_h = planned_crop
+                            else:
+                                crop_h = H / float(zoom) if zoom > 0 else H
+                                crop_w = crop_h * target_aspect
+                                x0 = max(0.0, min(W - crop_w, cx - 0.5 * crop_w))
+                                y0 = max(0.0, min(H - crop_h, cy - 0.5 * crop_h))
+                                crop_w = float(crop_w)
+                                crop_h = float(crop_h)
+                            zoom = float(planner_zoom) if planner_zoom is not None else float(
+                                H / float(max(crop_h, 1.0))
+                            )
                             cx = float(x0 + 0.5 * crop_w)
                             cy = float(y0 + 0.5 * crop_h)
-                        else:
-                            x0, y0, crop_w, crop_h = compute_portrait_crop(
-                                float(cx),
-                                float(cy),
-                                float(zoom),
-                                width,
-                                height,
-                                target_aspect,
-                                self.pad,
-                            )
+                            cam_x = cx
+                            cam_y = cy
+                            telemetry_ball_src = (eff_bx, eff_by)
+                            telemetry_crop = (x0, y0, crop_w, crop_h)
     
                         if (
                             have_ball
@@ -4592,10 +4658,10 @@ def run(
         except (TypeError, ValueError):
             margin_px = 0.0
 
-    keepinview_margin = margin_px
-    keepinview_nudge = 0.5
-    keepinview_zoom_gain = 0.4
-    keepinview_zoom_cap = 1.6
+    keepinview_margin = max(96.0, margin_px)
+    keepinview_nudge = 0.6
+    keepinview_zoom_gain = 0.55
+    keepinview_zoom_cap = 1.8
     keepinview_cfg = follow_config.get("keepinview") if follow_config else None
     if isinstance(keepinview_cfg, Mapping):
         if "margin" in keepinview_cfg:
@@ -4883,6 +4949,9 @@ def run(
             lost_chase_motion_ms=lost_chase_motion_ms,
             lost_motion_thresh=lost_motion_thresh,
             lost_use_motion=lost_use_motion,
+            portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+            portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+            portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         logging.info(
@@ -4947,6 +5016,9 @@ def run(
                     lost_chase_motion_ms=lost_chase_motion_ms,
                     lost_motion_thresh=lost_motion_thresh,
                     lost_use_motion=lost_use_motion,
+                    portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+                    portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+                    portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
                 )
                 jerk95 = renderer.write_frames(states)
             finally:
@@ -4995,6 +5067,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", dest="out", help="Output MP4 path")
     parser.add_argument("--preset", dest="preset", default="cinematic", help="Preset name to load from render_presets.yaml")
     parser.add_argument("--portrait", dest="portrait", help="Portrait canvas WxH")
+    parser.add_argument(
+        "--portrait-plan-margin",
+        dest="portrait_plan_margin",
+        type=float,
+        help="Margin in px for offline portrait planner keep-in-frame band",
+    )
+    parser.add_argument(
+        "--portrait-plan-headroom",
+        dest="portrait_plan_headroom",
+        type=float,
+        help="Headroom fraction override for offline portrait planner",
+    )
+    parser.add_argument(
+        "--portrait-plan-lead",
+        dest="portrait_plan_lead",
+        type=float,
+        help="Lead distance (px) for offline portrait planner",
+    )
     parser.add_argument(
         "--upscale",
         action="store_true",
