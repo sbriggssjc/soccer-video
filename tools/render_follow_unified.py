@@ -1778,6 +1778,12 @@ class CameraPlanner:
         self.keepinview_nudge_gain = max(0.0, float(keepinview_nudge_gain))
         self.keepinview_zoom_gain = max(0.0, float(keepinview_zoom_gain))
         self.keepinview_zoom_out_max = max(1.0, float(keepinview_zoom_out_max))
+        # Explicit keep-in-view band edges for any external planner code
+        # that wants named attributes instead of the implicit band.
+        # These are vertical fractions of the portrait height where we
+        # consider the ball "comfortably framed".
+        self.keepinview_min_band_frac = 0.25
+        self.keepinview_max_band_frac = 0.75
 
         try:
             center_frac = float(center_frac)
