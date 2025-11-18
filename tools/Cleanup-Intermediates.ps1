@@ -13,7 +13,7 @@ if (-not $WhatIf) {
 function Move-ToTrash {
   param([System.IO.FileSystemInfo]$Item)
   if (-not $Item) { return }
-  $rel = $Item.FullName.Substring($fullRoot.Length).TrimStart('\\','/')
+  $rel = $Item.FullName.Substring($fullRoot.Length).TrimStart(@('\\','/'))
   $dest = Join-Path $trashRoot $rel
   if ($WhatIf) {
     Write-Host "[MOVE] $($Item.FullName) -> $dest" -ForegroundColor Yellow
