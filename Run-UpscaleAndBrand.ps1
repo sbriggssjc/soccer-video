@@ -45,7 +45,7 @@ function Invoke-Render {
 $done = 0; $skipped = 0; $failed = 0
 
 foreach ($c in $clips) {
-  $outName = $c.BaseName + "_portrait_FINAL.mp4"
+  $outName = $c.BaseName + "_WIDE_portrait_FINAL.mp4"
   $outPath = Join-Path $OutDir $outName
 
   $need = $true

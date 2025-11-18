@@ -44,7 +44,10 @@ function Get-PortraitBasename {
   if (-not $Path) { return 'reel' }
   $name = [System.IO.Path]::GetFileNameWithoutExtension($Path)
   if (-not $name) { return 'reel' }
-  return ($name -replace '_portrait_FINAL$', '')
+  $name = $name -replace '_WIDE_portrait_FINAL$', ''
+  $name = $name -replace '_portrait_FINAL$', ''
+  $name = $name -replace '_WIDE$', ''
+  return $name
 }
 
 function Escape-DrawText {
@@ -125,9 +128,9 @@ if (-not $Out) {
   $root = Get-PortraitRootFromPath -ReferencePath $inFull
   $base = Get-PortraitBasename -Path $inFull
   if ($root) {
-    $Out = Join-Path (Join-Path $root 'branded') ($base + '_portrait_FINAL.mp4')
+    $Out = Join-Path (Join-Path $root 'branded') ($base + '_WIDE_portrait_FINAL.mp4')
   } else {
-    $Out = Join-Path (Split-Path -Parent $inFull) ($base + '_portrait_FINAL.mp4')
+    $Out = Join-Path (Split-Path -Parent $inFull) ($base + '_WIDE_portrait_FINAL.mp4')
   }
 }
 

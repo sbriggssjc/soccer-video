@@ -99,7 +99,7 @@ foreach ($row in $rows) {
 
     $finalPath = $row.branded_path
     if (-not $finalPath) {
-        $finalPath = Join-Path $outDir ($clipStem + '_portrait_FINAL.mp4')
+        $finalPath = Join-Path $outDir ($clipStem + '_WIDE_portrait_FINAL.mp4')
     }
 
     Write-Host "Resuming $clipStem" -ForegroundColor Cyan

@@ -188,9 +188,9 @@ if ($clips.Count -gt 0) { Write-Host "First clip: $($clips[0])" }
 
 if ($clips.Count -eq 0) {
   Write-Warning "Nothing matched. Quick checklist:"
-  Write-Host "  • Does your CSV contain either base IDs like 022__SHOT__t3028.10-t3059.70 OR full mp4 paths?"
-  Write-Host "  • Do the files exist under out\atomic_clips (and not in \quarantine\ or named *_copy.mp4)?"
-  Write-Host "  • If your CSV uses a different ID pattern, send me one example row."
+  Write-Host "   Does your CSV contain either base IDs like 022__SHOT__t3028.10-t3059.70 OR full mp4 paths?"
+  Write-Host "   Do the files exist under out\atomic_clips (and not in \quarantine\ or named *_copy.mp4)?"
+  Write-Host "   If your CSV uses a different ID pattern, send me one example row."
   throw "No eligible clips after filtering."
 }
 
@@ -216,7 +216,7 @@ foreach ($clip in $clips) {
 
   $tel   = Join-Path $LogsDir ("{0}.final.jsonl" -f $base)
   $log   = Join-Path $LogsDir ("{0}.final.log"  -f $base)
-  $final = Join-Path "out\portrait_reels\clean" ("{0}_portrait_FINAL.mp4" -f $base)
+  $final = Join-Path "out\portrait_reels\clean" ("{0}_WIDE_portrait_FINAL.mp4" -f $base)
 
   Write-Host "`n=== RENDER ==="
   Write-Host "IN : $clip"

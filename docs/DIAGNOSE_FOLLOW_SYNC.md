@@ -13,7 +13,7 @@ $Stem = [IO.Path]::GetFileNameWithoutExtension($Clip)
 # capture the wrapper's echoed python command & stdout
 & .\tools\render_follow.ps1 `
   -In $Clip `
-  -Out "C:\Users\scott\soccer-video\out\portrait_reels\clean\$($Stem)_portrait_FINAL.mp4" `
+  -Out "C:\Users\scott\soccer-video\out\portrait_reels\clean\$($Stem)_WIDE_portrait_FINAL.mp4" `
   -Preset cinematic `
   -Portrait "1080x1920" `
   -Verbose 2>&1 | Tee-Object -Variable WrapperLog
@@ -34,7 +34,7 @@ ffprobe -v error -show_streams -select_streams v:0 -of default=nw=1:nk=1 "$Clip"
 ffprobe -v error -show_streams -select_streams a:0 -of default=nw=1:nk=1 "$Clip"
 
 # Output (last render) fps & durations
-$Out = "C:\Users\scott\soccer-video\out\portrait_reels\clean\${Stem}_portrait_FINAL.mp4"
+$Out = "C:\Users\scott\soccer-video\out\portrait_reels\clean\${Stem}_WIDE_portrait_FINAL.mp4"
 ffprobe -v error -show_streams -select_streams v:0 -of default=nw=1:nk=1 "$Out"
 ffprobe -v error -show_streams -select_streams a:0 -of default=nw=1:nk=1 "$Out"
 ```
