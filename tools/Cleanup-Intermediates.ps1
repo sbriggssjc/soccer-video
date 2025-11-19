@@ -13,6 +13,12 @@ if (-not $WhatIf) {
 function Move-ToTrash {
   param([System.IO.FileSystemInfo]$Item)
   if (-not $Item) { return }
+  if ($Item -is [System.IO.FileInfo]) {
+    $name = $Item.Name.ToLowerInvariant()
+    if ($name.EndsWith('.json') -or $name.EndsWith('.jsonl')) {
+      return
+    }
+  }
   $rel = $Item.FullName.Substring($fullRoot.Length).TrimStart(@('\\','/'))
   $dest = Join-Path $trashRoot $rel
   if ($WhatIf) {
@@ -31,6 +37,11 @@ foreach ($work in @("out\autoframe_work","out\upscaled")) {
   $path = Join-Path $fullRoot $work
   if (-not (Test-Path $path)) { continue }
   Get-ChildItem -Path $path -Recurse -File -Include $videoExtensions | ForEach-Object { Move-ToTrash $_ }
+}
+
+$planRoot = Join-Path $fullRoot "out\plans"
+if (Test-Path $planRoot) {
+  Write-Host "Preserving camera plans under $planRoot" -ForegroundColor DarkCyan
 }
 
 $atomicRoot = Join-Path $fullRoot "out\atomic_clips"
