@@ -1,4 +1,4 @@
-"""Unified offline follow + portrait pipeline entrypoint.
+﻿"""Unified offline follow + portrait pipeline entrypoint.
 
 """Unified batch follow pipeline with telemetry-aware planning.
 
@@ -338,7 +338,7 @@ def build_plan_for_job(
     }
     save_plan(plan_path, keyframes, meta=meta)
     logging.info(
-        "Planned portrait path for %s (%s samples) → %s",
+        "Planned portrait path for %s (%s samples) â†' %s",
         job.clip_id,
         ball_telemetry.summarise(samples or []),
         plan_path,
@@ -388,7 +388,7 @@ def run_brand(output: Path, args: argparse.Namespace) -> None:
     ]
 
     logger.info(
-        "Branding %s → %s",
+        "Branding %s â†' %s",
         os.fspath(output),
         os.fspath(tmp),
     )
@@ -524,3 +524,4 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -1,4 +1,4 @@
-"""Unified ball-lock renderer.
+﻿"""Unified ball-lock renderer.
 
 This script consolidates the historical ``render_follow_*`` variants into a single
 implementation that reproduces the behaviour of the "good tester clip" while
@@ -671,7 +671,7 @@ def _clamp_roi(x, y, w, h, W, H):
 
 
 def _roi_around_point(bx, by, W, H, side):
-    # side may be float → force int and keep odd size for better centering
+    # side may be float â†' force int and keep odd size for better centering
     side_i = max(3, _round_i(side) | 1)
     x = _round_i(bx) - side_i // 2
     y = _round_i(by) - side_i // 2
@@ -679,7 +679,7 @@ def _roi_around_point(bx, by, W, H, side):
 
 
 def smooth_series(x, alpha=0.15):
-    # EWMA – robust, low-latency
+    # EWMA â€" robust, low-latency
     y = np.empty_like(x, dtype=float)
     acc = x[0]
     for i, v in enumerate(x):
@@ -690,7 +690,7 @@ def smooth_series(x, alpha=0.15):
 
 class ZoomPlanner:
     """
-    Speed → zoom with hysteresis and slew-rate limiting.
+    Speed â†' zoom with hysteresis and slew-rate limiting.
     zoom=1.0 means the crop is exactly target height; >1 zooms in.
     """
 
@@ -5408,3 +5408,4 @@ if __name__ == "__main__":  # pragma: no cover - CLI entry point
     except Exception as exc:  # pylint: disable=broad-except
         logging.error(str(exc))
         sys.exit(1)
+

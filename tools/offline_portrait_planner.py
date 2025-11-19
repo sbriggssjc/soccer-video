@@ -1,4 +1,4 @@
-"""Offline portrait camera planner that consumes telemetry samples.
+﻿"""Offline portrait camera planner that consumes telemetry samples.
 
 The helper is split into three layers:
 
@@ -506,3 +506,4 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
+

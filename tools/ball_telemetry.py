@@ -1,4 +1,4 @@
-"""Utilities for loading pre-computed ball telemetry.
+﻿"""Utilities for loading pre-computed ball telemetry.
 
 The follow pipeline already produces several flavours of telemetry JSON/CSV
 files depending on which detector or tracker ran beforehand.  This module
@@ -278,4 +278,5 @@ def summarise(samples: Sequence[BallSample]) -> str:
     if samples:
         avg_conf = sum(max(0.0, min(1.0, s.conf)) for s in samples) / len(samples)
     return f"{finite} samples, avg conf {avg_conf:.2f}"
+
 
