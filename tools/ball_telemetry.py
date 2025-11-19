@@ -1,13 +1,27 @@
-"""Ball telemetry loader used by follow/portrait planners."""
+"""Ball telemetry loader and CLI utilities.
+
+Telemetry JSONL schema (per line)::
+
+    {"t": <seconds>, "x": <pixels>, "y": <pixels>, "confidence": <0-1>}
+
+Canonical path mapping: ``out/telemetry/<basename>.ball.jsonl`` derived via
+``telemetry_path_for_video``.  Example PowerShell workflow::
+
+    python tools/ball_telemetry.py detect --video C:\\path\\to\\clip.mp4
+    python tools/ball_telemetry.py annotate --video C:\\path\\to\\clip.mp4
+    python tools/render_follow_unified.py --preset wide_follow --in C:\\path\\to\\clip.mp4 --use-ball-telemetry
+"""
 
 from __future__ import annotations
 
 import csv
 import json
 import math
+import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, Mapping
+from typing import Iterable, Iterator, Mapping, Sequence
 
 
 # ---------------------------------------------------------------------------
@@ -242,12 +256,31 @@ def _candidate_paths(clip_path: Path) -> Iterable[Path]:
                 yield candidate
 
 
+def telemetry_path_for_video(video_path: str | Path) -> str:
+    """Return the canonical telemetry path for ``video_path``.
+
+    The telemetry lives under ``out/telemetry`` with a ``.ball.jsonl`` suffix
+    and mirrors the source basename.
+    """
+
+    video_path = Path(video_path)
+    stem = video_path.stem
+    out_dir = Path("out") / "telemetry"
+    return str(out_dir / f"{stem}.ball.jsonl")
+
+
 def load_ball_telemetry_for_clip(atomic_path: str) -> list[BallSample]:
     """Discover and load telemetry for ``atomic_path`` if present."""
 
     clip_path = Path(atomic_path)
     samples: list[BallSample] = []
-    for candidate in _candidate_paths(clip_path):
+
+    default_path = Path(telemetry_path_for_video(clip_path))
+    candidates = list(_candidate_paths(clip_path))
+    if default_path not in candidates:
+        candidates.insert(0, default_path)
+
+    for candidate in candidates:
         if not candidate.is_file():
             continue
         try:
@@ -255,11 +288,151 @@ def load_ball_telemetry_for_clip(atomic_path: str) -> list[BallSample]:
         except Exception:  # noqa: BLE001 - best-effort loader
             continue
         if samples:
-            print(f"[BALL] Loaded {len(samples)} ball samples for {clip_path}")
+            t_vals = [s.t for s in samples if math.isfinite(s.t)]
+            t_min = min(t_vals) if t_vals else 0.0
+            t_max = max(t_vals) if t_vals else 0.0
+            print(
+                f"[BALL] Loaded {len(samples)} ball samples from {candidate} (t={t_min:.2f}–{t_max:.2f}s)"
+            )
             return samples
     print(f"[BALL] No ball telemetry found for {clip_path}")
     return []
 
 
-__all__ = ["BallSample", "load_ball_telemetry", "load_ball_telemetry_for_clip"]
+def save_ball_telemetry_jsonl(out_path: Path, samples: Sequence[Mapping[str, object]]) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8") as handle:
+        for rec in samples:
+            handle.write(json.dumps(rec) + "\n")
+
+
+def _detect_ball(args: argparse.Namespace) -> int:
+    video_path = Path(args.video).expanduser()
+    out_path = Path(args.out).expanduser()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"[BALL] No built-in detector available; please annotate manually ({video_path})")
+    return 1
+
+
+def _annotate_ball(args: argparse.Namespace) -> int:
+    import cv2
+
+    video_path = Path(args.video).expanduser()
+    out_path = Path(args.out).expanduser()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[ERROR] Could not open video: {video_path}", file=sys.stderr)
+        return 2
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    positions: list[tuple[int, float, float]] = []
+    clicks: dict[int, tuple[float, float]] = {}
+
+    window_name = "Annotate ball (ESC to quit, SPACE/ENTER next frame, click to mark)"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+    state = {"current_frame": 0}
+
+    def on_mouse(event, x, y, *_args):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            clicks[state["current_frame"]] = (float(x), float(y))
+            print(f"[BALL] Frame {state['current_frame']} → ({x}, {y})")
+
+    cv2.setMouseCallback(window_name, on_mouse)
+
+    frame_idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        state["current_frame"] = frame_idx
+        cv2.imshow(window_name, frame)
+        key = cv2.waitKey(0) & 0xFF
+        if key in (27,):  # ESC
+            break
+        frame_idx += args.step
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+    if not clicks:
+        print("[WARN] No annotations captured; nothing to write")
+        return 0
+
+    frames_sorted = sorted(clicks.keys())
+    first_frame, last_frame = frames_sorted[0], frames_sorted[-1]
+    samples: list[dict[str, object]] = []
+
+    def interp(v0: float, v1: float, alpha: float) -> float:
+        return v0 + (v1 - v0) * alpha
+
+    for idx, frame in enumerate(range(first_frame, last_frame + 1)):
+        if frame in clicks:
+            x, y = clicks[frame]
+        else:
+            prev_frames = [f for f in frames_sorted if f < frame]
+            next_frames = [f for f in frames_sorted if f > frame]
+            if not prev_frames or not next_frames:
+                continue
+            f0 = max(prev_frames)
+            f1 = min(next_frames)
+            if f1 == f0:
+                continue
+            alpha = (frame - f0) / float(f1 - f0)
+            x0, y0 = clicks[f0]
+            x1, y1 = clicks[f1]
+            x = interp(x0, x1, alpha)
+            y = interp(y0, y1, alpha)
+        t = frame / fps if fps > 0 else 0.0
+        samples.append({"t": float(t), "x": float(x), "y": float(y), "source": "manual"})
+
+    save_ball_telemetry_jsonl(out_path, samples)
+
+    t_vals = [rec["t"] for rec in samples if isinstance(rec.get("t"), (int, float))]
+    t_min = min(t_vals) if t_vals else 0.0
+    t_max = max(t_vals) if t_vals else 0.0
+    print(
+        f"[BALL] Wrote {len(samples)} samples covering t={t_min:.2f}–{t_max:.2f}s to {out_path}"
+    )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Ball telemetry utilities")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    detect_p = sub.add_parser("detect", help="Auto-detect ball positions from video")
+    detect_p.add_argument("--video", required=True, help="Input video path")
+    detect_p.add_argument("--out", help="Output telemetry JSONL (default derived)")
+    detect_p.add_argument("--sport", default="soccer", help="Sport context (default: soccer)")
+    detect_p.set_defaults(func=_detect_ball)
+
+    ann_p = sub.add_parser("annotate", help="Manually annotate ball positions")
+    ann_p.add_argument("--video", required=True, help="Input video path")
+    ann_p.add_argument("--out", help="Output telemetry JSONL (default derived)")
+    ann_p.add_argument("--step", type=int, default=2, help="Advance this many frames per step (default: 2)")
+    ann_p.set_defaults(func=_annotate_ball)
+
+    args = parser.parse_args(argv)
+    if not getattr(args, "out", None):
+        args.out = telemetry_path_for_video(Path(args.video))
+
+    return args.func(args)
+
+
+__all__ = [
+    "BallSample",
+    "load_ball_telemetry",
+    "load_ball_telemetry_for_clip",
+    "telemetry_path_for_video",
+    "save_ball_telemetry_jsonl",
+]
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
 

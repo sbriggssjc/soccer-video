@@ -26,6 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.ball_telemetry import telemetry_path_for_video
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,6 +71,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="If set, run tools/Cleanup-Intermediates.ps1 at the end.",
     )
+    parser.add_argument(
+        "--use-ball-telemetry",
+        action="store_true",
+        help="Generate and use ball telemetry for portrait planning",
+    )
     # Accept (but ignore) some legacy flags so existing commands don't break.
     parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--init-manual", action="store_true", help=argparse.SUPPRESS)
@@ -77,7 +84,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_render(clip: Path, preset: str, portrait: str, variant: str) -> Path:
+def run_render(
+    clip: Path, preset: str, portrait: str, variant: str, *, use_ball_telemetry: bool
+) -> Path:
     """Invoke render_follow_unified.py for a single clip and return portrait path."""
 
     clip = clip.resolve()
@@ -103,6 +112,11 @@ def run_render(clip: Path, preset: str, portrait: str, variant: str) -> Path:
         "--portrait",
         portrait,
     ]
+
+    if use_ball_telemetry:
+        telemetry_path = Path(telemetry_path_for_video(clip)).resolve()
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        cmd.extend(["--use-ball-telemetry", "--telemetry", str(telemetry_path)])
 
     print(f"[INFO] Rendering {clip_id}")
     print("[CMD]", " ".join(cmd))
@@ -179,7 +193,34 @@ def main(argv: list[str] | None = None) -> None:
     ok = 0
     for clip in clips:
         try:
-            portrait = run_render(clip, ns.preset, ns.portrait, ns.variant)
+            if ns.use_ball_telemetry:
+                telemetry_path = Path(telemetry_path_for_video(clip))
+                if not telemetry_path.is_file():
+                    detect_cmd = [
+                        sys.executable,
+                        str(REPO_ROOT / "tools" / "ball_telemetry.py"),
+                        "detect",
+                        "--video",
+                        str(clip),
+                        "--out",
+                        str(telemetry_path),
+                        "--sport",
+                        "soccer",
+                    ]
+                    print(f"[BALL] Detecting telemetry for {clip}")
+                    print("[CMD]", " ".join(detect_cmd))
+                    result = subprocess.run(detect_cmd)
+                    if result.returncode != 0:
+                        print(
+                            f"[WARN] Telemetry detection failed for {clip}; falling back to reactive follow",
+                            file=sys.stderr,
+                        )
+                if telemetry_path.is_file():
+                    print(f"[BALL] Using telemetry from {telemetry_path}")
+                else:
+                    print(f"[BALL] No telemetry; reactive follow only for {clip}")
+
+            portrait = run_render(clip, ns.preset, ns.portrait, ns.variant, use_ball_telemetry=ns.use_ball_telemetry)
             if ns.brand_script:
                 run_brand(Path(ns.brand_script), portrait, ns.aspect)
             ok += 1
