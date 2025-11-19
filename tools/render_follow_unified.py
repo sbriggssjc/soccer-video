@@ -35,12 +35,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.ball_telemetry import load_ball_telemetry_for_clip
+from tools.ball_telemetry import (
+    BallSample,
+    load_ball_telemetry,
+    load_ball_telemetry_for_clip,
+    telemetry_path_for_video,
+)
 from tools.offline_portrait_planner import (
     OfflinePortraitPlanner,
     PlannerConfig,
     keyframes_to_arrays,
     load_plan,
+    plan_ball_portrait_crop,
     plan_keepinview_path,
 )
 from tools.upscale import upscale_video
@@ -2381,6 +2387,8 @@ class Renderer:
         portrait_plan_lead_px: Optional[float] = None,
         plan_override_data: Optional[dict[str, np.ndarray]] = None,
         plan_override_len: int = 0,
+        ball_samples: Optional[List[BallSample]] = None,
+        keep_path_lookup_data: Optional[dict[int, Tuple[float, float]]] = None,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -2458,6 +2466,8 @@ class Renderer:
         self.portrait_plan_lead_px = _coerce_float(portrait_plan_lead_px)
         self.plan_override_data = plan_override_data
         self.plan_override_len = int(plan_override_len or 0)
+        self.ball_samples = ball_samples or []
+        self.keep_path_lookup_data = keep_path_lookup_data or {}
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -2700,12 +2710,12 @@ class Renderer:
 
         offline_ball_path = self.offline_ball_path
 
-        keep_path_lookup: dict[int, tuple[float, float]] = {}
+        keep_path_lookup: dict[int, tuple[float, float]] = dict(self.keep_path_lookup_data)
         keepinview_enabled = bool(
             is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
         )
         if keepinview_enabled:
-            samples = load_ball_telemetry_for_clip(str(self.input_path))
+            samples = self.ball_samples or load_ball_telemetry_for_clip(str(self.input_path))
             if samples:
                 keep_path_lookup = plan_keepinview_path(
                     samples,
@@ -4888,6 +4898,30 @@ def run(
         fallback_fps = fps_in if fps_in > 0 else 30.0
         duration_s = frame_count / float(fallback_fps)
 
+    ball_samples: List[BallSample] = []
+    keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
+
+    if getattr(args, "use_ball_telemetry", False):
+        telemetry_in = getattr(args, "ball_telemetry", None)
+        telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
+        if telemetry_path.is_file():
+            try:
+                ball_samples = load_ball_telemetry(telemetry_path)
+                if ball_samples:
+                    t_vals = [s.t for s in ball_samples if math.isfinite(s.t)]
+                    t_min = min(t_vals) if t_vals else 0.0
+                    t_max = max(t_vals) if t_vals else 0.0
+                    print(
+                        f"[BALL] Loaded {len(ball_samples)} samples from {telemetry_path} (t={t_min:.2f}–{t_max:.2f}s)"
+                    )
+                else:
+                    print(f"[BALL] Telemetry file empty: {telemetry_path}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BALL] Failed to parse telemetry {telemetry_path}: {exc}")
+                ball_samples = []
+        else:
+            print(f"[BALL] No ball telemetry found for {input_path}; reactive follow")
+
     raw_points = load_labels(label_files, width, height, fps_in)
     log_dict["labels_raw_count"] = len(raw_points)
     if raw_points:
@@ -4964,6 +4998,42 @@ def run(
             ball_key_x=str(getattr(args, "ball_key_x", "bx_stab")),
             ball_key_y=str(getattr(args, "ball_key_y", "by_stab")),
         )
+    elif ball_samples:
+        max_frame_idx = max((int(s.frame) for s in ball_samples if isinstance(s.frame, int)), default=0)
+        total_frames = max(len(states), frame_count, max_frame_idx + 1)
+        path: list[Optional[dict[str, float]]] = [None] * total_frames
+        for sample in ball_samples:
+            if not (math.isfinite(sample.x) and math.isfinite(sample.y)):
+                continue
+            idx = int(sample.frame)
+            if idx < 0:
+                continue
+            if idx >= len(path):
+                path.extend([None] * (idx - len(path) + 1))
+            path[idx] = {"bx": float(sample.x), "by": float(sample.y)}
+        offline_ball_path = path
+
+        if portrait:
+            portrait_w, portrait_h = portrait
+            plan_config = PlannerConfig(
+                frame_size=(float(width), float(height)),
+                crop_aspect=float(portrait_w) / float(portrait_h),
+                fps=float(fps_out) if fps_out else float(fps_in) if fps_in else 30.0,
+                keep_in_frame_frac_x=(0.4, 0.6),
+                keep_in_frame_frac_y=(0.4, 0.6),
+                min_zoom=float(zoom_min),
+                max_zoom=float(zoom_max),
+            )
+            planned = plan_ball_portrait_crop(
+                ball_samples,
+                src_w=width,
+                src_h=height,
+                portrait_w=int(portrait_w),
+                portrait_h=int(portrait_h),
+                config=plan_config,
+            )
+            if planned:
+                keep_path_lookup_data = {frame: (cx, cy) for frame, (cx, cy, _z) in planned.items()}
     jerk_threshold = float(getattr(args, "jerk_threshold", 0.0) or 0.0)
     jerk_enabled = jerk_threshold > 0.0
     jerk_wn_scale = float(getattr(args, "jerk_wn_scale", 0.9) or 0.9)
@@ -5016,12 +5086,14 @@ def run(
             lost_chase_motion_ms=lost_chase_motion_ms,
             lost_motion_thresh=lost_motion_thresh,
             lost_use_motion=lost_use_motion,
-            portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-            portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-            portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-            plan_override_data=plan_override_data,
-            plan_override_len=plan_override_len,
-        )
+                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+                plan_override_data=plan_override_data,
+                plan_override_len=plan_override_len,
+                ball_samples=ball_samples,
+                keep_path_lookup_data=keep_path_lookup_data,
+            )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         logging.info(
             "jerk95=%.1f px/s^3 (attempt %d/%d, follow_wn=%.2f, deadzone=%.1f)",
@@ -5085,12 +5157,14 @@ def run(
                     lost_chase_motion_ms=lost_chase_motion_ms,
                     lost_motion_thresh=lost_motion_thresh,
                     lost_use_motion=lost_use_motion,
-                    portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-                    portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-                    portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-                    plan_override_data=plan_override_data,
-                    plan_override_len=plan_override_len,
-                )
+                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+                plan_override_data=plan_override_data,
+                plan_override_len=plan_override_len,
+                ball_samples=ball_samples,
+                keep_path_lookup_data=keep_path_lookup_data,
+            )
                 jerk95 = renderer.write_frames(states)
             finally:
                 if telemetry_handle:
@@ -5357,7 +5431,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="Maximum keep-in-view zoom-out multiplier (defaults to follow zoom limit)",
     )
-    parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
+    parser.add_argument(
+        "--telemetry",
+        "--ball-telemetry",
+        dest="ball_telemetry",
+        help="Input ball telemetry JSONL (default: out/telemetry/<clip>.ball.jsonl)",
+    )
+    parser.add_argument(
+        "--use-ball-telemetry",
+        action="store_true",
+        help="Enable ball-aware portrait planning when telemetry is available",
+    )
+    parser.add_argument("--render-telemetry", dest="telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
         "--plan",
         dest="plan",
@@ -5436,6 +5521,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         telemetry_simple_path = Path(args.telemetry_out).expanduser()
         telemetry_simple_path.parent.mkdir(parents=True, exist_ok=True)
         args.telemetry_out = os.fspath(telemetry_simple_path)
+
+    if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
+        args.ball_telemetry = telemetry_path_for_video(Path(args.input))
     run(args, telemetry_path=telemetry_path, telemetry_simple_path=telemetry_simple_path)
 
 

@@ -259,6 +259,10 @@ class PlannerConfig:
     accel_limit_y: float = 2.0
     smoothing_passes: int = 2
     portrait_pad: float = 24.0
+    keep_in_frame_frac_x: Tuple[float, float] = (0.4, 0.6)
+    keep_in_frame_frac_y: Tuple[float, float] = (0.4, 0.6)
+    min_zoom: float = 1.0
+    max_zoom: float = 2.0
 
     def __post_init__(self) -> None:
         w, h = self.frame_size
@@ -279,6 +283,20 @@ class PlannerConfig:
         self.accel_limit_y = max(0.0, float(self.accel_limit_y))
         self.smoothing_passes = max(1, int(self.smoothing_passes))
         self.portrait_pad = max(0.0, float(self.portrait_pad))
+        self.keep_in_frame_frac_x = (
+            float(min(max(self.keep_in_frame_frac_x[0], 0.0), 1.0)),
+            float(min(max(self.keep_in_frame_frac_x[1], 0.0), 1.0)),
+        )
+        self.keep_in_frame_frac_y = (
+            float(min(max(self.keep_in_frame_frac_y[0], 0.0), 1.0)),
+            float(min(max(self.keep_in_frame_frac_y[1], 0.0), 1.0)),
+        )
+        if self.keep_in_frame_frac_x[0] > self.keep_in_frame_frac_x[1]:
+            self.keep_in_frame_frac_x = tuple(reversed(self.keep_in_frame_frac_x))
+        if self.keep_in_frame_frac_y[0] > self.keep_in_frame_frac_y[1]:
+            self.keep_in_frame_frac_y = tuple(reversed(self.keep_in_frame_frac_y))
+        self.min_zoom = max(1.0, float(self.min_zoom))
+        self.max_zoom = max(self.min_zoom, float(self.max_zoom))
 
 
 def _nan_to_default(arr: np.ndarray, default: float) -> np.ndarray:
@@ -375,6 +393,98 @@ def _samples_to_series(samples: Sequence[BallSample]) -> Tuple[np.ndarray, np.nd
     if not np.isfinite(bx).any() or not np.isfinite(by).any():
         raise ValueError("Telemetry does not contain finite ball coordinates")
     return bx, by, start
+
+
+def plan_ball_portrait_crop(
+    samples: Sequence[BallSample],
+    *,
+    src_w: int,
+    src_h: int,
+    portrait_w: int,
+    portrait_h: int,
+    config: PlannerConfig,
+) -> Dict[int, Tuple[float, float, float]]:
+    """Compute a per-frame (cx, cy, zoom) trajectory that keeps the ball framed.
+
+    The returned mapping is keyed by frame index (source frame numbers) and the
+    values are ``(cx, cy, zoom)`` in source pixel space.  The zoom factor uses
+    the same convention as :mod:`render_follow_unified` where ``zoom=1.0`` means
+    full-frame and larger numbers zoom in.
+    """
+
+    if not samples or src_w <= 0 or src_h <= 0 or portrait_w <= 0 or portrait_h <= 0:
+        return {}
+
+    bx, by, start_frame = _samples_to_series(list(samples))
+    fps_guess = _infer_fps_from_samples(list(samples))
+    total = len(bx)
+
+    bx = _fill_short_gaps(bx, max_gap=int(round(config.gap_interp_s * fps_guess)))
+    by = _fill_short_gaps(by, max_gap=int(round(config.gap_interp_s * fps_guess)))
+    bx = _moving_average(_nan_to_default(bx, np.nanmean(bx)), config.smooth_window)
+    by = _moving_average(_nan_to_default(by, np.nanmean(by)), config.smooth_window)
+
+    aspect = float(portrait_w) / float(portrait_h)
+    half_w_base = 0.5 * float(portrait_w)
+    half_h_base = 0.5 * float(portrait_h)
+    band_low_x, band_high_x = config.keep_in_frame_frac_x
+    band_low_y, band_high_y = config.keep_in_frame_frac_y
+
+    centres: Dict[int, Tuple[float, float, float]] = {}
+
+    cx_prev = float(src_w) * 0.5
+    cy_prev = float(src_h) * 0.5
+    zoom_prev = float(config.min_zoom)
+
+    for idx in range(total):
+        bx_val = float(bx[idx]) if math.isfinite(bx[idx]) else None
+        by_val = float(by[idx]) if math.isfinite(by[idx]) else None
+        if bx_val is None or by_val is None:
+            centres[start_frame + idx] = (cx_prev, cy_prev, zoom_prev)
+            continue
+
+        cx = bx_val
+        cy = by_val
+
+        half_w = half_w_base / zoom_prev
+        half_h = half_h_base / zoom_prev
+
+        def enforce_band(val: float, half: float, low: float, high: float) -> Tuple[float, float]:
+            if low >= high:
+                return val, zoom_prev
+            min_c = val - (high - 0.5) * (2.0 * half)
+            max_c = val - (low - 0.5) * (2.0 * half)
+            return min_c, max_c
+
+        min_cx, max_cx = enforce_band(bx_val, half_w, band_low_x, band_high_x)
+        min_cy, max_cy = enforce_band(by_val, half_h, band_low_y, band_high_y)
+
+        min_cx = max(min_cx, half_w)
+        max_cx = min(max_cx, float(src_w) - half_w)
+        min_cy = max(min_cy, half_h)
+        max_cy = min(max_cy, float(src_h) - half_h)
+
+        cx = min(max(cx, min_cx), max_cx)
+        cy = min(max(cy, min_cy), max_cy)
+
+        pad_x = max(0.0, abs(cx - bx_val) - (half_w - config.portrait_pad))
+        pad_y = max(0.0, abs(cy - by_val) - (half_h - config.portrait_pad))
+        if pad_x > 0 or pad_y > 0:
+            need_zoom = max(
+                (abs(cx - bx_val) + config.portrait_pad) / max(half_w, 1e-6),
+                (abs(cy - by_val) + config.portrait_pad) / max(half_h, 1e-6),
+            )
+            zoom_prev = min(max(config.min_zoom, zoom_prev / need_zoom), config.max_zoom)
+            half_w = half_w_base / zoom_prev
+            half_h = half_h_base / zoom_prev
+            cx = min(max(cx, half_w), float(src_w) - half_w)
+            cy = min(max(cy, half_h), float(src_h) - half_h)
+
+        cx_prev = cx
+        cy_prev = cy
+        centres[start_frame + idx] = (cx, cy, zoom_prev)
+
+    return centres
 
 
 def _plan_to_keyframes(
