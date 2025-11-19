@@ -1,4 +1,4 @@
-﻿"""Utilities for loading pre-computed ball telemetry.
+"""Utilities for loading pre-computed ball telemetry.
 
 The follow pipeline already produces several flavours of telemetry JSON/CSV
 files depending on which detector or tracker ran beforehand.  This module

@@ -1,4 +1,4 @@
-﻿"""Offline portrait camera planner that consumes telemetry samples.
+"""Offline portrait camera planner that consumes telemetry samples.
 
 The helper is split into three layers:
 

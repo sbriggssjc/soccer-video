@@ -1,5 +1,5 @@
 <<<<<<< HEAD
-﻿"""Unified offline follow + portrait pipeline entrypoint.
+"""Unified offline follow + portrait pipeline entrypoint.
 =======
 #!/usr/bin/env python
 """Simple follow + portrait + branding pipeline wrapper.

@@ -1,4 +1,4 @@
-﻿"""Unified ball-lock renderer.
+"""Unified ball-lock renderer.
 
 This script consolidates the historical ``render_follow_*`` variants into a single
 implementation that reproduces the behaviour of the "good tester clip" while
