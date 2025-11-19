@@ -2377,6 +2377,8 @@ class Renderer:
         portrait_plan_margin_px: Optional[float] = None,
         portrait_plan_headroom: Optional[float] = None,
         portrait_plan_lead_px: Optional[float] = None,
+        plan_override_data: Optional[dict[str, np.ndarray]] = None,
+        plan_override_len: int = 0,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -2452,6 +2454,8 @@ class Renderer:
         self.portrait_plan_margin_px = _coerce_float(portrait_plan_margin_px)
         self.portrait_plan_headroom_frac = _coerce_float(portrait_plan_headroom)
         self.portrait_plan_lead_px = _coerce_float(portrait_plan_lead_px)
+        self.plan_override_data = plan_override_data
+        self.plan_override_len = int(plan_override_len or 0)
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -2730,13 +2734,10 @@ class Renderer:
         center_bias_px = self._center_bias_px_for_height(src_h_f, self.follow_center_frac)
         speed_px_sec = float(self.speed_limit or 3000.0)
 
-        offline_plan_data: Optional[dict[str, np.ndarray]] = None
+        offline_plan_data: Optional[dict[str, np.ndarray]] = self.plan_override_data
         follow_targets: Optional[Tuple[List[float], List[float]]] = None
         follow_valid_mask: Optional[List[bool]] = None
-        offline_plan_len = 0
-        if plan_override_data is not None:
-            offline_plan_data = plan_override_data
-            offline_plan_len = plan_override_len
+        offline_plan_len = int(self.plan_override_len or 0)
         if offline_plan_data is None and offline_ball_path:
             bx_vals: List[float] = []
             by_vals: List[float] = []
@@ -4986,6 +4987,8 @@ def run(
             portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
             portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
             portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+            plan_override_data=plan_override_data,
+            plan_override_len=plan_override_len,
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         logging.info(
@@ -5053,6 +5056,8 @@ def run(
                     portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
                     portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
                     portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+                    plan_override_data=plan_override_data,
+                    plan_override_len=plan_override_len,
                 )
                 jerk95 = renderer.write_frames(states)
             finally:
