@@ -1,24 +1,24 @@
-"""Offline portrait camera planner.
+"""Offline portrait camera planner that consumes telemetry samples.
 
-This module implements a deterministic offline planner for portrait crops that
-keeps the ball inside the frame while favouring smooth, cinematic motion.  It
-operates on an already-tracked ball path (telemetry) and produces per-frame
-camera windows that can be consumed by :mod:`tools.render_follow_unified` or by
-other automation scripts.
+The helper is split into three layers:
 
-The implementation intentionally mirrors the design brief from the repo owner:
+``BallSample``
+    Defined in :mod:`tools.ball_telemetry`; represents per-frame ball
+    detections.
+``OfflinePortraitPlanner``
+    Smooths/filters the telemetry into window coordinates that satisfy the
+    aspect-ratio and keep-in-view constraints.
+``CameraKeyframe`` / plan helpers
+    Convert planner output into serialisable keyframes that can be reloaded by
+    :mod:`tools.render_follow_unified` without re-running the planner.
 
-* Clean up the ball telemetry (gap filling, smoothing).
-* Compute an ideal framing target based on the ball velocity and configurable
-  headroom/lead offsets.
-* Intersect the target with the feasible camera bands that keep both the crop
-  and the ball inside the source frame.
-* Run a multi-pass forward/backward speed limiter to keep the motion
-  cinematic (bounded velocity and jerk).
+The new workflow is:
 
-The module exposes a small ``OfflinePortraitPlanner`` class so that both the
-CLI helper and the rendering pipeline can share the behaviour without re-
-implementing the heuristics in multiple locations.
+1. Load telemetry via :func:`tools.ball_telemetry.load_ball_telemetry`.
+2. Call :func:`plan_camera_from_ball` with source dimensions + portrait aspect.
+3. Save the resulting keyframes using :func:`save_plan`.
+4. Render portrait reels by pointing :mod:`tools.render_follow_unified` at the
+   saved ``.plan.json`` file.
 """
 
 from __future__ import annotations
@@ -28,9 +28,35 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+
+from tools.ball_telemetry import BallSample, load_ball_telemetry
+
+
+@dataclass
+class CameraKeyframe:
+    """Planned crop state at a given presentation timestamp."""
+
+    t: float
+    frame: int
+    cx: float
+    cy: float
+    zoom: float
+    width: float
+    height: float
+
+    def to_json(self) -> Mapping[str, float]:
+        return {
+            "t": float(self.t),
+            "frame": int(self.frame),
+            "cx": float(self.cx),
+            "cy": float(self.cy),
+            "zoom": float(self.zoom),
+            "width": float(self.width),
+            "height": float(self.height),
+        }
 
 
 @dataclass
@@ -140,6 +166,71 @@ def _speed_limit(series: np.ndarray, mins: np.ndarray, maxs: np.ndarray, max_ste
     return out
 
 
+def _samples_to_series(samples: Sequence[BallSample]) -> Tuple[np.ndarray, np.ndarray, int]:
+    frames: List[int] = []
+    fallback = 0
+    for sample in samples:
+        idx = sample.frame_idx if isinstance(sample.frame_idx, int) else fallback
+        if idx < 0:
+            idx = fallback
+        frames.append(idx)
+        fallback = idx + 1
+    if not frames:
+        raise ValueError("Telemetry must contain at least one sample")
+    start = min(frames)
+    end = max(frames)
+    total = max(1, end - start + 1)
+    bx = np.full(total, float("nan"), dtype=float)
+    by = np.full(total, float("nan"), dtype=float)
+    for sample, frame_idx in zip(samples, frames):
+        pos = frame_idx - start
+        if pos < 0 or pos >= total:
+            continue
+        if math.isfinite(sample.x):
+            bx[pos] = float(sample.x)
+        if math.isfinite(sample.y):
+            by[pos] = float(sample.y)
+    if not np.isfinite(bx).any() or not np.isfinite(by).any():
+        raise ValueError("Telemetry does not contain finite ball coordinates")
+    return bx, by, start
+
+
+def _plan_to_keyframes(
+    plan: Mapping[str, np.ndarray],
+    *,
+    start_frame: int,
+    fps: float,
+) -> List[CameraKeyframe]:
+    x0 = plan.get("x0")
+    y0 = plan.get("y0")
+    w = plan.get("w")
+    h = plan.get("h")
+    cx = plan.get("cx")
+    cy = plan.get("cy")
+    z = plan.get("z")
+    if not all(isinstance(arr, np.ndarray) for arr in (x0, y0, w, h, cx, cy, z)):
+        raise ValueError("Plan dictionary is missing required arrays")
+    size = len(x0)  # type: ignore[arg-type]
+    keyframes: List[CameraKeyframe] = []
+    for idx in range(size):
+        frame = start_frame + idx
+        t = frame / fps if fps > 0 else idx / 30.0
+        width = float(w[idx])
+        height = float(h[idx])
+        keyframes.append(
+            CameraKeyframe(
+                t=float(t),
+                frame=int(frame),
+                cx=float(cx[idx]),
+                cy=float(cy[idx]),
+                zoom=float(z[idx]),
+                width=width,
+                height=height,
+            )
+        )
+    return keyframes
+
+
 class OfflinePortraitPlanner:
     """Offline cinematic camera planner for portrait crops."""
 
@@ -244,99 +335,173 @@ class OfflinePortraitPlanner:
         }
 
 
-def _load_ball_series(path: Path) -> Tuple[List[float], List[float]]:
-    bx: List[float] = []
-    by: List[float] = []
+def plan_camera_from_ball(
+    telemetry: Sequence[BallSample],
+    src_width: float,
+    src_height: float,
+    *,
+    out_aspect: float = 9.0 / 16.0,
+    pad_frac: float = 0.2,
+    zoom_min: float = 1.0,
+    zoom_max: float = 2.5,
+    smooth_strength: float = 0.15,
+    inner_band_frac: float = 0.6,
+    fps: float = 30.0,
+) -> List[CameraKeyframe]:
+    """Build camera keyframes from telemetry samples."""
+
+    if not telemetry:
+        raise ValueError("Telemetry list is empty")
+    bx, by, start_frame = _samples_to_series(telemetry)
+    fps = float(fps) if fps > 0 else 30.0
+    pad_frac = max(0.0, float(pad_frac))
+    inner_band_frac = float(np.clip(inner_band_frac, 0.2, 0.95))
+    smooth_strength = float(np.clip(smooth_strength, 0.0, 0.99))
+    zoom_min = max(0.5, float(zoom_min))
+    zoom_max = max(zoom_min, float(zoom_max))
+
+    base_size = min(float(src_width), float(src_height))
+    margin_px = pad_frac * base_size
+    headroom_frac = max(0.02, min(0.35, 0.5 - 0.5 * inner_band_frac))
+    smooth_window = max(3, int(round((1.0 - smooth_strength) * 14.0)) | 1)
+    max_step_x = max(8.0, float(src_width) * (0.010 + 0.006 * (1.0 - smooth_strength)))
+    max_step_y = max(6.0, float(src_height) * (0.008 + 0.004 * (1.0 - smooth_strength)))
+
+    cfg = PlannerConfig(
+        frame_size=(float(src_width), float(src_height)),
+        crop_aspect=float(out_aspect) if out_aspect > 0 else (9.0 / 16.0),
+        fps=fps,
+        margin_px=float(margin_px),
+        headroom_frac=float(headroom_frac),
+        lead_px=max(24.0, float(src_width) * 0.06),
+        smooth_window=smooth_window,
+        max_step_x=float(max_step_x),
+        max_step_y=float(max_step_y),
+        accel_limit_x=float(max_step_x * 0.35),
+        accel_limit_y=float(max_step_y * 0.35),
+        smoothing_passes=2,
+        portrait_pad=float(margin_px * 0.6),
+    )
+
+    planner = OfflinePortraitPlanner(cfg)
+    plan_dict = planner.plan(bx, by)
+    keyframes = _plan_to_keyframes(plan_dict, start_frame=start_frame, fps=fps)
+    for kf in keyframes:
+        kf.zoom = max(zoom_min, min(zoom_max, kf.zoom))
+    return keyframes
+
+
+def save_plan(
+    path: Path,
+    keyframes: Sequence[CameraKeyframe],
+    *,
+    meta: Optional[Mapping[str, object]] = None,
+) -> None:
+    data = {
+        "version": 1,
+        "meta": dict(meta or {}),
+        "keyframes": [kf.to_json() for kf in keyframes],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+
+
+def load_plan(path: Path) -> Tuple[List[CameraKeyframe], Mapping[str, object]]:
     with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                bx.append(float("nan"))
-                by.append(float("nan"))
+        data = json.load(handle)
+    meta = data.get("meta") if isinstance(data, Mapping) else {}
+    rows = data.get("keyframes") if isinstance(data, Mapping) else None
+    keyframes: List[CameraKeyframe] = []
+    if isinstance(rows, Sequence):
+        for idx, rec in enumerate(rows):
+            if not isinstance(rec, Mapping):
                 continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                bx.append(float("nan"))
-                by.append(float("nan"))
-                continue
-            if isinstance(rec, dict):
-                for key_x, key_y in (("bx", "by"), ("bx_stab", "by_stab"), ("ball", "ball")):
-                    val_x = rec.get(key_x)
-                    val_y = rec.get(key_y)
-                    if isinstance(val_x, Sequence) and not isinstance(val_x, (bytes, str)):
-                        val_x = val_x[0]
-                    if isinstance(val_y, Sequence) and not isinstance(val_y, (bytes, str)):
-                        val_y = val_y[1 if len(val_y) > 1 else 0]
-                    try:
-                        bx_val = float(val_x)
-                        by_val = float(val_y)
-                    except (TypeError, ValueError):
-                        continue
-                    bx.append(bx_val)
-                    by.append(by_val)
-                    break
-                else:
-                    bx.append(float("nan"))
-                    by.append(float("nan"))
-            elif isinstance(rec, Sequence) and len(rec) >= 2:
-                try:
-                    bx.append(float(rec[0]))
-                    by.append(float(rec[1]))
-                except (TypeError, ValueError):
-                    bx.append(float("nan"))
-                    by.append(float("nan"))
-            else:
-                bx.append(float("nan"))
-                by.append(float("nan"))
-    if not bx:
-        raise ValueError(f"No ball telemetry found in {path}")
-    return bx, by
+            width = float(rec.get("width", rec.get("w", 0.0)))
+            height = float(rec.get("height", rec.get("h", 0.0)))
+            keyframes.append(
+                CameraKeyframe(
+                    t=float(rec.get("t", idx / 30.0)),
+                    frame=int(rec.get("frame", idx)),
+                    cx=float(rec.get("cx", 0.0)),
+                    cy=float(rec.get("cy", 0.0)),
+                    zoom=float(rec.get("zoom", 1.0)),
+                    width=width,
+                    height=height,
+                )
+            )
+    if not keyframes:
+        raise ValueError(f"Plan {path} does not contain any keyframes")
+    return keyframes, meta if isinstance(meta, Mapping) else {}
 
 
-def plan_from_file(ball_path: Path, config: PlannerConfig) -> dict[str, np.ndarray]:
-    bx, by = _load_ball_series(ball_path)
-    planner = OfflinePortraitPlanner(config)
-    return planner.plan(bx, by)
-
-
-def _write_plan(out_path: Path, plan: dict[str, np.ndarray]) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as handle:
-        for idx in range(len(plan["x0"])):
-            row = {key: float(val[idx]) for key, val in plan.items()}
-            handle.write(json.dumps(row) + "\n")
+def keyframes_to_arrays(keyframes: Sequence[CameraKeyframe]) -> dict[str, np.ndarray]:
+    n = len(keyframes)
+    arr = {
+        "x0": np.zeros(n, dtype=float),
+        "y0": np.zeros(n, dtype=float),
+        "w": np.zeros(n, dtype=float),
+        "h": np.zeros(n, dtype=float),
+        "cx": np.zeros(n, dtype=float),
+        "cy": np.zeros(n, dtype=float),
+        "z": np.zeros(n, dtype=float),
+        "spd": np.zeros(n, dtype=float),
+    }
+    for idx, kf in enumerate(keyframes):
+        width = max(1.0, float(kf.width))
+        height = max(1.0, float(kf.height))
+        arr["cx"][idx] = float(kf.cx)
+        arr["cy"][idx] = float(kf.cy)
+        arr["w"][idx] = width
+        arr["h"][idx] = height
+        arr["x0"][idx] = float(kf.cx) - 0.5 * width
+        arr["y0"][idx] = float(kf.cy) - 0.5 * height
+        arr["z"][idx] = float(kf.zoom)
+    if n >= 2:
+        diffs = np.hypot(np.diff(arr["cx"]), np.diff(arr["cy"]))
+        arr["spd"][1:] = diffs
+    return arr
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Offline portrait planner from ball telemetry")
-    parser.add_argument("ball_path", help="JSONL with bx/by entries per frame")
-    parser.add_argument("--width", type=float, required=True)
-    parser.add_argument("--height", type=float, required=True)
-    parser.add_argument("--fps", type=float, default=30.0)
+    parser = argparse.ArgumentParser(description="Offline portrait planner from telemetry")
+    parser.add_argument("ball_path", help="Telemetry JSONL/CSV")
+    parser.add_argument("--width", type=float, required=True, help="Source width in pixels")
+    parser.add_argument("--height", type=float, required=True, help="Source height in pixels")
+    parser.add_argument("--fps", type=float, default=30.0, help="Source FPS")
     parser.add_argument("--aspect", type=float, default=9.0 / 16.0, help="Portrait crop aspect (W/H)")
-    parser.add_argument("--margin", type=float, default=90.0, help="Ball margin inside crop (px)")
-    parser.add_argument("--headroom", type=float, default=0.08, help="Headroom fraction of crop height")
-    parser.add_argument("--lead", type=float, default=120.0, help="Look-ahead distance in px")
-    parser.add_argument("--out", type=Path, help="Optional JSONL output path")
+    parser.add_argument("--pad-frac", type=float, default=0.2, help="Padding fraction around the ball")
+    parser.add_argument("--inner-band", type=float, default=0.6, help="Inner keep-in-view band (0-1)")
+    parser.add_argument("--zoom-max", type=float, default=2.5, help="Maximum zoom factor")
+    parser.add_argument("--smooth", type=float, default=0.15, help="0..1 smoothing strength")
+    parser.add_argument("--out", type=Path, help="Optional .plan.json output path")
     return parser
 
 
 def main(cli_args: Optional[Sequence[str]] = None) -> None:
     args = build_arg_parser().parse_args(cli_args)
-    config = PlannerConfig(
-        frame_size=(args.width, args.height),
-        crop_aspect=args.aspect,
+    samples = load_ball_telemetry(Path(args.ball_path))
+    keyframes = plan_camera_from_ball(
+        samples,
+        args.width,
+        args.height,
+        out_aspect=args.aspect,
+        pad_frac=args.pad_frac,
+        zoom_max=args.zoom_max,
+        smooth_strength=args.smooth,
+        inner_band_frac=args.inner_band,
         fps=args.fps,
-        margin_px=args.margin,
-        headroom_frac=args.headroom,
-        lead_px=args.lead,
     )
-    plan = plan_from_file(Path(args.ball_path), config)
+    meta = {
+        "width": args.width,
+        "height": args.height,
+        "fps": args.fps,
+        "aspect": args.aspect,
+    }
     if args.out:
-        _write_plan(Path(args.out), plan)
+        save_plan(Path(args.out), keyframes, meta=meta)
     else:
-        print(json.dumps({key: val.tolist() for key, val in plan.items()}))
+        print(json.dumps({"meta": meta, "keyframes": [kf.to_json() for kf in keyframes]}, indent=2))
 
 
 if __name__ == "__main__":

@@ -36,7 +36,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.upscale import upscale_video
-from tools.offline_portrait_planner import OfflinePortraitPlanner, PlannerConfig
+from tools.offline_portrait_planner import (
+    OfflinePortraitPlanner,
+    PlannerConfig,
+    keyframes_to_arrays,
+    load_plan,
+)
 
 
 def edge_zoom_out(
@@ -2729,7 +2734,10 @@ class Renderer:
         follow_targets: Optional[Tuple[List[float], List[float]]] = None
         follow_valid_mask: Optional[List[bool]] = None
         offline_plan_len = 0
-        if offline_ball_path:
+        if plan_override_data is not None:
+            offline_plan_data = plan_override_data
+            offline_plan_len = plan_override_len
+        if offline_plan_data is None and offline_ball_path:
             bx_vals: List[float] = []
             by_vals: List[float] = []
             for entry in offline_ball_path:
@@ -2816,7 +2824,11 @@ class Renderer:
                 bounds_pad = max(8, bounds_pad)
 
                 planner_enabled = bool(
-                    is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
+                    is_portrait
+                    and portrait_w
+                    and portrait_h
+                    and portrait_w > 0
+                    and portrait_h > 0
                 )
                 if planner_enabled:
                     plan_x0, plan_y0, plan_w, plan_h, plan_spd, plan_zoom = plan_camera_from_ball(
@@ -4702,6 +4714,22 @@ def run(
             keepinview_margin = max(0.0, float(keepinview_margin_arg))
         except (TypeError, ValueError):
             keepinview_margin = margin_px
+
+    plan_override_data: Optional[dict[str, np.ndarray]] = None
+    plan_override_len = 0
+    plan_arg = getattr(args, "plan", None)
+    if plan_arg:
+        plan_path = Path(plan_arg).expanduser()
+        if not plan_path.exists():
+            raise FileNotFoundError(f"Plan file not found: {plan_path}")
+        keyframes, _ = load_plan(plan_path)
+        plan_override_data = keyframes_to_arrays(keyframes)
+        plan_override_len = len(keyframes)
+        logging.info(
+            "Loaded camera plan %s (%s keyframes)",
+            plan_path,
+            plan_override_len,
+        )
     keepinview_nudge_arg = getattr(args, "keepinview_nudge", None)
     if keepinview_nudge_arg is not None:
         try:
@@ -5293,6 +5321,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum keep-in-view zoom-out multiplier (defaults to follow zoom limit)",
     )
     parser.add_argument("--telemetry", dest="telemetry", help="Output JSONL telemetry file")
+    parser.add_argument(
+        "--plan",
+        dest="plan",
+        help="Optional camera plan JSON (skips the internal planner)",
+    )
     parser.add_argument(
         "--telemetry-out",
         dest="telemetry_out",
