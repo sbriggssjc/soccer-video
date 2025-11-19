@@ -131,8 +131,8 @@ def run_brand(brand_script: Path, in_path: Path, aspect: str) -> Path:
 
     # Preserve the original extension so ffmpeg/PowerShell can infer the
     # container type.  ``Path.with_suffix`` would drop the ``.mp4`` suffix, so we
-    # build the filename manually: ``<name>.__BRANDTMP.mp4``.
-    tmp_path = in_path.with_name(f"{in_path.stem}.__BRANDTMP{in_path.suffix}")
+    # build the filename manually: ``<stem>__BRANDTMP<suffix>``.
+    tmp_path = in_path.with_name(in_path.stem + "__BRANDTMP" + in_path.suffix)
 
     cmd = [
         "pwsh.EXE",
