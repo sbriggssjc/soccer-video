@@ -26,10 +26,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.ball_telemetry import telemetry_path_for_video
-
-
+# Ensure ``tools`` can be imported when running the script directly (``python tools/follow_pipeline.py``)
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.ball_telemetry import telemetry_path_for_video
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
