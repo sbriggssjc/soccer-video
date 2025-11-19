@@ -129,7 +129,10 @@ def run_brand(brand_script: Path, in_path: Path, aspect: str) -> Path:
     if not in_path.is_file():
         raise FileNotFoundError(f"Portrait input for branding not found: {in_path}")
 
-    tmp_path = in_path.with_suffix(in_path.suffix + ".__BRANDTMP")
+    # Preserve the original extension so ffmpeg/PowerShell can infer the
+    # container type.  ``Path.with_suffix`` would drop the ``.mp4`` suffix, so we
+    # build the filename manually: ``<name>.__BRANDTMP.mp4``.
+    tmp_path = in_path.with_name(f"{in_path.stem}.__BRANDTMP{in_path.suffix}")
 
     cmd = [
         "pwsh.EXE",
