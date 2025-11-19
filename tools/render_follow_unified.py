@@ -35,13 +35,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.upscale import upscale_video
+from tools.ball_telemetry import load_ball_telemetry_for_clip
 from tools.offline_portrait_planner import (
     OfflinePortraitPlanner,
     PlannerConfig,
     keyframes_to_arrays,
     load_plan,
+    plan_keepinview_path,
 )
+from tools.upscale import upscale_video
 
 
 def edge_zoom_out(
@@ -2698,6 +2700,28 @@ class Renderer:
 
         offline_ball_path = self.offline_ball_path
 
+        keep_path_lookup: dict[int, tuple[float, float]] = {}
+        keepinview_enabled = bool(
+            is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
+        )
+        if keepinview_enabled:
+            samples = load_ball_telemetry_for_clip(str(self.input_path))
+            if samples:
+                keep_path_lookup = plan_keepinview_path(
+                    samples,
+                    src_w=width,
+                    src_h=height,
+                    portrait_w=int(portrait_w or out_w),
+                    portrait_h=int(portrait_h or out_h),
+                    band_margin_px=80,
+                    reacquire_max_gap_s=0.5,
+                    follow_strength=0.8,
+                )
+                if keep_path_lookup:
+                    print(
+                        f"[KEEPINVIEW] Using ball-aware crop path for {len(keep_path_lookup)} frames."
+                    )
+
         cam = [(state.cx, state.cy, state.zoom) for state in states]
         if cam:
             cx_values = [value[0] for value in cam]
@@ -3268,6 +3292,9 @@ class Renderer:
                             template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
     
                     cam_center_override: Optional[Tuple[float, float]] = None
+                    keep_center: Optional[Tuple[float, float]] = None
+                    if keep_path_lookup:
+                        keep_center = keep_path_lookup.get(n)
     
                     ball_path_entry: Optional[Tuple[float, float]] = None
                     ball_path_space: Optional[str] = None
@@ -3463,6 +3490,8 @@ class Renderer:
                             base_target_y = float(
                                 np.clip(eff_by + center_bias_px, 0.0, src_h_f)
                             )
+                            if keep_center is not None:
+                                base_target_x, base_target_y = keep_center
                             if (
                                 have_ball
                                 and eff_bx is not None
@@ -3761,6 +3790,9 @@ class Renderer:
                             else:
                                 target_x = float(pcx)
                                 target_y = float(pcy)
+
+                        if keep_center is not None:
+                            target_x, target_y = keep_center
 
                         candidate_x = float(target_x if target_x is not None else pcx)
                         candidate_y = float(target_y if target_y is not None else pcy)

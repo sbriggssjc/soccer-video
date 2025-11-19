@@ -28,11 +28,193 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
 from tools.ball_telemetry import BallSample, load_ball_telemetry
+
+
+DEBUG_KEEPINVIEW = False
+
+
+def _infer_fps_from_samples(samples: Sequence[BallSample]) -> float:
+    prev_frame: Optional[int] = None
+    prev_time: Optional[float] = None
+    fps_values: List[float] = []
+    for sample in samples:
+        if not math.isfinite(sample.t):
+            continue
+        frame = int(sample.frame)
+        if prev_frame is not None and prev_time is not None:
+            frame_delta = frame - prev_frame
+            time_delta = sample.t - prev_time
+            if frame_delta > 0 and time_delta > 1e-6:
+                fps_values.append(frame_delta / time_delta)
+        prev_frame = frame
+        prev_time = sample.t
+    if fps_values:
+        return max(1.0, float(sum(fps_values) / len(fps_values)))
+    return 30.0
+
+
+def _critically_damped(values: List[float], fps: float, follow_strength: float) -> List[float]:
+    if not values:
+        return []
+    dt = 1.0 / max(fps, 1.0)
+    omega = max(0.5, float(follow_strength) * 12.0)
+    pos = float(values[0])
+    vel = 0.0
+    smoothed: List[float] = []
+    for target in values:
+        delta = float(target) - pos
+        accel = (omega * omega) * delta - 2.0 * omega * vel
+        vel += accel * dt
+        pos += vel * dt
+        smoothed.append(pos)
+    return smoothed
+
+
+def plan_keepinview_path(
+    samples: List[BallSample],
+    src_w: int,
+    src_h: int,
+    portrait_w: int,
+    portrait_h: int,
+    *,
+    band_margin_px: int = 80,
+    reacquire_max_gap_s: float = 0.5,
+    follow_strength: float = 0.8,
+) -> Dict[int, Tuple[float, float]]:
+    """Compute a per-frame portrait centre that keeps the ball inside the crop."""
+
+    if not samples or src_w <= 0 or src_h <= 0 or portrait_w <= 0 or portrait_h <= 0:
+        return {}
+
+    sorted_samples = sorted(samples, key=lambda s: int(s.frame))
+    frames_all = [int(s.frame) for s in sorted_samples]
+    if not frames_all:
+        return {}
+
+    frame_start = min(frames_all)
+    frame_end = max(frames_all)
+    fps_guess = _infer_fps_from_samples(sorted_samples)
+    max_gap_frames = max(1, int(round(reacquire_max_gap_s * fps_guess)))
+
+    best_sample_per_frame: Dict[int, BallSample] = {}
+    for sample in sorted_samples:
+        frame = int(sample.frame)
+        prev = best_sample_per_frame.get(frame)
+        if prev is None or sample.conf >= prev.conf:
+            best_sample_per_frame[frame] = sample
+
+    raw_positions: Dict[int, Optional[Tuple[float, float]]] = {}
+    last_pos: Optional[Tuple[float, float]] = None
+    last_frame_with_pos: Optional[int] = None
+    last_velocity = (0.0, 0.0)
+    for frame in range(frame_start, frame_end + 1):
+        sample = best_sample_per_frame.get(frame)
+        if sample and math.isfinite(sample.x) and math.isfinite(sample.y):
+            pos = (float(sample.x), float(sample.y))
+            if last_pos is not None and last_frame_with_pos is not None and frame > last_frame_with_pos:
+                dt = frame - last_frame_with_pos
+                if dt > 0:
+                    last_velocity = (
+                        (pos[0] - last_pos[0]) / dt,
+                        (pos[1] - last_pos[1]) / dt,
+                    )
+            else:
+                last_velocity = (0.0, 0.0)
+            last_pos = pos
+            last_frame_with_pos = frame
+            raw_positions[frame] = pos
+        else:
+            if last_pos is not None and last_frame_with_pos is not None:
+                gap = frame - last_frame_with_pos
+                if gap <= max_gap_frames:
+                    pos = (
+                        last_pos[0] + last_velocity[0] * gap,
+                        last_pos[1] + last_velocity[1] * gap,
+                    )
+                    raw_positions[frame] = pos
+                    continue
+            last_pos = None
+            last_frame_with_pos = None
+            raw_positions[frame] = None
+
+    half_w = 0.5 * float(portrait_w)
+    half_h = 0.5 * float(portrait_h)
+    margin_x = min(float(band_margin_px), max(0.0, half_w - 1.0))
+    margin_y = min(float(band_margin_px), max(0.0, half_h - 1.0))
+    scene_cx = float(src_w) * 0.5
+    scene_cy = float(src_h) * 0.5
+    decay_frames = max(max_gap_frames * 2, 1)
+
+    def clamp_center(cx: float, cy: float) -> Tuple[float, float]:
+        min_cx = half_w
+        max_cx = max(half_w, float(src_w) - half_w)
+        min_cy = half_h
+        max_cy = max(half_h, float(src_h) - half_h)
+        cx = min(max(cx, min_cx), max_cx)
+        cy = min(max(cy, min_cy), max_cy)
+        return cx, cy
+
+    def enforce_band(bx: float, by: float, cx: float, cy: float) -> Tuple[float, float]:
+        if half_w > margin_x:
+            min_center = bx - (half_w - margin_x)
+            max_center = bx + (half_w - margin_x)
+            cx = min(max(cx, min_center), max_center)
+        if half_h > margin_y:
+            min_center_y = by - (half_h - margin_y)
+            max_center_y = by + (half_h - margin_y)
+            cy = min(max(cy, min_center_y), max_center_y)
+        return cx, cy
+
+    centers: Dict[int, Tuple[float, float]] = {}
+    frames_since_ball = decay_frames
+    last_target = (scene_cx, scene_cy)
+    for frame in range(frame_start, frame_end + 1):
+        ball_pos = raw_positions.get(frame)
+        if ball_pos is not None and math.isfinite(ball_pos[0]) and math.isfinite(ball_pos[1]):
+            frames_since_ball = 0
+            cx, cy = ball_pos
+            cx, cy = enforce_band(ball_pos[0], ball_pos[1], cx, cy)
+        else:
+            frames_since_ball += 1
+            if frames_since_ball <= max_gap_frames:
+                cx, cy = last_target
+            else:
+                decay = min(1.0, (frames_since_ball - max_gap_frames) / float(decay_frames))
+                cx = last_target[0] + (scene_cx - last_target[0]) * decay
+                cy = last_target[1] + (scene_cy - last_target[1]) * decay
+        cx, cy = clamp_center(cx, cy)
+        centers[frame] = (cx, cy)
+        last_target = (cx, cy)
+
+    frames_sorted = sorted(centers.keys())
+    target_x = [centers[idx][0] for idx in frames_sorted]
+    target_y = [centers[idx][1] for idx in frames_sorted]
+    smooth_x = _critically_damped(target_x, fps_guess, follow_strength)
+    smooth_y = _critically_damped(target_y, fps_guess, follow_strength)
+
+    keep_path: Dict[int, Tuple[float, float]] = {}
+    for idx, frame in enumerate(frames_sorted):
+        cx = smooth_x[idx]
+        cy = smooth_y[idx]
+        bx_by = raw_positions.get(frame)
+        if bx_by is not None:
+            cx, cy = enforce_band(bx_by[0], bx_by[1], cx, cy)
+        cx, cy = clamp_center(cx, cy)
+        keep_path[frame] = (cx, cy)
+        if DEBUG_KEEPINVIEW and idx % 120 == 0:
+            bx_val = bx_by[0] if bx_by else float("nan")
+            by_val = bx_by[1] if bx_by else float("nan")
+            print(
+                f"[KEEPINVIEW] frame={frame} cx={cx:.1f} cy={cy:.1f} bx={bx_val:.1f} by={by_val:.1f}"
+            )
+
+    return keep_path
+
 
 
 @dataclass
