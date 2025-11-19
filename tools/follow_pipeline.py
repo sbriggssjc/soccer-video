@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-"""Unified offline follow + portrait pipeline entrypoint.
-=======
 #!/usr/bin/env python
-"""Simple follow + portrait + branding pipeline wrapper.
->>>>>>> 9d5e16807ac7727fc1278a291be27c43b7d92f63
+"""Simple follow → portrait → branding pipeline wrapper.
 
 This script is a thin orchestrator around ``render_follow_unified.py`` and an
 optional PowerShell branding script (tsc_brand.ps1).
@@ -121,40 +117,8 @@ def run_render(clip: Path, preset: str, portrait: str, variant: str) -> Path:
 def run_brand(brand_script: Path, in_path: Path, aspect: str) -> Path:
     """Run the PowerShell branding script on the portrait reel.
 
-<<<<<<< HEAD
-    keyframes = plan_camera_from_ball(
-        samples,
-        width,
-        height,
-        out_aspect=aspect,
-        pad_frac=pad_frac,
-        zoom_max=zoom_max,
-        smooth_strength=smooth,
-        inner_band_frac=inner_band,
-        fps=fps,
-    )
-    plan_path = plan_output_path(job.clip_id)
-    meta = {
-        "clip_id": job.clip_id,
-        "telemetry_path": os.fspath(telemetry_path) if telemetry_path else None,
-        "source": {"width": width, "height": height, "fps": fps},
-        "portrait": {"width": portrait_w, "height": portrait_h},
-    }
-    save_plan(plan_path, keyframes, meta=meta)
-    logging.info(
-        "Planned portrait path for %s (%s samples) â†' %s",
-        job.clip_id,
-        ball_telemetry.summarise(samples or []),
-        plan_path,
-    )
-    return plan_path
-
-
-def run_brand(output: Path, args: argparse.Namespace) -> None:
-=======
     We brand into a temporary ``.__BRANDTMP`` file and, on success, atomically
     replace the original.
->>>>>>> 9d5e16807ac7727fc1278a291be27c43b7d92f63
     """
 
     brand_script = brand_script.resolve()
@@ -180,16 +144,8 @@ def run_brand(output: Path, args: argparse.Namespace) -> None:
         aspect,
     ]
 
-<<<<<<< HEAD
-    logger.info(
-        "Branding %s â†' %s",
-        os.fspath(output),
-        os.fspath(tmp),
-    )
-=======
     print(f"[INFO] Branding {in_path.name} → {tmp_path.name}")
     print("[CMD]", " ".join(cmd))
->>>>>>> 9d5e16807ac7727fc1278a291be27c43b7d92f63
     subprocess.run(cmd, check=True)
 
     if not tmp_path.is_file():
