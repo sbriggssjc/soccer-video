@@ -31,7 +31,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.ball_telemetry import telemetry_path_for_video
+# Ball telemetry helper
+try:
+    # If running as a package: python -m tools.follow_pipeline
+    from tools.ball_telemetry import telemetry_path_for_video
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    # If running as a plain script: python tools\follow_pipeline.py
+    from ball_telemetry import telemetry_path_for_video
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
