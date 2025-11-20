@@ -21,7 +21,11 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, Mapping, Sequence
+from typing import Iterable, Iterator, Mapping, Sequence, Tuple
+
+
+DEFAULT_MODEL_NAME = "yolov8n.pt"
+DEFAULT_MIN_CONF = 0.35
 
 
 # ---------------------------------------------------------------------------
@@ -306,13 +310,160 @@ def save_ball_telemetry_jsonl(out_path: Path, samples: Sequence[Mapping[str, obj
             handle.write(json.dumps(rec) + "\n")
 
 
+def load_ball_model(args: argparse.Namespace):
+    """Load a YOLO model for ball detection, handling missing deps gracefully."""
+
+    model_name = getattr(args, "model", None) or DEFAULT_MODEL_NAME
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        print("[BALL] YOLO/ultralytics is not installed; please install it or use 'annotate' mode.")
+        return None
+
+    try:
+        model = YOLO(model_name)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[BALL] Failed to load YOLO model '{model_name}': {exc}")
+        return None
+
+    sport = getattr(args, "sport", "soccer") or "soccer"
+    print(f"[BALL] Loaded YOLO model '{model_name}' for sport='{sport}'")
+    return model
+
+
+def _ball_class_ids(model, sport: str) -> set[int]:
+    sport = (sport or "").lower()
+    preferred_labels = {"sports ball", "sportsball", "ball"}
+    target_ids: set[int] = set()
+    names = getattr(model, "names", {}) or {}
+    for cls_id, cls_name in names.items():
+        if str(cls_name).lower() in preferred_labels:
+            target_ids.add(int(cls_id))
+    # COCO "sports ball" class id
+    target_ids.add(32)
+
+    if sport and sport != "soccer":
+        return target_ids
+    return target_ids
+
+
+def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = DEFAULT_MIN_CONF) -> Tuple[float | None, float | None, float | None]:
+    """Run detector on a single frame and return centre coords + confidence."""
+
+    try:
+        results = model.predict(frame, verbose=False, device="cpu")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[BALL] Detection failed on frame: {exc}")
+        return None, None, None
+
+    target_ids = _ball_class_ids(model, sport)
+    best: Tuple[float, float, float] | None = None
+
+    for res in results:
+        boxes = getattr(res, "boxes", None)
+        if boxes is None or not hasattr(boxes, "xyxy"):
+            continue
+        try:
+            xyxy = boxes.xyxy.cpu().numpy()
+            confs = boxes.conf.cpu().numpy()
+            classes = boxes.cls.cpu().numpy()
+        except Exception:  # noqa: BLE001
+            continue
+
+        for box, conf, cls_id in zip(xyxy, confs, classes):
+            if conf < float(min_conf):
+                continue
+            cls_int = int(round(float(cls_id)))
+            if target_ids and cls_int not in target_ids:
+                continue
+            x0, y0, x1, y1 = map(float, box[:4])
+            cx = (x0 + x1) / 2.0
+            cy = (y0 + y1) / 2.0
+            if best is None or conf > best[2]:
+                best = (cx, cy, float(conf))
+
+    if best is None:
+        return None, None, None
+    return best
+
+
 def _detect_ball(args: argparse.Namespace) -> int:
+    try:
+        import cv2
+    except ImportError:
+        print("[ERROR] OpenCV is required for detection", file=sys.stderr)
+        return 2
+
     video_path = Path(args.video).expanduser()
     out_path = Path(args.out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"[BALL] No built-in detector available; please annotate manually ({video_path})")
-    return 1
+    model = load_ball_model(args)
+    if model is None:
+        return 1
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[ERROR] Could not open video: {video_path}", file=sys.stderr)
+        return 2
+
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    if not math.isfinite(fps) or fps <= 0.0:
+        fps = 30.0
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    print(
+        f"[BALL] Detecting ball positions in {video_path} ({total_frames} frames, {width}x{height} @ {fps:.2f}fps)"
+    )
+
+    samples: list[dict[str, object]] = []
+    frame_idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+
+        t_val = frame_idx / fps if fps > 0 else 0.0
+        cx, cy, conf = detect_ball_in_frame(
+            model,
+            frame,
+            sport=str(getattr(args, "sport", "soccer") or "soccer"),
+            min_conf=float(getattr(args, "min_conf", DEFAULT_MIN_CONF) or DEFAULT_MIN_CONF),
+        )
+        if conf is not None and cx is not None and cy is not None:
+            samples.append(
+                {
+                    "frame": int(frame_idx),
+                    "time": float(t_val),
+                    "t": float(t_val),
+                    "x": float(cx),
+                    "y": float(cy),
+                    "conf": float(conf),
+                    "source": "auto",
+                }
+            )
+
+        if frame_idx % 50 == 0:
+            print(f"[BALL] Processed frame {frame_idx}/{total_frames or '?'} (t={t_val:.2f}s)")
+
+        frame_idx += 1
+
+    cap.release()
+
+    save_ball_telemetry_jsonl(out_path, samples)
+
+    if samples:
+        t_vals = [rec.get("t", rec.get("time", 0.0)) for rec in samples]
+        t_vals = [float(v) for v in t_vals if isinstance(v, (int, float))]
+        t_min = min(t_vals) if t_vals else 0.0
+        t_max = max(t_vals) if t_vals else 0.0
+        print(f"[BALL] Wrote {len(samples)} samples covering t={t_min:.2f}–{t_max:.2f}s to {out_path}")
+    else:
+        print(f"[BALL] No ball detections were found; wrote empty telemetry to {out_path}")
+
+    return 0
 
 
 def _annotate_ball(args: argparse.Namespace) -> int:
@@ -388,7 +539,17 @@ def _annotate_ball(args: argparse.Namespace) -> int:
             x = interp(x0, x1, alpha)
             y = interp(y0, y1, alpha)
         t = frame / fps if fps > 0 else 0.0
-        samples.append({"t": float(t), "x": float(x), "y": float(y), "source": "manual"})
+        samples.append(
+            {
+                "frame": int(frame),
+                "time": float(t),
+                "t": float(t),
+                "x": float(x),
+                "y": float(y),
+                "conf": 1.0,
+                "source": "manual",
+            }
+        )
 
     save_ball_telemetry_jsonl(out_path, samples)
 
@@ -409,6 +570,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     detect_p.add_argument("--video", required=True, help="Input video path")
     detect_p.add_argument("--out", help="Output telemetry JSONL (default derived)")
     detect_p.add_argument("--sport", default="soccer", help="Sport context (default: soccer)")
+    detect_p.add_argument("--model", default=DEFAULT_MODEL_NAME, help="YOLO model to load (default: yolov8n.pt)")
+    detect_p.add_argument("--min-conf", dest="min_conf", type=float, default=DEFAULT_MIN_CONF, help="Minimum confidence for detections")
     detect_p.set_defaults(func=_detect_ball)
 
     ann_p = sub.add_parser("annotate", help="Manually annotate ball positions")
