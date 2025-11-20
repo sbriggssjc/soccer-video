@@ -1739,65 +1739,69 @@ def build_ball_keepinview_path(
     position when telemetry is missing for a frame.
     """
     import math
+    from bisect import bisect_left
 
-    # Index telemetry by frame for quick lookup
-    # Expect items like {"frame": int, "x": float, "y": float, ...}
-    by_frame = {}
+    if not samples or crop_w <= 0 or crop_h <= 0 or src_w <= 0 or src_h <= 0:
+        return []
+
+    by_frame: dict[int, tuple[float, float, float]] = {}
     for s in samples:
         if isinstance(s, Mapping):
             f = int(s.get("frame", 0))
             x = float(s.get("x", float("nan")))
             y = float(s.get("y", float("nan")))
+            conf = float(s.get("conf", 0.0))
         else:
             f = int(getattr(s, "frame", 0))
             x = float(getattr(s, "x", float("nan")))
             y = float(getattr(s, "y", float("nan")))
+            conf = float(getattr(s, "conf", 0.0)) if hasattr(s, "conf") else 0.0
         if math.isfinite(x) and math.isfinite(y):
-            by_frame[f] = (x, y)
+            prev = by_frame.get(f)
+            if prev is None or conf >= prev[2]:
+                by_frame[f] = (x, y, conf)
 
-    # Start centered; this avoids the "cx not associated with a value" error
-    cx = src_w / 2.0
-    cy = src_h / 2.0
-    last_cx, last_cy = cx, cy
+    if not by_frame:
+        return []
 
-    path = []
+    frames_sorted = sorted(by_frame.keys())
+    path: list[tuple[float, float]] = []
 
-    # Margin around ball inside crop
     margin_x = crop_w * margin_frac
     margin_y = crop_h * margin_frac
+    half_w = crop_w / 2.0
+    half_h = crop_h / 2.0
 
     for f in range(num_frames):
-        # Use telemetry if we have it; otherwise keep last center
         if f in by_frame:
-            bx, by = by_frame[f]
-            last_cx, last_cy = bx, by
+            bx, by, _c = by_frame[f]
         else:
-            bx, by = last_cx, last_cy
+            pos = bisect_left(frames_sorted, f)
+            if pos <= 0:
+                ref_frame = frames_sorted[0]
+                bx, by, _c = by_frame[ref_frame]
+            elif pos >= len(frames_sorted):
+                ref_frame = frames_sorted[-1]
+                bx, by, _c = by_frame[ref_frame]
+            else:
+                f0 = frames_sorted[pos - 1]
+                f1 = frames_sorted[pos]
+                bx0, by0, _c0 = by_frame[f0]
+                bx1, by1, _c1 = by_frame[f1]
+                alpha = 0.0 if f1 == f0 else (f - f0) / float(f1 - f0)
+                bx = bx0 + (bx1 - bx0) * alpha
+                by = by0 + (by1 - by0) * alpha
 
-        # Start with crop centered on ball
-        cx = bx
-        cy = by
+        cx = float(bx)
+        cy = float(by)
 
-        # Convert center to top-left crop origin and clamp to source frame
-        x0 = cx - crop_w / 2.0
-        y0 = cy - crop_h / 2.0
+        if half_w > margin_x:
+            cx = max(bx - (half_w - margin_x), min(cx, bx + (half_w - margin_x)))
+        if half_h > margin_y:
+            cy = max(by - (half_h - margin_y), min(cy, by + (half_h - margin_y)))
 
-        # Keep crop inside source bounds
-        if x0 < 0:
-            x0 = 0
-        if y0 < 0:
-            y0 = 0
-        if x0 + crop_w > src_w:
-            x0 = max(0, src_w - crop_w)
-        if y0 + crop_h > src_h:
-            y0 = max(0, src_h - crop_h)
-
-        # Recompute center from (possibly clamped) origin
-        cx = x0 + crop_w / 2.0
-        cy = y0 + crop_h / 2.0
-
-        # update last center for frames without telemetry
-        last_cx, last_cy = cx, cy
+        cx = max(half_w, min(src_w - half_w, cx))
+        cy = max(half_h, min(src_h - half_h, cy))
 
         path.append((cx, cy))
 
@@ -4994,12 +4998,18 @@ def run(
             try:
                 ball_samples = load_ball_telemetry(telemetry_path)
                 if ball_samples:
-                    t_vals = [s.t for s in ball_samples if math.isfinite(s.t)]
-                    t_min = min(t_vals) if t_vals else 0.0
-                    t_max = max(t_vals) if t_vals else 0.0
-                    print(
-                        f"[BALL] Loaded {len(ball_samples)} samples from {telemetry_path} (t={t_min:.2f}–{t_max:.2f}s)"
-                    )
+                    valid_samples = [s for s in ball_samples if math.isfinite(getattr(s, "x", float("nan"))) and math.isfinite(getattr(s, "y", float("nan")))]
+                    if not valid_samples:
+                        print("[BALL] Telemetry loaded but contains no valid coordinates; falling back to reactive follow.")
+                        ball_samples = []
+                    else:
+                        t_vals = [s.t for s in valid_samples if math.isfinite(s.t)]
+                        t_min = min(t_vals) if t_vals else 0.0
+                        t_max = max(t_vals) if t_vals else 0.0
+                        print(
+                            f"[BALL] Loaded {len(valid_samples)} samples from {telemetry_path} (t={t_min:.2f}–{t_max:.2f}s)"
+                        )
+                        ball_samples = valid_samples
                 else:
                     print(f"[BALL] Telemetry file empty: {telemetry_path}")
             except Exception as exc:  # noqa: BLE001
