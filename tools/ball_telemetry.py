@@ -2,7 +2,7 @@
 
 Telemetry JSONL schema (per line)::
 
-    {"t": <seconds>, "x": <pixels>, "y": <pixels>, "confidence": <0-1>}
+    {"frame": <int>, "t": <seconds>, "cx": <pixels>, "cy": <pixels>}
 
 Canonical path mapping: ``out/telemetry/<basename>.ball.jsonl`` derived via
 ``telemetry_path_for_video``.  Example PowerShell workflow::
@@ -14,14 +14,17 @@ Canonical path mapping: ``out/telemetry/<basename>.ball.jsonl`` derived via
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
-import argparse
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Sequence, Tuple
+
+import numpy as np
 
 
 DEFAULT_MODEL_NAME = "yolov8n.pt"
@@ -48,6 +51,14 @@ class BallSample:
 
         return self.frame
 
+    @property
+    def cx(self) -> float:
+        return self.x
+
+    @property
+    def cy(self) -> float:
+        return self.y
+
 
 # ---------------------------------------------------------------------------
 # Parsing helpers
@@ -61,6 +72,7 @@ _X_KEYS = (
     "x",
     "u",
     "ball",
+    "cx",
 )
 _Y_KEYS = (
     "ball_y",
@@ -70,11 +82,15 @@ _Y_KEYS = (
     "y",
     "v",
     "ball",
+    "cy",
 )
 _CONF_KEYS = ("ball_conf", "conf", "confidence", "score", "p")
 _TIME_KEYS = ("t", "time", "timestamp", "ts")
 _FRAME_KEYS = ("frame", "frame_idx", "idx", "f")
 _FPS_KEYS = ("fps", "frame_rate", "frameRate", "video_fps")
+
+
+_FRAME_BOUNDS_HINT: tuple[float, float] | None = None
 
 
 def _as_float(value: object) -> float:
@@ -147,6 +163,20 @@ def _extract_fps(rec: Mapping[str, object], prev: float | None) -> float | None:
     return prev
 
 
+def set_telemetry_frame_bounds(width: float | int, height: float | int) -> None:
+    """Provide a frame-size hint for interpolation clamping."""
+
+    global _FRAME_BOUNDS_HINT
+    try:
+        w = float(width)
+        h = float(height)
+    except (TypeError, ValueError):
+        return
+    if not (math.isfinite(w) and math.isfinite(h)):
+        return
+    _FRAME_BOUNDS_HINT = (max(1.0, w), max(1.0, h))
+
+
 def _finalise_sample(
     *,
     t_val: float,
@@ -161,7 +191,9 @@ def _finalise_sample(
             t_val = frame / fps_hint
         else:
             t_val = 0.0
-    if not (math.isfinite(x) and math.isfinite(y)):
+    if math.isfinite(x) and math.isfinite(y):
+        x, y = _clamp_xy(float(x), float(y))
+    else:
         conf = 0.0
         x = float("nan")
         y = float("nan")
@@ -310,6 +342,157 @@ def save_ball_telemetry_jsonl(out_path: Path, samples: Sequence[Mapping[str, obj
             handle.write(json.dumps(rec) + "\n")
 
 
+def _get_video_fps(video_path: Path) -> float:
+    """Return a reliable FPS using OpenCV first, then ffprobe as fallback."""
+
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(str(video_path))
+        if cap.isOpened():
+            fps_val = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            cap.release()
+            if math.isfinite(fps_val) and fps_val > 0:
+                return fps_val
+    except Exception:  # noqa: BLE001 - best-effort only
+        pass
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=r_frame_rate",
+                "-of",
+                "default=nokey=1:noprint_wrappers=1",
+                str(video_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        rate = result.stdout.strip()
+        if "/" in rate:
+            num, den = rate.split("/", 1)
+            fps_val = float(num) / float(den)
+        else:
+            fps_val = float(rate)
+        if math.isfinite(fps_val) and fps_val > 0:
+            return fps_val
+    except Exception:  # noqa: BLE001 - ffprobe optional
+        pass
+
+    return 30.0
+
+
+def _clamp_xy(cx: float, cy: float) -> tuple[float, float]:
+    if _FRAME_BOUNDS_HINT is None:
+        return cx, cy
+    width, height = _FRAME_BOUNDS_HINT
+    cx = max(0.0, min(width - 1.0, cx))
+    cy = max(0.0, min(height - 1.0, cy))
+    return cx, cy
+
+
+def load_and_interpolate_telemetry(path: str, total_frames: int, fps: float) -> list[dict]:
+    """
+    Load JSONL telemetry and return a list of length ``total_frames``.
+
+    For each frame i, output dict with keys:
+        - frame, t, cx, cy, has_ball (bool)
+    Interpolate linearly between observed points where needed.
+    For leading/trailing gaps, hold the nearest known value.
+    Ensure all cx, cy are finite and clamped to frame bounds.
+    """
+
+    fps = float(fps) if math.isfinite(fps) and fps > 0 else 30.0
+    total_frames = max(0, int(total_frames))
+    observations: dict[int, tuple[float, float, float]] = {}
+
+    try:
+        with Path(path).open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, Mapping):
+                    continue
+                frame_idx = _as_int(rec.get("frame"), 0)
+                cx = _as_float(rec.get("cx"))
+                cy = _as_float(rec.get("cy"))
+                t_val = _as_float(rec.get("t"))
+                if not math.isfinite(t_val):
+                    t_val = frame_idx / fps
+                if not (math.isfinite(cx) and math.isfinite(cy)):
+                    continue
+                cx, cy = _clamp_xy(float(cx), float(cy))
+                observations[frame_idx] = (float(cx), float(cy), float(t_val))
+    except FileNotFoundError:
+        return [
+            {"frame": i, "t": i / fps, "cx": 0.0, "cy": 0.0, "has_ball": False}
+            for i in range(total_frames)
+        ]
+
+    if not observations:
+        print(f"[BALL] Telemetry empty or invalid at {path}; interpolation skipped")
+        return [
+            {"frame": i, "t": i / fps, "cx": 0.0, "cy": 0.0, "has_ball": False}
+            for i in range(total_frames)
+        ]
+
+    frames_sorted = sorted(observations.keys())
+    seen_frames = set(frames_sorted)
+    print(
+        f"[BALL] Loaded telemetry for {len(seen_frames)} frames; interpolating to {total_frames} frames"
+    )
+
+    interpolated: list[dict] = []
+    used_interp = False
+
+    for i in range(total_frames):
+        if i in observations:
+            cx, cy, t_val = observations[i]
+            has_ball = True
+        else:
+            pos = 0
+            while pos < len(frames_sorted) and frames_sorted[pos] < i:
+                pos += 1
+            if pos <= 0:
+                ref = frames_sorted[0]
+                cx, cy, t_val = observations[ref]
+            elif pos >= len(frames_sorted):
+                ref = frames_sorted[-1]
+                cx, cy, t_val = observations[ref]
+            else:
+                f0 = frames_sorted[pos - 1]
+                f1 = frames_sorted[pos]
+                cx0, cy0, _t0 = observations[f0]
+                cx1, cy1, _t1 = observations[f1]
+                alpha = 0.0 if f1 == f0 else (i - f0) / float(f1 - f0)
+                cx = cx0 + (cx1 - cx0) * alpha
+                cy = cy0 + (cy1 - cy0) * alpha
+                t_val = i / fps
+            has_ball = False
+            used_interp = True
+
+        cx, cy = _clamp_xy(float(cx), float(cy))
+        t_val = float(i / fps if not math.isfinite(t_val) else t_val)
+        interpolated.append({"frame": i, "t": t_val, "cx": cx, "cy": cy, "has_ball": has_ball})
+
+    if used_interp:
+        print("[BALL] Interpolated telemetry gaps for smoother follow path")
+
+    return interpolated
+
+
 def load_ball_model(args: argparse.Namespace):
     """Load a YOLO model for ball detection, handling missing deps gracefully."""
 
@@ -398,19 +581,12 @@ def _detect_ball(args: argparse.Namespace) -> int:
     out_path = Path(args.out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    model = load_ball_model(args)
-    if model is None:
-        return 1
-
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         print(f"[ERROR] Could not open video: {video_path}", file=sys.stderr)
         return 2
 
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-    if not math.isfinite(fps) or fps <= 0.0:
-        fps = 30.0
-
+    fps = _get_video_fps(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
@@ -418,7 +594,43 @@ def _detect_ball(args: argparse.Namespace) -> int:
         f"[BALL] Detecting ball positions in {video_path} ({total_frames} frames, {width}x{height} @ {fps:.2f}fps)"
     )
 
+    lower_white = np.array([0, 0, 180], dtype=np.uint8)
+    upper_white = np.array([180, 80, 255], dtype=np.uint8)
+
+    def simple_ball_detector(frame: np.ndarray) -> tuple[float | None, float | None]:
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, lower_white, upper_white)
+        mask = cv2.GaussianBlur(mask, (5, 5), 0)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None, None
+
+        frame_area = max(1, width * height)
+        best_c: tuple[float, float] | None = None
+        best_score = -1.0
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area <= 2 or area > frame_area * 0.01:
+                continue
+            peri = cv2.arcLength(c, True)
+            circularity = 0.0 if peri <= 0 else 4 * math.pi * area / (peri * peri)
+            M = cv2.moments(c)
+            if M["m00"] <= 0:
+                continue
+            cx = float(M["m10"] / M["m00"])
+            cy = float(M["m01"] / M["m00"])
+            score = circularity * area
+            if score > best_score:
+                best_score = score
+                best_c = (cx, cy)
+
+        return best_c if best_c is not None else (None, None)
+
     samples: list[dict[str, object]] = []
+    detections = 0
     frame_idx = 0
     while True:
         ok, frame = cap.read()
@@ -426,24 +638,19 @@ def _detect_ball(args: argparse.Namespace) -> int:
             break
 
         t_val = frame_idx / fps if fps > 0 else 0.0
-        cx, cy, conf = detect_ball_in_frame(
-            model,
-            frame,
-            sport=str(getattr(args, "sport", "soccer") or "soccer"),
-            min_conf=float(getattr(args, "min_conf", DEFAULT_MIN_CONF) or DEFAULT_MIN_CONF),
-        )
-        if conf is not None and cx is not None and cy is not None:
+        cx, cy = simple_ball_detector(frame)
+        if cx is not None and cy is not None and math.isfinite(cx) and math.isfinite(cy):
+            cx = max(0.0, min(width - 1.0, float(cx)))
+            cy = max(0.0, min(height - 1.0, float(cy)))
             samples.append(
                 {
                     "frame": int(frame_idx),
-                    "time": float(t_val),
                     "t": float(t_val),
-                    "x": float(cx),
-                    "y": float(cy),
-                    "conf": float(conf),
-                    "source": "auto",
+                    "cx": float(cx),
+                    "cy": float(cy),
                 }
             )
+            detections += 1
 
         if frame_idx % 50 == 0:
             print(f"[BALL] Processed frame {frame_idx}/{total_frames or '?'} (t={t_val:.2f}s)")
@@ -455,11 +662,16 @@ def _detect_ball(args: argparse.Namespace) -> int:
     save_ball_telemetry_jsonl(out_path, samples)
 
     if samples:
-        t_vals = [rec.get("t", rec.get("time", 0.0)) for rec in samples]
-        t_vals = [float(v) for v in t_vals if isinstance(v, (int, float))]
+        t_vals = [float(rec.get("t", 0.0)) for rec in samples if isinstance(rec.get("t"), (int, float))]
         t_min = min(t_vals) if t_vals else 0.0
         t_max = max(t_vals) if t_vals else 0.0
-        print(f"[BALL] Wrote {len(samples)} samples covering t={t_min:.2f}–{t_max:.2f}s to {out_path}")
+        coverage = 100.0 * detections / max(1, total_frames)
+        print(
+            f"[BALL] Wrote {len(samples)} samples covering t={t_min:.2f}–{t_max:.2f}s to {out_path}"
+        )
+        print(
+            f"[BALL] Detection summary: {detections}/{total_frames or '?'} frames ({coverage:.1f}%), t_min={t_min:.2f}, t_max={t_max:.2f}"
+        )
     else:
         print(f"[BALL] No ball detections were found; wrote empty telemetry to {out_path}")
 
@@ -478,7 +690,10 @@ def _annotate_ball(args: argparse.Namespace) -> int:
         print(f"[ERROR] Could not open video: {video_path}", file=sys.stderr)
         return 2
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = _get_video_fps(video_path)
+    width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0.0)
+    height = float(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0.0)
+    set_telemetry_frame_bounds(width, height)
     positions: list[tuple[int, float, float]] = []
     clicks: dict[int, tuple[float, float]] = {}
 
@@ -539,15 +754,13 @@ def _annotate_ball(args: argparse.Namespace) -> int:
             x = interp(x0, x1, alpha)
             y = interp(y0, y1, alpha)
         t = frame / fps if fps > 0 else 0.0
+        x, y = _clamp_xy(float(x), float(y))
         samples.append(
             {
                 "frame": int(frame),
-                "time": float(t),
                 "t": float(t),
-                "x": float(x),
-                "y": float(y),
-                "conf": 1.0,
-                "source": "manual",
+                "cx": float(x),
+                "cy": float(y),
             }
         )
 
@@ -593,6 +806,8 @@ __all__ = [
     "load_ball_telemetry_for_clip",
     "telemetry_path_for_video",
     "save_ball_telemetry_jsonl",
+    "load_and_interpolate_telemetry",
+    "set_telemetry_frame_bounds",
 ]
 
 

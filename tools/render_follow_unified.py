@@ -37,8 +37,10 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.ball_telemetry import (
     BallSample,
+    load_and_interpolate_telemetry,
     load_ball_telemetry,
     load_ball_telemetry_for_clip,
+    set_telemetry_frame_bounds,
     telemetry_path_for_video,
 )
 from tools.offline_portrait_planner import (
@@ -2801,27 +2803,75 @@ class Renderer:
             is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
         )
         if keepinview_enabled:
-            samples = self.ball_samples or load_ball_telemetry_for_clip(str(self.input_path))
-            if samples:
-                crop_w = float(portrait_w or out_w)
-                crop_h = float(portrait_h or out_h)
-                total_frames = frame_count
-                if total_frames <= 0:
-                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                if total_frames <= 0:
-                    total_frames = 0
-                keep_path = build_ball_keepinview_path(
-                    samples,
-                    num_frames=total_frames,
-                    frame_rate=float(self.fps_out or src_fps or 30.0),
-                    src_w=width,
-                    src_h=height,
-                    crop_w=crop_w,
-                    crop_h=crop_h,
-                    margin_frac=0.15,
-                )
-                if keep_path:
-                    keep_path_lookup = {idx: center for idx, center in enumerate(keep_path)}
+            crop_w = float(portrait_w or out_w)
+            crop_h = float(portrait_h or out_h)
+            margin_x = crop_w * 0.22
+            margin_y = crop_h * 0.22
+            half_w = crop_w / 2.0
+            half_h = crop_h / 2.0
+
+            if keep_path_lookup:
+                print(f"[BALL] Using preloaded telemetry path for keep-in-view ({len(keep_path_lookup)} frames)")
+                path_points: list[tuple[float, float]] = []
+                last_cx, last_cy = None, None
+                for n in range(frame_count):
+                    bx, by = keep_path_lookup.get(n, (last_cx, last_cy))
+                    if bx is None or by is None:
+                        bx, by = last_cx, last_cy
+                    if bx is None or by is None:
+                        bx = width / 2.0
+                        by = height / 2.0
+                    last_cx, last_cy = bx, by
+
+                    allowed_low_x = bx - max(0.0, half_w - margin_x)
+                    allowed_high_x = bx + max(0.0, half_w - margin_x)
+                    allowed_low_y = by - max(0.0, half_h - margin_y)
+                    allowed_high_y = by + max(0.0, half_h - margin_y)
+
+                    cx_val = min(max(bx, allowed_low_x), allowed_high_x)
+                    cy_val = min(max(by, allowed_low_y), allowed_high_y)
+
+                    cx_val = max(half_w, min(width - half_w, cx_val))
+                    cy_val = max(half_h, min(height - half_h, cy_val))
+                    path_points.append((cx_val, cy_val))
+
+                if path_points:
+                    smoothed: list[tuple[float, float]] = []
+                    alpha = 0.2
+                    prev_pt: tuple[float, float] | None = None
+                    for pt in path_points:
+                        if prev_pt is None:
+                            prev_pt = pt
+                        else:
+                            prev_pt = (
+                                prev_pt[0] * (1 - alpha) + pt[0] * alpha,
+                                prev_pt[1] * (1 - alpha) + pt[1] * alpha,
+                            )
+                        smoothed.append(prev_pt)
+                    keep_path_lookup = {idx: center for idx, center in enumerate(smoothed)}
+                    print("[BALL] Applied smoothing to telemetry-driven crop path")
+            else:
+                samples = self.ball_samples or load_ball_telemetry_for_clip(str(self.input_path))
+                if samples:
+                    total_frames = frame_count
+                    if total_frames <= 0:
+                        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    if total_frames <= 0:
+                        total_frames = 0
+                    keep_path = build_ball_keepinview_path(
+                        samples,
+                        num_frames=total_frames,
+                        frame_rate=float(self.fps_out or src_fps or 30.0),
+                        src_w=width,
+                        src_h=height,
+                        crop_w=crop_w,
+                        crop_h=crop_h,
+                        margin_frac=0.22,
+                    )
+                    if keep_path:
+                        keep_path_lookup = {idx: center for idx, center in enumerate(keep_path)}
+                if not keep_path_lookup:
+                    print("[BALL] Telemetry missing or invalid; using reactive follow")
 
         cam = [(state.cx, state.cy, state.zoom) for state in states]
         if cam:
@@ -4990,11 +5040,29 @@ def run(
 
     ball_samples: List[BallSample] = []
     keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
+    telemetry_path: Path | None = None
 
     if getattr(args, "use_ball_telemetry", False):
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
         if telemetry_path.is_file():
+            set_telemetry_frame_bounds(width, height)
+            try:
+                interpolated = load_and_interpolate_telemetry(
+                    str(telemetry_path),
+                    total_frames=frame_count,
+                    fps=fps_in if fps_in > 0 else fps_out,
+                )
+                keep_path_lookup_data = {rec["frame"]: (float(rec["cx"]), float(rec["cy"])) for rec in interpolated}
+                coverage = sum(1 for rec in interpolated if rec.get("has_ball"))
+                coverage_pct = 100.0 * coverage / max(1, frame_count)
+                print(
+                    f"[BALL] Using telemetry {telemetry_path} with coverage {coverage}/{frame_count} ({coverage_pct:.1f}%)"
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
+                keep_path_lookup_data = {}
+
             try:
                 ball_samples = load_ball_telemetry(telemetry_path)
                 if ball_samples:
