@@ -47,7 +47,6 @@ from tools.offline_portrait_planner import (
     keyframes_to_arrays,
     load_plan,
     plan_ball_portrait_crop,
-    plan_keepinview_path,
 )
 from tools.upscale import upscale_video
 
@@ -1724,6 +1723,88 @@ def rough_motion_path(
     return out
 
 
+def build_ball_keepinview_path(
+    samples,
+    num_frames,
+    frame_rate,
+    src_w,
+    src_h,
+    crop_w,
+    crop_h,
+    margin_frac=0.15,
+):
+    """
+    Build a per-frame (cx, cy) center path that keeps the ball inside
+    the portrait crop with some padding. Falls back to last-seen ball
+    position when telemetry is missing for a frame.
+    """
+    import math
+
+    # Index telemetry by frame for quick lookup
+    # Expect items like {"frame": int, "x": float, "y": float, ...}
+    by_frame = {}
+    for s in samples:
+        if isinstance(s, Mapping):
+            f = int(s.get("frame", 0))
+            x = float(s.get("x", float("nan")))
+            y = float(s.get("y", float("nan")))
+        else:
+            f = int(getattr(s, "frame", 0))
+            x = float(getattr(s, "x", float("nan")))
+            y = float(getattr(s, "y", float("nan")))
+        if math.isfinite(x) and math.isfinite(y):
+            by_frame[f] = (x, y)
+
+    # Start centered; this avoids the "cx not associated with a value" error
+    cx = src_w / 2.0
+    cy = src_h / 2.0
+    last_cx, last_cy = cx, cy
+
+    path = []
+
+    # Margin around ball inside crop
+    margin_x = crop_w * margin_frac
+    margin_y = crop_h * margin_frac
+
+    for f in range(num_frames):
+        # Use telemetry if we have it; otherwise keep last center
+        if f in by_frame:
+            bx, by = by_frame[f]
+            last_cx, last_cy = bx, by
+        else:
+            bx, by = last_cx, last_cy
+
+        # Start with crop centered on ball
+        cx = bx
+        cy = by
+
+        # Convert center to top-left crop origin and clamp to source frame
+        x0 = cx - crop_w / 2.0
+        y0 = cy - crop_h / 2.0
+
+        # Keep crop inside source bounds
+        if x0 < 0:
+            x0 = 0
+        if y0 < 0:
+            y0 = 0
+        if x0 + crop_w > src_w:
+            x0 = max(0, src_w - crop_w)
+        if y0 + crop_h > src_h:
+            y0 = max(0, src_h - crop_h)
+
+        # Recompute center from (possibly clamped) origin
+        cx = x0 + crop_w / 2.0
+        cy = y0 + crop_h / 2.0
+
+        # update last center for frames without telemetry
+        last_cx, last_cy = cx, cy
+
+        path.append((cx, cy))
+
+    print(f"[KEEPINVIEW] Using ball-aware crop path for {len(path)} frames.")
+    return path
+
+
 @dataclass
 class CamState:
     frame: int
@@ -2710,6 +2791,7 @@ class Renderer:
 
         offline_ball_path = self.offline_ball_path
 
+        frame_count = len(states)
         keep_path_lookup: dict[int, tuple[float, float]] = dict(self.keep_path_lookup_data)
         keepinview_enabled = bool(
             is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
@@ -2717,20 +2799,25 @@ class Renderer:
         if keepinview_enabled:
             samples = self.ball_samples or load_ball_telemetry_for_clip(str(self.input_path))
             if samples:
-                keep_path_lookup = plan_keepinview_path(
+                crop_w = float(portrait_w or out_w)
+                crop_h = float(portrait_h or out_h)
+                total_frames = frame_count
+                if total_frames <= 0:
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                if total_frames <= 0:
+                    total_frames = 0
+                keep_path = build_ball_keepinview_path(
                     samples,
+                    num_frames=total_frames,
+                    frame_rate=float(self.fps_out or src_fps or 30.0),
                     src_w=width,
                     src_h=height,
-                    portrait_w=int(portrait_w or out_w),
-                    portrait_h=int(portrait_h or out_h),
-                    band_margin_px=80,
-                    reacquire_max_gap_s=0.5,
-                    follow_strength=0.8,
+                    crop_w=crop_w,
+                    crop_h=crop_h,
+                    margin_frac=0.15,
                 )
-                if keep_path_lookup:
-                    print(
-                        f"[KEEPINVIEW] Using ball-aware crop path for {len(keep_path_lookup)} frames."
-                    )
+                if keep_path:
+                    keep_path_lookup = {idx: center for idx, center in enumerate(keep_path)}
 
         cam = [(state.cx, state.cy, state.zoom) for state in states]
         if cam:
@@ -2740,7 +2827,6 @@ class Renderer:
             cx_values = []
             cy_values = []
 
-        frame_count = len(states)
         duration_s = frame_count / float(self.fps_out) if self.fps_out else 0.0
         if not cam or (
             (max(cx_values) - min(cx_values) if cx_values else 0.0) < 1.0
