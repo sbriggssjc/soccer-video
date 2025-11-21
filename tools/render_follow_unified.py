@@ -2506,6 +2506,7 @@ class Renderer:
         plan_override_len: int = 0,
         ball_samples: Optional[List[BallSample]] = None,
         keep_path_lookup_data: Optional[dict[int, Tuple[float, float]]] = None,
+        debug_ball_overlay: bool = False,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -2585,6 +2586,7 @@ class Renderer:
         self.plan_override_len = int(plan_override_len or 0)
         self.ball_samples = ball_samples or []
         self.keep_path_lookup_data = keep_path_lookup_data or {}
+        self.debug_ball_overlay = bool(debug_ball_overlay)
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -3618,6 +3620,20 @@ class Renderer:
                         bx = bx_src
                     if by_src is not None:
                         by = by_src
+
+                    if (
+                        self.debug_ball_overlay
+                        and bx is not None
+                        and by is not None
+                        and frame is not None
+                    ):
+                        cv2.circle(
+                            frame,
+                            (int(round(bx)), int(round(by))),
+                            5,
+                            (0, 255, 255),
+                            -1,
+                        )
 
                     have_ball = bool(ball_available and bx is not None and by is not None)
 
@@ -5065,15 +5081,51 @@ def run(
 
     ball_samples: List[BallSample] = []
     keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
+    keepinview_path: list[tuple[float, float]] | None = None
+    use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
     telemetry_path: Path | None = None
 
-    if getattr(args, "use_ball_telemetry", False):
+    if use_ball_telemetry:
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
         cx_path: list[float] = []
         cy_path: list[float] = []
         if telemetry_path.is_file():
             set_telemetry_frame_bounds(width, height)
+
+            def smooth_ball_path(
+                ball_path: list[tuple[float, float]],
+                max_speed_px_per_frame: float = 80,
+                alpha: float = 0.35,
+            ) -> list[tuple[float, float]]:
+                """
+                Smooth a raw (cx, cy) ball path by blending toward the ball
+                while clamping per-frame motion.
+                """
+
+                if not ball_path:
+                    return []
+
+                smoothed: list[tuple[float, float]] = []
+                prev_cx, prev_cy = ball_path[0]
+
+                for bx, by in ball_path:
+                    cx = prev_cx + alpha * (bx - prev_cx)
+                    cy = prev_cy + alpha * (by - prev_cy)
+
+                    dx = cx - prev_cx
+                    dy = cy - prev_cy
+                    dist = float((dx * dx + dy * dy) ** 0.5)
+
+                    if dist > max_speed_px_per_frame and dist > 0:
+                        scale = max_speed_px_per_frame / dist
+                        cx = prev_cx + dx * scale
+                        cy = prev_cy + dy * scale
+
+                    smoothed.append((cx, cy))
+                    prev_cx, prev_cy = cx, cy
+
+                return smoothed
 
             def _clean_path(
                 cx_vals: list[float],
@@ -5117,6 +5169,8 @@ def run(
                 )
 
                 crop_w = int(portrait[0]) if portrait else int(width)
+                if portrait and preset_key == "wide_follow":
+                    crop_w = min(int(width), max(crop_w, 1280))
                 crop_h = int(portrait[1]) if portrait else int(height)
                 telemetry_frames = [
                     {
@@ -5168,8 +5222,9 @@ def run(
                         cx_path, cy_path = [], []
 
                 if cx_path and cy_path and len(cx_path) == len(cy_path):
-                    keepinview_path = [(float(cx_val), float(cy_val)) for cx_val, cy_val in zip(cx_path, cy_path)]
-                    keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
+                    raw_ball_path = [(float(cx_val), float(cy_val)) for cx_val, cy_val in zip(cx_path, cy_path)]
+                    keepinview_path = smooth_ball_path(raw_ball_path)
+                    keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)} if keepinview_path else {}
                     cx_min, cx_max = min(cx_path), max(cx_path)
                     cy_min, cy_max = min(cy_path), max(cy_path)
                     logging.info(
@@ -5180,11 +5235,18 @@ def run(
                         cy_min,
                         cy_max,
                     )
+                    if not keepinview_path:
+                        logging.warning("[BALL] keep-in-view path is empty after smoothing; falling back to original planner path")
+                        use_ball_telemetry = False
+                        keep_path_lookup_data = {}
                 else:
                     logging.warning("[BALL] keep-in-view path is empty; falling back to original planner path")
+                    use_ball_telemetry = False
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
                 keep_path_lookup_data = {}
+                keepinview_path = None
+                use_ball_telemetry = False
 
             try:
                 ball_samples = load_ball_telemetry(telemetry_path)
@@ -5208,6 +5270,7 @@ def run(
                 ball_samples = []
         else:
             print(f"[BALL] No ball telemetry found for {input_path}; reactive follow")
+            use_ball_telemetry = False
 
     raw_points = load_labels(label_files, width, height, fps_in)
     log_dict["labels_raw_count"] = len(raw_points)
@@ -5321,6 +5384,11 @@ def run(
             )
             if planned and not keep_path_lookup_data:
                 keep_path_lookup_data = {frame: (cx, cy) for frame, (cx, cy, _z) in planned.items()}
+    if not use_ball_telemetry:
+        keep_path_lookup_data = {}
+
+    debug_ball_overlay = bool(getattr(args, "debug_ball_overlay", False) and use_ball_telemetry)
+
     jerk_threshold = float(getattr(args, "jerk_threshold", 0.0) or 0.0)
     jerk_enabled = jerk_threshold > 0.0
     jerk_wn_scale = float(getattr(args, "jerk_wn_scale", 0.9) or 0.9)
@@ -5335,6 +5403,8 @@ def run(
     attempt = 0
     while True:
         attempt += 1
+        active_keep_path_lookup_data = keep_path_lookup_data if use_ball_telemetry else {}
+
         probe_renderer = Renderer(
             input_path=input_path,
             output_path=output_path,
@@ -5373,15 +5443,22 @@ def run(
             lost_chase_motion_ms=lost_chase_motion_ms,
             lost_motion_thresh=lost_motion_thresh,
             lost_use_motion=lost_use_motion,
-                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-                plan_override_data=plan_override_data,
-                plan_override_len=plan_override_len,
-                ball_samples=ball_samples,
-                keep_path_lookup_data=keep_path_lookup_data,
-            )
+            portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+            portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+            portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+            plan_override_data=plan_override_data,
+            plan_override_len=plan_override_len,
+            ball_samples=ball_samples,
+            keep_path_lookup_data=active_keep_path_lookup_data,
+            debug_ball_overlay=debug_ball_overlay,
+        )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
+        if use_ball_telemetry and jerk95 > 6000:
+            print(f"[BALL] jerk95={jerk95:.1f} too high; falling back to legacy follow.")
+            use_ball_telemetry = False
+            keep_path_lookup_data = {}
+            keepinview_path = None
+            debug_ball_overlay = False
         logging.info(
             "jerk95=%.1f px/s^3 (attempt %d/%d, follow_wn=%.2f, deadzone=%.1f)",
             jerk95,
@@ -5444,14 +5521,15 @@ def run(
                     lost_chase_motion_ms=lost_chase_motion_ms,
                     lost_motion_thresh=lost_motion_thresh,
                     lost_use_motion=lost_use_motion,
-                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-                plan_override_data=plan_override_data,
-                plan_override_len=plan_override_len,
-                ball_samples=ball_samples,
-                keep_path_lookup_data=keep_path_lookup_data,
-            )
+                    portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+                    portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+                    portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+                    plan_override_data=plan_override_data,
+                    plan_override_len=plan_override_len,
+                    ball_samples=ball_samples,
+                    keep_path_lookup_data=keep_path_lookup_data if use_ball_telemetry else {},
+                    debug_ball_overlay=debug_ball_overlay,
+                )
                 jerk95 = renderer.write_frames(states)
             finally:
                 if telemetry_handle:
@@ -5728,6 +5806,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-ball-telemetry",
         action="store_true",
         help="Enable ball-aware portrait planning when telemetry is available",
+    )
+    parser.add_argument(
+        "--debug-ball-overlay",
+        action="store_true",
+        help="Draw detected ball markers before cropping (requires --use-ball-telemetry)",
     )
     parser.add_argument("--render-telemetry", dest="telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
