@@ -5061,6 +5061,8 @@ def run(
     if getattr(args, "use_ball_telemetry", False):
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
+        cx_path: list[float] = []
+        cy_path: list[float] = []
         if telemetry_path.is_file():
             set_telemetry_frame_bounds(width, height)
             try:
@@ -5086,33 +5088,44 @@ def run(
                     }
                     for rec in interpolated
                 ]
-                center_x, center_y = build_ball_keepinview_path(
+                cx_path, cy_path = build_ball_keepinview_path(
                     telemetry_frames,
                     frame_width=int(width),
                     frame_height=int(height),
                     crop_width=crop_w,
                     crop_height=crop_h,
                 )
-                if center_x and center_y and len(center_x) == len(center_y):
-                    keepinview_path = [(float(cx), float(cy)) for cx, cy in zip(center_x, center_y)]
-                    if keepinview_path:
-                        keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
-                        cx_vals = [p[0] for p in keepinview_path]
-                        cy_vals = [p[1] for p in keepinview_path]
+                cx_path = [float(v) for v in cx_path]
+                cy_path = [float(v) for v in cy_path]
 
-                        cx_min, cx_max = min(cx_vals), max(cx_vals)
-                        cy_min, cy_max = min(cy_vals), max(cy_vals)
+                num_frames = len(telemetry_frames)
+                try:
+                    assert len(cx_path) == num_frames
+                    assert len(cy_path) == num_frames
+                except AssertionError:
+                    logging.warning(
+                        "[BALL] Telemetry path length mismatch (cx=%d, cy=%d, frames=%d); falling back to reactive follow.",
+                        len(cx_path),
+                        len(cy_path),
+                        num_frames,
+                    )
+                    cx_path, cy_path = [], []
 
-                        logging.info(
-                            "[BALL] keep-in-view path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
-                            len(keepinview_path),
-                            cx_min,
-                            cx_max,
-                            cy_min,
-                            cy_max,
-                        )
-                    else:
-                        logging.warning("[BALL] keep-in-view path is empty; falling back to original planner path")
+                if cx_path and cy_path and len(cx_path) == len(cy_path):
+                    keepinview_path = [(float(cx), float(cy)) for cx, cy in zip(cx_path, cy_path)]
+                    keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
+                    cx_min, cx_max = min(cx_path), max(cx_path)
+                    cy_min, cy_max = min(cy_path), max(cy_path)
+                    logging.info(
+                        "[BALL] keep-in-view path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
+                        len(cx_path),
+                        cx_min,
+                        cx_max,
+                        cy_min,
+                        cy_max,
+                    )
+                else:
+                    logging.warning("[BALL] keep-in-view path is empty; falling back to original planner path")
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
                 keep_path_lookup_data = {}
