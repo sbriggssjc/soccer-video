@@ -1726,89 +1726,119 @@ def rough_motion_path(
 
 
 def build_ball_keepinview_path(
-    samples,
-    num_frames,
-    frame_rate,
-    src_w,
-    src_h,
-    crop_w,
-    crop_h,
-    margin_frac=0.15,
-):
+    telemetry: list[dict],
+    frame_width: int,
+    frame_height: int,
+    crop_width: int,
+    crop_height: int,
+    *,
+    default_y_frac: float = 0.45,
+    margin_frac: float = 0.15,
+    smooth_radius: int = 5,
+    max_speed_px: float = 80.0,
+) -> tuple[list[float], list[float]]:
     """
-    Build a per-frame (cx, cy) center path that keeps the ball inside
-    the portrait crop with some padding. Falls back to last-seen ball
-    position when telemetry is missing for a frame.
+    Given per-frame ball telemetry, return (center_x, center_y) for each frame
+    such that the ball stays inside a crop window of size crop_width x crop_height.
+
+    - `telemetry` is a list of dicts with keys: t, x, y, visible.
+    - center_x/center_y must have length == len(telemetry).
+    - All returned centers must be finite floats.
+
+    Strategy:
+    - For each frame i:
+      - If visible and x/y are finite, use that ball point.
+      - Else, carry forward the last valid ball center if we have one.
+      - If we still don't have any valid ball yet (start of clip),
+        use a neutral default center:
+          cx = frame_width / 2
+          cy = frame_height * default_y_frac
+    - After we build raw center_x[], center_y[]:
+      - Clamp centers so that the crop window stays fully inside the frame:
+        left = cx - crop_width / 2, right = cx + crop_width / 2
+        top  = cy - crop_height / 2, bottom = cy + crop_height / 2
+        Adjust cx, cy if those bounds go outside [0, frame_width/height].
+      - Apply a simple moving-average smoothing (radius = smooth_radius) to
+        center_x and center_y to remove jitter.
+      - Optionally clamp per-frame motion to max_speed_px in each direction.
+    - Return the smoothed center_x, center_y.
     """
+
     import math
-    from bisect import bisect_left
 
-    if not samples or crop_w <= 0 or crop_h <= 0 or src_w <= 0 or src_h <= 0:
-        return []
+    n_frames = len(telemetry)
+    if n_frames <= 0 or crop_width <= 0 or crop_height <= 0 or frame_width <= 0 or frame_height <= 0:
+        return [], []
 
-    by_frame: dict[int, tuple[float, float, float]] = {}
-    for s in samples:
-        if isinstance(s, Mapping):
-            f = int(s.get("frame", 0))
-            x = float(s.get("x", float("nan")))
-            y = float(s.get("y", float("nan")))
-            conf = float(s.get("conf", 0.0))
+    half_w = float(crop_width) / 2.0
+    half_h = float(crop_height) / 2.0
+    margin_x = float(crop_width) * float(margin_frac)
+    margin_y = float(crop_height) * float(margin_frac)
+    default_cx = float(frame_width) / 2.0
+    default_cy = float(frame_height) * float(default_y_frac)
+
+    center_x: list[float] = []
+    center_y: list[float] = []
+    last_valid: tuple[float, float] | None = None
+
+    for rec in telemetry:
+        bx = rec.get("x") if isinstance(rec, Mapping) else None
+        by = rec.get("y") if isinstance(rec, Mapping) else None
+        vis = bool(rec.get("visible")) if isinstance(rec, Mapping) else False
+
+        bx_val = float(bx) if bx is not None else float("nan")
+        by_val = float(by) if by is not None else float("nan")
+
+        if vis and math.isfinite(bx_val) and math.isfinite(by_val):
+            last_valid = (float(bx_val), float(by_val))
+
+        if last_valid is not None:
+            bx_use, by_use = last_valid
         else:
-            f = int(getattr(s, "frame", 0))
-            x = float(getattr(s, "x", float("nan")))
-            y = float(getattr(s, "y", float("nan")))
-            conf = float(getattr(s, "conf", 0.0)) if hasattr(s, "conf") else 0.0
-        if math.isfinite(x) and math.isfinite(y):
-            prev = by_frame.get(f)
-            if prev is None or conf >= prev[2]:
-                by_frame[f] = (x, y, conf)
+            bx_use, by_use = default_cx, default_cy
 
-    if not by_frame:
-        return []
-
-    frames_sorted = sorted(by_frame.keys())
-    path: list[tuple[float, float]] = []
-
-    margin_x = crop_w * margin_frac
-    margin_y = crop_h * margin_frac
-    half_w = crop_w / 2.0
-    half_h = crop_h / 2.0
-
-    for f in range(num_frames):
-        if f in by_frame:
-            bx, by, _c = by_frame[f]
-        else:
-            pos = bisect_left(frames_sorted, f)
-            if pos <= 0:
-                ref_frame = frames_sorted[0]
-                bx, by, _c = by_frame[ref_frame]
-            elif pos >= len(frames_sorted):
-                ref_frame = frames_sorted[-1]
-                bx, by, _c = by_frame[ref_frame]
-            else:
-                f0 = frames_sorted[pos - 1]
-                f1 = frames_sorted[pos]
-                bx0, by0, _c0 = by_frame[f0]
-                bx1, by1, _c1 = by_frame[f1]
-                alpha = 0.0 if f1 == f0 else (f - f0) / float(f1 - f0)
-                bx = bx0 + (bx1 - bx0) * alpha
-                by = by0 + (by1 - by0) * alpha
-
-        cx = float(bx)
-        cy = float(by)
+        cx_val = float(bx_use)
+        cy_val = float(by_use)
 
         if half_w > margin_x:
-            cx = max(bx - (half_w - margin_x), min(cx, bx + (half_w - margin_x)))
+            cx_val = max(bx_use - (half_w - margin_x), min(cx_val, bx_use + (half_w - margin_x)))
         if half_h > margin_y:
-            cy = max(by - (half_h - margin_y), min(cy, by + (half_h - margin_y)))
+            cy_val = max(by_use - (half_h - margin_y), min(cy_val, by_use + (half_h - margin_y)))
 
-        cx = max(half_w, min(src_w - half_w, cx))
-        cy = max(half_h, min(src_h - half_h, cy))
+        cx_val = max(half_w, min(float(frame_width) - half_w, cx_val))
+        cy_val = max(half_h, min(float(frame_height) - half_h, cy_val))
 
-        path.append((cx, cy))
+        center_x.append(cx_val)
+        center_y.append(cy_val)
 
-    print(f"[KEEPINVIEW] Using ball-aware crop path for {len(path)} frames.")
-    return path
+    def _smooth(values: list[float]) -> list[float]:
+        radius = max(0, int(smooth_radius))
+        if radius <= 0 or len(values) <= 1:
+            return [float(v) for v in values]
+        smoothed: list[float] = []
+        for idx, _ in enumerate(values):
+            lo = max(0, idx - radius)
+            hi = min(len(values), idx + radius + 1)
+            window = values[lo:hi]
+            smoothed.append(float(sum(window) / max(len(window), 1)))
+        return smoothed
+
+    center_x = _smooth(center_x)
+    center_y = _smooth(center_y)
+
+    max_speed = float(max_speed_px)
+    if math.isfinite(max_speed) and max_speed > 0.0:
+        for idx in range(1, n_frames):
+            dx = center_x[idx] - center_x[idx - 1]
+            dy = center_y[idx] - center_y[idx - 1]
+            if abs(dx) > max_speed:
+                center_x[idx] = center_x[idx - 1] + math.copysign(max_speed, dx)
+            if abs(dy) > max_speed:
+                center_y[idx] = center_y[idx - 1] + math.copysign(max_speed, dy)
+            center_x[idx] = max(half_w, min(float(frame_width) - half_w, center_x[idx]))
+            center_y[idx] = max(half_h, min(float(frame_height) - half_h, center_y[idx]))
+
+    return center_x, center_y
 
 
 @dataclass
@@ -2805,73 +2835,59 @@ class Renderer:
         if keepinview_enabled:
             crop_w = float(portrait_w or out_w)
             crop_h = float(portrait_h or out_h)
-            margin_x = crop_w * 0.22
-            margin_y = crop_h * 0.22
-            half_w = crop_w / 2.0
-            half_h = crop_h / 2.0
-
-            if keep_path_lookup:
-                print(f"[BALL] Using preloaded telemetry path for keep-in-view ({len(keep_path_lookup)} frames)")
-                path_points: list[tuple[float, float]] = []
-                last_cx, last_cy = None, None
-                for n in range(frame_count):
-                    bx, by = keep_path_lookup.get(n, (last_cx, last_cy))
-                    if bx is None or by is None:
-                        bx, by = last_cx, last_cy
-                    if bx is None or by is None:
-                        bx = width / 2.0
-                        by = height / 2.0
-                    last_cx, last_cy = bx, by
-
-                    allowed_low_x = bx - max(0.0, half_w - margin_x)
-                    allowed_high_x = bx + max(0.0, half_w - margin_x)
-                    allowed_low_y = by - max(0.0, half_h - margin_y)
-                    allowed_high_y = by + max(0.0, half_h - margin_y)
-
-                    cx_val = min(max(bx, allowed_low_x), allowed_high_x)
-                    cy_val = min(max(by, allowed_low_y), allowed_high_y)
-
-                    cx_val = max(half_w, min(width - half_w, cx_val))
-                    cy_val = max(half_h, min(height - half_h, cy_val))
-                    path_points.append((cx_val, cy_val))
-
-                if path_points:
-                    smoothed: list[tuple[float, float]] = []
-                    alpha = 0.2
-                    prev_pt: tuple[float, float] | None = None
-                    for pt in path_points:
-                        if prev_pt is None:
-                            prev_pt = pt
-                        else:
-                            prev_pt = (
-                                prev_pt[0] * (1 - alpha) + pt[0] * alpha,
-                                prev_pt[1] * (1 - alpha) + pt[1] * alpha,
-                            )
-                        smoothed.append(prev_pt)
-                    keep_path_lookup = {idx: center for idx, center in enumerate(smoothed)}
-                    print("[BALL] Applied smoothing to telemetry-driven crop path")
-            else:
+            if not keep_path_lookup:
                 samples = self.ball_samples or load_ball_telemetry_for_clip(str(self.input_path))
                 if samples:
                     total_frames = frame_count
                     if total_frames <= 0:
                         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                     if total_frames <= 0:
-                        total_frames = 0
-                    keep_path = build_ball_keepinview_path(
-                        samples,
-                        num_frames=total_frames,
-                        frame_rate=float(self.fps_out or src_fps or 30.0),
-                        src_w=width,
-                        src_h=height,
-                        crop_w=crop_w,
-                        crop_h=crop_h,
+                        total_frames = max((int(getattr(s, "frame", 0)) for s in samples), default=0) + 1
+                    telemetry_frames = []
+                    sample_by_frame: dict[int, BallSample] = {}
+                    for s in samples:
+                        try:
+                            idx = int(getattr(s, "frame", 0))
+                        except Exception:
+                            continue
+                        if idx < 0:
+                            continue
+                        sample_by_frame[idx] = s
+                    fps_hint = float(self.fps_out or src_fps or 30.0)
+                    for idx in range(total_frames):
+                        sample = sample_by_frame.get(idx)
+                        if sample is None:
+                            telemetry_frames.append(
+                                {
+                                    "t": idx / fps_hint,
+                                    "x": None,
+                                    "y": None,
+                                    "visible": False,
+                                }
+                            )
+                            continue
+                        bx = getattr(sample, "x", float("nan"))
+                        by = getattr(sample, "y", float("nan"))
+                        telemetry_frames.append(
+                            {
+                                "t": getattr(sample, "t", idx / fps_hint),
+                                "x": bx,
+                                "y": by,
+                                "visible": math.isfinite(bx) and math.isfinite(by),
+                            }
+                        )
+                    cx_vals, cy_vals = build_ball_keepinview_path(
+                        telemetry_frames,
+                        frame_width=int(width),
+                        frame_height=int(height),
+                        crop_width=int(crop_w),
+                        crop_height=int(crop_h),
                         margin_frac=0.22,
                     )
-                    if keep_path:
-                        keep_path_lookup = {idx: center for idx, center in enumerate(keep_path)}
-                if not keep_path_lookup:
-                    print("[BALL] Telemetry missing or invalid; using reactive follow")
+                    if cx_vals and cy_vals and len(cx_vals) == len(cy_vals):
+                        keep_path_lookup = {
+                            idx: (float(cx), float(cy)) for idx, (cx, cy) in enumerate(zip(cx_vals, cy_vals))
+                        }
 
         cam = [(state.cx, state.cy, state.zoom) for state in states]
         if cam:
@@ -5053,12 +5069,40 @@ def run(
                     total_frames=frame_count,
                     fps=fps_in if fps_in > 0 else fps_out,
                 )
-                keep_path_lookup_data = {rec["frame"]: (float(rec["cx"]), float(rec["cy"])) for rec in interpolated}
                 coverage = sum(1 for rec in interpolated if rec.get("has_ball"))
                 coverage_pct = 100.0 * coverage / max(1, frame_count)
                 print(
                     f"[BALL] Using telemetry {telemetry_path} with coverage {coverage}/{frame_count} ({coverage_pct:.1f}%)"
                 )
+
+                crop_w = int(portrait[0]) if portrait else int(width)
+                crop_h = int(portrait[1]) if portrait else int(height)
+                telemetry_frames = [
+                    {
+                        "t": rec.get("t"),
+                        "x": rec.get("cx"),
+                        "y": rec.get("cy"),
+                        "visible": bool(rec.get("has_ball")),
+                    }
+                    for rec in interpolated
+                ]
+                center_x, center_y = build_ball_keepinview_path(
+                    telemetry_frames,
+                    frame_width=int(width),
+                    frame_height=int(height),
+                    crop_width=crop_w,
+                    crop_height=crop_h,
+                )
+                if center_x and center_y and len(center_x) == len(center_y):
+                    keep_path_lookup_data = {idx: (float(cx), float(cy)) for idx, (cx, cy) in enumerate(zip(center_x, center_y))}
+                    logging.info(
+                        "[BALL] keep-in-view path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
+                        len(center_x),
+                        min(center_x),
+                        max(center_x),
+                        min(center_y),
+                        max(center_y),
+                    )
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
                 keep_path_lookup_data = {}
@@ -5196,7 +5240,7 @@ def run(
                 portrait_h=int(portrait_h),
                 config=plan_config,
             )
-            if planned:
+            if planned and not keep_path_lookup_data:
                 keep_path_lookup_data = {frame: (cx, cy) for frame, (cx, cy, _z) in planned.items()}
     jerk_threshold = float(getattr(args, "jerk_threshold", 0.0) or 0.0)
     jerk_enabled = jerk_threshold > 0.0
