@@ -5065,6 +5065,36 @@ def run(
         cy_path: list[float] = []
         if telemetry_path.is_file():
             set_telemetry_frame_bounds(width, height)
+
+            def _clean_path(
+                cx_vals: list[float],
+                cy_vals: list[float],
+                fallback_center: tuple[float, float],
+            ) -> tuple[list[float], list[float]]:
+                n_vals = min(len(cx_vals), len(cy_vals))
+                cx_clean = [float(v) if math.isfinite(v) else float("nan") for v in cx_vals[:n_vals]]
+                cy_clean = [float(v) if math.isfinite(v) else float("nan") for v in cy_vals[:n_vals]]
+
+                last_good: tuple[float, float] | None = None
+                for idx in range(n_vals):
+                    if math.isfinite(cx_clean[idx]) and math.isfinite(cy_clean[idx]):
+                        last_good = (cx_clean[idx], cy_clean[idx])
+                    elif last_good is not None:
+                        cx_clean[idx], cy_clean[idx] = last_good
+
+                next_good: tuple[float, float] | None = None
+                for idx in range(n_vals - 1, -1, -1):
+                    if math.isfinite(cx_clean[idx]) and math.isfinite(cy_clean[idx]):
+                        next_good = (cx_clean[idx], cy_clean[idx])
+                    elif next_good is not None:
+                        cx_clean[idx], cy_clean[idx] = next_good
+
+                for idx in range(n_vals):
+                    if not math.isfinite(cx_clean[idx]) or not math.isfinite(cy_clean[idx]):
+                        cx_clean[idx], cy_clean[idx] = fallback_center
+
+                return cx_clean, cy_clean
+
             try:
                 interpolated = load_and_interpolate_telemetry(
                     str(telemetry_path),
@@ -5088,31 +5118,48 @@ def run(
                     }
                     for rec in interpolated
                 ]
-                cx_path, cy_path = build_ball_keepinview_path(
-                    telemetry_frames,
-                    frame_width=int(width),
-                    frame_height=int(height),
-                    crop_width=crop_w,
-                    crop_height=crop_h,
-                )
-                cx_path = [float(v) for v in cx_path]
-                cy_path = [float(v) for v in cy_path]
 
-                num_frames = len(telemetry_frames)
-                try:
-                    assert len(cx_path) == num_frames
-                    assert len(cy_path) == num_frames
-                except AssertionError:
-                    logging.warning(
-                        "[BALL] Telemetry path length mismatch (cx=%d, cy=%d, frames=%d); falling back to reactive follow.",
-                        len(cx_path),
-                        len(cy_path),
-                        num_frames,
-                    )
+                def _is_valid_frame(rec: Mapping[str, object]) -> bool:
+                    try:
+                        x_val = float(rec.get("x"))
+                        y_val = float(rec.get("y"))
+                    except (TypeError, ValueError):
+                        return False
+                    return bool(rec.get("visible")) and math.isfinite(x_val) and math.isfinite(y_val)
+
+                valid_indices = [idx for idx, rec in enumerate(telemetry_frames) if _is_valid_frame(rec)]
+                if not valid_indices:
+                    logging.info("[BALL] No valid telemetry; falling back to default follow path")
                     cx_path, cy_path = [], []
+                else:
+                    cx_path, cy_path = build_ball_keepinview_path(
+                        telemetry_frames,
+                        frame_width=int(width),
+                        frame_height=int(height),
+                        crop_width=crop_w,
+                        crop_height=crop_h,
+                    )
+                    cx_path = [float(v) for v in cx_path]
+                    cy_path = [float(v) for v in cy_path]
+
+                    fallback_center = (float(width) / 2.0, float(height) * 0.45)
+                    cx_path, cy_path = _clean_path(cx_path, cy_path, fallback_center)
+
+                    num_frames = len(telemetry_frames)
+                    try:
+                        assert len(cx_path) == num_frames
+                        assert len(cy_path) == num_frames
+                    except AssertionError:
+                        logging.warning(
+                            "[BALL] Telemetry path length mismatch (cx=%d, cy=%d, frames=%d); falling back to reactive follow.",
+                            len(cx_path),
+                            len(cy_path),
+                            num_frames,
+                        )
+                        cx_path, cy_path = [], []
 
                 if cx_path and cy_path and len(cx_path) == len(cy_path):
-                    keepinview_path = [(float(cx), float(cy)) for cx, cy in zip(cx_path, cy_path)]
+                    keepinview_path = [(float(cx_val), float(cy_val)) for cx_val, cy_val in zip(cx_path, cy_path)]
                     keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
                     cx_min, cx_max = min(cx_path), max(cx_path)
                     cy_min, cy_max = min(cy_path), max(cy_path)
