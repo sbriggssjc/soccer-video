@@ -3390,6 +3390,8 @@ class Renderer:
                 return clamped_target[0], clamped_target[1], state_label, pan_target
 
             for i, state in enumerate(states):
+                cx: float | None = None
+                cy: float | None = None
                 telemetry_rec: Optional[dict[str, object]] = None
                 try:
                     ok, frame = cap.read()
@@ -3456,12 +3458,19 @@ class Renderer:
                             template = cur_tpl.copy()
                         else:
                             template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
-    
+
                     cam_center_override: Optional[Tuple[float, float]] = None
                     keep_center: Optional[Tuple[float, float]] = None
                     if keep_path_lookup:
                         keep_center = keep_path_lookup.get(n)
-    
+
+                    if cx is None or cy is None:
+                        if i > 0:
+                            cx, cy = float(prev_cx), float(prev_cy)
+                        else:
+                            cx = float(width) / 2.0
+                            cy = float(height) / 2.0
+
                     ball_path_entry: Optional[Tuple[float, float]] = None
                     ball_path_space: Optional[str] = None
                     ball_path_rec_for_frame: Optional[Union[Mapping[str, object], Sequence[object]]] = None
