@@ -5094,15 +5094,25 @@ def run(
                     crop_height=crop_h,
                 )
                 if center_x and center_y and len(center_x) == len(center_y):
-                    keep_path_lookup_data = {idx: (float(cx), float(cy)) for idx, (cx, cy) in enumerate(zip(center_x, center_y))}
-                    logging.info(
-                        "[BALL] keep-in-view path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
-                        len(center_x),
-                        min(center_x),
-                        max(center_x),
-                        min(center_y),
-                        max(center_y),
-                    )
+                    keepinview_path = [(float(cx), float(cy)) for cx, cy in zip(center_x, center_y)]
+                    if keepinview_path:
+                        keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
+                        cx_vals = [p[0] for p in keepinview_path]
+                        cy_vals = [p[1] for p in keepinview_path]
+
+                        cx_min, cx_max = min(cx_vals), max(cx_vals)
+                        cy_min, cy_max = min(cy_vals), max(cy_vals)
+
+                        logging.info(
+                            "[BALL] keep-in-view path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
+                            len(keepinview_path),
+                            cx_min,
+                            cx_max,
+                            cy_min,
+                            cy_max,
+                        )
+                    else:
+                        logging.warning("[BALL] keep-in-view path is empty; falling back to original planner path")
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
                 keep_path_lookup_data = {}
