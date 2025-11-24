@@ -3671,6 +3671,12 @@ class Renderer:
                     keep_center: Optional[Tuple[float, float]] = None
                     if keep_path_lookup:
                         keep_center = keep_path_lookup.get(n)
+                        if keep_center is not None and keepinview_enabled and portrait_w and portrait_h:
+                            half_w = float(portrait_w) * 0.5
+                            half_h = float(portrait_h) * 0.5
+                            keep_cx = max(half_w, min(float(width) - half_w, float(keep_center[0])))
+                            keep_cy = max(half_h, min(float(height) - half_h, float(keep_center[1])))
+                            keep_center = (keep_cx, keep_cy)
 
                     if cx is None or cy is None:
                         if i > 0:
