@@ -5293,7 +5293,24 @@ def run(
             try:
                 ball_samples = load_ball_telemetry(telemetry_path)
                 if ball_samples:
-                    valid_samples = [s for s in ball_samples if math.isfinite(getattr(s, "x", float("nan"))) and math.isfinite(getattr(s, "y", float("nan")))]
+                    valid_samples: list[BallSample] = []
+                    for s in ball_samples:
+                        if not (
+                            math.isfinite(getattr(s, "x", float("nan")))
+                            and math.isfinite(getattr(s, "y", float("nan")))
+                        ):
+                            continue
+                        cx = max(0.0, min(float(width), float(getattr(s, "x", 0.0))))
+                        cy = max(0.0, min(float(height), float(getattr(s, "y", 0.0))))
+                        valid_samples.append(
+                            BallSample(
+                                t=float(getattr(s, "t", 0.0)),
+                                frame=int(getattr(s, "frame", 0)),
+                                x=cx,
+                                y=cy,
+                                conf=float(getattr(s, "conf", 1.0)),
+                            )
+                        )
                     if not valid_samples:
                         print("[BALL] Telemetry loaded but contains no valid coordinates; falling back to reactive follow.")
                         ball_samples = []

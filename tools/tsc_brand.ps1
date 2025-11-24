@@ -98,7 +98,7 @@ function New-BrandFilterGraph {
   if ($LogoPath -and (Test-Path $LogoPath)) {
     $inputs += @('-i', $LogoPath)
     $nextLabel = "ov$nextIn"
-    $filters += "[$curLabel][$($nextIn):v]overlay=32:main_h-overlay_h-32:format=auto[$nextLabel]"
+    $filters += "[$curLabel][$($nextIn):v]overlay=32:main_h-overlay_h-32:format=auto:alpha=0.65[$nextLabel]"
     $curLabel = $nextLabel
     $nextIn++
   }
