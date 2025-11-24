@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import List, Mapping, Optional, Sequence, TextIO, Tuple, Union
 
 from math import hypot
+from statistics import median
 
 import cv2
 import numpy as np
@@ -5298,6 +5299,128 @@ def run(
         cx_path: list[float] = []
         cy_path: list[float] = []
         if telemetry_path.is_file():
+            def _moving_average(xs, window):
+                if window <= 1:
+                    return xs[:]
+                half = window // 2
+                out = []
+                n = len(xs)
+                for i in range(n):
+                    lo = max(0, i - half)
+                    hi = min(n, i + half + 1)
+                    out.append(sum(xs[lo:hi]) / (hi - lo))
+                return out
+
+            def _median_filter(xs, window):
+                if window <= 1:
+                    return xs[:]
+                half = window // 2
+                out = []
+                n = len(xs)
+                for i in range(n):
+                    lo = max(0, i - half)
+                    hi = min(n, i + half + 1)
+                    out.append(median(xs[lo:hi]))
+                return out
+
+            def build_camera_path_from_ball(
+                ball_x,
+                ball_y,
+                width,
+                height,
+                fps=24.0,
+                portrait_w=1080,
+                portrait_h=1920,
+                lead_frames=4,
+                smooth_window_px=9,
+                max_speed_px=35.0,
+                max_accel_px=6.0,
+            ):
+                """
+                Turn raw ball coordinates into a VERY smooth camera center path (cx, cy)
+                that keeps the ball in-frame and feels like a human camera op.
+
+                - Slightly *lead* the ball horizontally.
+                - Heavy smoothing (median + moving average).
+                - Hard caps on speed/accel to remove whiplash.
+                """
+
+                n = len(ball_x)
+                if n == 0:
+                    return []
+
+                leaded_x = []
+                leaded_y = []
+                for i in range(n):
+                    j = min(i + lead_frames, n - 1)
+                    leaded_x.append(ball_x[j])
+                    leaded_y.append(ball_y[j])
+
+                sx = _moving_average(_median_filter(leaded_x, smooth_window_px), smooth_window_px)
+                sy = _moving_average(_median_filter(leaded_y, smooth_window_px), smooth_window_px)
+
+                cx = []
+                cy = []
+                half_w = portrait_w / 2
+                half_h = portrait_h / 2
+
+                def clamp_center(x, half_extent, max_val):
+                    x = max(half_extent, min(x, max_val - half_extent))
+                    return x
+
+                for bx, by in zip(sx, sy):
+                    target_cx = bx
+                    ball_y_frac = by / float(height) if height > 0 else 0.5
+                    desired_ball_frac = 0.6
+                    offset_frac = ball_y_frac - desired_ball_frac
+                    target_cy = (height * 0.5) - offset_frac * height
+
+                    target_cx = clamp_center(target_cx, half_w, width)
+                    target_cy = clamp_center(target_cy, half_h, height)
+
+                    cx.append(target_cx)
+                    cy.append(target_cy)
+
+                def smooth_sequence(seq):
+                    if len(seq) <= 1:
+                        return seq[:]
+                    out = [seq[0]]
+                    prev_v = 0.0
+                    dt = 1.0 / max(fps, 1.0)
+
+                    for i in range(1, len(seq)):
+                        raw = seq[i]
+                        prev = out[-1]
+
+                        v_desired = (raw - prev) / dt
+
+                        dv = v_desired - prev_v
+                        max_dv = max_accel_px / dt
+                        dv = max(-max_dv, min(dv, max_dv))
+                        v_new = prev_v + dv
+
+                        max_v = max_speed_px / dt
+                        v_new = max(-max_v, min(v_new, max_v))
+
+                        new_pos = prev + v_new * dt
+                        out.append(new_pos)
+                        prev_v = v_new
+
+                    return out
+
+                cx_smooth = smooth_sequence(cx)
+                cy_smooth = smooth_sequence(cy)
+
+                path = []
+                for x, y in zip(cx_smooth, cy_smooth):
+                    path.append(
+                        (
+                            clamp_center(x, half_w, width),
+                            clamp_center(y, half_h, height),
+                        )
+                    )
+                return path
+
             set_telemetry_frame_bounds(width, height)
             try:
                 interpolated = load_and_interpolate_telemetry(
@@ -5339,29 +5462,26 @@ def run(
 
                 telemetry_valid = False
                 if _finite_path(raw_cx) and _finite_path(raw_cy) and len(raw_cx) == len(raw_cy):
-                    cx_path, cy_path = smooth_center_path(
+                    camera_path = build_camera_path_from_ball(
                         raw_cx,
                         raw_cy,
-                        window=9,
-                        max_step_px=40.0,
+                        width=int(width),
+                        height=int(height),
+                        fps=fps_out if fps_out > 0 else fps_in,
+                        portrait_w=crop_w,
+                        portrait_h=crop_h,
                     )
-                    cx_path, cy_path = clamp_center_path_to_bounds(
-                        cx_path,
-                        cy_path,
-                        frame_width=int(width),
-                        frame_height=int(height),
-                        crop_width=crop_w,
-                        crop_height=crop_h,
-                    )
+                    cx_path = [pt[0] for pt in camera_path]
+                    cy_path = [pt[1] for pt in camera_path]
                     cx_span = max(cx_path) - min(cx_path) if cx_path else 0.0
                     cy_span = max(cy_path) - min(cy_path) if cy_path else 0.0
-                    telemetry_valid = bool(cx_path and cy_path and len(cx_path) == len(cy_path))
+                    telemetry_valid = bool(camera_path and len(cx_path) == len(cy_path))
                     telemetry_valid = telemetry_valid and math.isfinite(cx_span) and math.isfinite(cy_span)
                     telemetry_valid = telemetry_valid and telemetry_coverage > 0
                     telemetry_valid = telemetry_valid and (cx_span > 0.0 or cy_span > 0.0)
 
                 if telemetry_valid:
-                    keepinview_path = list(zip(cx_path, cy_path))
+                    keepinview_path = camera_path
                     keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
                     cx_min, cx_max = min(cx_path), max(cx_path)
                     cy_min, cy_max = min(cy_path), max(cy_path)
