@@ -167,7 +167,7 @@ $aspectAssets['guides'] = if ($Aspect -eq '16x9') {
   Join-Path $brandPath 'safe_guides_9x16.png'
 }
 
-$watermarkPath = Join-Path $brandPath 'watermark_corner_256.png'
+$watermarkPath = Join-Path $brandPath 'watermark_corner_256_transparent.png'
 $lowerThirdPath = Join-Path $brandPath 'lower_third_1920x220.png'
 
 if (-not $PSBoundParameters.ContainsKey('RibbonPNG')) {
