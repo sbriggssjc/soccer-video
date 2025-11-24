@@ -35,6 +35,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+# Ball-follow tuning constants. These are intentionally easy to tweak so we can
+# dial in a responsive-but-human feel without digging through the rendering
+# code. Increase BALL_FOLLOW_ALPHA for snappier response (more jitter), or
+# decrease it for smoother, lazier motion. Tighten BALL_MAX_DX/BALL_MAX_DY to
+# further clamp per-frame motion when the ball makes sharp cuts.
+BALL_FOLLOW_ALPHA = 0.25
+BALL_MAX_DX = 60.0
+BALL_MAX_DY = 40.0
+
 from tools.ball_telemetry import (
     BallSample,
     load_and_interpolate_telemetry,
@@ -252,6 +261,123 @@ def edge_aware_zoom(
     s_min = max(0.0, min(1.0, float(s_min)))
     s_needed = max(s_min, min(1.0, float(s_needed)))
     return float(s_needed)
+
+
+def smooth_and_limit_camera_path(
+    cx_path: Sequence[float],
+    cy_path: Sequence[float],
+    *,
+    max_dx: float = BALL_MAX_DX,
+    max_dy: float = BALL_MAX_DY,
+    alpha: float = BALL_FOLLOW_ALPHA,
+) -> tuple[list[float], list[float]]:
+    """
+    Given per-frame crop centers (cx_path, cy_path), apply exponential
+    smoothing followed by a per-frame slew-rate clamp to keep the virtual
+    camera feeling human-operated instead of snapping.
+
+    - ``alpha`` controls responsiveness. Higher values react faster but can
+      jitter; lower values are smoother.
+    - ``max_dx`` / ``max_dy`` cap the per-frame delta so whip-pans are
+      softened.
+    """
+
+    cx_s = list(cx_path)
+    cy_s = list(cy_path)
+
+    for i in range(1, len(cx_s)):
+        cx_s[i] = alpha * cx_s[i] + (1.0 - alpha) * cx_s[i - 1]
+        cy_s[i] = alpha * cy_s[i] + (1.0 - alpha) * cy_s[i - 1]
+
+    for i in range(1, len(cx_s)):
+        dx = cx_s[i] - cx_s[i - 1]
+        dy = cy_s[i] - cy_s[i - 1]
+
+        if abs(dx) > max_dx:
+            cx_s[i] = cx_s[i - 1] + math.copysign(max_dx, dx)
+        if abs(dy) > max_dy:
+            cy_s[i] = cy_s[i - 1] + math.copysign(max_dy, dy)
+
+    return cx_s, cy_s
+
+
+def build_raw_ball_center_path(
+    telemetry: Sequence[Mapping[str, object]],
+    frame_width: int,
+    frame_height: int,
+    crop_width: int,
+    crop_height: int,
+    *,
+    default_y_frac: float = 0.45,
+    vertical_bias_frac: float = 0.08,
+) -> tuple[list[float], list[float]]:
+    """
+    Build raw crop centers from telemetry, clamping to keep the crop window in
+    bounds and biasing the view slightly above the ball so there's forward
+    field context.
+
+    Missing or invalid telemetry frames are filled by carrying forward the last
+    valid position, falling back to a neutral center when needed.
+    """
+
+    n_frames = len(telemetry)
+    if n_frames <= 0:
+        return [], []
+
+    half_w = float(crop_width) / 2.0
+    half_h = float(crop_height) / 2.0
+    default_cx = float(frame_width) / 2.0
+    default_cy = float(frame_height) * float(default_y_frac)
+    bias_px = float(frame_height) * float(vertical_bias_frac)
+
+    def clamp_center(cx: float, cy: float) -> tuple[float, float]:
+        if crop_width >= frame_width:
+            cx_clamped = float(frame_width) / 2.0
+        else:
+            max_x0 = max(0.0, float(frame_width) - float(crop_width))
+            x0 = min(max(cx - half_w, 0.0), max_x0)
+            cx_clamped = x0 + half_w
+
+        if crop_height >= frame_height:
+            cy_clamped = float(frame_height) / 2.0
+        else:
+            max_y0 = max(0.0, float(frame_height) - float(crop_height))
+            y0 = min(max(cy - half_h, 0.0), max_y0)
+            cy_clamped = y0 + half_h
+
+        return cx_clamped, cy_clamped
+
+    cx_vals: list[float] = []
+    cy_vals: list[float] = []
+    last_valid: tuple[float, float] | None = None
+
+    for rec in telemetry:
+        bx_raw = rec.get("x") if isinstance(rec, Mapping) else None
+        by_raw = rec.get("y") if isinstance(rec, Mapping) else None
+        vis = bool(rec.get("visible")) if isinstance(rec, Mapping) else False
+
+        try:
+            bx_val = float(bx_raw) if bx_raw is not None else float("nan")
+            by_val = float(by_raw) if by_raw is not None else float("nan")
+        except (TypeError, ValueError):
+            bx_val, by_val = float("nan"), float("nan")
+
+        if vis and math.isfinite(bx_val) and math.isfinite(by_val):
+            last_valid = (bx_val, by_val)
+
+        if last_valid is not None:
+            bx_use, by_use = last_valid
+        else:
+            bx_use, by_use = default_cx, default_cy
+
+        cx_val = float(bx_use)
+        cy_val = float(by_use - bias_px)
+        cx_val, cy_val = clamp_center(cx_val, cy_val)
+
+        cx_vals.append(cx_val)
+        cy_vals.append(cy_val)
+
+    return cx_vals, cy_vals
 
 
 class CamFollow2O:
@@ -2878,15 +3004,21 @@ class Renderer:
                                 "visible": math.isfinite(bx) and math.isfinite(by),
                             }
                         )
-                    cx_vals, cy_vals = build_ball_keepinview_path(
+                    raw_cx, raw_cy = build_raw_ball_center_path(
                         telemetry_frames,
                         frame_width=int(width),
                         frame_height=int(height),
                         crop_width=int(crop_w),
                         crop_height=int(crop_h),
-                        margin_frac=0.22,
                     )
-                    if cx_vals and cy_vals and len(cx_vals) == len(cy_vals):
+                    if raw_cx and raw_cy and len(raw_cx) == len(raw_cy):
+                        cx_vals, cy_vals = smooth_and_limit_camera_path(
+                            raw_cx,
+                            raw_cy,
+                            max_dx=BALL_MAX_DX,
+                            max_dy=BALL_MAX_DY,
+                            alpha=BALL_FOLLOW_ALPHA,
+                        )
                         keep_path_lookup = {
                             idx: (float(cx), float(cy)) for idx, (cx, cy) in enumerate(zip(cx_vals, cy_vals))
                         }
@@ -5092,70 +5224,6 @@ def run(
         cy_path: list[float] = []
         if telemetry_path.is_file():
             set_telemetry_frame_bounds(width, height)
-
-            def smooth_ball_path(
-                ball_path: list[tuple[float, float]],
-                max_speed_px_per_frame: float = 80,
-                alpha: float = 0.35,
-            ) -> list[tuple[float, float]]:
-                """
-                Smooth a raw (cx, cy) ball path by blending toward the ball
-                while clamping per-frame motion.
-                """
-
-                if not ball_path:
-                    return []
-
-                smoothed: list[tuple[float, float]] = []
-                prev_cx, prev_cy = ball_path[0]
-
-                for bx, by in ball_path:
-                    cx = prev_cx + alpha * (bx - prev_cx)
-                    cy = prev_cy + alpha * (by - prev_cy)
-
-                    dx = cx - prev_cx
-                    dy = cy - prev_cy
-                    dist = float((dx * dx + dy * dy) ** 0.5)
-
-                    if dist > max_speed_px_per_frame and dist > 0:
-                        scale = max_speed_px_per_frame / dist
-                        cx = prev_cx + dx * scale
-                        cy = prev_cy + dy * scale
-
-                    smoothed.append((cx, cy))
-                    prev_cx, prev_cy = cx, cy
-
-                return smoothed
-
-            def _clean_path(
-                cx_vals: list[float],
-                cy_vals: list[float],
-                fallback_center: tuple[float, float],
-            ) -> tuple[list[float], list[float]]:
-                n_vals = min(len(cx_vals), len(cy_vals))
-                cx_clean = [float(v) if math.isfinite(v) else float("nan") for v in cx_vals[:n_vals]]
-                cy_clean = [float(v) if math.isfinite(v) else float("nan") for v in cy_vals[:n_vals]]
-
-                last_good: tuple[float, float] | None = None
-                for idx in range(n_vals):
-                    if math.isfinite(cx_clean[idx]) and math.isfinite(cy_clean[idx]):
-                        last_good = (cx_clean[idx], cy_clean[idx])
-                    elif last_good is not None:
-                        cx_clean[idx], cy_clean[idx] = last_good
-
-                next_good: tuple[float, float] | None = None
-                for idx in range(n_vals - 1, -1, -1):
-                    if math.isfinite(cx_clean[idx]) and math.isfinite(cy_clean[idx]):
-                        next_good = (cx_clean[idx], cy_clean[idx])
-                    elif next_good is not None:
-                        cx_clean[idx], cy_clean[idx] = next_good
-
-                for idx in range(n_vals):
-                    if not math.isfinite(cx_clean[idx]) or not math.isfinite(cy_clean[idx]):
-                        cx_clean[idx], cy_clean[idx] = fallback_center
-
-                return cx_clean, cy_clean
-
             try:
                 interpolated = load_and_interpolate_telemetry(
                     str(telemetry_path),
@@ -5181,50 +5249,27 @@ def run(
                     }
                     for rec in interpolated
                 ]
+                raw_cx, raw_cy = build_raw_ball_center_path(
+                    telemetry_frames,
+                    frame_width=int(width),
+                    frame_height=int(height),
+                    crop_width=crop_w,
+                    crop_height=crop_h,
+                )
 
-                def _is_valid_frame(rec: Mapping[str, object]) -> bool:
-                    try:
-                        x_val = float(rec.get("x"))
-                        y_val = float(rec.get("y"))
-                    except (TypeError, ValueError):
-                        return False
-                    return bool(rec.get("visible")) and math.isfinite(x_val) and math.isfinite(y_val)
+                def _finite_path(vals: Sequence[float]) -> bool:
+                    return bool(vals) and all(math.isfinite(v) for v in vals)
 
-                valid_indices = [idx for idx, rec in enumerate(telemetry_frames) if _is_valid_frame(rec)]
-                if not valid_indices:
-                    logging.info("[BALL] No valid telemetry; falling back to default follow path")
-                    cx_path, cy_path = [], []
-                else:
-                    cx_path, cy_path = build_ball_keepinview_path(
-                        telemetry_frames,
-                        frame_width=int(width),
-                        frame_height=int(height),
-                        crop_width=crop_w,
-                        crop_height=crop_h,
+                if _finite_path(raw_cx) and _finite_path(raw_cy) and len(raw_cx) == len(raw_cy):
+                    cx_path, cy_path = smooth_and_limit_camera_path(
+                        raw_cx,
+                        raw_cy,
+                        max_dx=BALL_MAX_DX,
+                        max_dy=BALL_MAX_DY,
+                        alpha=BALL_FOLLOW_ALPHA,
                     )
-                    cx_path = [float(v) for v in cx_path]
-                    cy_path = [float(v) for v in cy_path]
-
-                    fallback_center = (float(width) / 2.0, float(height) * 0.45)
-                    cx_path, cy_path = _clean_path(cx_path, cy_path, fallback_center)
-
-                    num_frames = len(telemetry_frames)
-                    try:
-                        assert len(cx_path) == num_frames
-                        assert len(cy_path) == num_frames
-                    except AssertionError:
-                        logging.warning(
-                            "[BALL] Telemetry path length mismatch (cx=%d, cy=%d, frames=%d); falling back to reactive follow.",
-                            len(cx_path),
-                            len(cy_path),
-                            num_frames,
-                        )
-                        cx_path, cy_path = [], []
-
-                if cx_path and cy_path and len(cx_path) == len(cy_path):
-                    raw_ball_path = [(float(cx_val), float(cy_val)) for cx_val, cy_val in zip(cx_path, cy_path)]
-                    keepinview_path = smooth_ball_path(raw_ball_path)
-                    keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)} if keepinview_path else {}
+                    keepinview_path = list(zip(cx_path, cy_path))
+                    keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
                     cx_min, cx_max = min(cx_path), max(cx_path)
                     cy_min, cy_max = min(cy_path), max(cy_path)
                     logging.info(
@@ -5235,13 +5280,10 @@ def run(
                         cy_min,
                         cy_max,
                     )
-                    if not keepinview_path:
-                        logging.warning("[BALL] keep-in-view path is empty after smoothing; falling back to original planner path")
-                        use_ball_telemetry = False
-                        keep_path_lookup_data = {}
                 else:
-                    logging.warning("[BALL] keep-in-view path is empty; falling back to original planner path")
+                    logging.warning("[BALL] Telemetry path invalid; falling back to original planner path")
                     use_ball_telemetry = False
+                    keep_path_lookup_data = {}
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
                 keep_path_lookup_data = {}
@@ -5453,12 +5495,10 @@ def run(
             debug_ball_overlay=debug_ball_overlay,
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
-        if use_ball_telemetry and jerk95 > 6000:
-            print(f"[BALL] jerk95={jerk95:.1f} too high; falling back to legacy follow.")
-            use_ball_telemetry = False
-            keep_path_lookup_data = {}
-            keepinview_path = None
-            debug_ball_overlay = False
+        print(
+            f"[INFO] jerk95={jerk95:.1f} px/s^3 "
+            f"(attempt {attempt}/{jerk_max_attempts}, follow_wn={current_follow_wn:.2f}, deadzone={current_deadzone:.1f})"
+        )
         logging.info(
             "jerk95=%.1f px/s^3 (attempt %d/%d, follow_wn=%.2f, deadzone=%.1f)",
             jerk95,
