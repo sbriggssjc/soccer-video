@@ -200,6 +200,30 @@ def _finalise_sample(
     return BallSample(t=float(t_val), frame=int(frame), x=float(x), y=float(y), conf=float(conf))
 
 
+def smooth_telemetry(samples: list[dict], window: int = 5) -> list[dict]:
+    """
+    samples: list of dicts with keys: frame, t, cx, cy
+    returns: new list with cx, cy smoothed by a centered moving average
+    """
+
+    if not samples:
+        return samples
+
+    n = len(samples)
+    half = window // 2
+    out: list[dict] = []
+    for i in range(n):
+        j0 = max(0, i - half)
+        j1 = min(n, i + half + 1)
+        sx = sum(s["cx"] for s in samples[j0:j1]) / (j1 - j0)
+        sy = sum(s["cy"] for s in samples[j0:j1]) / (j1 - j0)
+        s = dict(samples[i])
+        s["cx"] = sx
+        s["cy"] = sy
+        out.append(s)
+    return out
+
+
 def _iter_jsonl(path: Path) -> Iterator[BallSample]:
     fps_hint: float | None = None
     frame_counter = 0
@@ -337,8 +361,21 @@ def load_ball_telemetry_for_clip(atomic_path: str) -> list[BallSample]:
 
 def save_ball_telemetry_jsonl(out_path: Path, samples: Sequence[Mapping[str, object]]) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned: list[dict[str, float]] = []
+    for rec in samples:
+        frame_idx = _as_int(rec.get("frame") if isinstance(rec, Mapping) else None, 0)
+        t_val = _as_float(rec.get("t") if isinstance(rec, Mapping) else None)
+        if not math.isfinite(t_val):
+            t_val = 0.0
+        cx_val = _as_float(rec.get("cx") if isinstance(rec, Mapping) else None)
+        cy_val = _as_float(rec.get("cy") if isinstance(rec, Mapping) else None)
+        if not (math.isfinite(cx_val) and math.isfinite(cy_val)):
+            continue
+        cx_val, cy_val = _clamp_xy(float(cx_val), float(cy_val))
+        cleaned.append({"frame": frame_idx, "t": float(t_val), "cx": float(cx_val), "cy": float(cy_val)})
+
     with out_path.open("w", encoding="utf-8") as handle:
-        for rec in samples:
+        for rec in cleaned:
             handle.write(json.dumps(rec) + "\n")
 
 
@@ -393,8 +430,8 @@ def _clamp_xy(cx: float, cy: float) -> tuple[float, float]:
     if _FRAME_BOUNDS_HINT is None:
         return cx, cy
     width, height = _FRAME_BOUNDS_HINT
-    cx = max(0.0, min(width - 1.0, cx))
-    cy = max(0.0, min(height - 1.0, cy))
+    cx = max(0.0, min(width, cx))
+    cy = max(0.0, min(height, cy))
     return cx, cy
 
 
@@ -491,6 +528,50 @@ def load_and_interpolate_telemetry(path: str, total_frames: int, fps: float) -> 
         print("[BALL] Interpolated telemetry gaps for smoother follow path")
 
     return interpolated
+
+
+def _render_debug_overlay(video_path: Path, telemetry_path: Path, overlay_out: Path, *, fps: float | None = None) -> None:
+    try:
+        import cv2
+    except Exception:  # noqa: BLE001 - optional debug helper
+        print("[BALL] OpenCV is required for debug overlay output")
+        return
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[BALL] Could not open video for debug overlay: {video_path}")
+        return
+
+    fps_val = fps if fps and math.isfinite(fps) and fps > 0 else _get_video_fps(video_path)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    set_telemetry_frame_bounds(width, height)
+
+    telemetry = load_and_interpolate_telemetry(str(telemetry_path), total_frames=total_frames, fps=fps_val)
+
+    overlay_out.parent.mkdir(parents=True, exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(overlay_out), fourcc, fps_val if fps_val > 0 else 30.0, (width, height))
+
+    for idx in range(total_frames):
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        if idx < len(telemetry):
+            rec = telemetry[idx]
+            cx = _as_float(rec.get("cx"))
+            cy = _as_float(rec.get("cy"))
+            has_ball = bool(rec.get("has_ball"))
+            if math.isfinite(cx) and math.isfinite(cy):
+                pt = (int(round(cx)), int(round(cy)))
+                color = (0, 255, 0) if has_ball else (0, 165, 255)
+                cv2.circle(frame, pt, 10, color, thickness=-1, lineType=cv2.LINE_AA)
+        writer.write(frame)
+
+    writer.release()
+    cap.release()
+    print(f"[BALL] Wrote debug overlay to {overlay_out}")
 
 
 def load_ball_model(args: argparse.Namespace):
@@ -590,6 +671,7 @@ def _detect_ball(args: argparse.Namespace) -> int:
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    set_telemetry_frame_bounds(width, height)
     print(
         f"[BALL] Detecting ball positions in {video_path} ({total_frames} frames, {width}x{height} @ {fps:.2f}fps)"
     )
@@ -640,8 +722,8 @@ def _detect_ball(args: argparse.Namespace) -> int:
         t_val = frame_idx / fps if fps > 0 else 0.0
         cx, cy = simple_ball_detector(frame)
         if cx is not None and cy is not None and math.isfinite(cx) and math.isfinite(cy):
-            cx = max(0.0, min(width - 1.0, float(cx)))
-            cy = max(0.0, min(height - 1.0, float(cy)))
+            cx = max(0.0, min(width, float(cx)))
+            cy = max(0.0, min(height, float(cy)))
             samples.append(
                 {
                     "frame": int(frame_idx),
@@ -659,6 +741,7 @@ def _detect_ball(args: argparse.Namespace) -> int:
 
     cap.release()
 
+    samples = smooth_telemetry(samples)
     save_ball_telemetry_jsonl(out_path, samples)
 
     if samples:
@@ -674,6 +757,9 @@ def _detect_ball(args: argparse.Namespace) -> int:
         )
     else:
         print(f"[BALL] No ball detections were found; wrote empty telemetry to {out_path}")
+
+    if getattr(args, "debug_overlay_out", None) and out_path.is_file():
+        _render_debug_overlay(video_path, out_path, Path(args.debug_overlay_out).expanduser(), fps=fps)
 
     return 0
 
@@ -764,6 +850,7 @@ def _annotate_ball(args: argparse.Namespace) -> int:
             }
         )
 
+    samples = smooth_telemetry(samples)
     save_ball_telemetry_jsonl(out_path, samples)
 
     t_vals = [rec["t"] for rec in samples if isinstance(rec.get("t"), (int, float))]
@@ -772,6 +859,8 @@ def _annotate_ball(args: argparse.Namespace) -> int:
     print(
         f"[BALL] Wrote {len(samples)} samples covering t={t_min:.2f}–{t_max:.2f}s to {out_path}"
     )
+    if getattr(args, "debug_overlay_out", None) and out_path.is_file():
+        _render_debug_overlay(video_path, out_path, Path(args.debug_overlay_out).expanduser(), fps=fps)
     return 0
 
 
@@ -785,12 +874,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     detect_p.add_argument("--sport", default="soccer", help="Sport context (default: soccer)")
     detect_p.add_argument("--model", default=DEFAULT_MODEL_NAME, help="YOLO model to load (default: yolov8n.pt)")
     detect_p.add_argument("--min-conf", dest="min_conf", type=float, default=DEFAULT_MIN_CONF, help="Minimum confidence for detections")
+    detect_p.add_argument("--debug-overlay-out", help="Optional debug MP4 showing smoothed telemetry overlays")
     detect_p.set_defaults(func=_detect_ball)
 
     ann_p = sub.add_parser("annotate", help="Manually annotate ball positions")
     ann_p.add_argument("--video", required=True, help="Input video path")
     ann_p.add_argument("--out", help="Output telemetry JSONL (default derived)")
     ann_p.add_argument("--step", type=int, default=2, help="Advance this many frames per step (default: 2)")
+    ann_p.add_argument("--debug-overlay-out", help="Optional debug MP4 showing smoothed telemetry overlays")
     ann_p.set_defaults(func=_annotate_ball)
 
     args = parser.parse_args(argv)
@@ -808,6 +899,7 @@ __all__ = [
     "save_ball_telemetry_jsonl",
     "load_and_interpolate_telemetry",
     "set_telemetry_frame_bounds",
+    "smooth_telemetry",
 ]
 
 
