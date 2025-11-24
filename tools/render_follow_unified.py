@@ -5333,8 +5333,8 @@ def run(
                 portrait_h=1920,
                 lead_frames=4,
                 smooth_window_px=9,
-                max_speed_px=35.0,
-                max_accel_px=6.0,
+                max_speed_px=30.0,
+                max_accel_px=5.0,
             ):
                 """
                 Turn raw ball coordinates into a VERY smooth camera center path (cx, cy)
@@ -5440,65 +5440,6 @@ def run(
                 if portrait and preset_key == "wide_follow":
                     crop_w = min(int(width), max(crop_w, 1280))
                 crop_h = int(portrait[1]) if portrait else int(height)
-                telemetry_frames = [
-                    {
-                        "t": rec.get("t"),
-                        "x": rec.get("cx"),
-                        "y": rec.get("cy"),
-                        "visible": bool(rec.get("has_ball")),
-                    }
-                    for rec in interpolated
-                ]
-                raw_cx, raw_cy = build_raw_ball_center_path(
-                    telemetry_frames,
-                    frame_width=int(width),
-                    frame_height=int(height),
-                    crop_width=crop_w,
-                    crop_height=crop_h,
-                )
-
-                def _finite_path(vals: Sequence[float]) -> bool:
-                    return bool(vals) and all(math.isfinite(v) for v in vals)
-
-                telemetry_valid = False
-                if _finite_path(raw_cx) and _finite_path(raw_cy) and len(raw_cx) == len(raw_cy):
-                    camera_path = build_camera_path_from_ball(
-                        raw_cx,
-                        raw_cy,
-                        width=int(width),
-                        height=int(height),
-                        fps=fps_out if fps_out > 0 else fps_in,
-                        portrait_w=crop_w,
-                        portrait_h=crop_h,
-                    )
-                    cx_path = [pt[0] for pt in camera_path]
-                    cy_path = [pt[1] for pt in camera_path]
-                    cx_span = max(cx_path) - min(cx_path) if cx_path else 0.0
-                    cy_span = max(cy_path) - min(cy_path) if cy_path else 0.0
-                    telemetry_valid = bool(camera_path and len(cx_path) == len(cy_path))
-                    telemetry_valid = telemetry_valid and math.isfinite(cx_span) and math.isfinite(cy_span)
-                    telemetry_valid = telemetry_valid and telemetry_coverage > 0
-                    telemetry_valid = telemetry_valid and (cx_span > 0.0 or cy_span > 0.0)
-
-                if telemetry_valid:
-                    keepinview_path = camera_path
-                    keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
-                    cx_min, cx_max = min(cx_path), max(cx_path)
-                    cy_min, cy_max = min(cy_path), max(cy_path)
-                    logging.info(
-                        "[BALL] keep-in-view path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
-                        len(cx_path),
-                        cx_min,
-                        cx_max,
-                        cy_min,
-                        cy_max,
-                    )
-                else:
-                    logging.warning("[BALL] Telemetry path invalid; falling back to original planner path")
-                    use_ball_telemetry = False
-                    telemetry_coverage = 0
-                    telemetry_coverage_ratio = 0.0
-                    keep_path_lookup_data = {}
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
                 keep_path_lookup_data = {}
@@ -5545,6 +5486,60 @@ def run(
         else:
             print(f"[BALL] No ball telemetry found for {input_path}; reactive follow")
             use_ball_telemetry = False
+
+    keepinview_path = None
+
+    if use_ball_telemetry and ball_samples is not None:
+        coords = []
+        for sample in ball_samples:
+            bx = float(getattr(sample, "x", float("nan")))
+            by = float(getattr(sample, "y", float("nan")))
+            if not (math.isfinite(bx) and math.isfinite(by)):
+                continue
+            coords.append(
+                (
+                    max(0.0, min(float(width), bx)),
+                    max(0.0, min(float(height), by)),
+                )
+            )
+
+        ball_x = [c[0] for c in coords]
+        ball_y = [c[1] for c in coords]
+
+        width_px = width
+        height_px = height
+
+        portrait_w = int(getattr(args, "portrait_width", 1080)) if hasattr(args, "portrait_width") else 1080
+        portrait_h = int(getattr(args, "portrait_height", 1920)) if hasattr(args, "portrait_height") else 1920
+
+        fps_src = float(fps_in) if fps_in > 0 else float(fps_out)
+
+        keepinview_path = build_camera_path_from_ball(
+            ball_x=ball_x,
+            ball_y=ball_y,
+            width=width_px,
+            height=height_px,
+            fps=fps_src,
+            portrait_w=portrait_w,
+            portrait_h=portrait_h,
+            lead_frames=4,
+            smooth_window_px=9,
+            max_speed_px=30.0,
+            max_accel_px=5.0,
+        )
+
+        if keepinview_path:
+            keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
+            xs = [p[0] for p in keepinview_path]
+            ys = [p[1] for p in keepinview_path]
+            logger.info(
+                "[BALL-CAM] path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
+                len(keepinview_path),
+                min(xs),
+                max(xs),
+                min(ys),
+                max(ys),
+            )
 
     raw_points = load_labels(label_files, width, height, fps_in)
     log_dict["labels_raw_count"] = len(raw_points)
