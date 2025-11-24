@@ -301,6 +301,42 @@ def smooth_and_limit_camera_path(
     return cx_s, cy_s
 
 
+def smooth_center_path(cx_path, cy_path, window=9, max_step_px=40.0):
+    """
+    Heavy smoothing so the camera feels human-operated.
+    - window: moving average window
+    - max_step_px: max allowed jump per frame for the center
+    """
+
+    n = len(cx_path)
+    if n == 0:
+        return list(cx_path), list(cy_path)
+
+    def smooth_1d(values):
+        half = window // 2
+        out = [0.0] * n
+        for i in range(n):
+            j0 = max(0, i - half)
+            j1 = min(n, i + half + 1)
+            out[i] = sum(values[j0:j1]) / (j1 - j0)
+        return out
+
+    sx = smooth_1d(cx_path)
+    sy = smooth_1d(cy_path)
+
+    # Limit per-frame speed (jerk guard)
+    for i in range(1, n):
+        dx = sx[i] - sx[i - 1]
+        dy = sy[i] - sy[i - 1]
+        dist = (dx * dx + dy * dy) ** 0.5
+        if dist > max_step_px and dist > 0:
+            scale = max_step_px / dist
+            sx[i] = sx[i - 1] + dx * scale
+            sy[i] = sy[i - 1] + dy * scale
+
+    return sx, sy
+
+
 def build_raw_ball_center_path(
     telemetry: Sequence[Mapping[str, object]],
     frame_width: int,
@@ -378,6 +414,36 @@ def build_raw_ball_center_path(
         cy_vals.append(cy_val)
 
     return cx_vals, cy_vals
+
+
+def clamp_center_path_to_bounds(
+    cx_path: Sequence[float],
+    cy_path: Sequence[float],
+    frame_width: int,
+    frame_height: int,
+    crop_width: int,
+    crop_height: int,
+) -> tuple[list[float], list[float]]:
+    """Clamp center paths so the implied crop stays inside the source frame."""
+
+    if len(cx_path) != len(cy_path):
+        return list(cx_path), list(cy_path)
+
+    clamped_cx: list[float] = []
+    clamped_cy: list[float] = []
+
+    max_x0 = max(0.0, float(frame_width) - float(crop_width))
+    max_y0 = max(0.0, float(frame_height) - float(crop_height))
+
+    for cx, cy in zip(cx_path, cy_path):
+        x0 = int(round(float(cx) - float(crop_width) / 2.0))
+        y0 = int(round(float(cy) - float(crop_height) / 2.0))
+        x0 = max(0, min(x0, int(max_x0)))
+        y0 = max(0, min(y0, int(max_y0)))
+        clamped_cx.append(float(x0 + float(crop_width) / 2.0))
+        clamped_cy.append(float(y0 + float(crop_height) / 2.0))
+
+    return clamped_cx, clamped_cy
 
 
 class CamFollow2O:
@@ -3012,12 +3078,19 @@ class Renderer:
                         crop_height=int(crop_h),
                     )
                     if raw_cx and raw_cy and len(raw_cx) == len(raw_cy):
-                        cx_vals, cy_vals = smooth_and_limit_camera_path(
+                        cx_vals, cy_vals = smooth_center_path(
                             raw_cx,
                             raw_cy,
-                            max_dx=BALL_MAX_DX,
-                            max_dy=BALL_MAX_DY,
-                            alpha=BALL_FOLLOW_ALPHA,
+                            window=9,
+                            max_step_px=40.0,
+                        )
+                        cx_vals, cy_vals = clamp_center_path_to_bounds(
+                            cx_vals,
+                            cy_vals,
+                            frame_width=int(width),
+                            frame_height=int(height),
+                            crop_width=int(crop_w),
+                            crop_height=int(crop_h),
                         )
                         keep_path_lookup = {
                             idx: (float(cx), float(cy)) for idx, (cx, cy) in enumerate(zip(cx_vals, cy_vals))
@@ -5217,6 +5290,8 @@ def run(
     use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
     telemetry_path: Path | None = None
 
+    telemetry_coverage = 0
+    telemetry_coverage_ratio = 0.0
     if use_ball_telemetry:
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
@@ -5232,6 +5307,8 @@ def run(
                 )
                 coverage = sum(1 for rec in interpolated if rec.get("has_ball"))
                 coverage_pct = 100.0 * coverage / max(1, frame_count)
+                telemetry_coverage = coverage
+                telemetry_coverage_ratio = float(coverage) / float(max(1, frame_count))
                 print(
                     f"[BALL] Using telemetry {telemetry_path} with coverage {coverage}/{frame_count} ({coverage_pct:.1f}%)"
                 )
@@ -5260,14 +5337,30 @@ def run(
                 def _finite_path(vals: Sequence[float]) -> bool:
                     return bool(vals) and all(math.isfinite(v) for v in vals)
 
+                telemetry_valid = False
                 if _finite_path(raw_cx) and _finite_path(raw_cy) and len(raw_cx) == len(raw_cy):
-                    cx_path, cy_path = smooth_and_limit_camera_path(
+                    cx_path, cy_path = smooth_center_path(
                         raw_cx,
                         raw_cy,
-                        max_dx=BALL_MAX_DX,
-                        max_dy=BALL_MAX_DY,
-                        alpha=BALL_FOLLOW_ALPHA,
+                        window=9,
+                        max_step_px=40.0,
                     )
+                    cx_path, cy_path = clamp_center_path_to_bounds(
+                        cx_path,
+                        cy_path,
+                        frame_width=int(width),
+                        frame_height=int(height),
+                        crop_width=crop_w,
+                        crop_height=crop_h,
+                    )
+                    cx_span = max(cx_path) - min(cx_path) if cx_path else 0.0
+                    cy_span = max(cy_path) - min(cy_path) if cy_path else 0.0
+                    telemetry_valid = bool(cx_path and cy_path and len(cx_path) == len(cy_path))
+                    telemetry_valid = telemetry_valid and math.isfinite(cx_span) and math.isfinite(cy_span)
+                    telemetry_valid = telemetry_valid and telemetry_coverage > 0
+                    telemetry_valid = telemetry_valid and (cx_span > 0.0 or cy_span > 0.0)
+
+                if telemetry_valid:
                     keepinview_path = list(zip(cx_path, cy_path))
                     keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
                     cx_min, cx_max = min(cx_path), max(cx_path)
@@ -5283,6 +5376,8 @@ def run(
                 else:
                     logging.warning("[BALL] Telemetry path invalid; falling back to original planner path")
                     use_ball_telemetry = False
+                    telemetry_coverage = 0
+                    telemetry_coverage_ratio = 0.0
                     keep_path_lookup_data = {}
             except Exception as exc:  # noqa: BLE001
                 print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
@@ -5453,6 +5548,10 @@ def run(
     jerk_wn_scale = float(getattr(args, "jerk_wn_scale", 0.9) or 0.9)
     jerk_deadzone_step = float(getattr(args, "jerk_deadzone_step", 2.0) or 2.0)
     jerk_max_attempts = max(1, int(getattr(args, "jerk_max_attempts", 3) or 3))
+
+    if use_ball_telemetry and telemetry_coverage_ratio >= 0.9:
+        logging.info("Using ball telemetry path for keep-in-view (no jerk fallback).")
+        jerk_enabled = False
 
     current_follow_wn = float(follow_wn)
     current_deadzone = float(follow_deadzone)
