@@ -64,7 +64,12 @@ ZOOM_MAX = 1.4
 BALL_CAM_CONFIG: dict[str, object] = {
     "min_coverage": 0.4,
     "lead_frames": 3,
-    "smooth_alpha": 0.3,
+    "base_alpha": 0.20,
+    "fast_alpha": 0.60,
+    "catchup_thresh_px": 80.0,
+    "ball_margin_px": 80.0,
+    "final_smooth_alpha": 0.1,
+    "final_smooth_passes": 2,
     "max_pan_per_frame": 40.0,
     "max_accel_per_frame": 20.0,
     "zoom": {
@@ -724,9 +729,13 @@ def build_ball_cam_plan(
         cfg.update(config)
 
     min_coverage = float(cfg.get("min_coverage", 0.4))
-    max_pan_per_frame = max(0.0, float(cfg.get("max_pan_per_frame", 20.0)))
-
-    margin_px = 80.0
+    lead_frames = int(cfg.get("lead_frames", 3))
+    base_alpha = float(cfg.get("base_alpha", 0.2))
+    fast_alpha = float(cfg.get("fast_alpha", 0.6))
+    catchup_thresh_px = float(cfg.get("catchup_thresh_px", 80.0))
+    ball_margin_px = float(cfg.get("ball_margin_px", 80.0))
+    final_smooth_alpha = float(cfg.get("final_smooth_alpha", 0.1))
+    final_smooth_passes = int(cfg.get("final_smooth_passes", 2))
 
     telemetry = _load_ball_cam_array(telemetry_path, num_frames)
     valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
@@ -743,55 +752,50 @@ def build_ball_cam_plan(
         )
         return None, stats
 
-    # Build a global, smoothed camera path using only the ball X track.
+    # Build a ball-centric camera path with a small predictive lead and adaptive smoothing.
     raw_x = np.full(num_frames, np.nan, dtype=float)
     raw_x[valid_mask] = telemetry[valid_mask, 0]
     raw_x = _interp_nan(raw_x)
 
-    smoothed_cx = smooth_series(raw_x, alpha=0.12, passes=4)
+    vx = np.zeros(num_frames, dtype=float)
+    if num_frames > 1:
+        vx[0] = raw_x[1] - raw_x[0]
+        vx[-1] = raw_x[-1] - raw_x[-2]
+    for i in range(1, num_frames - 1):
+        vx[i] = 0.5 * (raw_x[i + 1] - raw_x[i - 1])
 
-    cam_cx: list[float] = []
-    for i, desired in enumerate(smoothed_cx):
-        if i == 0:
-            cam_cx.append(float(_clamp_ball_cam_center(desired, crop_width=portrait_width, frame_width=frame_width)))
-            continue
+    half_crop_w = float(portrait_width) / 2.0
+    min_cx = half_crop_w
+    max_cx = float(frame_width) - half_crop_w
 
-        current = cam_cx[-1]
-        delta = desired - current
-        if delta > max_pan_per_frame:
-            delta = max_pan_per_frame
-        elif delta < -max_pan_per_frame:
-            delta = -max_pan_per_frame
+    lead_term = lead_frames * vx
+    target_cx = raw_x + lead_term
+    target_cx = np.clip(target_cx, min_cx, max_cx)
 
-        next_cx = current + delta
-        next_cx = _clamp_ball_cam_center(next_cx, crop_width=float(portrait_width), frame_width=float(frame_width))
+    cam_cx = np.zeros(num_frames, dtype=float)
+    if num_frames > 0:
+        cam_cx[0] = target_cx[0]
+    for i in range(1, num_frames):
+        error = target_cx[i] - cam_cx[i - 1]
+        alpha = fast_alpha if abs(error) > catchup_thresh_px else base_alpha
+        cam_cx[i] = cam_cx[i - 1] + alpha * error
 
-        # Keep the ball inside the portrait crop with a soft margin.
-        half = float(portrait_width) / 2.0
-        x0 = next_cx - half
-        x1 = next_cx + half
-        if x0 < 0:
-            x0 = 0.0
-            x1 = float(portrait_width)
-        elif x1 > float(frame_width):
-            x1 = float(frame_width)
-            x0 = x1 - float(portrait_width)
+    if final_smooth_passes > 0 and num_frames > 0:
+        cam_cx = smooth_series(cam_cx, alpha=final_smooth_alpha, passes=final_smooth_passes)
 
+    for i in range(num_frames):
+        cx = float(cam_cx[i])
+        left = cx - half_crop_w
+        right = cx + half_crop_w
         bx = raw_x[i]
-        left_bound = x0 + margin_px
-        right_bound = x1 - margin_px
-        if not (left_bound <= bx <= right_bound):
-            desired_center = bx
-            blended = 0.5 * next_cx + 0.5 * desired_center
-            nudge = blended - next_cx
-            if nudge > max_pan_per_frame:
-                nudge = max_pan_per_frame
-            elif nudge < -max_pan_per_frame:
-                nudge = -max_pan_per_frame
-            next_cx = next_cx + nudge
-            next_cx = _clamp_ball_cam_center(next_cx, crop_width=float(portrait_width), frame_width=float(frame_width))
 
-        cam_cx.append(float(next_cx))
+        if bx < left + ball_margin_px:
+            cx = bx - ball_margin_px + half_crop_w
+        if bx > right - ball_margin_px:
+            cx = bx + ball_margin_px - half_crop_w
+
+        cx = float(np.clip(cx, min_cx, max_cx))
+        cam_cx[i] = cx
 
     cam_cx_arr = np.asarray(cam_cx, dtype=float)
     cam_y = np.full(num_frames, float(frame_height) / 2.0, dtype=float)
@@ -803,11 +807,21 @@ def build_ball_cam_plan(
     x0 = np.clip(cam_cx_arr - (crop_w / 2.0), 0.0, float(frame_width) - crop_w)
     y0 = np.clip(cam_y - (crop_h / 2.0), 0.0, float(frame_height) - crop_h)
 
+    inside = 0
+    for i in range(num_frames):
+        left = cam_cx_arr[i] - half_crop_w
+        right = cam_cx_arr[i] + half_crop_w
+        if left <= raw_x[i] <= right:
+            inside += 1
+    coverage_pct = 100.0 * inside / max(1, num_frames)
+
     jerk95_raw = _jerk95(np.asarray(raw_x, dtype=float), fps=fps)
     jerk95_cam = _jerk95(cam_cx_arr, fps=fps)
     stats["jerk95_raw"] = jerk95_raw
     stats["jerk95_cam"] = jerk95_cam
     stats["jerk95"] = jerk95_cam  # backwards compatibility
+    stats["ball_in_crop_pct"] = coverage_pct
+    stats["ball_in_crop_frames"] = inside
 
     plan_data = {
         "x0": x0.astype(float),
@@ -824,12 +838,17 @@ def build_ball_cam_plan(
     }
 
     logger.info(
-        "[BALL-CAM] N=%d, cx_range=[%.1f, %.1f], max_pan_per_frame=%.1f",
+        "[BALL-CAM] N=%d, cx_range=[%.1f, %.1f], lead_frames=%d, base_alpha=%.2f, fast_alpha=%.2f, catchup_thresh_px=%.1f, margin=%.1f",
         len(cam_cx_arr),
         float(np.nanmin(cam_cx_arr)) if cam_cx_arr.size else 0.0,
         float(np.nanmax(cam_cx_arr)) if cam_cx_arr.size else 0.0,
-        max_pan_per_frame,
+        lead_frames,
+        base_alpha,
+        fast_alpha,
+        catchup_thresh_px,
+        ball_margin_px,
     )
+    logger.info("[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)", coverage_pct, inside, num_frames)
 
     return plan_data, stats
 
@@ -5715,6 +5734,8 @@ def run(
                 ball_samples = load_ball_telemetry(telemetry_path)
                 jerk_stat = ball_cam_stats.get("jerk95_cam", ball_cam_stats.get("jerk95", 0.0))
                 jerk_raw = ball_cam_stats.get("jerk95_raw", 0.0)
+                ball_in_crop_pct = ball_cam_stats.get("ball_in_crop_pct")
+                ball_in_crop_frames = int(ball_cam_stats.get("ball_in_crop_frames", 0))
                 cx_range = (float(np.nanmin(plan_data.get("cx", np.array([0.0])))), float(np.nanmax(plan_data.get("cx", np.array([0.0])))))
                 logger.info(
                     "[BALL-CAM] coverage: %.1f%%, path: %d frames, cx range=[%.1f, %.1f], jerk95_raw=%.1f, jerk95_cam=%.1f px/s^3",
@@ -5725,6 +5746,13 @@ def run(
                     jerk_raw,
                     jerk_stat,
                 )
+                if ball_in_crop_pct is not None:
+                    logger.info(
+                        "[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)",
+                        ball_in_crop_pct,
+                        ball_in_crop_frames,
+                        len(plan_data.get("cx", [])),
+                    )
         else:
             logger.info("[BALL-CAM] No ball telemetry found for %s; reactive follow", input_path)
             use_ball_telemetry = False
