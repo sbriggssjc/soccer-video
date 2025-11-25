@@ -47,6 +47,20 @@ BALL_FOLLOW_ALPHA = 0.25
 BALL_MAX_DX = 60.0
 BALL_MAX_DY = 40.0
 
+# Ball-follow camera path tuning (portrait reels)
+LEAD_WINDOW_FACTOR = 0.35  # ~0.35s lookahead
+BALL_PATH_SMOOTHING_RADIUS = 5
+CAM_SMOOTH_ALPHA_X = 0.22
+CAM_SMOOTH_ALPHA_Y = 0.08
+CAM_SMOOTH_ALPHA_ZOOM = 0.08
+MAX_CAM_DX_PER_FRAME_FRAC = 0.03  # relative to frame width
+MAX_CAM_DY_PER_FRAME_FRAC = 0.012
+TELEPORT_THRESHOLD_FRAC = 0.14  # treat sudden jumps as long passes
+EASE_FRAMES_FOR_TELEPORT = 10
+BALL_CENTER_TOLERANCE_PCT = 0.20
+ZOOM_MIN = 1.0
+ZOOM_MAX = 1.4
+
 BALL_CAM_CONFIG: dict[str, object] = {
     "min_coverage": 0.4,
     "lead_frames": 3,
@@ -510,6 +524,145 @@ def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     return arr
 
 
+def build_raw_ball_path(telemetry: np.ndarray, fps: float) -> np.ndarray:
+    """Return Nx2 array of raw ball positions with finite interpolation."""
+
+    if telemetry.size == 0:
+        return np.zeros((0, 2), dtype=float)
+
+    valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
+        telemetry[:, 2] >= 0.5
+    )
+    raw = np.full((telemetry.shape[0], 2), np.nan, dtype=float)
+    raw[valid_mask, 0] = telemetry[valid_mask, 0]
+    raw[valid_mask, 1] = telemetry[valid_mask, 1]
+
+    raw[:, 0] = _interp_nan(raw[:, 0])
+    raw[:, 1] = _interp_nan(raw[:, 1])
+    return raw
+
+
+def build_target_ball_path(raw_path: np.ndarray, fps: float) -> np.ndarray:
+    """Pre-smooth raw detections and add predictive lead."""
+
+    if raw_path.size == 0:
+        return raw_path
+
+    radius = max(1, int(BALL_PATH_SMOOTHING_RADIUS))
+    kernel_size = 2 * radius + 1
+    kernel = np.ones(kernel_size, dtype=float) / kernel_size
+
+    padded_x = np.pad(raw_path[:, 0], (radius, radius), mode="edge")
+    padded_y = np.pad(raw_path[:, 1], (radius, radius), mode="edge")
+    smooth_x = np.convolve(padded_x, kernel, mode="valid")
+    smooth_y = np.convolve(padded_y, kernel, mode="valid")
+    smooth = np.stack([smooth_x, smooth_y], axis=1)
+
+    lead_frames = max(1, int(round(max(fps, 1.0) * LEAD_WINDOW_FACTOR)))
+    target = smooth.copy()
+    n = len(smooth)
+    for i in range(n):
+        j1 = min(n, i + lead_frames)
+        window = smooth[i:j1]
+        if window.size == 0:
+            continue
+        target[i, 0] = float(np.mean(window[:, 0]))
+        target[i, 1] = float(np.mean(window[:, 1]))
+    return target
+
+
+def build_camera_path(
+    target_ball_path: np.ndarray,
+    fps: float,
+    base_width: float,
+    base_height: float,
+    portrait_width: float,
+    portrait_height: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return smooth camera center and zoom arrays."""
+
+    if target_ball_path.size == 0:
+        return (
+            np.zeros(0, dtype=float),
+            np.zeros(0, dtype=float),
+            np.zeros(0, dtype=float),
+        )
+
+    n = len(target_ball_path)
+    cam_x = np.zeros(n, dtype=float)
+    cam_y = np.zeros(n, dtype=float)
+    cam_zoom = np.zeros(n, dtype=float)
+
+    half_w = portrait_width / 2.0
+    half_h = portrait_height / 2.0
+    max_dx = max(6.0, base_width * MAX_CAM_DX_PER_FRAME_FRAC)
+    max_dy = max(3.0, base_height * MAX_CAM_DY_PER_FRAME_FRAC)
+    teleport_px = base_width * TELEPORT_THRESHOLD_FRAC
+    ease_frames = max(3, int(EASE_FRAMES_FOR_TELEPORT))
+    max_offset = portrait_width * BALL_CENTER_TOLERANCE_PCT
+
+    # initialise on first target, clamped to bounds
+    cam_x[0] = float(np.clip(target_ball_path[0, 0], half_w, base_width - half_w))
+    cam_y[0] = float(np.clip(target_ball_path[0, 1], half_h, base_height - half_h))
+    cam_zoom[0] = ZOOM_MIN
+
+    easing_active = 0
+    ease_start = cam_x[0]
+    ease_end = cam_x[0]
+
+    for i in range(1, n):
+        desired_x = float(target_ball_path[i, 0])
+        desired_y = float(target_ball_path[i, 1])
+
+        desired_x = float(np.clip(desired_x, half_w, base_width - half_w))
+        desired_y = float(np.clip(desired_y, half_h, base_height - half_h))
+
+        offset = desired_x - cam_x[i - 1]
+        if abs(offset) > max_offset:
+            desired_x = cam_x[i - 1] + offset - math.copysign(max_offset, offset)
+
+        if abs(target_ball_path[i, 0] - target_ball_path[i - 1, 0]) > teleport_px:
+            easing_active = ease_frames
+            ease_start = cam_x[i - 1]
+            ease_end = desired_x
+
+        if easing_active > 0:
+            t = 1.0 - (easing_active / float(ease_frames))
+            t = t * t * (3 - 2 * t)  # smoothstep
+            cam_x[i] = ease_start + (ease_end - ease_start) * t
+            easing_active -= 1
+        else:
+            cam_x[i] = cam_x[i - 1] + CAM_SMOOTH_ALPHA_X * (desired_x - cam_x[i - 1])
+
+        dx = cam_x[i] - cam_x[i - 1]
+        if abs(dx) > max_dx:
+            cam_x[i] = cam_x[i - 1] + math.copysign(max_dx, dx)
+
+        cam_x[i] = float(np.clip(cam_x[i], half_w, base_width - half_w))
+
+        cam_y[i] = cam_y[i - 1] + CAM_SMOOTH_ALPHA_Y * (desired_y - cam_y[i - 1])
+        dy = cam_y[i] - cam_y[i - 1]
+        if abs(dy) > max_dy:
+            cam_y[i] = cam_y[i - 1] + math.copysign(max_dy, dy)
+        cam_y[i] = float(np.clip(cam_y[i], half_h, base_height - half_h))
+
+    # Zoom driven by ball speed
+    speed = np.abs(np.diff(target_ball_path[:, 0], prepend=target_ball_path[0, 0]))
+    speed_norm = np.clip(speed / (base_width * 0.10), 0.0, 1.0)
+    desired_zoom = ZOOM_MAX - speed_norm * (ZOOM_MAX - ZOOM_MIN)
+    cam_zoom[0] = desired_zoom[0]
+    for i in range(1, n):
+        cam_zoom[i] = cam_zoom[i - 1] + CAM_SMOOTH_ALPHA_ZOOM * (desired_zoom[i] - cam_zoom[i - 1])
+        cam_zoom[i] = float(np.clip(cam_zoom[i], ZOOM_MIN, ZOOM_MAX))
+
+        crop_w = portrait_width / cam_zoom[i]
+        crop_h = portrait_height / cam_zoom[i]
+        cam_x[i] = float(np.clip(cam_x[i], crop_w / 2.0, base_width - crop_w / 2.0))
+        cam_y[i] = float(np.clip(cam_y[i], crop_h / 2.0, base_height - crop_h / 2.0))
+
+    return cam_x, cam_y, cam_zoom
+
+
 def build_ball_cam_plan(
     telemetry_path: Path,
     *,
@@ -524,18 +677,7 @@ def build_ball_cam_plan(
     if config:
         cfg.update(config)
 
-    ball_cfg_zoom = dict(cfg.get("zoom", {}))
     min_coverage = float(cfg.get("min_coverage", 0.4))
-    lead_frames = int(cfg.get("lead_frames", 3))
-    smooth_alpha = float(cfg.get("smooth_alpha", 0.3))
-    max_pan_per_frame = float(cfg.get("max_pan_per_frame", 40.0))
-    max_accel_per_frame = float(cfg.get("max_accel_per_frame", 20.0))
-
-    default_max_crop = float(ball_cfg_zoom.get("max_crop_width", portrait_width))
-    max_crop_width = float(max(default_max_crop, 1.0))
-    min_crop_width = float(ball_cfg_zoom.get("min_crop_width", max_crop_width * 0.74))
-    zoom_alpha = float(ball_cfg_zoom.get("zoom_alpha", 0.2))
-    max_zoom_delta = float(ball_cfg_zoom.get("max_zoom_delta", 30.0))
 
     telemetry = _load_ball_cam_array(telemetry_path, num_frames)
     valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
@@ -552,72 +694,38 @@ def build_ball_cam_plan(
         )
         return None, stats
 
-    x_vals = telemetry[:, 0]
-    y_vals = telemetry[:, 1]
+    raw_path = build_raw_ball_path(telemetry, fps)
+    target_path = build_target_ball_path(raw_path, fps)
+    cam_x, cam_y, cam_zoom = build_camera_path(
+        target_path,
+        fps,
+        float(frame_width),
+        float(frame_height),
+        float(portrait_width),
+        float(frame_height),
+    )
 
-    x_interp = _interp_nan(x_vals)
-    y_interp = _interp_nan(y_vals)
+    jerk95_raw = _jerk95(raw_path[:, 0], fps=fps)
+    jerk95_cam = _jerk95(cam_x, fps=fps)
+    stats["jerk95_raw"] = jerk95_raw
+    stats["jerk95_cam"] = jerk95_cam
+    stats["jerk95"] = jerk95_cam  # backwards compatibility
 
-    v_x = np.concatenate(([0.0], np.diff(x_interp)))
-    x_lead = x_interp + lead_frames * v_x
+    crop_w = np.clip(portrait_width / np.maximum(cam_zoom, 1e-3), 1.0, float(frame_width))
+    crop_h = np.full(num_frames, float(frame_height), dtype=float)
 
-    crop_widths_raw = np.full(num_frames, max_crop_width, dtype=float)
-    speed_norm = np.clip(np.abs(v_x) / 80.0, 0.0, 1.0)
-    zoom_factor = 1.0 - 0.4 * (1.0 - speed_norm)
-    crop_widths_raw = min_crop_width + (max_crop_width - min_crop_width) * zoom_factor
-
-    cx_raw = np.clip(x_lead, 0.0, float(frame_width))
-    cy_target = np.full(num_frames, float(frame_height) / 2.0, dtype=float)
-
-    cx_smooth = np.copy(cx_raw)
-    for idx in range(1, num_frames):
-        cx_smooth[idx] = (1.0 - smooth_alpha) * cx_smooth[idx - 1] + smooth_alpha * cx_raw[idx]
-
-    for idx in range(1, num_frames):
-        delta = cx_smooth[idx] - cx_smooth[idx - 1]
-        if abs(delta) > max_pan_per_frame:
-            cx_smooth[idx] = cx_smooth[idx - 1] + math.copysign(max_pan_per_frame, delta)
-
-    for idx in range(2, num_frames):
-        v_prev = cx_smooth[idx - 1] - cx_smooth[idx - 2]
-        v_new = cx_smooth[idx] - cx_smooth[idx - 1]
-        dv = v_new - v_prev
-        if abs(dv) > max_accel_per_frame:
-            v_new = v_prev + math.copysign(max_accel_per_frame, dv)
-            cx_smooth[idx] = cx_smooth[idx - 1] + v_new
-
-    crop_widths = np.zeros(num_frames, dtype=float)
-    crop_widths[0] = max_crop_width
-    for idx in range(1, num_frames):
-        target = crop_widths_raw[idx]
-        cw = (1.0 - zoom_alpha) * crop_widths[idx - 1] + zoom_alpha * target
-        delta = cw - crop_widths[idx - 1]
-        if abs(delta) > max_zoom_delta:
-            cw = crop_widths[idx - 1] + math.copysign(max_zoom_delta, delta)
-        crop_widths[idx] = float(np.clip(cw, min_crop_width, max_crop_width))
-
-    for idx in range(num_frames):
-        cx_smooth[idx] = _clamp_ball_cam_center(
-            cx_smooth[idx], crop_width=float(crop_widths[idx] or max_crop_width), frame_width=float(frame_width)
-        )
-
-    jerk95 = _jerk95(cx_smooth, fps=fps)
-    stats["jerk95"] = jerk95
-
-    x0 = cx_smooth - (crop_widths / 2.0)
-    y0 = np.zeros_like(x0)
-    y0[:] = 0.0
-    x0 = np.clip(x0, 0.0, float(frame_width) - crop_widths)
+    x0 = np.clip(cam_x - (crop_w / 2.0), 0.0, float(frame_width) - crop_w)
+    y0 = np.clip(cam_y - (crop_h / 2.0), 0.0, float(frame_height) - crop_h)
 
     plan_data = {
         "x0": x0.astype(float),
         "y0": y0.astype(float),
-        "w": crop_widths.astype(float),
-        "h": np.full(num_frames, float(frame_height), dtype=float),
-        "spd": np.full(num_frames, float(max_pan_per_frame), dtype=float),
-        "z": (frame_height / np.maximum(1.0, float(frame_height))) * np.ones(num_frames, dtype=float),
-        "cx": cx_smooth.astype(float),
-        "cy": cy_target.astype(float),
+        "w": crop_w.astype(float),
+        "h": crop_h.astype(float),
+        "spd": np.full(num_frames, float(max(1.0, np.max(np.abs(np.diff(cam_x, prepend=cam_x[0])))))),
+        "z": cam_zoom.astype(float),
+        "cx": cam_x.astype(float),
+        "cy": cam_y.astype(float),
     }
 
     return plan_data, stats
@@ -5512,14 +5620,16 @@ def run(
                     plan_override_data = {k: v for k, v in plan_data.items() if k in {"x0", "y0", "w", "h", "spd", "z"}}
                     plan_override_len = len(next(iter(plan_data.values()))) if plan_data else 0
                 ball_samples = load_ball_telemetry(telemetry_path)
-                jerk_stat = ball_cam_stats.get("jerk95", 0.0)
+                jerk_stat = ball_cam_stats.get("jerk95_cam", ball_cam_stats.get("jerk95", 0.0))
+                jerk_raw = ball_cam_stats.get("jerk95_raw", 0.0)
                 cx_range = (float(np.nanmin(plan_data.get("cx", np.array([0.0])))), float(np.nanmax(plan_data.get("cx", np.array([0.0])))))
                 logger.info(
-                    "[BALL-CAM] coverage: %.1f%%, path: %d frames, cx range=[%.1f, %.1f], jerk95=%.1f px/s^3",
+                    "[BALL-CAM] coverage: %.1f%%, path: %d frames, cx range=[%.1f, %.1f], jerk95_raw=%.1f, jerk95_cam=%.1f px/s^3",
                     telemetry_coverage_ratio * 100.0,
                     len(plan_data.get("cx", [])),
                     cx_range[0],
                     cx_range[1],
+                    jerk_raw,
                     jerk_stat,
                 )
         else:
