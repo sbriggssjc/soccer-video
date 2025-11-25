@@ -506,6 +506,20 @@ def _interp_nan(values: np.ndarray) -> np.ndarray:
     return out
 
 
+def smooth_path(values: Sequence[float], alpha: float = 0.2) -> list[float]:
+    """Simple exponential smoother to tame frame-to-frame jitter."""
+
+    smoothed: list[float] = []
+    prev: float | None = None
+    for v in values:
+        if prev is None:
+            prev = float(v)
+        else:
+            prev = alpha * float(v) + (1.0 - alpha) * prev
+        smoothed.append(prev)
+    return smoothed
+
+
 def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     samples = load_ball_telemetry(path)
     arr = np.full((num_frames, 3), np.nan, dtype=float)
@@ -595,51 +609,45 @@ def build_camera_path(
 
     half_w = portrait_width / 2.0
     half_h = portrait_height / 2.0
-    max_dx = max(6.0, base_width * MAX_CAM_DX_PER_FRAME_FRAC)
     max_dy = max(3.0, base_height * MAX_CAM_DY_PER_FRAME_FRAC)
-    teleport_px = base_width * TELEPORT_THRESHOLD_FRAC
-    ease_frames = max(3, int(EASE_FRAMES_FOR_TELEPORT))
-    max_offset = portrait_width * BALL_CENTER_TOLERANCE_PCT
 
-    # initialise on first target, clamped to bounds
-    cam_x[0] = float(np.clip(target_ball_path[0, 0], half_w, base_width - half_w))
-    cam_y[0] = float(np.clip(target_ball_path[0, 1], half_h, base_height - half_h))
+    ball_x = target_ball_path[:, 0]
+    ball_y = target_ball_path[:, 1]
+
+    # Smooth + predictive target for X
+    smoothed_x = smooth_path(ball_x, alpha=0.25)
+    vx = np.diff(ball_x, prepend=ball_x[0])
+    lookahead_frames = 4
+    predicted_x = [sx + float(v) * lookahead_frames for sx, v in zip(smoothed_x, vx)]
+    blend = 0.5
+    target_cx = [((1.0 - blend) * sx) + (blend * px) for sx, px in zip(smoothed_x, predicted_x)]
+
+    deadzone_px = 30.0
+    max_pan_per_frame = 25.0
+    min_dwell_frames = 3
+    off_center_count = 0
+
+    current_cx = float(np.clip(target_cx[0], half_w, base_width - half_w))
+    cam_x[0] = current_cx
+    cam_y[0] = float(np.clip(ball_y[0], half_h, base_height - half_h))
     cam_zoom[0] = ZOOM_MIN
 
-    easing_active = 0
-    ease_start = cam_x[0]
-    ease_end = cam_x[0]
-
     for i in range(1, n):
-        desired_x = float(target_ball_path[i, 0])
-        desired_y = float(target_ball_path[i, 1])
+        desired_x = float(np.clip(target_cx[i], half_w, base_width - half_w))
+        delta = desired_x - current_cx
 
-        desired_x = float(np.clip(desired_x, half_w, base_width - half_w))
-        desired_y = float(np.clip(desired_y, half_h, base_height - half_h))
-
-        offset = desired_x - cam_x[i - 1]
-        if abs(offset) > max_offset:
-            desired_x = cam_x[i - 1] + offset - math.copysign(max_offset, offset)
-
-        if abs(target_ball_path[i, 0] - target_ball_path[i - 1, 0]) > teleport_px:
-            easing_active = ease_frames
-            ease_start = cam_x[i - 1]
-            ease_end = desired_x
-
-        if easing_active > 0:
-            t = 1.0 - (easing_active / float(ease_frames))
-            t = t * t * (3 - 2 * t)  # smoothstep
-            cam_x[i] = ease_start + (ease_end - ease_start) * t
-            easing_active -= 1
+        if abs(delta) < deadzone_px:
+            off_center_count = 0
         else:
-            cam_x[i] = cam_x[i - 1] + CAM_SMOOTH_ALPHA_X * (desired_x - cam_x[i - 1])
+            off_center_count += 1
+            if off_center_count >= min_dwell_frames:
+                delta = max(-max_pan_per_frame, min(max_pan_per_frame, delta))
+                current_cx = float(np.clip(current_cx + delta, half_w, base_width - half_w))
+                off_center_count = 0
 
-        dx = cam_x[i] - cam_x[i - 1]
-        if abs(dx) > max_dx:
-            cam_x[i] = cam_x[i - 1] + math.copysign(max_dx, dx)
+        cam_x[i] = current_cx
 
-        cam_x[i] = float(np.clip(cam_x[i], half_w, base_width - half_w))
-
+        desired_y = float(np.clip(ball_y[i], half_h, base_height - half_h))
         cam_y[i] = cam_y[i - 1] + CAM_SMOOTH_ALPHA_Y * (desired_y - cam_y[i - 1])
         dy = cam_y[i] - cam_y[i - 1]
         if abs(dy) > max_dy:
@@ -650,9 +658,11 @@ def build_camera_path(
     speed = np.abs(np.diff(target_ball_path[:, 0], prepend=target_ball_path[0, 0]))
     speed_norm = np.clip(speed / (base_width * 0.10), 0.0, 1.0)
     desired_zoom = ZOOM_MAX - speed_norm * (ZOOM_MAX - ZOOM_MIN)
-    cam_zoom[0] = desired_zoom[0]
-    for i in range(1, n):
-        cam_zoom[i] = cam_zoom[i - 1] + CAM_SMOOTH_ALPHA_ZOOM * (desired_zoom[i] - cam_zoom[i - 1])
+    for i in range(n):
+        if i == 0:
+            cam_zoom[i] = desired_zoom[i]
+        else:
+            cam_zoom[i] = cam_zoom[i - 1] + CAM_SMOOTH_ALPHA_ZOOM * (desired_zoom[i] - cam_zoom[i - 1])
         cam_zoom[i] = float(np.clip(cam_zoom[i], ZOOM_MIN, ZOOM_MAX))
 
         crop_w = portrait_width / cam_zoom[i]
