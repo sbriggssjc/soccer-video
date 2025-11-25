@@ -561,6 +561,37 @@ def smooth_series(values, alpha: float = 0.1, passes: int = 3):
     return vals
 
 
+def smooth_centered(seq, window):
+    """
+    Zero-lag, centered moving average with edge handling by reflection.
+    window must be an odd integer >= 1.
+    """
+    n = len(seq)
+    if n == 0 or window <= 1:
+        return list(seq)
+
+    if window % 2 == 0:
+        window += 1  # ensure odd
+
+    half = window // 2
+    out = [0.0] * n
+
+    for i in range(n):
+        acc = 0.0
+        cnt = 0
+        for k in range(-half, half + 1):
+            j = i + k
+            # reflect at edges
+            if j < 0:
+                j = -j
+            elif j >= n:
+                j = 2 * n - j - 2
+            acc += seq[j]
+            cnt += 1
+        out[i] = acc / cnt
+    return out
+
+
 def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     samples = load_ball_telemetry(path)
     arr = np.full((num_frames, 3), np.nan, dtype=float)
@@ -737,6 +768,8 @@ def build_ball_cam_plan(
     final_smooth_alpha = float(cfg.get("final_smooth_alpha", 0.1))
     final_smooth_passes = int(cfg.get("final_smooth_passes", 2))
     ball_cam_hard_lock = bool(cfg.get("ball_cam_hard_lock", False))
+    lock_margin_px = float(cfg.get("ball_lock_margin_px", 80.0))
+    smooth_window = int(cfg.get("ball_smooth_window", 5))
 
     telemetry = _load_ball_cam_array(telemetry_path, num_frames)
     valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
@@ -763,14 +796,7 @@ def build_ball_cam_plan(
     half_crop_w = crop_w / 2.0
 
     finite_ball = ball_cx_raw[np.isfinite(ball_cx_raw)]
-    use_normalized_ball_coords = False
-    if finite_ball.size > 0:
-        min_val = float(np.nanmin(finite_ball))
-        max_val = float(np.nanmax(finite_ball))
-        if min_val >= 0.0 and max_val <= 1.0:
-            use_normalized_ball_coords = True
-
-    if use_normalized_ball_coords:
+    if finite_ball.size > 0 and float(np.nanmax(finite_ball)) <= 1.0:
         ball_cx_raw = ball_cx_raw * src_w
 
     min_cx = half_crop_w
@@ -778,24 +804,28 @@ def build_ball_cam_plan(
 
     cam_cx: Sequence[float] | np.ndarray
     if ball_cam_hard_lock:
-        cam_cx_list = [float(x) for x in ball_cx_raw.tolist()]
+        N = len(ball_cx_raw)
+        if N == 0:
+            cam_cx = []
+        else:
+            ball_cx_list = [float(x) for x in ball_cx_raw.tolist()]
+            ball_cx_smooth = smooth_centered(ball_cx_list, smooth_window)
 
-        def median3(seq: Sequence[float]) -> list[float]:
-            n = len(seq)
-            out = list(seq)
-            for i in range(1, n - 1):
-                a, b, c = seq[i - 1], seq[i], seq[i + 1]
-                out[i] = sorted((a, b, c))[1]
-            return out
+            cam_cx = [0.0] * N
+            half_crop_w = crop_w / 2.0
 
-        cam_cx_list = median3(cam_cx_list)
+            for i in range(N):
+                bx_raw = ball_cx_list[i]
+                cx = ball_cx_smooth[i]
 
-        for i in range(num_frames):
-            cx = cam_cx_list[i]
-            cx = max(half_crop_w, min(src_w - half_crop_w, cx))
-            cam_cx_list[i] = cx
+                delta = bx_raw - cx
+                if abs(delta) > lock_margin_px:
+                    cx += math.copysign(abs(delta) - lock_margin_px, delta)
 
-        cam_cx = cam_cx_list
+                cx = max(half_crop_w, min(src_w - half_crop_w, cx))
+
+                cam_cx[i] = cx
+
     else:
         vx = np.zeros(num_frames, dtype=float)
         if num_frames > 1:
@@ -855,6 +885,8 @@ def build_ball_cam_plan(
             inside += 1
     coverage_pct = 100.0 * inside / max(1, num_frames)
 
+    margin = lock_margin_px if ball_cam_hard_lock else ball_margin_px
+
     jerk95_raw = _jerk95(np.asarray(ball_cx_raw, dtype=float), fps=fps)
     jerk95_cam = _jerk95(cam_cx_arr, fps=fps)
     stats["jerk95_raw"] = jerk95_raw
@@ -886,7 +918,7 @@ def build_ball_cam_plan(
         base_alpha,
         fast_alpha,
         catchup_thresh_px,
-        ball_margin_px,
+        margin,
         ball_cam_hard_lock,
     )
     logger.info("[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)", coverage_pct, inside, num_frames)
@@ -5412,6 +5444,8 @@ def run(
 
     if preset_key == "wide_follow":
         ball_cam_config.setdefault("ball_cam_hard_lock", True)
+        ball_cam_config.setdefault("ball_lock_margin_px", 80.0)
+        ball_cam_config.setdefault("ball_smooth_window", 5)
 
     portrait_w = getattr(args, "portrait_w", None)
     portrait_h = getattr(args, "portrait_h", None)
