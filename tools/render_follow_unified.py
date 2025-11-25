@@ -728,7 +728,7 @@ def build_ball_cam_plan(
     raw_x[valid_mask] = telemetry[valid_mask, 0]
     raw_x = _interp_nan(raw_x)
 
-    smoothed_cx = smooth_series(raw_x, passes=4, alpha=0.12)
+    smoothed_cx = smooth_series(raw_x, 4, 0.12)
 
     cam_cx: list[float] = []
     for i, desired in enumerate(smoothed_cx):
