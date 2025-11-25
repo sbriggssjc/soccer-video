@@ -224,6 +224,68 @@ def smooth_telemetry(samples: list[dict], window: int = 5) -> list[dict]:
     return out
 
 
+def _coerce_sample_dict(sample: Mapping[str, object] | BallSample) -> dict[str, float]:
+    frame = _as_int(sample.get("frame") if isinstance(sample, Mapping) else getattr(sample, "frame", 0), 0)
+    cx = _as_float(sample.get("cx") if isinstance(sample, Mapping) else getattr(sample, "x", float("nan")))
+    cy = _as_float(sample.get("cy") if isinstance(sample, Mapping) else getattr(sample, "y", float("nan")))
+    t_val = _as_float(sample.get("t") if isinstance(sample, Mapping) else getattr(sample, "t", 0.0))
+    return {"frame": frame, "t": t_val if math.isfinite(t_val) else 0.0, "cx": cx, "cy": cy}
+
+
+def clean_ball_telemetry(
+    samples: Sequence[Mapping[str, object] | BallSample], max_jump_px: float = 200.0, min_run_length: int = 2
+) -> list[dict[str, float]]:
+    """
+    Remove single-frame spikes from dense telemetry by interpolating isolated outliers.
+
+    The cleaner only activates when the telemetry frames form a contiguous run so sparse
+    detections remain untouched.
+    """
+
+    if not samples:
+        return []
+
+    coerced = [_coerce_sample_dict(s) for s in samples]
+
+    frames = sorted(s["frame"] for s in coerced)
+    if len(frames) < 3:
+        return coerced
+
+    # Require dense coverage so we do not reshape sparse telemetry.
+    if any(b - a != 1 for a, b in zip(frames, frames[1:])):
+        return coerced
+
+    cleaned = [dict(s) for s in sorted(coerced, key=lambda s: s["frame"])]
+    for i in range(1, len(cleaned) - 1):
+        prev_rec = cleaned[i - 1]
+        curr_rec = cleaned[i]
+        next_rec = cleaned[i + 1]
+
+        dx_prev = curr_rec["cx"] - prev_rec["cx"]
+        dy_prev = curr_rec["cy"] - prev_rec["cy"]
+        dx_next = next_rec["cx"] - curr_rec["cx"]
+        dy_next = next_rec["cy"] - curr_rec["cy"]
+
+        dist_prev = math.hypot(dx_prev, dy_prev)
+        dist_next = math.hypot(dx_next, dy_next)
+        bridge_dist = math.hypot(next_rec["cx"] - prev_rec["cx"], next_rec["cy"] - prev_rec["cy"])
+
+        run_len = next_rec["frame"] - prev_rec["frame"]
+
+        if (
+            run_len <= min_run_length
+            and dist_prev > max_jump_px
+            and dist_next > max_jump_px
+            and bridge_dist <= max_jump_px
+        ):
+            span = next_rec["frame"] - prev_rec["frame"]
+            alpha = 0.5 if span <= 0 else (curr_rec["frame"] - prev_rec["frame"]) / float(span)
+            curr_rec["cx"] = prev_rec["cx"] + (next_rec["cx"] - prev_rec["cx"]) * alpha
+            curr_rec["cy"] = prev_rec["cy"] + (next_rec["cy"] - prev_rec["cy"]) * alpha
+
+    return cleaned
+
+
 def _iter_jsonl(path: Path) -> Iterator[BallSample]:
     fps_hint: float | None = None
     frame_counter = 0
@@ -361,8 +423,9 @@ def load_ball_telemetry_for_clip(atomic_path: str) -> list[BallSample]:
 
 def save_ball_telemetry_jsonl(out_path: Path, samples: Sequence[Mapping[str, object]]) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned_samples = clean_ball_telemetry(samples)
     cleaned: list[dict[str, float]] = []
-    for rec in samples:
+    for rec in cleaned_samples:
         frame_idx = _as_int(rec.get("frame") if isinstance(rec, Mapping) else None, 0)
         t_val = _as_float(rec.get("t") if isinstance(rec, Mapping) else None)
         if not math.isfinite(t_val):
