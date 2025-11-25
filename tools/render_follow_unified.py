@@ -47,6 +47,21 @@ BALL_FOLLOW_ALPHA = 0.25
 BALL_MAX_DX = 60.0
 BALL_MAX_DY = 40.0
 
+BALL_CAM_CONFIG: dict[str, object] = {
+    "min_coverage": 0.4,
+    "lead_frames": 3,
+    "smooth_alpha": 0.3,
+    "max_pan_per_frame": 40.0,
+    "max_accel_per_frame": 20.0,
+    "zoom": {
+        "base_crop_width": 1080,
+        "min_crop_width": 800,
+        "max_crop_width": 1080,
+        "zoom_alpha": 0.2,
+        "max_zoom_delta": 30.0,
+    },
+}
+
 from tools.ball_telemetry import (
     BallSample,
     load_and_interpolate_telemetry,
@@ -447,6 +462,165 @@ def clamp_center_path_to_bounds(
         clamped_cy.append(float(y0 + float(crop_height) / 2.0))
 
     return clamped_cx, clamped_cy
+
+
+def _clamp_ball_cam_center(cx: float, *, crop_width: float, frame_width: float) -> float:
+    half = crop_width / 2.0
+    return max(half, min(frame_width - half, cx))
+
+
+def _jerk95(px: np.ndarray, *, fps: float) -> float:
+    if len(px) < 4 or fps <= 0:
+        return 0.0
+    v = np.diff(px)
+    a = np.diff(v)
+    j = np.diff(a) * (fps**3)
+    j_abs = np.abs(j)
+    return float(np.percentile(j_abs, 95)) if j_abs.size else 0.0
+
+
+def _interp_nan(values: np.ndarray) -> np.ndarray:
+    if values.size == 0:
+        return values
+    out = values.copy()
+    n = len(out)
+    idx = np.arange(n)
+    mask = np.isfinite(out)
+    if not mask.any():
+        return out
+    out[~mask] = np.interp(idx[~mask], idx[mask], out[mask])
+    return out
+
+
+def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
+    samples = load_ball_telemetry(path)
+    arr = np.full((num_frames, 3), np.nan, dtype=float)
+    for sample in samples:
+        frame_idx = int(getattr(sample, "frame", -1))
+        if frame_idx < 0 or frame_idx >= num_frames:
+            continue
+        conf = float(getattr(sample, "conf", 0.0))
+        x = float(getattr(sample, "x", float("nan")))
+        y = float(getattr(sample, "y", float("nan")))
+        if not (math.isfinite(x) and math.isfinite(y)):
+            continue
+        arr[frame_idx, 0] = x
+        arr[frame_idx, 1] = y
+        arr[frame_idx, 2] = conf
+    return arr
+
+
+def build_ball_cam_plan(
+    telemetry_path: Path,
+    *,
+    num_frames: int,
+    fps: float,
+    frame_width: int,
+    frame_height: int,
+    portrait_width: int,
+    config: Mapping[str, object] | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
+    cfg = dict(BALL_CAM_CONFIG)
+    if config:
+        cfg.update(config)
+
+    ball_cfg_zoom = dict(cfg.get("zoom", {}))
+    min_coverage = float(cfg.get("min_coverage", 0.4))
+    lead_frames = int(cfg.get("lead_frames", 3))
+    smooth_alpha = float(cfg.get("smooth_alpha", 0.3))
+    max_pan_per_frame = float(cfg.get("max_pan_per_frame", 40.0))
+    max_accel_per_frame = float(cfg.get("max_accel_per_frame", 20.0))
+
+    default_max_crop = float(ball_cfg_zoom.get("max_crop_width", portrait_width))
+    max_crop_width = float(max(default_max_crop, 1.0))
+    min_crop_width = float(ball_cfg_zoom.get("min_crop_width", max_crop_width * 0.74))
+    zoom_alpha = float(ball_cfg_zoom.get("zoom_alpha", 0.2))
+    max_zoom_delta = float(ball_cfg_zoom.get("max_zoom_delta", 30.0))
+
+    telemetry = _load_ball_cam_array(telemetry_path, num_frames)
+    valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
+        telemetry[:, 2] >= 0.5
+    )
+    coverage = float(np.mean(valid_mask)) if num_frames > 0 else 0.0
+
+    stats = {"coverage": coverage}
+    if coverage < min_coverage:
+        logger.info(
+            "[BALL-CAM] coverage %.1f%% too low (<%.1f%%); falling back to legacy follow",
+            coverage * 100.0,
+            min_coverage * 100.0,
+        )
+        return None, stats
+
+    x_vals = telemetry[:, 0]
+    y_vals = telemetry[:, 1]
+
+    x_interp = _interp_nan(x_vals)
+    y_interp = _interp_nan(y_vals)
+
+    v_x = np.concatenate(([0.0], np.diff(x_interp)))
+    x_lead = x_interp + lead_frames * v_x
+
+    crop_widths_raw = np.full(num_frames, max_crop_width, dtype=float)
+    speed_norm = np.clip(np.abs(v_x) / 80.0, 0.0, 1.0)
+    zoom_factor = 1.0 - 0.4 * (1.0 - speed_norm)
+    crop_widths_raw = min_crop_width + (max_crop_width - min_crop_width) * zoom_factor
+
+    cx_raw = np.clip(x_lead, 0.0, float(frame_width))
+    cy_target = np.full(num_frames, float(frame_height) / 2.0, dtype=float)
+
+    cx_smooth = np.copy(cx_raw)
+    for idx in range(1, num_frames):
+        cx_smooth[idx] = (1.0 - smooth_alpha) * cx_smooth[idx - 1] + smooth_alpha * cx_raw[idx]
+
+    for idx in range(1, num_frames):
+        delta = cx_smooth[idx] - cx_smooth[idx - 1]
+        if abs(delta) > max_pan_per_frame:
+            cx_smooth[idx] = cx_smooth[idx - 1] + math.copysign(max_pan_per_frame, delta)
+
+    for idx in range(2, num_frames):
+        v_prev = cx_smooth[idx - 1] - cx_smooth[idx - 2]
+        v_new = cx_smooth[idx] - cx_smooth[idx - 1]
+        dv = v_new - v_prev
+        if abs(dv) > max_accel_per_frame:
+            v_new = v_prev + math.copysign(max_accel_per_frame, dv)
+            cx_smooth[idx] = cx_smooth[idx - 1] + v_new
+
+    crop_widths = np.zeros(num_frames, dtype=float)
+    crop_widths[0] = max_crop_width
+    for idx in range(1, num_frames):
+        target = crop_widths_raw[idx]
+        cw = (1.0 - zoom_alpha) * crop_widths[idx - 1] + zoom_alpha * target
+        delta = cw - crop_widths[idx - 1]
+        if abs(delta) > max_zoom_delta:
+            cw = crop_widths[idx - 1] + math.copysign(max_zoom_delta, delta)
+        crop_widths[idx] = float(np.clip(cw, min_crop_width, max_crop_width))
+
+    for idx in range(num_frames):
+        cx_smooth[idx] = _clamp_ball_cam_center(
+            cx_smooth[idx], crop_width=float(crop_widths[idx] or max_crop_width), frame_width=float(frame_width)
+        )
+
+    jerk95 = _jerk95(cx_smooth, fps=fps)
+    stats["jerk95"] = jerk95
+
+    x0 = cx_smooth - (crop_widths / 2.0)
+    y0 = np.zeros_like(x0)
+    y0[:] = 0.0
+    x0 = np.clip(x0, 0.0, float(frame_width) - crop_widths)
+
+    plan_data = {
+        "x0": x0.astype(float),
+        "y0": y0.astype(float),
+        "w": crop_widths.astype(float),
+        "h": np.full(num_frames, float(frame_height), dtype=float),
+        "spd": np.full(num_frames, float(max_pan_per_frame), dtype=float),
+        "z": (frame_height / np.maximum(1.0, float(frame_height))) * np.ones(num_frames, dtype=float),
+        "cx": cx_smooth.astype(float),
+        "cy": cy_target.astype(float),
+    }
+
+    return plan_data, stats
 
 
 class CamFollow2O:
@@ -5301,253 +5475,56 @@ def run(
 
     telemetry_coverage = 0
     telemetry_coverage_ratio = 0.0
+    ball_cam_stats: dict[str, float] = {}
     if use_ball_telemetry:
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
-        cx_path: list[float] = []
-        cy_path: list[float] = []
         if telemetry_path.is_file():
-            def _moving_average(xs, window):
-                if window <= 1:
-                    return xs[:]
-                half = window // 2
-                out = []
-                n = len(xs)
-                for i in range(n):
-                    lo = max(0, i - half)
-                    hi = min(n, i + half + 1)
-                    out.append(sum(xs[lo:hi]) / (hi - lo))
-                return out
-
-            def _median_filter(xs, window):
-                if window <= 1:
-                    return xs[:]
-                half = window // 2
-                out = []
-                n = len(xs)
-                for i in range(n):
-                    lo = max(0, i - half)
-                    hi = min(n, i + half + 1)
-                    out.append(median(xs[lo:hi]))
-                return out
-
-            def build_camera_path_from_ball(
-                ball_x,
-                ball_y,
-                width,
-                height,
-                fps=24.0,
-                portrait_w=1080,
-                portrait_h=1920,
-                lead_frames=4,
-                smooth_window_px=9,
-                max_speed_px=30.0,
-                max_accel_px=5.0,
-            ):
-                """
-                Turn raw ball coordinates into a VERY smooth camera center path (cx, cy)
-                that keeps the ball in-frame and feels like a human camera op.
-
-                - Slightly *lead* the ball horizontally.
-                - Heavy smoothing (median + moving average).
-                - Hard caps on speed/accel to remove whiplash.
-                """
-
-                n = len(ball_x)
-                if n == 0:
-                    return []
-
-                leaded_x = []
-                leaded_y = []
-                for i in range(n):
-                    j = min(i + lead_frames, n - 1)
-                    leaded_x.append(ball_x[j])
-                    leaded_y.append(ball_y[j])
-
-                sx = _moving_average(_median_filter(leaded_x, smooth_window_px), smooth_window_px)
-                sy = _moving_average(_median_filter(leaded_y, smooth_window_px), smooth_window_px)
-
-                cx = []
-                cy = []
-                half_w = portrait_w / 2
-                half_h = portrait_h / 2
-
-                def clamp_center(x, half_extent, max_val):
-                    x = max(half_extent, min(x, max_val - half_extent))
-                    return x
-
-                for bx, by in zip(sx, sy):
-                    target_cx = bx
-                    ball_y_frac = by / float(height) if height > 0 else 0.5
-                    desired_ball_frac = 0.6
-                    offset_frac = ball_y_frac - desired_ball_frac
-                    target_cy = (height * 0.5) - offset_frac * height
-
-                    target_cx = clamp_center(target_cx, half_w, width)
-                    target_cy = clamp_center(target_cy, half_h, height)
-
-                    cx.append(target_cx)
-                    cy.append(target_cy)
-
-                def smooth_sequence(seq):
-                    if len(seq) <= 1:
-                        return seq[:]
-                    out = [seq[0]]
-                    prev_v = 0.0
-                    dt = 1.0 / max(fps, 1.0)
-
-                    for i in range(1, len(seq)):
-                        raw = seq[i]
-                        prev = out[-1]
-
-                        v_desired = (raw - prev) / dt
-
-                        dv = v_desired - prev_v
-                        max_dv = max_accel_px / dt
-                        dv = max(-max_dv, min(dv, max_dv))
-                        v_new = prev_v + dv
-
-                        max_v = max_speed_px / dt
-                        v_new = max(-max_v, min(v_new, max_v))
-
-                        new_pos = prev + v_new * dt
-                        out.append(new_pos)
-                        prev_v = v_new
-
-                    return out
-
-                cx_smooth = smooth_sequence(cx)
-                cy_smooth = smooth_sequence(cy)
-
-                path = []
-                for x, y in zip(cx_smooth, cy_smooth):
-                    path.append(
-                        (
-                            clamp_center(x, half_w, width),
-                            clamp_center(y, half_h, height),
-                        )
-                    )
-                return path
-
             set_telemetry_frame_bounds(width, height)
-            try:
-                interpolated = load_and_interpolate_telemetry(
-                    str(telemetry_path),
-                    total_frames=frame_count,
-                    fps=fps_in if fps_in > 0 else fps_out,
-                )
-                coverage = sum(1 for rec in interpolated if rec.get("has_ball"))
-                coverage_pct = 100.0 * coverage / max(1, frame_count)
-                telemetry_coverage = coverage
-                telemetry_coverage_ratio = float(coverage) / float(max(1, frame_count))
-                print(
-                    f"[BALL] Using telemetry {telemetry_path} with coverage {coverage}/{frame_count} ({coverage_pct:.1f}%)"
-                )
+            total_frames = frame_count
+            if total_frames <= 0:
+                fps_hint = fps_in if fps_in > 0 else fps_out
+                total_frames = int(round((duration_s or 0.0) * fps_hint)) if fps_hint > 0 else 0
+            total_frames = max(total_frames, 1)
 
-                crop_w = int(portrait[0]) if portrait else int(width)
-                if portrait and preset_key == "wide_follow":
-                    crop_w = min(int(width), max(crop_w, 1280))
-                crop_h = int(portrait[1]) if portrait else int(height)
-            except Exception as exc:  # noqa: BLE001
-                print(f"[BALL] Failed to load interpolated telemetry {telemetry_path}: {exc}; reactive follow")
-                keep_path_lookup_data = {}
-                keepinview_path = None
+            plan_data, ball_cam_stats = build_ball_cam_plan(
+                telemetry_path,
+                num_frames=total_frames,
+                fps=fps_in if fps_in > 0 else fps_out,
+                frame_width=width,
+                frame_height=height,
+                portrait_width=int(portrait[0]) if portrait else 1080,
+            )
+            telemetry_coverage_ratio = float(ball_cam_stats.get("coverage", 0.0))
+            telemetry_coverage = int(round(telemetry_coverage_ratio * total_frames))
+
+            if plan_data is None:
                 use_ball_telemetry = False
-
-            try:
+                keep_path_lookup_data = {}
+            else:
+                cx_vals = plan_data.get("cx")
+                cy_vals = plan_data.get("cy")
+                if cx_vals is not None and cy_vals is not None:
+                    keep_path_lookup_data = {
+                        idx: (float(cx_vals[idx]), float(cy_vals[idx])) for idx in range(len(cx_vals))
+                    }
+                if plan_override_data is None:
+                    plan_override_data = {k: v for k, v in plan_data.items() if k in {"x0", "y0", "w", "h", "spd", "z"}}
+                    plan_override_len = len(next(iter(plan_data.values()))) if plan_data else 0
                 ball_samples = load_ball_telemetry(telemetry_path)
-                if ball_samples:
-                    valid_samples: list[BallSample] = []
-                    for s in ball_samples:
-                        if not (
-                            math.isfinite(getattr(s, "x", float("nan")))
-                            and math.isfinite(getattr(s, "y", float("nan")))
-                        ):
-                            continue
-                        cx = max(0.0, min(float(width), float(getattr(s, "x", 0.0))))
-                        cy = max(0.0, min(float(height), float(getattr(s, "y", 0.0))))
-                        valid_samples.append(
-                            BallSample(
-                                t=float(getattr(s, "t", 0.0)),
-                                frame=int(getattr(s, "frame", 0)),
-                                x=cx,
-                                y=cy,
-                                conf=float(getattr(s, "conf", 1.0)),
-                            )
-                        )
-                    if not valid_samples:
-                        print("[BALL] Telemetry loaded but contains no valid coordinates; falling back to reactive follow.")
-                        ball_samples = []
-                    else:
-                        t_vals = [s.t for s in valid_samples if math.isfinite(s.t)]
-                        t_min = min(t_vals) if t_vals else 0.0
-                        t_max = max(t_vals) if t_vals else 0.0
-                        print(
-                            f"[BALL] Loaded {len(valid_samples)} samples from {telemetry_path} (t={t_min:.2f}–{t_max:.2f}s)"
-                        )
-                        ball_samples = valid_samples
-                else:
-                    print(f"[BALL] Telemetry file empty: {telemetry_path}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[BALL] Failed to parse telemetry {telemetry_path}: {exc}")
-                ball_samples = []
-        else:
-            print(f"[BALL] No ball telemetry found for {input_path}; reactive follow")
-            use_ball_telemetry = False
-
-    keepinview_path = None
-
-    if use_ball_telemetry and ball_samples is not None:
-        coords = []
-        for sample in ball_samples:
-            bx = float(getattr(sample, "x", float("nan")))
-            by = float(getattr(sample, "y", float("nan")))
-            if not (math.isfinite(bx) and math.isfinite(by)):
-                continue
-            coords.append(
-                (
-                    max(0.0, min(float(width), bx)),
-                    max(0.0, min(float(height), by)),
+                jerk_stat = ball_cam_stats.get("jerk95", 0.0)
+                cx_range = (float(np.nanmin(plan_data.get("cx", np.array([0.0])))), float(np.nanmax(plan_data.get("cx", np.array([0.0])))))
+                logger.info(
+                    "[BALL-CAM] coverage: %.1f%%, path: %d frames, cx range=[%.1f, %.1f], jerk95=%.1f px/s^3",
+                    telemetry_coverage_ratio * 100.0,
+                    len(plan_data.get("cx", [])),
+                    cx_range[0],
+                    cx_range[1],
+                    jerk_stat,
                 )
-            )
-
-        ball_x = [c[0] for c in coords]
-        ball_y = [c[1] for c in coords]
-
-        width_px = width
-        height_px = height
-
-        portrait_w = int(getattr(args, "portrait_width", 1080)) if hasattr(args, "portrait_width") else 1080
-        portrait_h = int(getattr(args, "portrait_height", 1920)) if hasattr(args, "portrait_height") else 1920
-
-        fps_src = float(fps_in) if fps_in > 0 else float(fps_out)
-
-        keepinview_path = build_camera_path_from_ball(
-            ball_x=ball_x,
-            ball_y=ball_y,
-            width=width_px,
-            height=height_px,
-            fps=fps_src,
-            portrait_w=portrait_w,
-            portrait_h=portrait_h,
-            lead_frames=4,
-            smooth_window_px=9,
-            max_speed_px=30.0,
-            max_accel_px=5.0,
-        )
-
-        if keepinview_path:
-            keep_path_lookup_data = {idx: point for idx, point in enumerate(keepinview_path)}
-            xs = [p[0] for p in keepinview_path]
-            ys = [p[1] for p in keepinview_path]
-            logger.info(
-                "[BALL-CAM] path: %d frames, cx range=[%.1f, %.1f], cy range=[%.1f, %.1f]",
-                len(keepinview_path),
-                min(xs),
-                max(xs),
-                min(ys),
-                max(ys),
-            )
+        else:
+            logger.info("[BALL-CAM] No ball telemetry found for %s; reactive follow", input_path)
+            use_ball_telemetry = False
 
     raw_points = load_labels(label_files, width, height, fps_in)
     log_dict["labels_raw_count"] = len(raw_points)
