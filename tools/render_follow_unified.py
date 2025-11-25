@@ -520,20 +520,40 @@ def smooth_path(values: Sequence[float], alpha: float = 0.2) -> list[float]:
     return smoothed
 
 
-def smooth_series(values, passes: int = 3, alpha: float = 0.1):
+def smooth_series(values, alpha: float = 0.1, passes: int = 3):
     """
-    Apply EMA smoothing multiple times to strongly low-pass the series.
+    Smooth a 1D sequence using an exponential moving average, applied
+    multiple passes to strongly low-pass the motion.
+
+    Args:
+        values: iterable of floats (e.g., ball cx samples).
+        alpha: EMA smoothing factor in (0, 1]; lower = smoother.
+        passes: how many forward/backward EMA passes to apply.
+
+    Returns:
+        List of smoothed values, same length as input.
     """
-    out = list(values)
+    vals = list(values)
+    n = len(vals)
+    if n <= 1:
+        return vals
+
     for _ in range(passes):
-        if not out:
-            break
-        prev = out[0]
-        for i in range(1, len(out)):
-            v = out[i]
+        # forward pass
+        prev = vals[0]
+        for i in range(1, n):
+            v = vals[i]
             prev = alpha * v + (1.0 - alpha) * prev
-            out[i] = prev
-    return out
+            vals[i] = prev
+
+        # backward pass (for more “camera operator” feel)
+        prev = vals[-1]
+        for i in range(n - 2, -1, -1):
+            v = vals[i]
+            prev = alpha * v + (1.0 - alpha) * prev
+            vals[i] = prev
+
+    return vals
 
 
 def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
@@ -728,7 +748,7 @@ def build_ball_cam_plan(
     raw_x[valid_mask] = telemetry[valid_mask, 0]
     raw_x = _interp_nan(raw_x)
 
-    smoothed_cx = smooth_series(raw_x, 4, 0.12)
+    smoothed_cx = smooth_series(raw_x, alpha=0.12, passes=4)
 
     cam_cx: list[float] = []
     for i, desired in enumerate(smoothed_cx):
@@ -1245,16 +1265,6 @@ def _roi_around_point(bx, by, W, H, side):
     x = _round_i(bx) - side_i // 2
     y = _round_i(by) - side_i // 2
     return _clamp_roi(x, y, side_i, side_i, W, H)
-
-
-def smooth_series(x, alpha=0.15):
-    # EWMA â€" robust, low-latency
-    y = np.empty_like(x, dtype=float)
-    acc = x[0]
-    for i, v in enumerate(x):
-        acc = alpha * v + (1 - alpha) * acc
-        y[i] = acc
-    return y
 
 
 class ZoomPlanner:
