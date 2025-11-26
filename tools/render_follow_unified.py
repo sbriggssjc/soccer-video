@@ -1181,6 +1181,8 @@ def build_ball_cam_plan(
     portrait_width: int,
     config: Mapping[str, object] | None = None,
     preset_name: str | None = None,
+    in_path: Path | None = None,
+    out_path: Path | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
     cfg = dict(BALL_CAM_CONFIG)
     if config:
@@ -1435,6 +1437,24 @@ def build_ball_cam_plan(
         inside_strict,
         num_frames,
     )
+
+    debug_overlay = bool(cfg.get("ball_debug_overlay", False))
+    if debug_overlay and in_path is not None and out_path is not None:
+        debug_out = str(out_path).replace(".mp4", "__BALL_DEBUG_WIDE.mp4")
+        write_ball_crop_debug_clip(
+            in_path=str(in_path),
+            out_path=debug_out,
+            ball_cx=ball_cx_list,
+            ball_cy=ball_cy_list,
+            cam_cx=cam_cx,
+            cam_cy=cam_cy,
+            src_w=int(src_w),
+            src_h=int(src_h),
+            crop_w=int(crop_w),
+            crop_h=int(crop_h),
+            fps=fps,
+            logger=logger,
+        )
 
     return plan_data, stats
 
@@ -6323,6 +6343,8 @@ def run(
                 portrait_width=int(portrait[0]) if portrait else 1080,
                 config=ball_cam_config,
                 preset_name=preset_key,
+                in_path=input_path,
+                out_path=output_path,
             )
             telemetry_coverage_ratio = float(ball_cam_stats.get("coverage", 0.0))
             telemetry_coverage = int(round(telemetry_coverage_ratio * total_frames))
