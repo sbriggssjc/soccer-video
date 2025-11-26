@@ -959,6 +959,68 @@ def compute_ball_lock_strict(
     return cam_cx, cam_cy
 
 
+def compute_ball_lock_raw(
+    ball_cx_raw,
+    ball_cy_raw,
+    src_w,
+    src_h,
+    crop_w,
+    crop_h,
+    cfg,
+    logger=None,
+):
+    """
+    Hard lock: center the crop on the ball every frame (no smoothing, no speed limit).
+    This is mainly for debugging and 'never lose the ball' behavior.
+    """
+    N = len(ball_cx_raw)
+    if N == 0:
+        return [], []
+
+    if not ball_cy_raw or len(ball_cy_raw) != N:
+        ball_cy_raw = [src_h * 0.5] * N
+
+    vpos = float(cfg.get("ball_cam_vertical_pos", 0.60))
+    if vpos < 0.0:
+        vpos = 0.0
+    if vpos > 1.0:
+        vpos = 1.0
+
+    half_w = crop_w / 2.0
+    half_h = crop_h / 2.0
+
+    cam_cx = [0.0] * N
+    cam_cy = [0.0] * N
+
+    for i in range(N):
+        bx = ball_cx_raw[i]
+        by = ball_cy_raw[i]
+
+        # Ideal center: ball at vpos inside the crop
+        cx = bx
+        cy = by - (vpos * crop_h - half_h)
+
+        # Clamp to valid center so crop stays within frame
+        cx = max(half_w, min(src_w - half_w, cx))
+        cy = max(half_h, min(src_h - half_h, cy))
+
+        cam_cx[i] = cx
+        cam_cy[i] = cy
+
+    if logger:
+        logger.info(
+            "[BALL-CAM RAW] N=%d, cx_range=[%.1f, %.1f], cy_range=[%.1f, %.1f], vpos=%.2f",
+            N,
+            min(cam_cx),
+            max(cam_cx),
+            min(cam_cy),
+            max(cam_cy),
+            vpos,
+        )
+
+    return cam_cx, cam_cy
+
+
 def compute_ema_ball_cam_path(ball_cx_raw, ball_cy_raw, src_w, src_h, crop_w, crop_h, cfg, logger=None):
     N = len(ball_cx_raw)
     if N == 0:
@@ -1033,6 +1095,11 @@ def build_ball_cam_plan(
     cfg = dict(BALL_CAM_CONFIG)
     if config:
         cfg.update(config)
+
+    if preset_name == "wide_follow":
+        cfg["ball_cam_mode"] = "raw_lock"
+        cfg["ball_cam_vertical_pos"] = 0.55
+        cfg["ball_cam_margin_px"] = 0.0
 
     min_coverage = float(cfg.get("min_coverage", 0.4))
 
@@ -1131,9 +1198,20 @@ def build_ball_cam_plan(
     log_params: dict[str, float | int] | None = None
     cam_cx: List[float] = []
     cam_cy: List[float] = []
-    mode = cfg.get("ball_cam_mode", "ema")
+    mode = cfg.get("ball_cam_mode", "strict_lock")
 
-    if preset_name == "wide_follow" and mode == "strict_lock":
+    if mode == "raw_lock":
+        cam_cx, cam_cy = compute_ball_lock_raw(
+            ball_cx_raw=ball_cx_list,
+            ball_cy_raw=ball_cy_list,
+            src_w=src_w,
+            src_h=src_h,
+            crop_w=crop_w,
+            crop_h=crop_h,
+            cfg=cfg,
+            logger=logger,
+        )
+    elif mode == "strict_lock":
         cam_cx, cam_cy = compute_ball_lock_strict(
             ball_cx_raw=ball_cx_list,
             ball_cy_raw=ball_cy_list,
