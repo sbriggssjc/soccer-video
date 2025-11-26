@@ -745,21 +745,89 @@ def build_camera_path(
     return cam_x, cam_y, cam_zoom
 
 
-def build_ball_cam_plan(
-    telemetry_path: Path,
-    *,
-    num_frames: int,
-    fps: float,
-    frame_width: int,
-    frame_height: int,
-    portrait_width: int,
-    config: Mapping[str, object] | None = None,
-) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
-    cfg = dict(BALL_CAM_CONFIG)
-    if config:
-        cfg.update(config)
+def compute_locked_ball_cam_path(ball_cx_raw, src_w, crop_w, cfg, logger=None):
+    """
+    Compute a camera center path that stays locked to a smoothed ball trajectory.
+    - ball_cx_raw: list/sequence of ball x positions per frame in source coords
+    - src_w: source frame width in pixels
+    - crop_w: width of the virtual crop in pixels
+    """
+    N = len(ball_cx_raw)
+    if N == 0:
+        return []
 
-    min_coverage = float(cfg.get("min_coverage", 0.4))
+    lead_frames = int(cfg.get("ball_cam_lead_frames", 3))
+    smooth_window = int(cfg.get("ball_cam_smooth_window", 5))
+    max_speed = float(cfg.get("ball_cam_max_speed_px", 60.0))
+    margin = float(cfg.get("ball_cam_margin_px", 100.0))
+
+    # Safety clamps
+    if smooth_window < 1:
+        smooth_window = 1
+    if max_speed <= 0:
+        max_speed = 1.0
+
+    half_crop_w = crop_w / 2.0
+
+    cam_cx = [0.0] * N
+
+    # Initialize at the ball position (with lead) on frame 0
+    j0 = min(lead_frames, N - 1)
+    cx0 = ball_cx_raw[j0]
+    cx0 = max(half_crop_w - margin, min(src_w - half_crop_w + margin, cx0))
+    cam_cx[0] = cx0
+
+    for i in range(1, N):
+        # Look ahead a little to avoid visual lag
+        j = min(i + lead_frames, N - 1)
+
+        # Local smoothing window around the (possibly leaded) index
+        w = smooth_window
+        start = max(0, j - w // 2)
+        end = min(N, j + w // 2 + 1)
+        count = end - start
+        if count <= 0:
+            desired = ball_cx_raw[j]
+        else:
+            desired = sum(ball_cx_raw[start:end]) / float(count)
+
+        # Clamp movement per frame to avoid crazy jumps
+        prev = cam_cx[i - 1]
+        delta = desired - prev
+
+        if delta > max_speed:
+            delta = max_speed
+        elif delta < -max_speed:
+            delta = -max_speed
+
+        cx = prev + delta
+
+        # Keep crop inside frame, honoring margin
+        cx = max(half_crop_w - margin, min(src_w - half_crop_w + margin, cx))
+
+        cam_cx[i] = cx
+
+    if logger:
+        logger.info(
+            "[BALL-CAM LOCK] N=%d, cx_range=[%.1f, %.1f], lead_frames=%d, "
+            "smooth_window=%d, max_speed_px=%.1f, margin=%.1f",
+            N,
+            min(cam_cx),
+            max(cam_cx),
+            lead_frames,
+            smooth_window,
+            max_speed,
+            margin,
+        )
+
+    return cam_cx
+
+
+def compute_ema_ball_cam_path(ball_cx_raw, src_w, crop_w, cfg, logger=None):
+    N = len(ball_cx_raw)
+    if N == 0:
+        return []
+
     lead_frames = int(cfg.get("ball_cam_lead_frames", 5))
     base_alpha = float(cfg.get("ball_cam_base_alpha", 0.30))
     fast_alpha = float(cfg.get("ball_cam_fast_alpha", 0.80))
@@ -769,6 +837,66 @@ def build_ball_cam_plan(
     speed_fast_px = float(cfg.get("ball_cam_speed_fast_px", 40.0))
     max_pan_slow = float(cfg.get("ball_cam_max_pan_per_frame_slow", 24.0))
     max_pan_fast = float(cfg.get("ball_cam_max_pan_per_frame_fast", 44.0))
+
+    half_crop_w = crop_w / 2.0
+    cam_cx = [0.0] * N
+    cx_prev = float(ball_cx_raw[0]) if N > 0 else 0.0
+
+    for i in range(N):
+        j = min(i + lead_frames, N - 1)
+        desired = float(ball_cx_raw[j])
+
+        if i == 0:
+            ball_vel = 0.0
+        else:
+            ball_vel = float(ball_cx_raw[i] - ball_cx_raw[i - 1])
+        speed = abs(ball_vel)
+
+        if speed_fast_px > 0:
+            speed_scale = min(1.0, speed / speed_fast_px)
+        else:
+            speed_scale = 0.0
+
+        alpha = base_alpha + speed_scale * (fast_alpha - base_alpha)
+
+        delta = desired - cx_prev
+        if abs(delta) > catchup_px:
+            alpha = max(alpha, fast_alpha)
+
+        step = alpha * delta
+
+        max_pan = max_pan_slow + speed_scale * (max_pan_fast - max_pan_slow)
+        if step > max_pan:
+            step = max_pan
+        elif step < -max_pan:
+            step = -max_pan
+
+        cx = cx_prev + step
+
+        cx = max(half_crop_w - margin, min(src_w - half_crop_w + margin, cx))
+
+        cam_cx[i] = cx
+        cx_prev = cx
+
+    return cam_cx
+
+
+def build_ball_cam_plan(
+    telemetry_path: Path,
+    *,
+    num_frames: int,
+    fps: float,
+    frame_width: int,
+    frame_height: int,
+    portrait_width: int,
+    config: Mapping[str, object] | None = None,
+    preset_name: str | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
+    cfg = dict(BALL_CAM_CONFIG)
+    if config:
+        cfg.update(config)
+
+    min_coverage = float(cfg.get("min_coverage", 0.4))
 
     telemetry = _load_ball_cam_array(telemetry_path, num_frames)
     valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
@@ -798,56 +926,34 @@ def build_ball_cam_plan(
     if finite_ball.size > 0 and float(np.nanmax(finite_ball)) <= 1.0:
         ball_cx_raw = ball_cx_raw * src_w
 
-    N = len(ball_cx_raw)
-    cam_cx = [0.0] * N
+    ball_cx_list = [float(v) for v in ball_cx_raw.tolist()]
 
-    cx_prev = float(ball_cx_raw[0]) if N > 0 else 0.0
+    log_params: dict[str, float | int] | None = None
+    if preset_name == "wide_follow":
+        cam_cx = compute_locked_ball_cam_path(ball_cx_list, src_w, crop_w, cfg, logger=logger)
+    else:
+        lead_frames = int(cfg.get("ball_cam_lead_frames", 5))
+        base_alpha = float(cfg.get("ball_cam_base_alpha", 0.30))
+        fast_alpha = float(cfg.get("ball_cam_fast_alpha", 0.80))
+        catchup_px = float(cfg.get("ball_cam_catchup_thresh_px", 40.0))
+        margin = float(cfg.get("ball_cam_margin_px", 100.0))
 
-    for i in range(N):
-        # Look ahead a bit so we don't visually lag
-        j = min(i + lead_frames, N - 1)
-        desired = float(ball_cx_raw[j])
+        speed_fast_px = float(cfg.get("ball_cam_speed_fast_px", 40.0))
+        max_pan_slow = float(cfg.get("ball_cam_max_pan_per_frame_slow", 24.0))
+        max_pan_fast = float(cfg.get("ball_cam_max_pan_per_frame_fast", 44.0))
 
-        # Estimate ball speed (px / frame)
-        if i == 0:
-            ball_vel = 0.0
-        else:
-            ball_vel = float(ball_cx_raw[i] - ball_cx_raw[i - 1])
-        speed = abs(ball_vel)
+        log_params = {
+            "lead_frames": lead_frames,
+            "base_alpha": base_alpha,
+            "fast_alpha": fast_alpha,
+            "catchup_px": catchup_px,
+            "margin": margin,
+            "speed_fast_px": speed_fast_px,
+            "max_pan_slow": max_pan_slow,
+            "max_pan_fast": max_pan_fast,
+        }
 
-        # Map speed to [0, 1]
-        # 0   => standing still
-        # 1.0 => "fast" (>= speed_fast_px)
-        if speed_fast_px > 0:
-            speed_scale = min(1.0, speed / speed_fast_px)
-        else:
-            speed_scale = 0.0
-
-        # Dynamic alpha: slow follow when ball is slow, fast when ball sprints
-        alpha = base_alpha + speed_scale * (fast_alpha - base_alpha)
-
-        # If we're still far behind, force at least fast_alpha
-        delta = desired - cx_prev
-        if abs(delta) > catchup_px:
-            alpha = max(alpha, fast_alpha)
-
-        # EMA step toward desired
-        step = alpha * delta
-
-        # Dynamic per-frame pan clamp based on speed
-        max_pan = max_pan_slow + speed_scale * (max_pan_fast - max_pan_slow)
-        if step > max_pan:
-            step = max_pan
-        elif step < -max_pan:
-            step = -max_pan
-
-        cx = cx_prev + step
-
-        # Keep crop inside source frame, honoring margin
-        cx = max(half_crop_w - margin, min(src_w - half_crop_w + margin, cx))
-
-        cam_cx[i] = cx
-        cx_prev = cx
+        cam_cx = compute_ema_ball_cam_path(ball_cx_list, src_w, crop_w, cfg, logger=logger)
 
     cam_cx_arr = np.asarray(cam_cx, dtype=float)
     cam_y = np.full(num_frames, float(frame_height) / 2.0, dtype=float)
@@ -891,23 +997,24 @@ def build_ball_cam_plan(
         "cy": cam_y.astype(float),
     }
 
-    logger.info(
-        "[BALL-CAM] N=%d, cx_range=[%.1f, %.1f], lead_frames=%d, "
-        "base_alpha=%.2f, fast_alpha=%.2f, catchup_thresh_px=%.1f, margin=%.1f, "
-        "speed_fast_px=%.1f, max_pan_slow=%.1f, max_pan_fast=%.1f, hard_lock=%s",
-        len(cam_cx_arr),
-        float(np.nanmin(cam_cx_arr)) if cam_cx_arr.size else 0.0,
-        float(np.nanmax(cam_cx_arr)) if cam_cx_arr.size else 0.0,
-        lead_frames,
-        base_alpha,
-        fast_alpha,
-        catchup_px,
-        margin,
-        speed_fast_px,
-        max_pan_slow,
-        max_pan_fast,
-        False,
-    )
+    if log_params is not None:
+        logger.info(
+            "[BALL-CAM] N=%d, cx_range=[%.1f, %.1f], lead_frames=%d, "
+            "base_alpha=%.2f, fast_alpha=%.2f, catchup_thresh_px=%.1f, margin=%.1f, "
+            "speed_fast_px=%.1f, max_pan_slow=%.1f, max_pan_fast=%.1f, hard_lock=%s",
+            len(cam_cx_arr),
+            float(np.nanmin(cam_cx_arr)) if cam_cx_arr.size else 0.0,
+            float(np.nanmax(cam_cx_arr)) if cam_cx_arr.size else 0.0,
+            int(log_params.get("lead_frames", 0)),
+            float(log_params.get("base_alpha", 0.0)),
+            float(log_params.get("fast_alpha", 0.0)),
+            float(log_params.get("catchup_px", 0.0)),
+            float(log_params.get("margin", 0.0)),
+            float(log_params.get("speed_fast_px", 0.0)),
+            float(log_params.get("max_pan_slow", 0.0)),
+            float(log_params.get("max_pan_fast", 0.0)),
+            False,
+        )
     logger.info("[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)", coverage_pct, inside, num_frames)
 
     return plan_data, stats
@@ -5431,15 +5538,14 @@ def run(
 
     if preset_key == "wide_follow":
         ball_cam_config.setdefault("ball_cam_enabled", True)
-        ball_cam_config.setdefault("ball_cam_lead_frames", 5)
-        ball_cam_config.setdefault("ball_cam_base_alpha", 0.30)
-        ball_cam_config.setdefault("ball_cam_fast_alpha", 0.80)
-        ball_cam_config.setdefault("ball_cam_catchup_thresh_px", 40.0)
-        ball_cam_config.setdefault("ball_cam_margin_px", 100.0)
-        # speed-aware tuning
-        ball_cam_config.setdefault("ball_cam_speed_fast_px", 40.0)
-        ball_cam_config.setdefault("ball_cam_max_pan_per_frame_slow", 24.0)
-        ball_cam_config.setdefault("ball_cam_max_pan_per_frame_fast", 44.0)
+
+        # Hard lock style: small lead, small smoothing window
+        ball_cam_config.setdefault("ball_cam_lead_frames", 3)
+
+        # We are not going to use EMA alpha anymore for wide_follow, but keep defaults for other presets
+        ball_cam_config.setdefault("ball_cam_smooth_window", 5)  # frames for moving average
+        ball_cam_config.setdefault("ball_cam_max_speed_px", 60.0)  # max pan speed in px/frame
+        ball_cam_config.setdefault("ball_cam_margin_px", 100.0)  # keep some field/context around ball
 
     portrait_w = getattr(args, "portrait_w", None)
     portrait_h = getattr(args, "portrait_h", None)
@@ -5792,6 +5898,7 @@ def run(
                 frame_height=height,
                 portrait_width=int(portrait[0]) if portrait else 1080,
                 config=ball_cam_config,
+                preset_name=preset_key,
             )
             telemetry_coverage_ratio = float(ball_cam_stats.get("coverage", 0.0))
             telemetry_coverage = int(round(telemetry_coverage_ratio * total_frames))
