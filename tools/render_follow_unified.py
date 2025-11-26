@@ -1268,24 +1268,33 @@ def build_ball_cam_plan(
     cam_cx_arr = x0 + (crop_w_arr / 2.0)
     cam_cy_arr = y0 + (crop_h_arr / 2.0)
 
-    inside = 0
-    margin = float(cfg.get("ball_cam_margin_px", 80.0))
+    inside_count = 0
     inside_strict = 0
+    margin = float(cfg.get("ball_cam_margin_px", 80.0))
+
     for i in range(num_frames):
         bx = ball_cx_raw[i]
         by = ball_cy_raw[i]
 
-        eff_cx = cam_cx_arr[i]
-        eff_cy = cam_cy_arr[i]
+        cx = cam_cx[i]
+        cy = cam_cy[i]
+
         half_w = crop_w / 2.0
         half_h = crop_h / 2.0
 
+        # EXACT same clamp as render path
+        crop_x = max(0.0, min(src_w - crop_w, cx - half_w))
+        crop_y = max(0.0, min(src_h - crop_h, cy - half_h))
+        eff_cx = crop_x + half_w
+        eff_cy = crop_y + half_h
+
         if abs(bx - eff_cx) <= half_w and abs(by - eff_cy) <= half_h:
-            inside += 1
-        if abs(bx - eff_cx) <= half_w - margin and abs(by - eff_cy) <= half_h - margin:
+            inside_count += 1
+
+        if abs(bx - eff_cx) <= (half_w - margin) and abs(by - eff_cy) <= (half_h - margin):
             inside_strict += 1
 
-    coverage_pct = 100.0 * inside / max(1, num_frames)
+    coverage_pct = 100.0 * inside_count / max(1, num_frames)
 
     jerk95_raw = _jerk95(np.asarray(ball_cx_raw, dtype=float), fps=fps)
     jerk95_cam = _jerk95(cam_cx_arr, fps=fps)
@@ -1293,7 +1302,7 @@ def build_ball_cam_plan(
     stats["jerk95_cam"] = jerk95_cam
     stats["jerk95"] = jerk95_cam  # backwards compatibility
     stats["ball_in_crop_pct"] = coverage_pct
-    stats["ball_in_crop_frames"] = inside
+    stats["ball_in_crop_frames"] = inside_count
 
     plan_data = {
         "x0": x0.astype(float),
@@ -1330,7 +1339,7 @@ def build_ball_cam_plan(
     logger.info(
         "[BALL-CAM COVERAGE] ball_in_crop: %.1f%% (%d/%d), strict_with_margin: %.1f%% (%d/%d)",
         coverage_pct,
-        inside,
+        inside_count,
         num_frames,
         100.0 * inside_strict / max(1, num_frames),
         inside_strict,
