@@ -1036,6 +1036,9 @@ def build_ball_cam_plan(
 
     min_coverage = float(cfg.get("min_coverage", 0.4))
 
+    src_w = float(frame_width)
+    src_h = float(frame_height)
+
     telemetry = _load_ball_cam_array(telemetry_path, num_frames)
     valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
         telemetry[:, 2] >= 0.5
@@ -1051,6 +1054,57 @@ def build_ball_cam_plan(
         )
         return None, stats
 
+    tele_w: float | None = None
+    tele_h: float | None = None
+    try:
+        with telemetry_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, Mapping):
+                    continue
+
+                for key_w in ("frame_w", "img_w", "width", "w"):
+                    if key_w in rec and isinstance(rec[key_w], (int, float)):
+                        tele_w = float(rec[key_w])
+                        break
+                for key_h in ("frame_h", "img_h", "height", "h"):
+                    if key_h in rec and isinstance(rec[key_h], (int, float)):
+                        tele_h = float(rec[key_h])
+                        break
+
+                if tele_w is not None and tele_h is not None:
+                    break
+    except OSError:
+        pass
+
+    if tele_w is None:
+        tele_w = float(src_w)
+    if tele_h is None:
+        tele_h = float(src_h)
+
+    sx = float(src_w) / tele_w if tele_w else 1.0
+    sy = float(src_h) / tele_h if tele_h else 1.0
+
+    if telemetry.size > 0:
+        telemetry[:, 0] = telemetry[:, 0] * sx
+        telemetry[:, 1] = telemetry[:, 1] * sy
+
+    logger.info(
+        "[BALL-TELEMETRY] tele_w=%.1f tele_h=%.1f -> src_w=%d src_h=%d, sx=%.3f sy=%.3f",
+        tele_w,
+        tele_h,
+        int(round(src_w)),
+        int(round(src_h)),
+        sx,
+        sy,
+    )
+
     # Build a ball-centric camera path with a small predictive lead and adaptive smoothing.
     ball_cx_raw = np.full(num_frames, np.nan, dtype=float)
     ball_cy_raw = np.full(num_frames, np.nan, dtype=float)
@@ -1059,8 +1113,6 @@ def build_ball_cam_plan(
     ball_cx_raw = _interp_nan(ball_cx_raw)
     ball_cy_raw = _interp_nan(ball_cy_raw)
 
-    src_w = float(frame_width)
-    src_h = float(frame_height)
     crop_w = float(portrait_width)
     desired_crop_h = float(portrait_width) * 16.0 / 9.0 if portrait_width > 0 else float(frame_height)
     crop_h = min(desired_crop_h, float(frame_height))
