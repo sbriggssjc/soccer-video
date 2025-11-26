@@ -1277,9 +1277,17 @@ def build_ball_cam_plan(
     ball_cx_raw = _interp_nan(ball_cx_raw)
     ball_cy_raw = _interp_nan(ball_cy_raw)
 
-    crop_w = float(portrait_width)
-    desired_crop_h = float(portrait_width) * 16.0 / 9.0 if portrait_width > 0 else float(frame_height)
-    crop_h = min(desired_crop_h, float(frame_height))
+    portrait_mode = portrait_width is not None and portrait_width > 0
+    if portrait_mode:
+        crop_h = float(src_h)
+        crop_w = float(int(round(src_h * 9.0 / 16.0)))
+        crop_w = max(1.0, min(crop_w, float(src_w)))
+    else:
+        crop_w = float(portrait_width)
+        desired_crop_h = (
+            float(portrait_width) * 16.0 / 9.0 if portrait_width > 0 else float(frame_height)
+        )
+        crop_h = min(desired_crop_h, float(frame_height))
     half_crop_w = crop_w / 2.0
 
     finite_ball_x = ball_cx_raw[np.isfinite(ball_cx_raw)]
@@ -1356,7 +1364,7 @@ def build_ball_cam_plan(
     cam_cy_arr = np.asarray(cam_cy, dtype=float)
     cam_zoom = np.ones(num_frames, dtype=float)
 
-    crop_w_arr = np.full(num_frames, float(portrait_width), dtype=float)
+    crop_w_arr = np.full(num_frames, float(crop_w), dtype=float)
     crop_h_arr = np.full(num_frames, float(crop_h), dtype=float)
 
     x0 = np.clip(cam_cx_arr - (crop_w_arr / 2.0), 0.0, float(frame_width) - crop_w_arr)
@@ -4026,6 +4034,12 @@ class Renderer:
         out_h = target_h
         portrait_w = out_w if is_portrait else None
         portrait_h = out_h if is_portrait else None
+        portrait_crop_w = None
+        portrait_crop_h = None
+        if is_portrait:
+            portrait_crop_h = float(height)
+            portrait_crop_w = float(int(round(height * 9.0 / 16.0)))
+            portrait_crop_w = max(1.0, min(portrait_crop_w, float(width)))
 
         offline_ball_path = self.offline_ball_path
 
@@ -4035,8 +4049,8 @@ class Renderer:
             is_portrait and portrait_w and portrait_h and portrait_w > 0 and portrait_h > 0
         )
         if keepinview_enabled:
-            crop_w = float(portrait_w or out_w)
-            crop_h = float(portrait_h or out_h)
+            crop_w = float(portrait_crop_w if portrait_crop_w else (portrait_w or out_w))
+            crop_h = float(portrait_crop_h if portrait_crop_h else (portrait_h or out_h))
             if not keep_path_lookup:
                 samples = self.ball_samples or load_ball_telemetry_for_clip(str(self.input_path))
                 if samples:
@@ -5058,8 +5072,8 @@ class Renderer:
                                     eff_by,
                                     width,
                                     height,
-                                    out_w=portrait_w,
-                                    out_h=portrait_h,
+                                    out_w=portrait_crop_w or portrait_w,
+                                    out_h=portrait_crop_h or portrait_h,
                                     zoom_min=zoom_min,
                                     zoom_max=zoom_max,
                                     pad=self.pad,
@@ -5293,8 +5307,8 @@ class Renderer:
                                 float(by),
                                 width,
                                 height,
-                                out_w=portrait_w,
-                                out_h=portrait_h,
+                                out_w=portrait_crop_w or portrait_w,
+                                out_h=portrait_crop_h or portrait_h,
                                 zoom_min=zoom_min,
                                 zoom_max=zoom_max,
                                 pad=self.pad,
@@ -5376,8 +5390,8 @@ class Renderer:
                                     cur_by,
                                     width,
                                     height,
-                                    out_w=portrait_w,
-                                    out_h=portrait_h,
+                                    out_w=portrait_crop_w or portrait_w,
+                                    out_h=portrait_crop_h or portrait_h,
                                     zoom_min=zoom_min,
                                     zoom_max=zoom_max,
                                     pad=self.pad,
