@@ -610,6 +610,58 @@ def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     return arr
 
 
+def load_ball_telemetry_jsonl(path: str, src_w: int, src_h: int, logger=None):
+    import json
+
+    xs: list[float] = []
+    ys: list[float] = []
+
+    if logger:
+        logger.info("[BALL-TELEMETRY] loading %s", path)
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, Mapping):
+                continue
+
+            if all(k in row for k in ("cx", "cy")):
+                bx = float(row["cx"])
+                by = float(row["cy"])
+
+            elif all(k in row for k in ("cx_norm", "cy_norm")):
+                bx = float(row["cx_norm"]) * src_w
+                by = float(row["cy_norm"]) * src_h
+
+            elif all(k in row for k in ("x1", "y1", "x2", "y2")):
+                bx = 0.5 * (float(row["x1"]) + float(row["x2"]))
+                by = 0.5 * (float(row["y1"]) + float(row["y2"]))
+            else:
+                continue
+
+            xs.append(bx)
+            ys.append(by)
+
+    if not xs:
+        raise RuntimeError(f"No usable ball telemetry in {path}")
+
+    if logger:
+        logger.info(
+            "[BALL-TELEMETRY] tele_range_x=[%.1f, %.1f], tele_range_y=[%.1f, %.1f]",
+            min(xs),
+            max(xs),
+            min(ys),
+            max(ys),
+        )
+
+    return xs, ys
+
+
 def build_raw_ball_path(telemetry: np.ndarray, fps: float) -> np.ndarray:
     """Return Nx2 array of raw ball positions with finite interpolation."""
 
@@ -1199,10 +1251,17 @@ def build_ball_cam_plan(
     src_w = float(frame_width)
     src_h = float(frame_height)
 
-    telemetry = _load_ball_cam_array(telemetry_path, num_frames)
-    valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
-        telemetry[:, 2] >= 0.5
+    ball_cx_values, ball_cy_values = load_ball_telemetry_jsonl(
+        telemetry_path, int(src_w), int(src_h), logger
     )
+    ball_cx_raw = np.full(num_frames, np.nan, dtype=float)
+    ball_cy_raw = np.full(num_frames, np.nan, dtype=float)
+    max_fill = min(num_frames, len(ball_cx_values), len(ball_cy_values))
+    if max_fill > 0:
+        ball_cx_raw[:max_fill] = ball_cx_values[:max_fill]
+        ball_cy_raw[:max_fill] = ball_cy_values[:max_fill]
+
+    valid_mask = np.isfinite(ball_cx_raw) & np.isfinite(ball_cy_raw)
     coverage = float(np.mean(valid_mask)) if num_frames > 0 else 0.0
 
     stats = {"coverage": coverage}
@@ -1214,62 +1273,7 @@ def build_ball_cam_plan(
         )
         return None, stats
 
-    tele_w: float | None = None
-    tele_h: float | None = None
-    try:
-        with telemetry_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(rec, Mapping):
-                    continue
-
-                for key_w in ("frame_w", "img_w", "width", "w"):
-                    if key_w in rec and isinstance(rec[key_w], (int, float)):
-                        tele_w = float(rec[key_w])
-                        break
-                for key_h in ("frame_h", "img_h", "height", "h"):
-                    if key_h in rec and isinstance(rec[key_h], (int, float)):
-                        tele_h = float(rec[key_h])
-                        break
-
-                if tele_w is not None and tele_h is not None:
-                    break
-    except OSError:
-        pass
-
-    if tele_w is None:
-        tele_w = float(src_w)
-    if tele_h is None:
-        tele_h = float(src_h)
-
-    sx = float(src_w) / tele_w if tele_w else 1.0
-    sy = float(src_h) / tele_h if tele_h else 1.0
-
-    if telemetry.size > 0:
-        telemetry[:, 0] = telemetry[:, 0] * sx
-        telemetry[:, 1] = telemetry[:, 1] * sy
-
-    logger.info(
-        "[BALL-TELEMETRY] tele_w=%.1f tele_h=%.1f -> src_w=%d src_h=%d, sx=%.3f sy=%.3f",
-        tele_w,
-        tele_h,
-        int(round(src_w)),
-        int(round(src_h)),
-        sx,
-        sy,
-    )
-
     # Build a ball-centric camera path with a small predictive lead and adaptive smoothing.
-    ball_cx_raw = np.full(num_frames, np.nan, dtype=float)
-    ball_cy_raw = np.full(num_frames, np.nan, dtype=float)
-    ball_cx_raw[valid_mask] = telemetry[valid_mask, 0]
-    ball_cy_raw[valid_mask] = telemetry[valid_mask, 1]
     ball_cx_raw = _interp_nan(ball_cx_raw)
     ball_cy_raw = _interp_nan(ball_cy_raw)
 
