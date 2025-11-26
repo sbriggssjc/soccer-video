@@ -1081,6 +1081,96 @@ def compute_ema_ball_cam_path(ball_cx_raw, ball_cy_raw, src_w, src_h, crop_w, cr
     return cam_cx, cam_cy
 
 
+def write_ball_crop_debug_clip(
+    in_path: str,
+    out_path: str,
+    ball_cx: list[float],
+    ball_cy: list[float],
+    cam_cx: list[float],
+    cam_cy: list[float],
+    src_w: int,
+    src_h: int,
+    crop_w: int,
+    crop_h: int,
+    fps: float,
+    logger=None,
+):
+    """
+    Generate a 1920x1080 debug clip showing:
+      - the ball telemetry position as a dot
+      - the portrait crop window as a rectangle
+    on top of the original wide frame.
+    """
+    if logger:
+        logger.info(
+            "[BALL-DEBUG] Writing ball/crop overlay debug clip: %s", out_path
+        )
+
+    cap = cv2.VideoCapture(in_path)
+    if not cap.isOpened():
+        if logger:
+            logger.error("[BALL-DEBUG] Failed to open %s", in_path)
+        return
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(out_path, fourcc, fps, (src_w, src_h))
+
+    N = len(ball_cx)
+    half_w = crop_w / 2.0
+    half_h = crop_h / 2.0
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if frame_idx >= N:
+            break
+
+        bx = float(ball_cx[frame_idx])
+        by = float(ball_cy[frame_idx])
+
+        cx = float(cam_cx[frame_idx])
+        cy = float(cam_cy[frame_idx])
+
+        # Clamp crop to valid area – MUST match the render path
+        crop_x = max(0.0, min(src_w - crop_w, cx - half_w))
+        crop_y = max(0.0, min(src_h - crop_h, cy - half_h))
+
+        # Draw ball position (cyan-ish)
+        cv2.circle(
+            frame,
+            (int(round(bx)), int(round(by))),
+            8,
+            (255, 255, 0),
+            thickness=-1,
+            lineType=cv2.LINE_AA,
+        )
+
+        # Draw crop rect (green)
+        x0 = int(round(crop_x))
+        y0 = int(round(crop_y))
+        x1 = int(round(crop_x + crop_w))
+        y1 = int(round(crop_y + crop_h))
+        cv2.rectangle(
+            frame,
+            (x0, y0),
+            (x1, y1),
+            (0, 255, 0),
+            thickness=2,
+            lineType=cv2.LINE_AA,
+        )
+
+        writer.write(frame)
+        frame_idx += 1
+
+    cap.release()
+    writer.release()
+
+    if logger:
+        logger.info("[BALL-DEBUG] Finished debug clip: %s", out_path)
+
+
 def build_ball_cam_plan(
     telemetry_path: Path,
     *,
