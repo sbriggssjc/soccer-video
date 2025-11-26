@@ -823,10 +823,146 @@ def compute_locked_ball_cam_path(ball_cx_raw, src_w, crop_w, cfg, logger=None):
     return cam_cx
 
 
-def compute_ema_ball_cam_path(ball_cx_raw, src_w, crop_w, cfg, logger=None):
+def compute_ball_lock_strict(
+    ball_cx_raw,
+    ball_cy_raw,
+    src_w,
+    src_h,
+    crop_w,
+    crop_h,
+    cfg,
+    logger=None,
+):
+    """
+    Compute a strict ball-locked camera path:
+    - For each frame, choose a crop center (cam_cx, cam_cy) that keeps the ball
+      inside the 9:16 crop with a margin.
+    - Uses a small temporal smoothing window + a lead in time to avoid visual lag.
+    - Clamps camera so the resulting crop never goes outside the source frame.
+    """
     N = len(ball_cx_raw)
     if N == 0:
-        return []
+        return [], []
+
+    # If we don't have vertical telemetry, just fake a flat line so we at least
+    # get perfect horizontal behavior.
+    if not ball_cy_raw or len(ball_cy_raw) != N:
+        ball_cy_raw = [src_h * 0.5] * N
+
+    lead_frames = int(cfg.get("ball_cam_lead_frames", 3))
+    smooth_window = int(cfg.get("ball_cam_smooth_window", 5))
+    max_speed = float(cfg.get("ball_cam_max_speed_px", 120.0))
+    margin = float(cfg.get("ball_cam_margin_px", 80.0))
+    vpos = float(cfg.get("ball_cam_vertical_pos", 0.60))
+
+    if smooth_window < 1:
+        smooth_window = 1
+    if max_speed <= 0:
+        max_speed = 1.0
+    if vpos < 0.0:
+        vpos = 0.0
+    if vpos > 1.0:
+        vpos = 1.0
+
+    half_w = crop_w / 2.0
+    half_h = crop_h / 2.0
+
+    cam_cx = [0.0] * N
+    cam_cy = [0.0] * N
+
+    # Build leaded index sequence (so we look a few frames ahead)
+    idx_seq = [min(i + lead_frames, N - 1) for i in range(N)]
+
+    # Smooth horizontal, use raw vertical (or you can smooth vertical similarly)
+    smoothed_cx = [0.0] * N
+    for i in range(N):
+        j = idx_seq[i]
+        # local average in a window around the leaded index
+        start = max(0, j - smooth_window // 2)
+        end = min(N, j + smooth_window // 2 + 1)
+        count = max(1, end - start)
+        smoothed_cx[i] = sum(ball_cx_raw[start:end]) / float(count)
+
+    # Initialize camera at frame 0
+    bx0 = smoothed_cx[0]
+    by0 = ball_cy_raw[0]
+
+    # Horizontal: center on ball, but clamp to valid crop range
+    cx0 = bx0
+    cx0 = max(half_w, min(src_w - half_w, cx0))
+
+    # Vertical: place ball at 'vpos' fraction of the crop height (0=top,1=bottom)
+    # We want: ball_y = cam_cy - half_h + vpos*crop_h
+    cy0 = by0 - (vpos * crop_h - half_h)
+    cy0 = max(half_h, min(src_h - half_h, cy0))
+
+    cam_cx[0] = cx0
+    cam_cy[0] = cy0
+
+    for i in range(1, N):
+        # Desired ball position for this frame
+        j = idx_seq[i]
+        bx = smoothed_cx[i]
+        by = ball_cy_raw[j]
+
+        # Ideal camera center before speed clamp
+        desired_cx = bx
+        desired_cy = by - (vpos * crop_h - half_h)
+
+        # Clamp to legal center range so crop stays inside frame
+        desired_cx = max(half_w, min(src_w - half_w, desired_cx))
+        desired_cy = max(half_h, min(src_h - half_h, desired_cy))
+
+        # Speed limit (per-frame) to avoid insane jumps, but keep it generous
+        prev_cx = cam_cx[i - 1]
+        prev_cy = cam_cy[i - 1]
+
+        dx = desired_cx - prev_cx
+        dy = desired_cy - prev_cy
+
+        if dx > max_speed:
+            dx = max_speed
+        elif dx < -max_speed:
+            dx = -max_speed
+
+        if dy > max_speed:
+            dy = max_speed
+        elif dy < -max_speed:
+            dy = -max_speed
+
+        cx = prev_cx + dx
+        cy = prev_cy + dy
+
+        # Final clamp
+        cx = max(half_w, min(src_w - half_w, cx))
+        cy = max(half_h, min(src_h - half_h, cy))
+
+        cam_cx[i] = cx
+        cam_cy[i] = cy
+
+    if logger:
+        logger.info(
+            "[BALL-CAM STRICT] N=%d, cx_range=[%.1f, %.1f], cy_range=[%.1f, %.1f], "
+            "lead_frames=%d, smooth_window=%d, max_speed_px=%.1f, margin=%.1f, vpos=%.2f",
+            N,
+            min(cam_cx),
+            max(cam_cx),
+            min(cam_cy),
+            max(cam_cy),
+            lead_frames,
+            smooth_window,
+            max_speed,
+            margin,
+            vpos,
+        )
+
+    return cam_cx, cam_cy
+
+
+def compute_ema_ball_cam_path(ball_cx_raw, ball_cy_raw, src_w, src_h, crop_w, crop_h, cfg, logger=None):
+    N = len(ball_cx_raw)
+    if N == 0:
+        return [], []
 
     lead_frames = int(cfg.get("ball_cam_lead_frames", 5))
     base_alpha = float(cfg.get("ball_cam_base_alpha", 0.30))
@@ -840,6 +976,7 @@ def compute_ema_ball_cam_path(ball_cx_raw, src_w, crop_w, cfg, logger=None):
 
     half_crop_w = crop_w / 2.0
     cam_cx = [0.0] * N
+    cam_cy = [float(src_h) / 2.0] * N
     cx_prev = float(ball_cx_raw[0]) if N > 0 else 0.0
 
     for i in range(N):
@@ -876,9 +1013,10 @@ def compute_ema_ball_cam_path(ball_cx_raw, src_w, crop_w, cfg, logger=None):
         cx = max(half_crop_w - margin, min(src_w - half_crop_w + margin, cx))
 
         cam_cx[i] = cx
+        cam_cy[i] = float(src_h) / 2.0 if ball_cy_raw is None else cam_cy[i]
         cx_prev = cx
 
-    return cam_cx
+    return cam_cx, cam_cy
 
 
 def build_ball_cam_plan(
@@ -915,22 +1053,45 @@ def build_ball_cam_plan(
 
     # Build a ball-centric camera path with a small predictive lead and adaptive smoothing.
     ball_cx_raw = np.full(num_frames, np.nan, dtype=float)
+    ball_cy_raw = np.full(num_frames, np.nan, dtype=float)
     ball_cx_raw[valid_mask] = telemetry[valid_mask, 0]
+    ball_cy_raw[valid_mask] = telemetry[valid_mask, 1]
     ball_cx_raw = _interp_nan(ball_cx_raw)
+    ball_cy_raw = _interp_nan(ball_cy_raw)
 
     src_w = float(frame_width)
+    src_h = float(frame_height)
     crop_w = float(portrait_width)
+    desired_crop_h = float(portrait_width) * 16.0 / 9.0 if portrait_width > 0 else float(frame_height)
+    crop_h = min(desired_crop_h, float(frame_height))
     half_crop_w = crop_w / 2.0
 
-    finite_ball = ball_cx_raw[np.isfinite(ball_cx_raw)]
-    if finite_ball.size > 0 and float(np.nanmax(finite_ball)) <= 1.0:
+    finite_ball_x = ball_cx_raw[np.isfinite(ball_cx_raw)]
+    finite_ball_y = ball_cy_raw[np.isfinite(ball_cy_raw)]
+    if finite_ball_x.size > 0 and float(np.nanmax(finite_ball_x)) <= 1.0:
         ball_cx_raw = ball_cx_raw * src_w
+    if finite_ball_y.size > 0 and float(np.nanmax(finite_ball_y)) <= 1.0:
+        ball_cy_raw = ball_cy_raw * src_h
 
     ball_cx_list = [float(v) for v in ball_cx_raw.tolist()]
+    ball_cy_list = [float(v) for v in ball_cy_raw.tolist()]
 
     log_params: dict[str, float | int] | None = None
-    if preset_name == "wide_follow":
-        cam_cx = compute_locked_ball_cam_path(ball_cx_list, src_w, crop_w, cfg, logger=logger)
+    cam_cx: List[float] = []
+    cam_cy: List[float] = []
+    mode = cfg.get("ball_cam_mode", "ema")
+
+    if preset_name == "wide_follow" and mode == "strict_lock":
+        cam_cx, cam_cy = compute_ball_lock_strict(
+            ball_cx_raw=ball_cx_list,
+            ball_cy_raw=ball_cy_list,
+            src_w=src_w,
+            src_h=src_h,
+            crop_w=crop_w,
+            crop_h=crop_h,
+            cfg=cfg,
+            logger=logger,
+        )
     else:
         lead_frames = int(cfg.get("ball_cam_lead_frames", 5))
         base_alpha = float(cfg.get("ball_cam_base_alpha", 0.30))
@@ -953,26 +1114,47 @@ def build_ball_cam_plan(
             "max_pan_fast": max_pan_fast,
         }
 
-        cam_cx = compute_ema_ball_cam_path(ball_cx_list, src_w, crop_w, cfg, logger=logger)
+        cam_cx, cam_cy = compute_ema_ball_cam_path(
+            ball_cx_raw=ball_cx_list,
+            ball_cy_raw=ball_cy_list,
+            src_w=src_w,
+            src_h=src_h,
+            crop_w=crop_w,
+            crop_h=crop_h,
+            cfg=cfg,
+            logger=logger,
+        )
 
     cam_cx_arr = np.asarray(cam_cx, dtype=float)
-    cam_y = np.full(num_frames, float(frame_height) / 2.0, dtype=float)
+    cam_cy_arr = np.asarray(cam_cy, dtype=float)
     cam_zoom = np.ones(num_frames, dtype=float)
 
-    crop_w = np.full(num_frames, float(portrait_width), dtype=float)
-    crop_h = np.full(num_frames, float(frame_height), dtype=float)
+    crop_w_arr = np.full(num_frames, float(portrait_width), dtype=float)
+    crop_h_arr = np.full(num_frames, float(crop_h), dtype=float)
 
-    x0 = np.clip(cam_cx_arr - (crop_w / 2.0), 0.0, float(frame_width) - crop_w)
-    y0 = np.clip(cam_y - (crop_h / 2.0), 0.0, float(frame_height) - crop_h)
+    x0 = np.clip(cam_cx_arr - (crop_w_arr / 2.0), 0.0, float(frame_width) - crop_w_arr)
+    y0 = np.clip(cam_cy_arr - (crop_h_arr / 2.0), 0.0, float(frame_height) - crop_h_arr)
 
-    cam_cx_arr = x0 + (crop_w / 2.0)
+    cam_cx_arr = x0 + (crop_w_arr / 2.0)
+    cam_cy_arr = y0 + (crop_h_arr / 2.0)
 
     inside = 0
+    margin = float(cfg.get("ball_cam_margin_px", 80.0))
+    inside_strict = 0
     for i in range(num_frames):
-        left = cam_cx_arr[i] - half_crop_w
-        right = cam_cx_arr[i] + half_crop_w
-        if left <= ball_cx_raw[i] <= right:
+        bx = ball_cx_raw[i]
+        by = ball_cy_raw[i]
+
+        eff_cx = cam_cx_arr[i]
+        eff_cy = cam_cy_arr[i]
+        half_w = crop_w / 2.0
+        half_h = crop_h / 2.0
+
+        if abs(bx - eff_cx) <= half_w and abs(by - eff_cy) <= half_h:
             inside += 1
+        if abs(bx - eff_cx) <= half_w - margin and abs(by - eff_cy) <= half_h - margin:
+            inside_strict += 1
+
     coverage_pct = 100.0 * inside / max(1, num_frames)
 
     jerk95_raw = _jerk95(np.asarray(ball_cx_raw, dtype=float), fps=fps)
@@ -986,15 +1168,15 @@ def build_ball_cam_plan(
     plan_data = {
         "x0": x0.astype(float),
         "y0": y0.astype(float),
-        "w": crop_w.astype(float),
-        "h": crop_h.astype(float),
+        "w": crop_w_arr.astype(float),
+        "h": crop_h_arr.astype(float),
         "spd": np.full(
             num_frames,
             float(max(1.0, np.max(np.abs(np.diff(cam_cx_arr, prepend=cam_cx_arr[0]))))),
         ),
         "z": cam_zoom.astype(float),
         "cx": cam_cx_arr.astype(float),
-        "cy": cam_y.astype(float),
+        "cy": cam_cy_arr.astype(float),
     }
 
     if log_params is not None:
@@ -1015,7 +1197,15 @@ def build_ball_cam_plan(
             float(log_params.get("max_pan_fast", 0.0)),
             False,
         )
-    logger.info("[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)", coverage_pct, inside, num_frames)
+    logger.info(
+        "[BALL-CAM COVERAGE] ball_in_crop: %.1f%% (%d/%d), strict_with_margin: %.1f%% (%d/%d)",
+        coverage_pct,
+        inside,
+        num_frames,
+        100.0 * inside_strict / max(1, num_frames),
+        inside_strict,
+        num_frames,
+    )
 
     return plan_data, stats
 
@@ -5538,14 +5728,19 @@ def run(
 
     if preset_key == "wide_follow":
         ball_cam_config.setdefault("ball_cam_enabled", True)
+        ball_cam_config.setdefault("ball_cam_mode", "strict_lock")
 
-        # Hard lock style: small lead, small smoothing window
+        # Basic lock & smoothing parameters
         ball_cam_config.setdefault("ball_cam_lead_frames", 3)
+        ball_cam_config.setdefault("ball_cam_smooth_window", 5)  # moving average window
+        ball_cam_config.setdefault("ball_cam_max_speed_px", 120.0)  # generous; avoid visible lag
 
-        # We are not going to use EMA alpha anymore for wide_follow, but keep defaults for other presets
-        ball_cam_config.setdefault("ball_cam_smooth_window", 5)  # frames for moving average
-        ball_cam_config.setdefault("ball_cam_max_speed_px", 60.0)  # max pan speed in px/frame
-        ball_cam_config.setdefault("ball_cam_margin_px", 100.0)  # keep some field/context around ball
+        # Margin: how much space between ball and crop edge (in pixels)
+        ball_cam_config.setdefault("ball_cam_margin_px", 80.0)
+
+        # Vertical bias: where to put the ball inside the portrait frame
+        # 0.5 = dead center; 0.6 = slightly lower than center (more space above)
+        ball_cam_config.setdefault("ball_cam_vertical_pos", 0.60)
 
     portrait_w = getattr(args, "portrait_w", None)
     portrait_h = getattr(args, "portrait_h", None)
