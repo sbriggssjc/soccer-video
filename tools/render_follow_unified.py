@@ -1192,6 +1192,7 @@ def build_ball_cam_plan(
         cfg["ball_cam_mode"] = "raw_lock"
         cfg["ball_cam_vertical_pos"] = 0.55
         cfg["ball_cam_margin_px"] = 0.0
+        cfg["ball_debug_overlay"] = True
 
     min_coverage = float(cfg.get("min_coverage", 0.4))
 
