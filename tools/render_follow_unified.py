@@ -763,9 +763,12 @@ def build_ball_cam_plan(
     lead_frames = int(cfg.get("ball_cam_lead_frames", 5))
     base_alpha = float(cfg.get("ball_cam_base_alpha", 0.30))
     fast_alpha = float(cfg.get("ball_cam_fast_alpha", 0.80))
-    catchup_thresh_px = float(cfg.get("ball_cam_catchup_thresh_px", 40.0))
+    catchup_px = float(cfg.get("ball_cam_catchup_thresh_px", 40.0))
     margin = float(cfg.get("ball_cam_margin_px", 100.0))
-    max_pan_per_frame = float(cfg.get("ball_cam_max_pan_per_frame", 28.0))
+
+    speed_fast_px = float(cfg.get("ball_cam_speed_fast_px", 40.0))
+    max_pan_slow = float(cfg.get("ball_cam_max_pan_per_frame_slow", 24.0))
+    max_pan_fast = float(cfg.get("ball_cam_max_pan_per_frame_fast", 44.0))
 
     telemetry = _load_ball_cam_array(telemetry_path, num_frames)
     valid_mask = np.isfinite(telemetry[:, 0]) & np.isfinite(telemetry[:, 1]) & (
@@ -801,24 +804,46 @@ def build_ball_cam_plan(
     cx_prev = float(ball_cx_raw[0]) if N > 0 else 0.0
 
     for i in range(N):
+        # Look ahead a bit so we don't visually lag
         j = min(i + lead_frames, N - 1)
         desired = float(ball_cx_raw[j])
 
+        # Estimate ball speed (px / frame)
+        if i == 0:
+            ball_vel = 0.0
+        else:
+            ball_vel = float(ball_cx_raw[i] - ball_cx_raw[i - 1])
+        speed = abs(ball_vel)
+
+        # Map speed to [0, 1]
+        # 0   => standing still
+        # 1.0 => "fast" (>= speed_fast_px)
+        if speed_fast_px > 0:
+            speed_scale = min(1.0, speed / speed_fast_px)
+        else:
+            speed_scale = 0.0
+
+        # Dynamic alpha: slow follow when ball is slow, fast when ball sprints
+        alpha = base_alpha + speed_scale * (fast_alpha - base_alpha)
+
+        # If we're still far behind, force at least fast_alpha
         delta = desired - cx_prev
+        if abs(delta) > catchup_px:
+            alpha = max(alpha, fast_alpha)
 
-        alpha = base_alpha
-        if abs(delta) > catchup_thresh_px:
-            alpha = fast_alpha
-
+        # EMA step toward desired
         step = alpha * delta
 
-        if step > max_pan_per_frame:
-            step = max_pan_per_frame
-        elif step < -max_pan_per_frame:
-            step = -max_pan_per_frame
+        # Dynamic per-frame pan clamp based on speed
+        max_pan = max_pan_slow + speed_scale * (max_pan_fast - max_pan_slow)
+        if step > max_pan:
+            step = max_pan
+        elif step < -max_pan:
+            step = -max_pan
 
         cx = cx_prev + step
 
+        # Keep crop inside source frame, honoring margin
         cx = max(half_crop_w - margin, min(src_w - half_crop_w + margin, cx))
 
         cam_cx[i] = cx
@@ -867,15 +892,20 @@ def build_ball_cam_plan(
     }
 
     logger.info(
-        "[BALL-CAM] N=%d, cx_range=[%.1f, %.1f], lead_frames=%d, base_alpha=%.2f, fast_alpha=%.2f, catchup_thresh_px=%.1f, margin=%.1f, hard_lock=%s",
+        "[BALL-CAM] N=%d, cx_range=[%.1f, %.1f], lead_frames=%d, "
+        "base_alpha=%.2f, fast_alpha=%.2f, catchup_thresh_px=%.1f, margin=%.1f, "
+        "speed_fast_px=%.1f, max_pan_slow=%.1f, max_pan_fast=%.1f, hard_lock=%s",
         len(cam_cx_arr),
         float(np.nanmin(cam_cx_arr)) if cam_cx_arr.size else 0.0,
         float(np.nanmax(cam_cx_arr)) if cam_cx_arr.size else 0.0,
         lead_frames,
         base_alpha,
         fast_alpha,
-        catchup_thresh_px,
+        catchup_px,
         margin,
+        speed_fast_px,
+        max_pan_slow,
+        max_pan_fast,
         False,
     )
     logger.info("[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)", coverage_pct, inside, num_frames)
@@ -5405,8 +5435,11 @@ def run(
         ball_cam_config.setdefault("ball_cam_base_alpha", 0.30)
         ball_cam_config.setdefault("ball_cam_fast_alpha", 0.80)
         ball_cam_config.setdefault("ball_cam_catchup_thresh_px", 40.0)
-        ball_cam_config.setdefault("ball_cam_max_pan_per_frame", 28.0)
         ball_cam_config.setdefault("ball_cam_margin_px", 100.0)
+        # speed-aware tuning
+        ball_cam_config.setdefault("ball_cam_speed_fast_px", 40.0)
+        ball_cam_config.setdefault("ball_cam_max_pan_per_frame_slow", 24.0)
+        ball_cam_config.setdefault("ball_cam_max_pan_per_frame_fast", 44.0)
 
     portrait_w = getattr(args, "portrait_w", None)
     portrait_h = getattr(args, "portrait_h", None)
