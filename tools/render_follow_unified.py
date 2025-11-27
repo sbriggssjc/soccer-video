@@ -99,6 +99,55 @@ from tools.offline_portrait_planner import (
 from tools.upscale import upscale_video
 
 
+def load_ball_path_from_jsonl(path: str, logger=None):
+    """
+    Return (ball_x, ball_y) arrays from a planner/telemetry jsonl file.
+    Uses ball_src if present, else ball.
+    """
+
+    xs = []
+    ys = []
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+
+            bx = by = None
+
+            # Prefer ball_src (source-space)
+            if "ball_src" in row and isinstance(row["ball_src"], (list, tuple)) and len(row["ball_src"]) >= 2:
+                bx, by = row["ball_src"][:2]
+            # Fallback to ball if needed
+            elif "ball" in row and isinstance(row["ball"], (list, tuple)) and len(row["ball"]) >= 2:
+                bx, by = row["ball"][:2]
+
+            if bx is None:
+                continue
+
+            xs.append(float(bx))
+            ys.append(float(by))
+
+    if not xs:
+        raise RuntimeError(f"No usable ball_src/ball entries in {path}")
+
+    xs = np.asarray(xs, dtype=np.float32)
+    ys = np.asarray(ys, dtype=np.float32)
+
+    if logger:
+        logger.info(
+            "[BALL-TELEMETRY] ball_src_x=[%.1f, %.1f], ball_src_y=[%.1f, %.1f]",
+            float(xs.min()),
+            float(xs.max()),
+            float(ys.min()),
+            float(ys.max()),
+        )
+
+    return xs, ys
+
+
 def edge_zoom_out(
     cx,
     cy,
@@ -1251,15 +1300,27 @@ def build_ball_cam_plan(
     src_w = float(frame_width)
     src_h = float(frame_height)
 
-    ball_cx_values, ball_cy_values = load_ball_telemetry_jsonl(
-        telemetry_path, int(src_w), int(src_h), logger
-    )
+    ball_cx_values, ball_cy_values = load_ball_path_from_jsonl(telemetry_path, logger)
+
+    vpos = float(cfg.get("ball_cam_vertical_pos", 0.55))
+
     ball_cx_raw = np.full(num_frames, np.nan, dtype=float)
     ball_cy_raw = np.full(num_frames, np.nan, dtype=float)
     max_fill = min(num_frames, len(ball_cx_values), len(ball_cy_values))
     if max_fill > 0:
         ball_cx_raw[:max_fill] = ball_cx_values[:max_fill]
         ball_cy_raw[:max_fill] = ball_cy_values[:max_fill]
+
+    N = max_fill
+    logger.info(
+        "[BALL-CAM RAW] N=%d, ball_cx_range=[%.1f, %.1f], ball_cy_range=[%.1f, %.1f], vpos=%.2f",
+        N,
+        float(np.nanmin(ball_cx_raw[:N])) if N else float("nan"),
+        float(np.nanmax(ball_cx_raw[:N])) if N else float("nan"),
+        float(np.nanmin(ball_cy_raw[:N])) if N else float("nan"),
+        float(np.nanmax(ball_cy_raw[:N])) if N else float("nan"),
+        vpos,
+    )
 
     valid_mask = np.isfinite(ball_cx_raw) & np.isfinite(ball_cy_raw)
     coverage = float(np.mean(valid_mask)) if num_frames > 0 else 0.0
