@@ -1365,8 +1365,46 @@ def build_ball_cam_plan(
     cam_cx: List[float] = []
     cam_cy: List[float] = []
     mode = cfg.get("ball_cam_mode", "strict_lock")
+    override_crop_x: np.ndarray | None = None
+    override_crop_y: np.ndarray | None = None
 
-    if mode == "raw_lock":
+    if mode == "perfect_follow":
+        # Optional smoothing to remove tiny jitter
+        window = int(cfg.get("ball_cam_smooth_window", 5))
+        if window > 1:
+            k = np.ones(window, dtype=np.float32) / float(window)
+            ball_cx = np.convolve(ball_cx_raw, k, mode="same")
+        else:
+            ball_cx = ball_cx_raw.copy()
+
+        ball_cy = ball_cy_raw.copy()
+
+        # Vertical location: use a single fixed target line (e.g. 55% of frame height)
+        vpos = float(cfg.get("ball_cam_vertical_pos", 0.55))
+        target_cy = vpos * src_h
+
+        # For this test: follow only horizontally; keep vertical fixed
+        cam_cx_arr = ball_cx.copy()
+        cam_cy_arr = np.full_like(cam_cx_arr, target_cy)
+
+        # Compute crop_x, crop_y for each frame
+        half_w = crop_w / 2.0
+        half_h = crop_h / 2.0
+
+        crop_x = cam_cx_arr - half_w
+        crop_y = cam_cy_arr - half_h
+
+        # Clamp to source bounds
+        crop_x = np.clip(crop_x, 0, src_w - crop_w)
+        crop_y = np.clip(crop_y, 0, src_h - crop_h)
+
+        override_crop_x = crop_x.astype(float)
+        override_crop_y = crop_y.astype(float)
+
+        cam_cx = (crop_x + half_w).tolist()
+        cam_cy = (crop_y + half_h).tolist()
+
+    elif mode == "raw_lock":
         cam_cx, cam_cy = compute_ball_lock_raw(
             ball_cx_raw=ball_cx_list,
             ball_cy_raw=ball_cy_list,
@@ -1428,8 +1466,12 @@ def build_ball_cam_plan(
     crop_w_arr = np.full(num_frames, float(crop_w), dtype=float)
     crop_h_arr = np.full(num_frames, float(crop_h), dtype=float)
 
-    x0 = np.clip(cam_cx_arr - (crop_w_arr / 2.0), 0.0, float(frame_width) - crop_w_arr)
-    y0 = np.clip(cam_cy_arr - (crop_h_arr / 2.0), 0.0, float(frame_height) - crop_h_arr)
+    if override_crop_x is not None and override_crop_y is not None:
+        x0 = override_crop_x
+        y0 = override_crop_y
+    else:
+        x0 = np.clip(cam_cx_arr - (crop_w_arr / 2.0), 0.0, float(frame_width) - crop_w_arr)
+        y0 = np.clip(cam_cy_arr - (crop_h_arr / 2.0), 0.0, float(frame_height) - crop_h_arr)
 
     cam_cx_arr = x0 + (crop_w_arr / 2.0)
     cam_cy_arr = y0 + (crop_h_arr / 2.0)
