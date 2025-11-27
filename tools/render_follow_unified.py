@@ -4098,9 +4098,9 @@ class Renderer:
         portrait_crop_w = None
         portrait_crop_h = None
         if is_portrait:
-            portrait_crop_h = float(height)
-            portrait_crop_w = float(int(round(height * 9.0 / 16.0)))
-            portrait_crop_w = max(1.0, min(portrait_crop_w, float(width)))
+            portrait_crop_h = float(src_h)
+            portrait_crop_w = float(int(round(src_h * 9.0 / 16.0)))
+            portrait_crop_w = max(1.0, min(portrait_crop_w, float(src_w)))
 
         offline_ball_path = self.offline_ball_path
 
