@@ -47,7 +47,6 @@ def main():
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[BALL-FOLLOW] clip size: {src_w}x{src_h}, fps={fps:.3f}")
 
-    # Sanity check: we expect 16:9 landscape
     if src_w <= 0 or src_h <= 0:
         raise SystemExit("Invalid source dimensions from video")
 
@@ -67,6 +66,9 @@ def main():
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     writer = cv2.VideoWriter(out_path, fourcc, fps, (out_w, out_h))
 
+    if not writer.isOpened():
+        raise SystemExit(f"Failed to open VideoWriter for output: {out_path}")
+
     half_w = out_w // 2
     frame_idx = 0
 
@@ -75,7 +77,6 @@ def main():
         if not ret:
             break
         if frame_idx >= len(rows):
-            # Stop if telemetry is shorter than video
             break
 
         row = rows[frame_idx]
@@ -83,7 +84,6 @@ def main():
         # Ball in source coords
         ball_src = row.get("ball_src") or row.get("ball")
         if not ball_src:
-            # No ball this frame; just center crop
             bx_src = src_w / 2.0
         else:
             bx_src, _ = ball_src
@@ -91,22 +91,31 @@ def main():
         # Scale ball x to the scaled frame
         bx_scaled = bx_src * scale
 
-        # Clamp center_x so crop stays within [0, scaled_w]
-        center_x = max(half_w, min(scaled_w - half_w, bx_scaled))
-        x0 = int(round(center_x - half_w))
-        x1 = x0 + out_w
-
         # --- Resize frame to scaled size (scaled_w x out_h) ---
         frame_scaled = cv2.resize(frame, (scaled_w, out_h), interpolation=cv2.INTER_LINEAR)
+
+        # Clamp center_x so crop stays within [0, scaled_w]
+        center_x = max(half_w, min(scaled_w - half_w, bx_scaled))
+
+        # Convert to integer crop bounds with extra clamping
+        x0 = int(round(center_x - half_w))
+        # Make absolutely sure we don't go out of bounds due to rounding
+        x0 = max(0, min(x0, scaled_w - out_w))
+        x1 = x0 + out_w
 
         # --- Crop horizontal window following the ball ---
         crop = frame_scaled[:, x0:x1]
 
+        # Safety: enforce exact size for the writer
+        if crop.shape[1] != out_w or crop.shape[0] != out_h:
+            print(f"[WARN] Bad crop shape {crop.shape}, fixing via resize")
+            crop = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+
         if args.debug_overlay:
             # Draw ball dot in portrait space for debugging
             bx_portrait = bx_scaled - x0
-            by_portrait = out_h * 0.55  # roughly 55% down the frame
-            cv2.circle(crop, (int(bx_portrait), int(by_portrait)), 10, (0, 0, 255), -1)
+            by_portrait = int(out_h * 0.55)  # roughly 55% down the frame
+            cv2.circle(crop, (int(bx_portrait), by_portrait), 10, (0, 0, 255), -1)
             # vertical center line
             cv2.line(crop, (half_w, 0), (half_w, out_h), (0, 255, 0), 1)
             # frame index text
