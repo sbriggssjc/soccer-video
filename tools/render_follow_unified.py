@@ -1187,8 +1187,8 @@ def write_ball_crop_debug_clip(
     out_path: str,
     ball_cx: list[float],
     ball_cy: list[float],
-    cam_cx: list[float],
-    cam_cy: list[float],
+    crop_x: list[float],
+    crop_y: list[float],
     src_w: int,
     src_h: int,
     crop_w: int,
@@ -1216,9 +1216,7 @@ def write_ball_crop_debug_clip(
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(out_path, fourcc, fps, (src_w, src_h))
 
-    N = len(ball_cx)
-    half_w = crop_w / 2.0
-    half_h = crop_h / 2.0
+    N = min(len(ball_cx), len(crop_x), len(crop_y))
 
     frame_idx = 0
     while True:
@@ -1231,12 +1229,8 @@ def write_ball_crop_debug_clip(
         bx = float(ball_cx[frame_idx])
         by = float(ball_cy[frame_idx])
 
-        cx = float(cam_cx[frame_idx])
-        cy = float(cam_cy[frame_idx])
-
-        # Clamp crop to valid area – MUST match the render path
-        crop_x = max(0.0, min(src_w - crop_w, cx - half_w))
-        crop_y = max(0.0, min(src_h - crop_h, cy - half_h))
+        x0 = float(crop_x[frame_idx])
+        y0 = float(crop_y[frame_idx])
 
         # Draw ball position (cyan-ish)
         cv2.circle(
@@ -1249,10 +1243,10 @@ def write_ball_crop_debug_clip(
         )
 
         # Draw crop rect (green)
-        x0 = int(round(crop_x))
-        y0 = int(round(crop_y))
-        x1 = int(round(crop_x + crop_w))
-        y1 = int(round(crop_y + crop_h))
+        x0 = int(round(x0))
+        y0 = int(round(y0))
+        x1 = int(round(x0 + crop_w))
+        y1 = int(round(y0 + crop_h))
         cv2.rectangle(
             frame,
             (x0, y0),
@@ -1562,8 +1556,8 @@ def build_ball_cam_plan(
             out_path=debug_out,
             ball_cx=ball_cx_list,
             ball_cy=ball_cy_list,
-            cam_cx=cam_cx,
-            cam_cy=cam_cy,
+            crop_x=x0.tolist(),
+            crop_y=y0.tolist(),
             src_w=int(src_w),
             src_h=int(src_h),
             crop_w=int(crop_w),
