@@ -24,7 +24,7 @@ def main():
     ap.add_argument("--out", required=True, help="Output portrait mp4")
     ap.add_argument("--width", type=int, default=1080, help="Output width (portrait, default 1080)")
     ap.add_argument("--height", type=int, default=1920, help="Output height (portrait, default 1920)")
-    ap.add_argument("--debug-overlay", action="store_true", help="Draw ball dot & crop box on output")
+    ap.add_argument("--debug-overlay", action="store_true", help="Draw ball dot & guide line on output")
     args = ap.parse_args()
 
     clip_path = args.clip
@@ -42,7 +42,10 @@ def main():
     if not cap.isOpened():
         raise SystemExit(f"Could not open video: {clip_path}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 1e-3:
+        fps = 24.0
+
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[BALL-FOLLOW] clip size: {src_w}x{src_h}, fps={fps:.3f}")
@@ -51,7 +54,7 @@ def main():
         raise SystemExit("Invalid source dimensions from video")
 
     # --- Compute scale to make height = out_h ---
-    scale = out_h / src_h
+    scale = out_h / float(src_h)
     scaled_w = int(round(src_w * scale))
     print(f"[BALL-FOLLOW] scale={scale:.4f}, scaled size={scaled_w}x{out_h}")
 
@@ -68,6 +71,7 @@ def main():
 
     if not writer.isOpened():
         raise SystemExit(f"Failed to open VideoWriter for output: {out_path}")
+    print(f"[BALL-FOLLOW] VideoWriter opened with size=({out_w}x{out_h}), fps={fps:.3f}")
 
     half_w = out_w // 2
     frame_idx = 0
@@ -99,22 +103,36 @@ def main():
 
         # Convert to integer crop bounds with extra clamping
         x0 = int(round(center_x - half_w))
-        # Make absolutely sure we don't go out of bounds due to rounding
         x0 = max(0, min(x0, scaled_w - out_w))
         x1 = x0 + out_w
 
         # --- Crop horizontal window following the ball ---
         crop = frame_scaled[:, x0:x1]
 
-        # Safety: enforce exact size for the writer
-        if crop.shape[1] != out_w or crop.shape[0] != out_h:
-            print(f"[WARN] Bad crop shape {crop.shape}, fixing via resize")
+        # Safety: if width/height off for any reason, force-resize
+        if crop is None or crop.size == 0:
+            print(f"[WARN] Empty crop at frame {frame_idx}: x0={x0}, x1={x1}, crop={None if crop is None else crop.shape}")
+            frame_idx += 1
+            continue
+
+        ch, cw = crop.shape[:2]
+        if (cw != out_w) or (ch != out_h):
+            print(f"[WARN] Bad crop shape at frame {frame_idx}: {crop.shape}, resizing to ({out_w},{out_h})")
             crop = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
 
+        # Ensure 3-channel uint8
+        if crop.ndim == 2:  # grayscale
+            crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+        elif crop.shape[2] == 4:  # BGRA -> BGR
+            crop = cv2.cvtColor(crop, cv2.COLOR_BGRA2BGR)
+
+        crop = crop.astype("uint8")
+
         if args.debug_overlay:
-            # Draw ball dot in portrait space for debugging
+            # Draw ball dot in portrait space
             bx_portrait = bx_scaled - x0
             by_portrait = int(out_h * 0.55)  # roughly 55% down the frame
+
             cv2.circle(crop, (int(bx_portrait), by_portrait), 10, (0, 0, 255), -1)
             # vertical center line
             cv2.line(crop, (half_w, 0), (half_w, out_h), (0, 255, 0), 1)
@@ -130,7 +148,17 @@ def main():
                 cv2.LINE_AA,
             )
 
-        writer.write(crop)
+        # Log what we're about to feed the writer
+        if frame_idx < 5 or frame_idx % 50 == 0:
+            print(f"[DEBUG] frame={frame_idx}, crop.shape={crop.shape}, dtype={crop.dtype}")
+
+        try:
+            writer.write(crop)
+        except cv2.error as e:
+            print(f"[ERROR] writer.write failed at frame {frame_idx}")
+            print(f"        crop.shape={crop.shape}, dtype={crop.dtype}")
+            raise e
+
         frame_idx += 1
 
     cap.release()
