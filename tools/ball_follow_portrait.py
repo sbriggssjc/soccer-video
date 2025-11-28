@@ -142,30 +142,30 @@ def main():
             h, w = crop.shape[:2]
 
         if args.debug_overlay:
-            # Ball position in portrait-crop coordinates
-            bx_portrait = bx_scaled - float(x0)
-            by_portrait = by_scaled
+            h, w = crop.shape[:2]
 
-            bx_portrait = int(round(max(0.0, min(float(out_w - 1), bx_portrait))))
-            by_portrait = int(round(max(0.0, min(float(out_h - 1), by_portrait))))
+            # Ball position *in the scaled frame* -> convert to crop-local coords
+            bx_local = int(round(bx_scaled - x0))
+            by_local = int(round(by_scaled))
 
-            # Red dot at ball
-            cv2.circle(crop, (bx_portrait, by_portrait), 10, (0, 0, 255), -1)
-
-            # Vertical center line (target follow center)
-            cv2.line(crop, (half_w, 0), (half_w, out_h), (0, 255, 0), 1)
-
-            # Frame index text
-            cv2.putText(
+            # Draw the crop border just so we can see the window
+            cv2.rectangle(
                 crop,
-                f"f={frame_idx}",
-                (20, 60),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.5,
-                (255, 255, 255),
-                3,
-                cv2.LINE_AA,
+                (0, 0),
+                (w - 1, h - 1),
+                (0, 255, 0),
+                2,
             )
+
+            # Only draw the dot if it's actually inside the crop
+            if 0 <= bx_local < w and 0 <= by_local < h:
+                cv2.circle(
+                    crop,
+                    (bx_local, by_local),
+                    10,
+                    (0, 0, 255),
+                    2,
+                )
 
         if frame_idx in (0, 1, 2, 3, 4, 50, 100, 150, 200, 250, 300):
             print(
