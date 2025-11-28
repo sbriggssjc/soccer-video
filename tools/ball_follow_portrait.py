@@ -1,6 +1,7 @@
-import cv2
-import json
+#!/usr/bin/env python
 import argparse
+import json
+import cv2
 import os
 
 
@@ -11,141 +12,133 @@ def load_telemetry(path):
             line = line.strip()
             if not line:
                 continue
-            rows.append(json.loads(line))
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
     if not rows:
-        raise SystemExit(f"No telemetry rows found in {path}")
+        raise RuntimeError(f"No telemetry rows found in {path}")
+    print(f"[BALL-FOLLOW] Loaded {len(rows)} telemetry rows")
     return rows
 
 
+def get_ball_xy(row):
+    """
+    Prefer ball_src (explicit source coords), fall back to ball, then ball_out.
+    All are expected to be [x, y] in source space (1920x1080).
+    """
+    for key in ("ball_src", "ball", "ball_out"):
+        v = row.get(key)
+        if (
+            isinstance(v, (list, tuple))
+            and len(v) == 2
+            and all(isinstance(c, (int, float)) for c in v)
+        ):
+            return float(v[0]), float(v[1])
+    return None
+
+
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--clip", required=True, help="Path to source atomic clip (landscape 1920x1080)")
-    ap.add_argument("--telemetry", required=True, help="Path to .ball.jsonl")
-    ap.add_argument("--out", required=True, help="Output portrait mp4")
-    ap.add_argument("--width", type=int, default=1080, help="Output width (portrait, default 1080)")
-    ap.add_argument("--height", type=int, default=1920, help="Output height (portrait, default 1920)")
-    ap.add_argument("--debug-overlay", action="store_true", help="Draw ball dot & guide line on output")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Simple portrait follow using ball telemetry.")
+    parser.add_argument("--clip", required=True, help="Source clip (landscape, e.g. 1920x1080)")
+    parser.add_argument("--telemetry", required=True, help="Telemetry .jsonl with ball positions")
+    parser.add_argument("--out", required=True, help="Output portrait mp4 path")
+    parser.add_argument("--width", type=int, default=1080, help="Portrait width (e.g. 1080)")
+    parser.add_argument("--height", type=int, default=1920, help="Portrait height (e.g. 1920)")
+    parser.add_argument("--debug-overlay", action="store_true", help="Draw ball dot / center line")
+    args = parser.parse_args()
 
-    clip_path = args.clip
-    tele_path = args.telemetry
-    out_path = args.out
-    out_w = args.width
-    out_h = args.height
+    tele_rows = load_telemetry(args.telemetry)
 
-    # --- Load telemetry ---
-    rows = load_telemetry(tele_path)
-    print(f"[BALL-FOLLOW] Loaded {len(rows)} telemetry rows")
-
-    # --- Open video ---
-    cap = cv2.VideoCapture(clip_path)
+    cap = cv2.VideoCapture(args.clip)
     if not cap.isOpened():
-        raise SystemExit(f"Could not open video: {clip_path}")
+        raise RuntimeError(f"Failed to open video: {args.clip}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if not fps or fps <= 1e-3:
-        fps = 24.0
-
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[BALL-FOLLOW] clip size: {src_w}x{src_h}, fps={fps:.3f}")
 
-    if src_w <= 0 or src_h <= 0:
-        raise SystemExit("Invalid source dimensions from video")
+    out_w = args.width
+    out_h = args.height
 
-    # --- Compute scale to make height = out_h ---
+    # Scale so that the source height becomes out_h (1920 for portrait)
     scale = out_h / float(src_h)
     scaled_w = int(round(src_w * scale))
-    print(f"[BALL-FOLLOW] scale={scale:.4f}, scaled size={scaled_w}x{out_h}")
+    scaled_h = out_h
+    print(f"[BALL-FOLLOW] scale={scale:.4f}, scaled size={scaled_w}x{scaled_h}")
 
-    if scaled_w < out_w:
-        raise SystemExit(
-            f"Scaled width ({scaled_w}) < out_w ({out_w}); "
-            "this script assumes landscape->portrait via scale-up then horizontal crop."
-        )
-
-    # --- Setup writer ---
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    writer = cv2.VideoWriter(out_path, fourcc, fps, (out_w, out_h))
-
+    writer = cv2.VideoWriter(args.out, fourcc, fps, (out_w, out_h))
     if not writer.isOpened():
-        raise SystemExit(f"Failed to open VideoWriter for output: {out_path}")
+        raise RuntimeError(f"Failed to open VideoWriter for: {args.out}")
     print(f"[BALL-FOLLOW] VideoWriter opened with size=({out_w}x{out_h}), fps={fps:.3f}")
 
     half_w = out_w // 2
-    frame_idx = 0
+    max_x0 = max(0, scaled_w - out_w)
 
+    frame_idx = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        if frame_idx >= len(rows):
-            break
 
-        row = rows[frame_idx]
+        # Resize to scaled frame (landscape, same height as portrait)
+        scaled = cv2.resize(frame, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
 
-        # Ball in source coords
-        ball_src = row.get("ball_src") or row.get("ball")
-        if not ball_src:
-            bx_src = src_w / 2.0
+        # Get telemetry row (clamp at end if telemetry shorter)
+        tel_idx = min(frame_idx, len(tele_rows) - 1)
+        row = tele_rows[tel_idx]
+        ball_xy = get_ball_xy(row)
+
+        if ball_xy is not None:
+            bx_src, by_src = ball_xy
+            # Scale to match scaled frame
+            bx_scaled = bx_src * scale
+            by_scaled = by_src * scale
+
+            # Clamp into scaled frame
+            bx_scaled = max(0.0, min(float(scaled_w - 1), bx_scaled))
+            by_scaled = max(0.0, min(float(scaled_h - 1), by_scaled))
+
+            # Center crop on ball horizontally, but keep within bounds
+            cx = bx_scaled
+            cx = max(float(half_w), min(float(scaled_w - half_w), cx))
+            x0 = int(round(cx - half_w))
         else:
-            bx_src, _ = ball_src
+            # No ball info: default to center crop of scaled frame
+            bx_scaled = float(scaled_w) / 2.0
+            by_scaled = float(scaled_h) / 2.0
+            x0 = (scaled_w - out_w) // 2
 
-        # Scale ball x to the scaled frame
-        bx_scaled = bx_src * scale
+        # Safety clamp for x0
+        if x0 < 0:
+            x0 = 0
+        elif x0 > max_x0:
+            x0 = max_x0
 
-        # --- Resize frame to scaled size (scaled_w x out_h) ---
-        frame_scaled = cv2.resize(frame, (scaled_w, out_h), interpolation=cv2.INTER_LINEAR)
-
-        # Clamp center_x so crop stays within [0, scaled_w]
-        center_x = max(half_w, min(scaled_w - half_w, bx_scaled))
-
-        # Convert to integer crop bounds with extra clamping
-        x0 = int(round(center_x - half_w))
-        x0 = max(0, min(x0, scaled_w - out_w))
         x1 = x0 + out_w
+        if x1 > scaled_w:
+            x1 = scaled_w
+            x0 = x1 - out_w
 
-        # --- Crop horizontal window following the ball ---
-        crop = frame_scaled[:, x0:x1]
-
-        # Safety: if width/height off for any reason, force-resize
-        if crop is None or crop.size == 0:
-            print(f"[WARN] Empty crop at frame {frame_idx}: x0={x0}, x1={x1}, crop={None if crop is None else crop.shape}")
-            frame_idx += 1
-            continue
-
-        ch, cw = crop.shape[:2]
-        if (cw != out_w) or (ch != out_h):
-            print(f"[WARN] Bad crop shape at frame {frame_idx}: {crop.shape}, resizing to ({out_w},{out_h})")
+        crop = scaled[:, x0:x1, :]
+        if crop.shape[0] != out_h or crop.shape[1] != out_w:
+            # Last-ditch: resize crop if numerical drift happens
             crop = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
 
-        # Ensure 3-channel uint8
-        if crop.ndim == 2:  # grayscale
-            crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
-        elif crop.shape[2] == 4:  # BGRA -> BGR
-            crop = cv2.cvtColor(crop, cv2.COLOR_BGRA2BGR)
-
-        crop = crop.astype("uint8")
-
         if args.debug_overlay:
-            # Draw ball dot in portrait space using TRUE (x, y) from telemetry
-            if ball_src:
-                _, by_src = ball_src
-                by_scaled = by_src * scale          # match the frame scale (scaled_h = out_h)
-                by_portrait = int(round(by_scaled))  # same vertical coords in portrait
-                by_portrait = max(0, min(out_h - 1, by_portrait))
-            else:
-                by_portrait = int(out_h * 0.55)
+            # Ball position in portrait-crop coordinates
+            bx_portrait = bx_scaled - float(x0)
+            by_portrait = by_scaled
 
-            bx_portrait = bx_scaled - x0
-            bx_portrait = int(round(bx_portrait))
-            bx_portrait = max(0, min(out_w - 1, bx_portrait))
+            bx_portrait = int(round(max(0.0, min(float(out_w - 1), bx_portrait))))
+            by_portrait = int(round(max(0.0, min(float(out_h - 1), by_portrait))))
 
-            # Red dot at the actual ball position in the portrait crop
+            # Red dot at ball
             cv2.circle(crop, (bx_portrait, by_portrait), 10, (0, 0, 255), -1)
 
-            # Vertical center line (where the crop is trying to keep the ball horizontally)
+            # Vertical center line (target follow center)
             cv2.line(crop, (half_w, 0), (half_w, out_h), (0, 255, 0), 1)
 
             # Frame index text
@@ -160,22 +153,18 @@ def main():
                 cv2.LINE_AA,
             )
 
-        # Log what we're about to feed the writer
-        if frame_idx < 5 or frame_idx % 50 == 0:
-            print(f"[DEBUG] frame={frame_idx}, crop.shape={crop.shape}, dtype={crop.dtype}")
+        if frame_idx in (0, 1, 2, 3, 4, 50, 100, 150, 200, 250, 300):
+            print(
+                f"[DEBUG] frame={frame_idx}, x0={x0}, "
+                f"bx_scaled={bx_scaled:.1f}, by_scaled={by_scaled:.1f}"
+            )
 
-        try:
-            writer.write(crop)
-        except cv2.error as e:
-            print(f"[ERROR] writer.write failed at frame {frame_idx}")
-            print(f"        crop.shape={crop.shape}, dtype={crop.dtype}")
-            raise e
-
+        writer.write(crop)
         frame_idx += 1
 
     cap.release()
     writer.release()
-    print(f"[BALL-FOLLOW] Wrote portrait follow clip to: {out_path}")
+    print(f"[BALL-FOLLOW] Wrote portrait follow clip to: {args.out}")
 
 
 if __name__ == "__main__":
