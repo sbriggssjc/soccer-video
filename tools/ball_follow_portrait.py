@@ -122,10 +122,23 @@ def main():
             x1 = scaled_w
             x0 = x1 - out_w
 
+        # Extract crop from scaled frame
         crop = scaled[:, x0:x1, :]
-        if crop.shape[0] != out_h or crop.shape[1] != out_w:
-            # Last-ditch: resize crop if numerical drift happens
+
+        # Guard against empty / weird crops
+        if crop is None or crop.size == 0:
+            print(f"[ERROR] Empty crop at frame {frame_idx}, x0={x0}, x1={x1}, scaled_w={scaled_w}")
+            break
+
+        # Enforce exact size (out_h, out_w) before writing
+        h, w = crop.shape[:2]
+        if h != out_h or w != out_w:
+            print(
+                f"[WARN] Resizing crop at frame {frame_idx}: "
+                f"got {w}x{h}, expected {out_w}x{out_h}"
+            )
             crop = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+            h, w = crop.shape[:2]
 
         if args.debug_overlay:
             # Ball position in portrait-crop coordinates
@@ -155,9 +168,13 @@ def main():
 
         if frame_idx in (0, 1, 2, 3, 4, 50, 100, 150, 200, 250, 300):
             print(
-                f"[DEBUG] frame={frame_idx}, x0={x0}, "
+                f"[DEBUG] frame={frame_idx}, x0={x0}, x1={x1}, "
+                f"crop_shape={crop.shape}, "
                 f"bx_scaled={bx_scaled:.1f}, by_scaled={by_scaled:.1f}"
             )
+
+        # Final safety: ensure contiguous uint8 for OpenCV
+        crop = cv2.cvtColor(crop, cv2.COLOR_BGR2BGR)
 
         writer.write(crop)
         frame_idx += 1
