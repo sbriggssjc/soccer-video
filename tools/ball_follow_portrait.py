@@ -3,6 +3,7 @@ import argparse
 import json
 import cv2
 import os
+import numpy as np
 
 
 def load_telemetry(path):
@@ -174,7 +175,7 @@ def main():
             )
 
         # Final safety: ensure contiguous uint8 for OpenCV
-        crop = cv2.cvtColor(crop, cv2.COLOR_BGR2BGR)
+        crop = np.ascontiguousarray(crop, dtype=np.uint8)
 
         writer.write(crop)
         frame_idx += 1
