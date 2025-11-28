@@ -129,14 +129,26 @@ def main():
         crop = crop.astype("uint8")
 
         if args.debug_overlay:
-            # Draw ball dot in portrait space
-            bx_portrait = bx_scaled - x0
-            by_portrait = int(out_h * 0.55)  # roughly 55% down the frame
+            # Draw ball dot in portrait space using TRUE (x, y) from telemetry
+            if ball_src:
+                _, by_src = ball_src
+                by_scaled = by_src * scale          # match the frame scale (scaled_h = out_h)
+                by_portrait = int(round(by_scaled))  # same vertical coords in portrait
+                by_portrait = max(0, min(out_h - 1, by_portrait))
+            else:
+                by_portrait = int(out_h * 0.55)
 
-            cv2.circle(crop, (int(bx_portrait), by_portrait), 10, (0, 0, 255), -1)
-            # vertical center line
+            bx_portrait = bx_scaled - x0
+            bx_portrait = int(round(bx_portrait))
+            bx_portrait = max(0, min(out_w - 1, bx_portrait))
+
+            # Red dot at the actual ball position in the portrait crop
+            cv2.circle(crop, (bx_portrait, by_portrait), 10, (0, 0, 255), -1)
+
+            # Vertical center line (where the crop is trying to keep the ball horizontally)
             cv2.line(crop, (half_w, 0), (half_w, out_h), (0, 255, 0), 1)
-            # frame index text
+
+            # Frame index text
             cv2.putText(
                 crop,
                 f"f={frame_idx}",
