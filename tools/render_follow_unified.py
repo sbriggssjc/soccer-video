@@ -99,6 +99,10 @@ from tools.offline_portrait_planner import (
 )
 from tools.upscale import upscale_video
 
+# Confidence thresholds for telemetry-driven selection
+BALL_CONF_THRESH = 0.5
+PLAYER_CONF_THRESH = 0.5
+
 
 def load_ball_path_from_jsonl(path: str, logger=None):
     """
@@ -112,6 +116,7 @@ def load_ball_path_from_jsonl(path: str, logger=None):
     ys: list[float] = []
     confs: list[float] = []
     total_rows = kept_rows = 0
+    high_conf_valid_frames = 0
 
     def _point(row: dict, prefix: str) -> tuple[float, float] | None:
         x_key = f"{prefix}_x"
@@ -126,6 +131,37 @@ def load_ball_path_from_jsonl(path: str, logger=None):
                 return x_val, y_val
         return None
 
+    def _as_float(val: object) -> float | None:
+        try:
+            f_val = float(val)
+        except (TypeError, ValueError):
+            return None
+        return f_val if math.isfinite(f_val) else None
+
+    def _cluster_point(row: Mapping[str, object]) -> tuple[float, float] | None:
+        # We expect action-cluster centroids to appear under a handful of common
+        # names. Be permissive so slightly different exporters still map.
+        for x_key, y_key in (
+            ("cx", "cy"),
+            ("action_cx", "action_cy"),
+            ("action_x", "action_y"),
+            ("center_x", "center_y"),
+            ("cluster_x", "cluster_y"),
+        ):
+            if x_key in row and y_key in row:
+                try:
+                    x_val = float(row[x_key])
+                    y_val = float(row[y_key])
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(x_val) and math.isfinite(y_val):
+                    return x_val, y_val
+        for fallback_key in ("action", "center", "cluster"):
+            pt = _point(row, fallback_key)
+            if pt is not None:
+                return pt
+        return None
+
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -133,30 +169,27 @@ def load_ball_path_from_jsonl(path: str, logger=None):
                 continue
             total_rows += 1
             row = json.loads(line)
-            if isinstance(row.get("is_valid"), bool) and not row["is_valid"]:
-                continue
-
             source = str(row.get("source") or "").lower()
+            is_valid = bool(row.get("is_valid", True))
             ball_pt = _point(row, "ball")
             carrier_pt = _point(row, "carrier")
-            ball_conf = row.get("ball_conf")
-            carrier_conf = row.get("carrier_conf")
-
-            if source == "ball":
-                candidates = ((ball_pt, ball_conf), (carrier_pt, carrier_conf))
-            elif source == "carrier":
-                candidates = ((carrier_pt, carrier_conf), (ball_pt, ball_conf))
-            else:
-                candidates = ((ball_pt, ball_conf), (carrier_pt, carrier_conf))
+            ball_conf = _as_float(row.get("ball_conf"))
+            carrier_conf = _as_float(row.get("carrier_conf"))
 
             chosen: tuple[float, float] | None = None
-            chosen_conf = None
-            for pt, conf_val in candidates:
-                if pt is None:
-                    continue
-                chosen = pt
-                chosen_conf = conf_val
-                break
+            chosen_conf: float | None = None
+
+            if is_valid and ball_conf is not None and ball_conf >= BALL_CONF_THRESH and ball_pt is not None:
+                chosen = ball_pt
+                chosen_conf = ball_conf
+                high_conf_valid_frames += 1
+            elif carrier_conf is not None and carrier_conf >= PLAYER_CONF_THRESH and carrier_pt is not None:
+                chosen = carrier_pt
+                chosen_conf = carrier_conf
+            elif source == "players":
+                cluster_pt = _cluster_point(row)
+                if cluster_pt is not None:
+                    chosen = cluster_pt
 
             if chosen is None:
                 if "ball_src" in row and isinstance(row["ball_src"], (list, tuple)) and len(row["ball_src"]) >= 2:
@@ -183,6 +216,7 @@ def load_ball_path_from_jsonl(path: str, logger=None):
         "total_rows": total_rows,
         "kept_rows": kept_rows,
         "avg_conf": float(np.mean(confs)) if confs else 1.0,
+        "telemetry_quality": float(high_conf_valid_frames) / float(total_rows) if total_rows else 0.0,
     }
 
     if logger:
@@ -1376,6 +1410,7 @@ def build_ball_cam_plan(
         "telemetry_rows": int(telemetry_meta.get("total_rows", 0)),
         "telemetry_kept": int(telemetry_meta.get("kept_rows", 0)),
         "telemetry_conf": float(telemetry_meta.get("avg_conf", 1.0)),
+        "telemetry_quality": float(telemetry_meta.get("telemetry_quality", coverage)),
     }
     min_conf = float(cfg.get("min_confidence", 0.0))
     if coverage < min_coverage or stats["telemetry_conf"] < min_conf:
@@ -6523,7 +6558,6 @@ def run(
             )
             telemetry_coverage_ratio = float(ball_cam_stats.get("coverage", 0.0))
             telemetry_coverage = int(round(telemetry_coverage_ratio * total_frames))
-
             if plan_data is None:
                 use_ball_telemetry = False
                 keep_path_lookup_data = {}
@@ -6543,18 +6577,29 @@ def run(
                 ball_in_crop_pct = ball_cam_stats.get("ball_in_crop_pct")
                 ball_in_crop_frames = int(ball_cam_stats.get("ball_in_crop_frames", 0))
                 telemetry_conf = float(ball_cam_stats.get("telemetry_conf", 1.0))
+                telemetry_quality = float(ball_cam_stats.get("telemetry_quality", 1.0))
                 cx_range = (float(np.nanmin(plan_data.get("cx", np.array([0.0])))), float(np.nanmax(plan_data.get("cx", np.array([0.0])))))
                 logger.info(
-                    "[BALL-CAM] coverage: %.1f%% (conf=%.2f), path: %d frames, cx range=[%.1f, %.1f], jerk95_raw=%.1f, jerk95_cam=%.1f px/s^3",
+                    "[BALL-CAM] coverage: %.1f%% (conf=%.2f, quality=%.2f), path: %d frames, cx range=[%.1f, %.1f], jerk95_raw=%.1f, jerk95_cam=%.1f px/s^3",
                     telemetry_coverage_ratio * 100.0,
                     telemetry_conf,
+                    telemetry_quality,
                     len(plan_data.get("cx", [])),
                     cx_range[0],
                     cx_range[1],
                     jerk_raw,
                     jerk_stat,
                 )
-                if ball_in_crop_pct is not None:
+                if telemetry_quality < 0.6:
+                    logger.warning("Telemetry too weak, falling back to jerk-follow")
+                    use_ball_telemetry = False
+                    keep_path_lookup_data = {}
+                    plan_override_data = None
+                    plan_override_len = 0
+                    ball_samples = []
+                    plan_data = None
+                    ball_in_crop_pct = None
+                if ball_in_crop_pct is not None and plan_data is not None:
                     logger.info(
                         "[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)",
                         ball_in_crop_pct,
@@ -6641,7 +6686,7 @@ def run(
             ball_key_x=str(getattr(args, "ball_key_x", "bx_stab")),
             ball_key_y=str(getattr(args, "ball_key_y", "by_stab")),
         )
-    elif ball_samples:
+    elif use_ball_telemetry and ball_samples:
         max_frame_idx = max((int(s.frame) for s in ball_samples if isinstance(s.frame, int)), default=0)
         total_frames = max(len(states), frame_count, max_frame_idx + 1)
         path: list[Optional[dict[str, float]]] = [None] * total_frames
