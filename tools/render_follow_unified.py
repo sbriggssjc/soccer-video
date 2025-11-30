@@ -63,6 +63,7 @@ ZOOM_MAX = 1.4
 
 BALL_CAM_CONFIG: dict[str, object] = {
     "min_coverage": 0.4,
+    "min_confidence": 0.25,
     "lead_frames": 3,
     "base_alpha": 0.20,
     "fast_alpha": 0.60,
@@ -101,51 +102,102 @@ from tools.upscale import upscale_video
 
 def load_ball_path_from_jsonl(path: str, logger=None):
     """
-    Return (ball_x, ball_y) arrays from a planner/telemetry jsonl file.
-    Uses ball_src if present, else ball.
+    Return (ball_x, ball_y, stats) from a telemetry jsonl file.
+
+    Prefers explicit ``ball_x/ball_y`` pairs when available, then falls back to
+    legacy ``ball_src`` or ``ball`` tuples.
     """
 
-    xs = []
-    ys = []
+    xs: list[float] = []
+    ys: list[float] = []
+    confs: list[float] = []
+    total_rows = kept_rows = 0
+
+    def _point(row: dict, prefix: str) -> tuple[float, float] | None:
+        x_key = f"{prefix}_x"
+        y_key = f"{prefix}_y"
+        if x_key in row and y_key in row:
+            try:
+                x_val = float(row[x_key]) if row[x_key] is not None else float("nan")
+                y_val = float(row[y_key]) if row[y_key] is not None else float("nan")
+            except (TypeError, ValueError):
+                return None
+            if math.isfinite(x_val) and math.isfinite(y_val):
+                return x_val, y_val
+        return None
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
+            total_rows += 1
             row = json.loads(line)
-
-            bx = by = None
-
-            # Prefer ball_src (source-space)
-            if "ball_src" in row and isinstance(row["ball_src"], (list, tuple)) and len(row["ball_src"]) >= 2:
-                bx, by = row["ball_src"][:2]
-            # Fallback to ball if needed
-            elif "ball" in row and isinstance(row["ball"], (list, tuple)) and len(row["ball"]) >= 2:
-                bx, by = row["ball"][:2]
-
-            if bx is None:
+            if isinstance(row.get("is_valid"), bool) and not row["is_valid"]:
                 continue
 
+            source = str(row.get("source") or "").lower()
+            ball_pt = _point(row, "ball")
+            carrier_pt = _point(row, "carrier")
+            ball_conf = row.get("ball_conf")
+            carrier_conf = row.get("carrier_conf")
+
+            if source == "ball":
+                candidates = ((ball_pt, ball_conf), (carrier_pt, carrier_conf))
+            elif source == "carrier":
+                candidates = ((carrier_pt, carrier_conf), (ball_pt, ball_conf))
+            else:
+                candidates = ((ball_pt, ball_conf), (carrier_pt, carrier_conf))
+
+            chosen: tuple[float, float] | None = None
+            chosen_conf = None
+            for pt, conf_val in candidates:
+                if pt is None:
+                    continue
+                chosen = pt
+                chosen_conf = conf_val
+                break
+
+            if chosen is None:
+                if "ball_src" in row and isinstance(row["ball_src"], (list, tuple)) and len(row["ball_src"]) >= 2:
+                    chosen = tuple(map(float, row["ball_src"][:2]))  # type: ignore[arg-type]
+                elif "ball" in row and isinstance(row["ball"], (list, tuple)) and len(row["ball"]) >= 2:
+                    chosen = tuple(map(float, row["ball"][:2]))  # type: ignore[arg-type]
+
+            if chosen is None:
+                continue
+
+            bx, by = chosen
             xs.append(float(bx))
             ys.append(float(by))
+            kept_rows += 1
+            if isinstance(chosen_conf, (int, float)):
+                confs.append(float(chosen_conf))
 
     if not xs:
-        raise RuntimeError(f"No usable ball_src/ball entries in {path}")
+        raise RuntimeError(f"No usable ball telemetry entries in {path}")
 
-    xs = np.asarray(xs, dtype=np.float32)
-    ys = np.asarray(ys, dtype=np.float32)
+    xs_arr = np.asarray(xs, dtype=np.float32)
+    ys_arr = np.asarray(ys, dtype=np.float32)
+    meta = {
+        "total_rows": total_rows,
+        "kept_rows": kept_rows,
+        "avg_conf": float(np.mean(confs)) if confs else 1.0,
+    }
 
     if logger:
         logger.info(
-            "[BALL-TELEMETRY] ball_src_x=[%.1f, %.1f], ball_src_y=[%.1f, %.1f]",
-            float(xs.min()),
-            float(xs.max()),
-            float(ys.min()),
-            float(ys.max()),
+            "[BALL-TELEMETRY] ball_src_x=[%.1f, %.1f], ball_src_y=[%.1f, %.1f], kept=%d/%d, conf=%.2f",
+            float(xs_arr.min()),
+            float(xs_arr.max()),
+            float(ys_arr.min()),
+            float(ys_arr.max()),
+            kept_rows,
+            total_rows,
+            meta["avg_conf"],
         )
 
-    return xs, ys
+    return xs_arr, ys_arr, meta
 
 
 def edge_zoom_out(
@@ -1294,7 +1346,7 @@ def build_ball_cam_plan(
     src_w = float(frame_width)
     src_h = float(frame_height)
 
-    ball_cx_values, ball_cy_values = load_ball_path_from_jsonl(telemetry_path, logger)
+    ball_cx_values, ball_cy_values, telemetry_meta = load_ball_path_from_jsonl(telemetry_path, logger)
 
     vpos = float(cfg.get("ball_cam_vertical_pos", 0.55))
 
@@ -1319,12 +1371,19 @@ def build_ball_cam_plan(
     valid_mask = np.isfinite(ball_cx_raw) & np.isfinite(ball_cy_raw)
     coverage = float(np.mean(valid_mask)) if num_frames > 0 else 0.0
 
-    stats = {"coverage": coverage}
-    if coverage < min_coverage:
+    stats = {
+        "coverage": coverage,
+        "telemetry_rows": int(telemetry_meta.get("total_rows", 0)),
+        "telemetry_kept": int(telemetry_meta.get("kept_rows", 0)),
+        "telemetry_conf": float(telemetry_meta.get("avg_conf", 1.0)),
+    }
+    min_conf = float(cfg.get("min_confidence", 0.0))
+    if coverage < min_coverage or stats["telemetry_conf"] < min_conf:
         logger.info(
-            "[BALL-CAM] coverage %.1f%% too low (<%.1f%%); falling back to legacy follow",
+            "[BALL-CAM] coverage/conf too weak (coverage=%.1f%%, conf=%.2f < %.2f); falling back to legacy follow",
             coverage * 100.0,
-            min_coverage * 100.0,
+            stats["telemetry_conf"],
+            min_conf,
         )
         return None, stats
 
@@ -6483,10 +6542,12 @@ def run(
                 jerk_raw = ball_cam_stats.get("jerk95_raw", 0.0)
                 ball_in_crop_pct = ball_cam_stats.get("ball_in_crop_pct")
                 ball_in_crop_frames = int(ball_cam_stats.get("ball_in_crop_frames", 0))
+                telemetry_conf = float(ball_cam_stats.get("telemetry_conf", 1.0))
                 cx_range = (float(np.nanmin(plan_data.get("cx", np.array([0.0])))), float(np.nanmax(plan_data.get("cx", np.array([0.0])))))
                 logger.info(
-                    "[BALL-CAM] coverage: %.1f%%, path: %d frames, cx range=[%.1f, %.1f], jerk95_raw=%.1f, jerk95_cam=%.1f px/s^3",
+                    "[BALL-CAM] coverage: %.1f%% (conf=%.2f), path: %d frames, cx range=[%.1f, %.1f], jerk95_raw=%.1f, jerk95_cam=%.1f px/s^3",
                     telemetry_coverage_ratio * 100.0,
+                    telemetry_conf,
                     len(plan_data.get("cx", [])),
                     cx_range[0],
                     cx_range[1],

@@ -163,6 +163,64 @@ def _extract_fps(rec: Mapping[str, object], prev: float | None) -> float | None:
     return prev
 
 
+def _extract_point(rec: Mapping[str, object], prefix: str) -> tuple[float, float] | None:
+    x_key = f"{prefix}_x"
+    y_key = f"{prefix}_y"
+    if x_key not in rec or y_key not in rec:
+        return None
+    x = _as_float(rec.get(x_key))
+    y = _as_float(rec.get(y_key))
+    if math.isfinite(x) and math.isfinite(y):
+        return x, y
+    return None
+
+
+def _extract_conf_key(rec: Mapping[str, object], key: str) -> float | None:
+    if key not in rec:
+        return None
+    val = _as_float(rec.get(key))
+    if math.isfinite(val):
+        return max(0.0, min(1.0, val))
+    return None
+
+
+def _extract_xy_with_source(rec: Mapping[str, object]) -> tuple[float, float, float]:
+    """Prefer ball/carrier coordinates using the declared source when present."""
+
+    is_valid = rec.get("is_valid")
+    if isinstance(is_valid, bool) and not is_valid:
+        return float("nan"), float("nan"), 0.0
+
+    source = str(rec.get("source") or "").lower()
+
+    ball_pt = _extract_point(rec, "ball")
+    carrier_pt = _extract_point(rec, "carrier")
+    ball_conf = _extract_conf_key(rec, "ball_conf")
+    carrier_conf = _extract_conf_key(rec, "carrier_conf")
+
+    if source == "ball":
+        candidates = ((ball_pt, ball_conf), (carrier_pt, carrier_conf))
+    elif source == "carrier":
+        candidates = ((carrier_pt, carrier_conf), (ball_pt, ball_conf))
+    elif source == "players":
+        candidates = ((carrier_pt, carrier_conf), (ball_pt, ball_conf))
+    else:
+        candidates = ((ball_pt, ball_conf), (carrier_pt, carrier_conf))
+
+    for pt, conf_val in candidates:
+        if pt is None:
+            continue
+        x, y = pt
+        if math.isfinite(x) and math.isfinite(y):
+            conf = conf_val if conf_val is not None else _extract_conf(rec)
+            return x, y, conf
+
+    # Fall back to legacy key search
+    x, y = _extract_xy(rec)
+    conf = _extract_conf(rec)
+    return x, y, conf
+
+
 def set_telemetry_frame_bounds(width: float | int, height: float | int) -> None:
     """Provide a frame-size hint for interpolation clamping."""
 
@@ -306,8 +364,7 @@ def _iter_jsonl(path: Path) -> Iterator[BallSample]:
             fps_hint = _extract_fps(rec, fps_hint)
             frame_idx = _extract_frame(rec, frame_counter)
             t_val = _extract_time(rec)
-            conf = _extract_conf(rec)
-            x, y = _extract_xy(rec)
+            x, y, conf = _extract_xy_with_source(rec)
             yield _finalise_sample(
                 t_val=t_val,
                 frame=frame_idx,
