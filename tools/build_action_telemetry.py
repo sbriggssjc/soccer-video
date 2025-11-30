@@ -37,7 +37,24 @@ from typing import Iterable, Optional
 import cv2
 import numpy as np
 
-from tools.ball_telemetry import telemetry_path_for_video
+import os
+import sys
+
+# Ensure we can import ball_telemetry whether we're run as
+# "python tools\build_action_telemetry.py" from repo root
+# or from within the tools directory.
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+try:
+    from ball_telemetry import telemetry_path_for_video
+except ModuleNotFoundError:
+    # Fallback: if tools is treated as a package
+    ROOT = os.path.dirname(HERE)
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from tools.ball_telemetry import telemetry_path_for_video
 
 
 @dataclass
