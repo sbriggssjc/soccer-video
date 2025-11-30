@@ -68,40 +68,169 @@ def normalize_class_name(raw: str) -> str:
     return raw
 
 
-def derive_action_point(objs: List[Dict[str, float]]) -> Optional[Dict[str, float]]:
-    if not objs:
-        return None
+class ActionSelector:
+    def __init__(
+        self,
+        *,
+        width: Optional[int],
+        height: Optional[int],
+        ball_conf_thresh: float = 0.65,
+        player_conf_thresh: float = 0.35,
+        cluster_radius: float = 180.0,
+    ) -> None:
+        self.width = width
+        self.height = height
+        self.ball_conf_thresh = ball_conf_thresh
+        self.player_conf_thresh = player_conf_thresh
+        self.cluster_radius = cluster_radius
+        self.last_ball: Optional[Tuple[float, float]] = None
+        self.last_action: Optional[Dict[str, float]] = None
+        self.track_lengths: Dict[int, int] = {}
 
-    weighted_x = 0.0
-    weighted_y = 0.0
-    total_w = 0.0
-    num_players = 0
-    num_balls = 0
+    def _update_track_lengths(self, players: List[Dict[str, float]]) -> None:
+        seen_ids: set[int] = set()
+        for p in players:
+            pid = p.get("id")
+            if pid is None:
+                continue
+            seen_ids.add(int(pid))
+            self.track_lengths[int(pid)] = self.track_lengths.get(int(pid), 0) + 1
 
-    for obj in objs:
-        cls = obj.get("cls", "")
-        conf = float(obj.get("conf", 0.0))
-        if cls == "ball":
-            weight = 3.0 * max(conf, 0.05)
-            num_balls += 1
-        elif cls == "player":
-            weight = 1.0 * max(conf, 0.05)
-            num_players += 1
+        missing = set(self.track_lengths.keys()) - seen_ids
+        for mid in missing:
+            self.track_lengths[mid] = max(0, self.track_lengths[mid] - 1)
+
+    def _pick_ball(self, balls: List[Dict[str, float]]) -> Optional[Dict[str, float]]:
+        if not balls:
+            return None
+        best = max(balls, key=lambda b: float(b.get("conf", 0.0)))
+        if float(best.get("conf", 0.0)) < self.ball_conf_thresh:
+            return None
+        action = {
+            "x": float(best.get("cx", 0.0)),
+            "y": float(best.get("cy", 0.0)),
+            "source": "ball",
+            "conf": float(best.get("conf", 0.0)),
+            "is_valid": True,
+        }
+        self.last_ball = (action["x"], action["y"])
+        return action
+
+    def _pick_carrier(self, players: List[Dict[str, float]]) -> Optional[Dict[str, float]]:
+        if not players:
+            return None
+
+        carrier: Optional[Dict[str, float]] = None
+        if self.last_ball is not None:
+            lbx, lby = self.last_ball
+            carrier = min(
+                players,
+                key=lambda p: (float(p.get("cx", 0.0)) - lbx) ** 2
+                + (float(p.get("cy", 0.0)) - lby) ** 2,
+            )
         else:
-            weight = 0.4 * max(conf, 0.05)
-        weighted_x += weight * float(obj.get("cx", 0.0))
-        weighted_y += weight * float(obj.get("cy", 0.0))
-        total_w += weight
+            if self.track_lengths:
+                carrier = max(
+                    players,
+                    key=lambda p: self.track_lengths.get(int(p.get("id", -1)), 0),
+                )
 
-    if total_w <= 1e-6:
-        return None
+        if carrier is None:
+            return None
 
-    return {
-        "x": weighted_x / total_w,
-        "y": weighted_y / total_w,
-        "num_players": num_players,
-        "num_balls": num_balls,
-    }
+        conf = float(carrier.get("conf", 0.0))
+        if conf < self.player_conf_thresh:
+            return None
+
+        return {
+            "x": float(carrier.get("cx", 0.0)),
+            "y": float(carrier.get("cy", 0.0)),
+            "source": "carrier",
+            "conf": conf,
+            "is_valid": True,
+        }
+
+    def _pick_cluster(self, players: List[Dict[str, float]]) -> Optional[Dict[str, float]]:
+        if not players:
+            return None
+
+        best_cluster: List[Dict[str, float]] = []
+        radius_sq = self.cluster_radius * self.cluster_radius
+        for p in players:
+            cx = float(p.get("cx", 0.0))
+            cy = float(p.get("cy", 0.0))
+            members = []
+            for q in players:
+                dx = float(q.get("cx", 0.0)) - cx
+                dy = float(q.get("cy", 0.0)) - cy
+                if dx * dx + dy * dy <= radius_sq:
+                    members.append(q)
+            if len(members) > len(best_cluster):
+                best_cluster = members
+
+        if not best_cluster:
+            return None
+
+        weight_sum = 0.0
+        x_sum = 0.0
+        y_sum = 0.0
+        for m in best_cluster:
+            w = max(self.player_conf_thresh, float(m.get("conf", 0.0)))
+            weight_sum += w
+            x_sum += w * float(m.get("cx", 0.0))
+            y_sum += w * float(m.get("cy", 0.0))
+
+        if weight_sum <= 0:
+            return None
+
+        size_bonus = min(1.0, 0.4 + 0.1 * len(best_cluster))
+        return {
+            "x": x_sum / weight_sum,
+            "y": y_sum / weight_sum,
+            "source": "players",
+            "conf": size_bonus,
+            "is_valid": True,
+        }
+
+    def select_action_point(self, objs: List[Dict[str, float]]) -> Dict[str, float]:
+        players = [o for o in objs if o.get("cls") == "player"]
+        balls = [o for o in objs if o.get("cls") == "ball"]
+
+        self._update_track_lengths(players)
+
+        choice = self._pick_ball(balls)
+        if choice is None:
+            choice = self._pick_carrier(players)
+        if choice is None:
+            choice = self._pick_cluster(players)
+
+        if choice is None:
+            if self.last_action is not None:
+                choice = {
+                    "x": self.last_action.get("x", float("nan")),
+                    "y": self.last_action.get("y", float("nan")),
+                    "source": self.last_action.get("source", "players"),
+                    "conf": max(0.0, float(self.last_action.get("conf", 0.0)) * 0.5),
+                    "is_valid": False,
+                }
+            else:
+                center_x = float(self.width or 0) * 0.5
+                center_y = float(self.height or 0) * 0.5
+                choice = {
+                    "x": center_x,
+                    "y": center_y,
+                    "source": "players",
+                    "conf": 0.0,
+                    "is_valid": False,
+                }
+
+        self.last_action = choice if choice.get("is_valid", False) else self.last_action
+        if choice.get("source") == "ball" and math.isfinite(choice.get("x", float("nan"))):
+            self.last_ball = (choice["x"], choice["y"])
+
+        choice["num_players"] = len(players)
+        choice["num_balls"] = len(balls)
+        return choice
 
 
 def run_multi_object_tracking(
@@ -114,6 +243,9 @@ def run_multi_object_tracking(
     fps: float,
     objects_jsonl: Optional[str],
     action_csv: Optional[str],
+    *,
+    frame_width: Optional[int] = None,
+    frame_height: Optional[int] = None,
 ) -> None:
     """Run detector+tracker once to emit per-frame objects and action points."""
 
@@ -139,6 +271,7 @@ def run_multi_object_tracking(
     action_rows: List[Dict[str, float]] = []
     frame_idx = 0
     names = getattr(model.model, "names", {}) or {}
+    selector = ActionSelector(width=frame_width, height=frame_height)
 
     for res in results_iter:
         objs: List[Dict[str, float]] = []
@@ -163,7 +296,7 @@ def run_multi_object_tracking(
                     }
                 )
 
-        action_point = derive_action_point(objs)
+        action_point = selector.select_action_point(objs)
         payload = {
             "frame_idx": frame_idx,
             "time": frame_idx / max(fps, 1e-6),
@@ -174,17 +307,19 @@ def run_multi_object_tracking(
         if objects_writer is not None:
             objects_writer.write(safe_json(payload) + "\n")
 
-        if action_point is not None:
-            action_rows.append(
-                {
-                    "frame": frame_idx,
-                    "time": frame_idx / max(fps, 1e-6),
-                    "action_x": action_point["x"],
-                    "action_y": action_point["y"],
-                    "num_players": action_point["num_players"],
-                    "num_balls": action_point["num_balls"],
-                }
-            )
+        action_rows.append(
+            {
+                "frame": frame_idx,
+                "time": frame_idx / max(fps, 1e-6),
+                "action_x": action_point.get("x"),
+                "action_y": action_point.get("y"),
+                "source": action_point.get("source"),
+                "conf": action_point.get("conf"),
+                "is_valid": action_point.get("is_valid", False),
+                "num_players": action_point.get("num_players"),
+                "num_balls": action_point.get("num_balls"),
+            }
+        )
 
         frame_idx += 1
 
@@ -196,7 +331,17 @@ def run_multi_object_tracking(
         with open(action_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(
                 f,
-                fieldnames=["frame", "time", "action_x", "action_y", "num_players", "num_balls"],
+                fieldnames=[
+                    "frame",
+                    "time",
+                    "action_x",
+                    "action_y",
+                    "source",
+                    "conf",
+                    "is_valid",
+                    "num_players",
+                    "num_balls",
+                ],
             )
             writer.writeheader()
             for row in action_rows:
@@ -594,6 +739,8 @@ def main() -> None:
         fps=clip_fps,
         objects_jsonl=args.objects_jsonl,
         action_csv=args.action_csv,
+        frame_width=W,
+        frame_height=H,
     )
     while True:
         ok, bgr = cap.read()
