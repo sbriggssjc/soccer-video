@@ -141,14 +141,17 @@ def main():
             crop = cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
             h, w = crop.shape[:2]
 
+        f = frame_idx
+
+        # --- DEBUG OVERLAY (ensure this replaces any previous circle/rect code) ---
         if args.debug_overlay:
             h, w = crop.shape[:2]
 
-            # Ball position *in the scaled frame* -> convert to crop-local coords
+            # ball coords are in scaled-frame space; convert to crop-local space
             bx_local = int(round(bx_scaled - x0))
             by_local = int(round(by_scaled))
 
-            # Draw the crop border just so we can see the window
+            # Draw the crop border so we can see the window
             cv2.rectangle(
                 crop,
                 (0, 0),
@@ -157,7 +160,14 @@ def main():
                 2,
             )
 
-            # Only draw the dot if it's actually inside the crop
+            # Extra debug – log what we’re about to draw
+            if f in (0, 50, 100, 150, 200, 250, 300):
+                print(
+                    f"[OVERLAY] frame={f}, bx_local={bx_local}, by_local={by_local}, "
+                    f"w={w}, h={h}"
+                )
+
+            # Only draw if inside the visible crop
             if 0 <= bx_local < w and 0 <= by_local < h:
                 cv2.circle(
                     crop,
