@@ -111,6 +111,27 @@ All generated media lives under `out\`. You can safely delete the contents of
 files automatically. Keep `out\catalog\` under version control to audit history
 but avoid checking in large MP4 outputs.
 
+### Two-Stage Portrait Follow
+
+The follow stack is now explicitly split into two stages:
+
+1) **Telemetry builder** – consumes a raw 1920×1080 clip and emits
+   `out/telemetry/<stem>.ball.jsonl` rows shaped like::
+
+       {"t": 3.125, "f": 75, "ball_x": 1570.3, "ball_y": 360.2, "ball_conf": 0.91,
+        "carrier_x": 1505.2, "carrier_y": 520.7, "carrier_conf": 0.88,
+        "source": "ball", "is_valid": true}
+
+   Run `python tools/telemetry_builder.py --video <clip.mp4>` to generate the
+   telemetry file before rendering. The builder prioritises direct ball hits,
+   short carrier holds, and motion-based fallbacks; downstream consumers treat
+   low-confidence or invalid rows as a signal to fall back to reactive follow.
+
+2) **Camera follower** – the existing portrait renderer consumes telemetry (when
+   available) to drive the crop center/zoom. It now rejects low-confidence
+   telemetry and gracefully reverts to reactive follow if coverage or confidence
+   drops below guardrails.
+
 ---
 
 ## Step 0 – Curate Atomic Clips
