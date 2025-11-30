@@ -22,6 +22,7 @@ Behavior:
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -84,6 +85,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Generate and use ball telemetry for portrait planning",
     )
+    parser.add_argument(
+        "--telemetry",
+        help="Optional telemetry path (overrides discovery/detection)",
+    )
     # Accept (but ignore) some legacy flags so existing commands don't break.
     parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--init-manual", action="store_true", help=argparse.SUPPRESS)
@@ -93,7 +98,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def run_render(
-    clip: Path, preset: str, portrait: str, variant: str, *, use_ball_telemetry: bool
+    clip: Path,
+    preset: str,
+    portrait: str,
+    variant: str,
+    *,
+    use_ball_telemetry: bool,
+    telemetry_path: Path | None,
 ) -> Path:
     """Invoke render_follow_unified.py for a single clip and return portrait path."""
 
@@ -122,7 +133,9 @@ def run_render(
     ]
 
     if use_ball_telemetry:
-        telemetry_path = Path(telemetry_path_for_video(clip)).resolve()
+        telemetry_path = (
+            Path(telemetry_path).resolve() if telemetry_path else Path(telemetry_path_for_video(clip)).resolve()
+        )
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         cmd.extend(["--use-ball-telemetry", "--telemetry", str(telemetry_path)])
 
@@ -201,9 +214,14 @@ def main(argv: list[str] | None = None) -> None:
     ok = 0
     for clip in clips:
         try:
+            preset = ns.preset
+            telemetry_path: Path | None = Path(ns.telemetry) if ns.telemetry else Path(telemetry_path_for_video(clip))
+            use_ball_telemetry = ns.use_ball_telemetry
             if ns.use_ball_telemetry:
-                telemetry_path = Path(telemetry_path_for_video(clip))
-                if not telemetry_path.is_file():
+                if not telemetry_path.is_file() and ns.telemetry:
+                    print(f"[BALL] Telemetry path missing ({telemetry_path}); falling back to reactive follow")
+                    use_ball_telemetry = False
+                elif not telemetry_path.is_file():
                     detect_cmd = [
                         sys.executable,
                         str(REPO_ROOT / "tools" / "ball_telemetry.py"),
@@ -223,12 +241,38 @@ def main(argv: list[str] | None = None) -> None:
                             f"[WARN] Telemetry detection failed for {clip}; falling back to reactive follow",
                             file=sys.stderr,
                         )
-                if telemetry_path.is_file():
+                        use_ball_telemetry = False
+
+                meta_path = telemetry_path.with_suffix(telemetry_path.suffix + ".meta.json")
+                if use_ball_telemetry and meta_path.is_file():
+                    try:
+                        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                        ball_cov = float(meta.get("ball_conf_coverage", 0.0))
+                        action_cov = float(meta.get("action_valid_coverage", 0.0))
+                        if ball_cov < 0.3 and action_cov < 0.6:
+                            print(
+                                f"[BALL] Weak telemetry (ball_cov={ball_cov:.3f}, action_cov={action_cov:.3f}); "
+                                "switching to jerk_follow_fast without telemetry",
+                                file=sys.stderr,
+                            )
+                            use_ball_telemetry = False
+                            preset = "jerk_follow_fast"
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[WARN] Failed to parse telemetry meta {meta_path}: {exc}")
+
+                if use_ball_telemetry and telemetry_path.is_file():
                     print(f"[BALL] Using telemetry from {telemetry_path}")
-                else:
+                elif ns.use_ball_telemetry:
                     print(f"[BALL] No telemetry; reactive follow only for {clip}")
 
-            portrait = run_render(clip, ns.preset, ns.portrait, ns.variant, use_ball_telemetry=ns.use_ball_telemetry)
+            portrait = run_render(
+                clip,
+                preset,
+                ns.portrait,
+                ns.variant,
+                use_ball_telemetry=use_ball_telemetry,
+                telemetry_path=telemetry_path if use_ball_telemetry else None,
+            )
             if ns.brand_script:
                 run_brand(Path(ns.brand_script), portrait, ns.aspect)
             ok += 1
