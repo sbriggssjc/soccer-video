@@ -68,12 +68,89 @@ def normalize_class_name(raw: str) -> str:
     return raw
 
 
+class ActionSmoother:
+    def __init__(
+        self,
+        *,
+        width: Optional[int],
+        fps: float,
+        alpha: float = 0.35,
+        ball_cross_time: float = 1.6,
+        player_cross_time: float = 3.2,
+        teleport_px: Optional[float] = None,
+    ) -> None:
+        self.dt = 1.0 / max(fps, 1e-6)
+        field_width = float(width) if width else 1280.0
+        self.max_speed_ball = field_width / max(ball_cross_time, 1e-3)
+        self.max_speed_player = field_width / max(player_cross_time, 1e-3)
+        self.teleport_thresh = teleport_px if teleport_px is not None else max(120.0, field_width * 0.18)
+        self.alpha = float(alpha)
+        self.filtered: Optional[np.ndarray] = None
+        self.velocity = np.zeros(2, dtype=np.float64)
+
+    def _max_speed(self, source: Optional[str]) -> float:
+        if str(source).lower() == "ball":
+            return self.max_speed_ball
+        return self.max_speed_player
+
+    def smooth(self, action: Dict[str, float]) -> Dict[str, float]:
+        x = float(action.get("x", float("nan")))
+        y = float(action.get("y", float("nan")))
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return action
+
+        meas = np.array([x, y], dtype=np.float64)
+        if self.filtered is None:
+            self.filtered = meas
+            self.velocity = np.zeros(2, dtype=np.float64)
+            action["x"] = float(meas[0])
+            action["y"] = float(meas[1])
+            action["smoothed"] = True
+            return action
+
+        predicted = self.filtered + self.velocity * self.dt
+        step = meas - self.filtered
+        dist = float(np.linalg.norm(step))
+        max_speed = self._max_speed(action.get("source"))
+        max_step = max_speed * self.dt
+
+        if dist > self.teleport_thresh and dist / self.dt > max_speed * 1.5:
+            meas = predicted
+            step = meas - self.filtered
+            dist = float(np.linalg.norm(step))
+            action["teleport_rejected"] = True
+            action["is_valid"] = False
+            action["conf"] = float(action.get("conf", 0.0)) * 0.5
+
+        if dist > max_step:
+            step *= max_step / max(dist, 1e-6)
+            meas = self.filtered + step
+            action["speed_clamped"] = True
+
+        filtered = (1.0 - self.alpha) * self.filtered + self.alpha * meas
+        vel = (filtered - self.filtered) / self.dt
+        speed = float(np.linalg.norm(vel))
+        if speed > max_speed:
+            vel *= max_speed / max(speed, 1e-6)
+            filtered = self.filtered + vel * self.dt
+            action["speed_clamped"] = True
+
+        self.filtered = filtered
+        self.velocity = vel
+        action["x"] = float(filtered[0])
+        action["y"] = float(filtered[1])
+        action["speed_px_s"] = float(np.linalg.norm(self.velocity))
+        action["smoothed"] = True
+        return action
+
+
 class ActionSelector:
     def __init__(
         self,
         *,
         width: Optional[int],
         height: Optional[int],
+        fps: float,
         ball_conf_thresh: float = 0.65,
         player_conf_thresh: float = 0.35,
         cluster_radius: float = 180.0,
@@ -86,6 +163,7 @@ class ActionSelector:
         self.last_ball: Optional[Tuple[float, float]] = None
         self.last_action: Optional[Dict[str, float]] = None
         self.track_lengths: Dict[int, int] = {}
+        self.smoother = ActionSmoother(width=width, fps=fps)
 
     def _update_track_lengths(self, players: List[Dict[str, float]]) -> None:
         seen_ids: set[int] = set()
@@ -224,9 +302,11 @@ class ActionSelector:
                     "is_valid": False,
                 }
 
-        self.last_action = choice if choice.get("is_valid", False) else self.last_action
+        choice = self.smoother.smooth(choice)
+
         if choice.get("source") == "ball" and math.isfinite(choice.get("x", float("nan"))):
             self.last_ball = (choice["x"], choice["y"])
+        self.last_action = choice if choice.get("is_valid", False) else self.last_action
 
         choice["num_players"] = len(players)
         choice["num_balls"] = len(balls)
@@ -271,7 +351,7 @@ def run_multi_object_tracking(
     action_rows: List[Dict[str, float]] = []
     frame_idx = 0
     names = getattr(model.model, "names", {}) or {}
-    selector = ActionSelector(width=frame_width, height=frame_height)
+    selector = ActionSelector(width=frame_width, height=frame_height, fps=fps)
 
     for res in results_iter:
         objs: List[Dict[str, float]] = []
