@@ -25,18 +25,25 @@ def load_telemetry(path):
 
 def get_ball_xy(row):
     """
-    Prefer ball_src (explicit source coords), fall back to ball, then ball_out.
-    All are expected to be [x, y] in source space (1920x1080).
+    Pick the best ball coordinate to use from the telemetry row.
+    Prefer image/source coordinates if available.
     """
-    for key in ("ball_src", "ball", "ball_out"):
-        v = row.get(key)
-        if (
-            isinstance(v, (list, tuple))
-            and len(v) == 2
-            and all(isinstance(c, (int, float)) for c in v)
-        ):
-            return float(v[0]), float(v[1])
-    return None
+    # 1) ball_src: usually raw image coords
+    if "ball_src" in row and row["ball_src"]:
+        x, y = row["ball_src"][:2]
+        return float(x), float(y)
+
+    # 2) ball: sometimes same as ball_src, depending on pipeline
+    if "ball" in row and row["ball"]:
+        x, y = row["ball"][:2]
+        return float(x), float(y)
+
+    # 3) ball_out: if others missing; still image-like in your sample
+    if "ball_out" in row and row["ball_out"]:
+        x, y = row["ball_out"][:2]
+        return float(x), float(y)
+
+    return None, None
 
 
 def main():
@@ -76,7 +83,8 @@ def main():
     print(f"[BALL-FOLLOW] VideoWriter opened with size=({out_w}x{out_h}), fps={fps:.3f}")
 
     half_w = out_w // 2
-    max_x0 = max(0, scaled_w - out_w)
+    width = out_w
+    last_crop = None
 
     frame_idx = 0
     while True:
@@ -85,46 +93,33 @@ def main():
             break
 
         # Resize to scaled frame (landscape, same height as portrait)
-        scaled = cv2.resize(frame, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
+        scaled_frame = cv2.resize(frame, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
 
         # Get telemetry row (clamp at end if telemetry shorter)
-        tel_idx = min(frame_idx, len(tele_rows) - 1)
-        row = tele_rows[tel_idx]
-        ball_xy = get_ball_xy(row)
+        f = frame_idx
+        row = tele_rows[min(f, len(tele_rows) - 1)]
 
-        if ball_xy is not None:
-            bx_src, by_src = ball_xy
-            # Scale to match scaled frame
-            bx_scaled = bx_src * scale
-            by_scaled = by_src * scale
+        bx, by = get_ball_xy(row)
+        if bx is None or by is None:
+            # No ball; just use previous crop or skip overlay
+            if last_crop is not None:
+                crop = last_crop.copy()
+                writer.write(crop)
+            frame_idx += 1
+            continue
 
-            # Clamp into scaled frame
-            bx_scaled = max(0.0, min(float(scaled_w - 1), bx_scaled))
-            by_scaled = max(0.0, min(float(scaled_h - 1), by_scaled))
+        # Scale to the upscaled frame size
+        bx_scaled = bx * scale
+        by_scaled = by * scale
 
-            # Center crop on ball horizontally, but keep within bounds
-            cx = bx_scaled
-            cx = max(float(half_w), min(float(scaled_w - half_w), cx))
-            x0 = int(round(cx - half_w))
-        else:
-            # No ball info: default to center crop of scaled frame
-            bx_scaled = float(scaled_w) / 2.0
-            by_scaled = float(scaled_h) / 2.0
-            x0 = (scaled_w - out_w) // 2
-
-        # Safety clamp for x0
-        if x0 < 0:
-            x0 = 0
-        elif x0 > max_x0:
-            x0 = max_x0
-
-        x1 = x0 + out_w
-        if x1 > scaled_w:
-            x1 = scaled_w
-            x0 = x1 - out_w
+        # Center the portrait window on the ball horizontally
+        cx = np.clip(bx_scaled, half_w, scaled_w - half_w)
+        x0 = int(round(cx - half_w))
+        x1 = x0 + width
 
         # Extract crop from scaled frame
-        crop = scaled[:, x0:x1, :]
+        crop = scaled_frame[:, x0:x1]
+        last_crop = crop
 
         # Guard against empty / weird crops
         if crop is None or crop.size == 0:
