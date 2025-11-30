@@ -40,6 +40,169 @@ def safe_json(obj):
     return json.dumps(obj, default=default)
 
 
+def parse_class_ids(arg: str, fallback: Optional[List[int]] = None) -> Optional[List[int]]:
+    """Return None (all classes) or a list of ints from a comma-separated arg."""
+
+    if arg is None:
+        return fallback
+    if str(arg).lower() == "all":
+        return None
+    ids: List[int] = []
+    for part in str(arg).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError as exc:  # pragma: no cover - defensive parsing
+            raise ValueError(f"Invalid class id '{part}'") from exc
+    return ids or fallback
+
+
+def normalize_class_name(raw: str) -> str:
+    name = raw.lower()
+    if "ball" in name:
+        return "ball"
+    if "person" in name or "player" in name:
+        return "player"
+    return raw
+
+
+def derive_action_point(objs: List[Dict[str, float]]) -> Optional[Dict[str, float]]:
+    if not objs:
+        return None
+
+    weighted_x = 0.0
+    weighted_y = 0.0
+    total_w = 0.0
+    num_players = 0
+    num_balls = 0
+
+    for obj in objs:
+        cls = obj.get("cls", "")
+        conf = float(obj.get("conf", 0.0))
+        if cls == "ball":
+            weight = 3.0 * max(conf, 0.05)
+            num_balls += 1
+        elif cls == "player":
+            weight = 1.0 * max(conf, 0.05)
+            num_players += 1
+        else:
+            weight = 0.4 * max(conf, 0.05)
+        weighted_x += weight * float(obj.get("cx", 0.0))
+        weighted_y += weight * float(obj.get("cy", 0.0))
+        total_w += weight
+
+    if total_w <= 1e-6:
+        return None
+
+    return {
+        "x": weighted_x / total_w,
+        "y": weighted_y / total_w,
+        "num_players": num_players,
+        "num_balls": num_balls,
+    }
+
+
+def run_multi_object_tracking(
+    model: YOLO,
+    video_path: str,
+    tracker_cfg: Optional[str],
+    imgsz: int,
+    conf: float,
+    classes: Optional[List[int]],
+    fps: float,
+    objects_jsonl: Optional[str],
+    action_csv: Optional[str],
+) -> None:
+    """Run detector+tracker once to emit per-frame objects and action points."""
+
+    if objects_jsonl is None and action_csv is None:
+        return
+
+    results_iter = model.track(
+        source=video_path,
+        stream=True,
+        imgsz=int(imgsz),
+        conf=float(conf),
+        verbose=False,
+        persist=True,
+        tracker=tracker_cfg if tracker_cfg else None,
+        classes=classes,
+    )
+
+    objects_writer = None
+    if objects_jsonl:
+        os.makedirs(os.path.dirname(objects_jsonl), exist_ok=True) if os.path.dirname(objects_jsonl) else None
+        objects_writer = open(objects_jsonl, "w", encoding="utf-8")
+
+    action_rows: List[Dict[str, float]] = []
+    frame_idx = 0
+    names = getattr(model.model, "names", {}) or {}
+
+    for res in results_iter:
+        objs: List[Dict[str, float]] = []
+        if res.boxes is not None and len(res.boxes) > 0:
+            for box in res.boxes:
+                cls_id = int(box.cls[0]) if box.cls is not None else -1
+                cls_name = normalize_class_name(str(names.get(cls_id, cls_id)))
+                if cls_name not in {"player", "ball"}:
+                    continue
+                xyxy = box.xyxy[0].tolist()
+                cx = 0.5 * (float(xyxy[0]) + float(xyxy[2]))
+                cy = 0.5 * (float(xyxy[1]) + float(xyxy[3]))
+                conf_det = float(box.conf[0]) if box.conf is not None else 0.0
+                track_id = int(box.id[0]) if box.id is not None else None
+                objs.append(
+                    {
+                        "id": track_id,
+                        "cls": cls_name,
+                        "cx": cx,
+                        "cy": cy,
+                        "conf": conf_det,
+                    }
+                )
+
+        action_point = derive_action_point(objs)
+        payload = {
+            "frame_idx": frame_idx,
+            "time": frame_idx / max(fps, 1e-6),
+            "objects": objs,
+            "action_point": action_point,
+        }
+
+        if objects_writer is not None:
+            objects_writer.write(safe_json(payload) + "\n")
+
+        if action_point is not None:
+            action_rows.append(
+                {
+                    "frame": frame_idx,
+                    "time": frame_idx / max(fps, 1e-6),
+                    "action_x": action_point["x"],
+                    "action_y": action_point["y"],
+                    "num_players": action_point["num_players"],
+                    "num_balls": action_point["num_balls"],
+                }
+            )
+
+        frame_idx += 1
+
+    if objects_writer is not None:
+        objects_writer.close()
+
+    if action_csv:
+        os.makedirs(os.path.dirname(action_csv), exist_ok=True) if os.path.dirname(action_csv) else None
+        with open(action_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["frame", "time", "action_x", "action_y", "num_players", "num_balls"],
+            )
+            writer.writeheader()
+            for row in action_rows:
+                writer.writerow(row)
+
+
 def nonempty_roi(bgr, x0, y0, x1, y1):
     h, w = bgr.shape[:2]
     x0 = max(0, min(w - 1, int(x0)))
@@ -342,6 +505,34 @@ def main() -> None:
         default=140.0,
         help="Reject detections jumping more than this many pixels from prediction",
     )
+    ap.add_argument(
+        "--objects_jsonl",
+        type=str,
+        help="Optional JSONL path for tracked objects (player+ball with IDs)",
+    )
+    ap.add_argument(
+        "--action_csv",
+        type=str,
+        help="Optional CSV path for per-frame action points derived from tracked objects",
+    )
+    ap.add_argument(
+        "--tracker_cfg",
+        type=str,
+        default="bytetrack-ball.yaml",
+        help="Tracker YAML passed to Ultralytics for multi-object ID assignment",
+    )
+    ap.add_argument(
+        "--player_classes",
+        type=str,
+        default="0",
+        help="Class ids treated as players for multi-object tracking",
+    )
+    ap.add_argument(
+        "--ball_classes",
+        type=str,
+        default="32",
+        help="Class ids treated as balls for multi-object tracking",
+    )
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.inp)
@@ -352,19 +543,14 @@ def main() -> None:
 
     model = YOLO(args.model)
 
-    classes = None
-    if args.classes and str(args.classes).lower() != "all":
-        classes = []
-        for c in str(args.classes).split(","):
-            c = c.strip()
-            if not c:
-                continue
-            try:
-                classes.append(int(c))
-            except ValueError:
-                raise ValueError(f"Invalid class id '{c}' for --classes") from None
-        if not classes:
-            classes = None
+    classes = parse_class_ids(args.classes)
+    player_class_ids = parse_class_ids(args.player_classes, fallback=[0])
+    ball_class_ids = parse_class_ids(args.ball_classes, fallback=[32])
+    track_classes: Optional[List[int]]
+    if player_class_ids is None or ball_class_ids is None:
+        track_classes = None
+    else:
+        track_classes = sorted({*player_class_ids, *ball_class_ids})
 
     dt = 1.0 / max(fps, 1e-6)
     kf = ConstantAccelerationKF(dt)
@@ -393,6 +579,22 @@ def main() -> None:
     frame = 0
     trace_file: Optional[io.TextIOBase] = None
     trace_writer: Optional[csv.writer] = None
+
+    tracker_cfg = args.tracker_cfg if args.tracker_cfg and args.tracker_cfg.lower() != "none" else None
+    if tracker_cfg and not os.path.exists(tracker_cfg):
+        tracker_cfg = None
+
+    run_multi_object_tracking(
+        model=model,
+        video_path=args.inp,
+        tracker_cfg=tracker_cfg,
+        imgsz=args.imgsz,
+        conf=args.yolo_conf,
+        classes=track_classes,
+        fps=clip_fps,
+        objects_jsonl=args.objects_jsonl,
+        action_csv=args.action_csv,
+    )
     while True:
         ok, bgr = cap.read()
         if not ok:
