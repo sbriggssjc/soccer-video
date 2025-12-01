@@ -124,6 +124,15 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0,
                         (255, 255, 0), 2, cv2.LINE_AA)
 
+        # ---- ENSURE crop is 3-channel uint8 and contiguous ----
+        if crop.ndim == 2:
+            crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+        elif crop.shape[2] == 4:
+            crop = cv2.cvtColor(crop, cv2.COLOR_BGRA2BGR)
+
+        crop = crop.astype("uint8", copy=False)
+        crop = cv2.cvtColor(crop, cv2.COLOR_BGR2BGR)
+
         writer.write(crop)
         frame_idx += 1
     # =========================================================
