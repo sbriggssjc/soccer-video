@@ -99,18 +99,18 @@ def main():
         x0 = max(0, min(x0, scaled_w - target_w))
         x1 = x0 + target_w
 
-        # --- Resize source to tall canvas ---
+        # --- Resize frame to tall canvas ---
         resized = cv2.resize(frame, (scaled_w, target_h), interpolation=cv2.INTER_LINEAR)
 
         # --- Crop horizontal window ---
         crop = resized[:, x0:x1]
 
-        # --- SAFETY: enforce exact output size before writing ---
+        # --- SAFETY: enforce exact output size ---
         h, w = crop.shape[:2]
         if h != target_h or w != target_w:
             crop = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # --- Optional debug overlay ---
+        # --- Debug overlay ---
         if args.debug_overlay and last_valid_scaled is not None:
             ax_s, ay_s = last_valid_scaled
             bx = int(round(ax_s - x0))
@@ -122,7 +122,6 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0,
                         (255, 255, 0), 2, cv2.LINE_AA)
 
-        # --- Write cleaned frame ---
         writer.write(crop)
         frame_idx += 1
 
