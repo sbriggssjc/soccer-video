@@ -69,66 +69,60 @@ def main():
         if not ret:
             break
 
-        # Resize frame to tall canvas (e.g., 3413x1920)
-        scaled = cv2.resize(frame, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
-
+        # --- Retrieve telemetry row ---
         row = by_frame.get(frame_idx)
+        use_point = False
+
         if row is not None:
             is_valid = bool(row.get("is_valid", False))
             conf = float(row.get("confidence", 0.0))
             if is_valid and conf >= args.min_conf:
                 ax = float(row["action_x"])
                 ay = float(row["action_y"])
-                # Scale into portrait canvas space
                 ax_s = ax * scale
                 ay_s = ay * scale
                 last_valid_scaled = (ax_s, ay_s)
+                use_point = True
 
-        # Fallback: if we never had a valid action, just center crop static
-        if last_valid_scaled is None:
-            center_x = scaled_w / 2.0
-            center_y = scaled_h / 2.0
+        # --- Choose center point ---
+        if not use_point:
+            if last_valid_scaled is None:
+                center_x = scaled_w / 2.0
+                center_y = scaled_h / 2.0
+            else:
+                center_x, center_y = last_valid_scaled
         else:
             center_x, center_y = last_valid_scaled
 
-        # Compute horizontal crop
-        half_w = target_w / 2.0
-        x0 = int(round(center_x - half_w))
+        # --- Compute crop window ---
+        x0 = int(round(center_x - (target_w / 2)))
+        x0 = max(0, min(x0, scaled_w - target_w))
         x1 = x0 + target_w
 
-        # Clamp crop horizontally
-        if x0 < 0:
-            x0 = 0
-            x1 = target_w
-        if x1 > scaled_w:
-            x1 = scaled_w
-            x0 = scaled_w - target_w
+        # --- Resize source to tall canvas ---
+        resized = cv2.resize(frame, (scaled_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # Crop: full height, horizontal window
-        crop = scaled[:, x0:x1]
+        # --- Crop horizontal window ---
+        crop = resized[:, x0:x1]
 
-        if crop.shape[0] != target_h or crop.shape[1] != target_w:
-            # Safety: resize if we're off by a pixel due to rounding
+        # --- SAFETY: enforce exact output size before writing ---
+        h, w = crop.shape[:2]
+        if h != target_h or w != target_w:
             crop = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        if args.debug_overlay:
-            # draw the action point in crop-space if we have one
-            if last_valid_scaled is not None:
-                ax_s, ay_s = last_valid_scaled
-                cx = int(round(ax_s - x0))
-                cy = int(round(ay_s))
-                cx = max(0, min(target_w - 1, cx))
-                cy = max(0, min(target_h - 1, cy))
-                cv2.circle(crop, (cx, cy), 12, (0, 0, 255), 2)
-                cv2.line(crop, (cx - 10, cy), (cx + 10, cy), (0, 0, 255), 1)
-                cv2.line(crop, (cx, cy - 10), (cx, cy + 10), (0, 0, 255), 1)
+        # --- Optional debug overlay ---
+        if args.debug_overlay and last_valid_scaled is not None:
+            ax_s, ay_s = last_valid_scaled
+            bx = int(round(ax_s - x0))
+            by = int(round(ay_s))
+            bx = max(0, min(target_w - 1, bx))
+            by = max(0, min(target_h - 1, by))
+            cv2.circle(crop, (bx, by), 12, (0, 0, 255), -1)
+            cv2.putText(crop, f"f={frame_idx}", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                        (255, 255, 0), 2, cv2.LINE_AA)
 
-        if frame_idx % 50 == 0:
-            print(
-                f"[ACTION-FOLLOW] frame={frame_idx}, "
-                f"center=({center_x:.1f},{center_y:.1f}), crop_x=({x0},{x1})"
-            )
-
+        # --- Write cleaned frame ---
         writer.write(crop)
         frame_idx += 1
 
