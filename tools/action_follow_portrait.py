@@ -1,7 +1,7 @@
+#!/usr/bin/env python
 import argparse
 import json
 import cv2
-
 
 def load_action_rows(path: str):
     rows = []
@@ -13,7 +13,6 @@ def load_action_rows(path: str):
             rows.append(json.loads(line))
     return rows
 
-
 def build_frame_index(rows):
     by_frame = {}
     for r in rows:
@@ -21,16 +20,15 @@ def build_frame_index(rows):
         by_frame[f_idx] = r
     return by_frame
 
-
 def main():
-    ap = argparse.ArgumentParser(description="Portrait follow using action_x/action_y telemetry")
-    ap.add_argument("--clip", required=True, help="Input 16:9 clip (e.g., atomic)")
-    ap.add_argument("--telemetry", required=True, help="action.jsonl from build_action_telemetry.py")
-    ap.add_argument("--out", required=True, help="Output portrait mp4")
-    ap.add_argument("--width", type=int, default=1080, help="Output width (portrait)")
-    ap.add_argument("--height", type=int, default=1920, help="Output height (portrait)")
-    ap.add_argument("--min-conf", type=float, default=0.30, help="Min confidence to use action point")
-    ap.add_argument("--debug-overlay", action="store_true", help="Draw dot inside portrait crop")
+    ap = argparse.ArgumentParser(description="Portrait follow using action telemetry")
+    ap.add_argument("--clip", required=True)
+    ap.add_argument("--telemetry", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--width", type=int, default=1080)
+    ap.add_argument("--height", type=int, default=1920)
+    ap.add_argument("--min-conf", type=float, default=0.30)
+    ap.add_argument("--debug-overlay", action="store_true")
     args = ap.parse_args()
 
     rows = load_action_rows(args.telemetry)
@@ -46,30 +44,34 @@ def main():
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Scale source to target portrait height, keep aspect ratio
-    target_w = int(args.width)
-    target_h = int(args.height)
+    target_w = args.width
+    target_h = args.height
+
+    # Match height
     scale = target_h / float(src_h)
     scaled_w = int(round(src_w * scale))
     scaled_h = target_h
+
+    print(f"[ACTION-FOLLOW] clip={args.clip}, src={src_w}x{src_h}, fps={fps:.3f}")
+    print(f"[ACTION-FOLLOW] scaled={scaled_w}x{scaled_h}, out={target_w}x{target_h}, scale={scale:.4f}")
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(args.out, fourcc, fps, (target_w, target_h))
     if not writer.isOpened():
         raise SystemExit(f"Could not open VideoWriter for {args.out}")
 
-    print(f"[ACTION-FOLLOW] clip={args.clip}, src={src_w}x{src_h}, fps={fps:.3f}")
-    print(f"[ACTION-FOLLOW] scaled={scaled_w}x{scaled_h}, out={target_w}x{target_h}, scale={scale:.4f}")
-
     frame_idx = 0
-    last_valid_scaled = None  # (x,y) in scaled space
+    last_valid_scaled = None
+    half_w = target_w // 2
+    max_x0 = max(0, scaled_w - target_w)
 
+    # ========== FRAME LOOP (clean, guaranteed-safe) ==========
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # --- Retrieve telemetry row ---
+        # Telemetry lookup
         row = by_frame.get(frame_idx)
         use_point = False
 
@@ -84,7 +86,7 @@ def main():
                 last_valid_scaled = (ax_s, ay_s)
                 use_point = True
 
-        # --- Choose center point ---
+        # Choose center point
         if not use_point:
             if last_valid_scaled is None:
                 center_x = scaled_w / 2.0
@@ -94,23 +96,23 @@ def main():
         else:
             center_x, center_y = last_valid_scaled
 
-        # --- Compute crop window ---
-        x0 = int(round(center_x - (target_w / 2)))
-        x0 = max(0, min(x0, scaled_w - target_w))
+        # Compute crop window
+        x0 = int(round(center_x - half_w))
+        x0 = max(0, min(x0, max_x0))
         x1 = x0 + target_w
 
-        # --- Resize frame to tall canvas ---
+        # Resize source frame to tall canvas
         resized = cv2.resize(frame, (scaled_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # --- Crop horizontal window ---
+        # Crop horizontally
         crop = resized[:, x0:x1]
 
-        # --- SAFETY: enforce exact output size ---
+        # ENFORCE EXACT SIZE (prevents all OpenCV errors)
         h, w = crop.shape[:2]
         if h != target_h or w != target_w:
             crop = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # --- Debug overlay ---
+        # Debug overlay
         if args.debug_overlay and last_valid_scaled is not None:
             ax_s, ay_s = last_valid_scaled
             bx = int(round(ax_s - x0))
@@ -124,11 +126,11 @@ def main():
 
         writer.write(crop)
         frame_idx += 1
+    # =========================================================
 
     cap.release()
     writer.release()
     print(f"[ACTION-FOLLOW] wrote portrait follow clip to: {args.out}")
-
 
 if __name__ == "__main__":
     main()
