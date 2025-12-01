@@ -122,6 +122,9 @@ def main():
     scaled_w = int(round(src_w * scale))
     scaled_h = target_h
 
+    scale_w = scaled_w / float(src_w)
+    scale_h = scaled_h / float(src_h)
+
     print(f"[ACTION-FOLLOW] clip={args.clip}, src={src_w}x{src_h}, fps={fps:.3f}")
     print(f"[ACTION-FOLLOW] scaled={scaled_w}x{scaled_h}, out={target_w}x{target_h}, scale={scale:.4f}")
 
@@ -132,7 +135,6 @@ def main():
 
     frame_idx = 0
     last_valid_scaled = None
-    last_valid_raw = None
     half_w = target_w // 2
     max_x0 = max(0, scaled_w - target_w)
 
@@ -144,6 +146,7 @@ def main():
 
         # Telemetry lookup
         ax = ay = None
+        sx = sy = None
         if frame_idx < len(telemetry_points):
             point = telemetry_points[frame_idx]
             if point is not None:
@@ -153,26 +156,17 @@ def main():
             if point is not None:
                 ax, ay = point
 
-        if (ax is None or ay is None) and last_valid_raw is not None:
-            ax, ay = last_valid_raw
-
         print(f"[TELEMETRY] frame={frame_idx} ax={ax} ay={ay}")
-        use_point = False
-
         if ax is not None and ay is not None:
-            last_valid_raw = (ax, ay)
-            ax_s = ax * scale
-            ay_s = ay  # DO NOT scale vertical position in portrait mode
-            last_valid_scaled = (ax_s, ay_s)
-            use_point = True
+            sx = ax * scale_w
+            sy = ay * scale_h
+            print(f"[MAP] frame={frame_idx} action=({ax},{ay}) -> mapped=({sx},{sy})")
+            last_valid_scaled = (sx, sy)
 
         # Choose center point
-        if not use_point:
-            if last_valid_scaled is None:
-                center_x = scaled_w / 2.0
-                center_y = scaled_h / 2.0
-            else:
-                center_x, center_y = last_valid_scaled
+        if last_valid_scaled is None:
+            center_x = scaled_w / 2.0
+            center_y = scaled_h / 2.0
         else:
             center_x, center_y = last_valid_scaled
 
