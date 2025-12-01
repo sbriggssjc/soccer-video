@@ -85,7 +85,7 @@ def main():
                 ax = float(row["action_x"])
                 ay = float(row["action_y"])
                 ax_s = ax * scale
-                ay_s = ay * scale
+                ay_s = ay  # DO NOT scale vertical position in portrait mode
                 last_valid_scaled = (ax_s, ay_s)
                 use_point = True
 
