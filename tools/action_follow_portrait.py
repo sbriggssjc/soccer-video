@@ -23,6 +23,71 @@ def build_frame_index(rows):
         by_frame[f_idx] = r
     return by_frame
 
+def extract_action_point(row):
+    if row is None:
+        return None
+
+    priority_keys = [
+        ("action_center_x", "action_center_y"),
+        ("action_x", "action_y"),
+        ("ball_center_x", "ball_center_y"),
+        ("ball_x", "ball_y"),
+    ]
+
+    for kx, ky in priority_keys:
+        vx = row.get(kx)
+        vy = row.get(ky)
+        if vx is not None and vy is not None:
+            return float(vx), float(vy)
+
+    obj_ball_center = row.get("obj_ball_center")
+    if isinstance(obj_ball_center, dict):
+        vx = obj_ball_center.get("x")
+        vy = obj_ball_center.get("y")
+        if vx is not None and vy is not None:
+            return float(vx), float(vy)
+
+    ball = row.get("ball")
+    if isinstance(ball, dict):
+        vx = ball.get("x")
+        vy = ball.get("y")
+        if vx is not None and vy is not None:
+            return float(vx), float(vy)
+
+    return None
+
+def build_action_points(by_frame, min_conf):
+    if not by_frame:
+        return []
+
+    max_frame = max(by_frame.keys())
+    points = []
+    last_valid = None
+
+    for i in range(max_frame + 1):
+        row = by_frame.get(i)
+        ax = ay = None
+        if row is not None:
+            is_valid = bool(row.get("is_valid", False))
+            conf = float(row.get("confidence", 0.0))
+            if is_valid and conf >= min_conf:
+                coords = extract_action_point(row)
+                if coords is not None:
+                    ax, ay = coords
+
+        if (ax is None or ay is None) and last_valid is not None:
+            ax, ay = last_valid
+
+        if ax is not None and ay is not None:
+            last_valid = (ax, ay)
+            points.append(last_valid)
+        else:
+            points.append(None)
+
+        print(f"[TELEMETRY] frame={i} ax={ax} ay={ay}")
+
+    return points
+
 def main():
     ap = argparse.ArgumentParser(description="Portrait follow using action telemetry")
     ap.add_argument("--clip", required=True)
@@ -37,7 +102,9 @@ def main():
     rows = load_action_rows(args.telemetry)
     if not rows:
         raise SystemExit(f"No telemetry rows found in {args.telemetry}")
+    print("[TELEMETRY] first row:", rows[0])
     by_frame = build_frame_index(rows)
+    telemetry_points = build_action_points(by_frame, args.min_conf)
 
     cap = cv2.VideoCapture(args.clip)
     if not cap.isOpened():
@@ -65,6 +132,7 @@ def main():
 
     frame_idx = 0
     last_valid_scaled = None
+    last_valid_raw = None
     half_w = target_w // 2
     max_x0 = max(0, scaled_w - target_w)
 
@@ -75,19 +143,28 @@ def main():
             break
 
         # Telemetry lookup
-        row = by_frame.get(frame_idx)
+        ax = ay = None
+        if frame_idx < len(telemetry_points):
+            point = telemetry_points[frame_idx]
+            if point is not None:
+                ax, ay = point
+        elif telemetry_points:
+            point = telemetry_points[-1]
+            if point is not None:
+                ax, ay = point
+
+        if (ax is None or ay is None) and last_valid_raw is not None:
+            ax, ay = last_valid_raw
+
+        print(f"[TELEMETRY] frame={frame_idx} ax={ax} ay={ay}")
         use_point = False
 
-        if row is not None:
-            is_valid = bool(row.get("is_valid", False))
-            conf = float(row.get("confidence", 0.0))
-            if is_valid and conf >= args.min_conf:
-                ax = float(row["action_x"])
-                ay = float(row["action_y"])
-                ax_s = ax * scale
-                ay_s = ay  # DO NOT scale vertical position in portrait mode
-                last_valid_scaled = (ax_s, ay_s)
-                use_point = True
+        if ax is not None and ay is not None:
+            last_valid_raw = (ax, ay)
+            ax_s = ax * scale
+            ay_s = ay  # DO NOT scale vertical position in portrait mode
+            last_valid_scaled = (ax_s, ay_s)
+            use_point = True
 
         # Choose center point
         if not use_point:
