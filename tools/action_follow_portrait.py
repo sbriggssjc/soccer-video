@@ -133,6 +133,7 @@ def main():
         crop = crop.astype("uint8", copy=False)
         crop = cv2.cvtColor(crop, cv2.COLOR_BGR2BGR)
 
+        print("CROP SHAPE:", crop.shape, crop.dtype)
         writer.write(crop)
         frame_idx += 1
     # =========================================================
