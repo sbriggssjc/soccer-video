@@ -3,6 +3,8 @@ import argparse
 import json
 import cv2
 
+print("[DEBUG] RUNNING FILE:", __file__)
+
 def load_action_rows(path: str):
     rows = []
     with open(path, "r", encoding="utf-8") as f:
