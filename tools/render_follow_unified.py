@@ -6880,6 +6880,12 @@ def run(
     jerk95 = 0.0
     renderer: Optional[Renderer] = None
 
+    # === FOLLOW TELEMETRY OVERRIDE (NEW) ===
+    follow_override = None
+    if 'follow_frames' in locals() and len(follow_frames) > 0:
+        # Convert follow_frames into a dictionary keyed by frame index
+        follow_override = { f["frame"]: f for f in follow_frames if f.get("frame") is not None }
+
     attempt = 0
     while True:
         attempt += 1
