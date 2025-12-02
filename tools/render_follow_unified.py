@@ -6620,6 +6620,35 @@ def run(
     use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
     telemetry_path: Path | None = None
 
+    if getattr(args, "telemetry", None):
+        telemetry_rows = load_any_telemetry(args.telemetry)
+
+        # === FOLLOW TELEMETRY NORMALIZATION (NEW) ===
+        follow_frames = []
+        for row in telemetry_rows:
+            if not row.get("valid", True):
+                continue
+            cx = row.get("cx")
+            cy = row.get("cy")
+            zoom = row.get("zoom", 1.0)
+            t = row.get("t")
+            frame = row.get("frame")
+
+            # Reject unusable rows
+            if cx is None or cy is None or t is None:
+                continue
+
+            follow_frames.append({
+                "t": float(t),
+                "frame": int(frame) if frame is not None else None,
+                "cx": float(cx),
+                "cy": float(cy),
+                "zoom": float(zoom),
+            })
+
+        if not follow_frames:
+            raise ValueError(f"No valid follow telemetry in {args.telemetry}")
+
     telemetry_coverage = 0
     telemetry_coverage_ratio = 0.0
     ball_cam_stats: dict[str, float] = {}
