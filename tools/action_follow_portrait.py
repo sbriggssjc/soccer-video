@@ -129,6 +129,8 @@ def main():
     print(f"[INFO] Output: {args.width}x{args.height}")
     print(f"[INFO] use_planner={args.use_planner}")
 
+    planner = args.use_planner
+
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     writer = cv2.VideoWriter(args.out, fourcc, fps, (args.width, args.height))
@@ -145,42 +147,57 @@ def main():
 
         row = rows[min(frame_idx, len(rows) - 1)]
 
-        # ---------------------------------------------------------
-        # 1. EXTRACT TRUE PLANNER CAMERA CENTER
-        # ---------------------------------------------------------
-        center = get_planner_center(row)
-        if center is None:
-            # Fallback to screen center if exceptions
-            center = (src_w / 2, src_h / 2)
+        use_follow = False
 
-        # ---------------------------------------------------------
-        # 2. EXTRACT TRUE PLANNER ZOOM
-        # ---------------------------------------------------------
-        zoom = get_planner_zoom(row)
+        if "cx" in row and "cy" in row:
+            # This is follow telemetry
+            try:
+                cx = float(row["cx"])
+                cy = float(row["cy"])
+                zoom = float(row.get("zoom", 1.0))
+                use_follow = True
+            except (TypeError, ValueError):
+                use_follow = False
 
-        # ---------------------------------------------------------
-        # 3. CONVERT PLANNER CAMERA INTO PORTRAIT CROP
-        # ---------------------------------------------------------
-        crop = compute_portrait_crop(
-            center=center,
-            zoom=zoom,
-            src_w=src_w,
-            src_h=src_h,
-            out_w=args.width,
-            out_h=args.height,
-        )
+        if use_follow:
+            # Follow telemetry overrides planner
+            planner = None
+            center = (cx, cy)
+        else:
+            # ---------------------------------------------------------
+            # 1. EXTRACT TRUE PLANNER CAMERA CENTER
+            # ---------------------------------------------------------
+            center = get_planner_center(row)
+            if center is None:
+                # Fallback to screen center if exceptions
+                center = (src_w / 2, src_h / 2)
 
-        x0, y0, cw, ch = crop
+            # ---------------------------------------------------------
+            # 2. EXTRACT TRUE PLANNER ZOOM
+            # ---------------------------------------------------------
+            zoom = get_planner_zoom(row)
+
+        if zoom <= 0:
+            zoom = 1.0
+
+        crop_w = int(args.width / zoom)
+        crop_h = int(args.height / zoom)
+
+        x1 = int(center[0] - crop_w / 2)
+        y1 = int(center[1] - crop_h / 2)
+        x1 = max(0, min(x1, src_w - crop_w))
+        y1 = max(0, min(y1, src_h - crop_h))
+
+        crop = (x1, y1, crop_w, crop_h)
 
         # Debug overlay BEFORE cropping (so you can see planner behavior)
         if args.debug_overlay:
             draw_debug_overlay(frame, center, crop)
 
-        # Crop + resize
-        cropped = frame[y0:y0 + ch, x0:x0 + cw]
-        portrait = cv2.resize(cropped, (args.width, args.height), interpolation=cv2.INTER_AREA)
+        crop_frame = frame[y1:y1 + crop_h, x1:x1 + crop_w]
+        outframe = cv2.resize(crop_frame, (args.width, args.height), interpolation=cv2.INTER_AREA)
 
-        writer.write(portrait)
+        writer.write(outframe)
 
         frame_idx += 1
         if frame_idx % 50 == 0:
