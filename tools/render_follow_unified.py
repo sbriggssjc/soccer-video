@@ -113,54 +113,22 @@ def _safe_float(v):
 
 
 def _load_ball_telemetry(path):
-    import json
+    from render_follow_unified import load_any_telemetry
 
-    rows = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                rows.append(json.loads(line))
-            except:
-                pass
-
-    def safe_get(v, idx):
-        return v[idx] if isinstance(v, (list, tuple)) and len(v) > idx else None
+    telemetry_rows = load_any_telemetry(path)
+    if not telemetry_rows:
+        raise ValueError(f"No usable telemetry in {path}")
 
     out = []
-    for r in rows:
-        ball = r.get("ball")
-        ball_src = r.get("ball_src")
-        ball_out = r.get("ball_out")
-        ball_path = r.get("ball_path")
-
-        x_raw = (
-            r.get("cx")
-            or safe_get(ball, 0)
-            or safe_get(ball_src, 0)
-            or safe_get(ball_out, 0)
-            or safe_get(ball_path, 0)
-        )
-
-        y_raw = (
-            r.get("cy")
-            or safe_get(ball, 1)
-            or safe_get(ball_src, 1)
-            or safe_get(ball_out, 1)
-            or safe_get(ball_path, 1)
-        )
-
-        # skip only if both coords missing
-        if x_raw is None and y_raw is None:
+    for row in telemetry_rows:
+        cx = _safe_float(row.get("cx"))
+        cy = _safe_float(row.get("cy"))
+        if cx is None or cy is None:
             continue
-
-        # convert
-        try:
-            x = float(x_raw)
-            y = float(y_raw)
-        except:
-            continue
-
-        out.append((x, y, r))
+        rec = dict(row)
+        rec["cx"] = cx
+        rec["cy"] = cy
+        out.append(rec)
 
     return out
 
@@ -242,109 +210,33 @@ def load_ball_path_from_jsonl(path: str, logger=None):
     legacy ``ball_src`` or ``ball`` tuples.
     """
 
+    from render_follow_unified import load_any_telemetry
+
+    telemetry_rows = load_any_telemetry(path)
+    if not telemetry_rows:
+        raise ValueError(f"No usable telemetry in {path}")
+
     xs: list[float] = []
     ys: list[float] = []
     confs: list[float] = []
-    total_rows = kept_rows = 0
+    total_rows = len(telemetry_rows)
+    kept_rows = 0
     high_conf_valid_frames = 0
 
-    def _point(row: dict, prefix: str) -> tuple[float, float] | None:
-        x_key = f"{prefix}_x"
-        y_key = f"{prefix}_y"
-        if x_key in row and y_key in row:
-            try:
-                x_val = float(row[x_key]) if row[x_key] is not None else float("nan")
-                y_val = float(row[y_key]) if row[y_key] is not None else float("nan")
-            except (TypeError, ValueError):
-                return None
-            if math.isfinite(x_val) and math.isfinite(y_val):
-                return x_val, y_val
-        return None
+    for row in telemetry_rows:
+        cx = _safe_float(row.get("cx"))
+        cy = _safe_float(row.get("cy"))
+        if cx is None or cy is None:
+            continue
+        xs.append(float(cx))
+        ys.append(float(cy))
+        kept_rows += 1
 
-    def _as_float(val: object) -> float | None:
-        try:
-            f_val = float(val)
-        except (TypeError, ValueError):
-            return None
-        return f_val if math.isfinite(f_val) else None
-
-    def _cluster_point(row: Mapping[str, object]) -> tuple[float, float] | None:
-        # We expect action-cluster centroids to appear under a handful of common
-        # names. Be permissive so slightly different exporters still map.
-        for x_key, y_key in (
-            ("cx", "cy"),
-            ("action_cx", "action_cy"),
-            ("action_x", "action_y"),
-            ("center_x", "center_y"),
-            ("cluster_x", "cluster_y"),
-        ):
-            if x_key in row and y_key in row:
-                try:
-                    x_val = float(row[x_key])
-                    y_val = float(row[y_key])
-                except (TypeError, ValueError):
-                    continue
-                if math.isfinite(x_val) and math.isfinite(y_val):
-                    return x_val, y_val
-        for fallback_key in ("action", "center", "cluster"):
-            pt = _point(row, fallback_key)
-            if pt is not None:
-                return pt
-        return None
-
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            total_rows += 1
-            row = json.loads(line)
-            source = str(row.get("source") or "").lower()
-            is_valid = bool(row.get("is_valid", True))
-            ball_pt = _point(row, "ball")
-            carrier_pt = _point(row, "carrier")
-            ball_conf = _as_float(row.get("ball_conf"))
-            carrier_conf = _as_float(row.get("carrier_conf"))
-
-            chosen: tuple[float, float] | None = None
-            chosen_conf: float | None = None
-
-            if is_valid and ball_conf is not None and ball_conf >= BALL_CONF_THRESH and ball_pt is not None:
-                chosen = ball_pt
-                chosen_conf = ball_conf
-                high_conf_valid_frames += 1
-            elif carrier_conf is not None and carrier_conf >= PLAYER_CONF_THRESH and carrier_pt is not None:
-                chosen = carrier_pt
-                chosen_conf = carrier_conf
-            elif source == "players":
-                cluster_pt = _cluster_point(row)
-                if cluster_pt is not None:
-                    chosen = cluster_pt
-
-            if chosen is None:
-                if "ball_src" in row and isinstance(row["ball_src"], (list, tuple)) and len(row["ball_src"]) >= 2:
-                    bx = _safe_float(row["ball_src"][0])
-                    by = _safe_float(row["ball_src"][1])
-                    if bx is not None and by is not None:
-                        chosen = (bx, by)
-                elif "ball" in row and isinstance(row["ball"], (list, tuple)) and len(row["ball"]) >= 2:
-                    bx = _safe_float(row["ball"][0])
-                    by = _safe_float(row["ball"][1])
-                    if bx is not None and by is not None:
-                        chosen = (bx, by)
-
-            if chosen is None:
-                continue
-
-            bx, by = chosen
-            xs.append(float(bx))
-            ys.append(float(by))
-            kept_rows += 1
-            if isinstance(chosen_conf, (int, float)):
-                confs.append(float(chosen_conf))
-
-    if not xs:
-        raise RuntimeError(f"No usable ball telemetry entries in {path}")
+        conf_val = _safe_float(row.get("conf"))
+        if conf_val is not None:
+            confs.append(conf_val)
+        if bool(row.get("valid", True)) and (conf_val is None or conf_val >= BALL_CONF_THRESH):
+            high_conf_valid_frames += 1
 
     xs_arr = np.asarray(xs, dtype=np.float32)
     ys_arr = np.asarray(ys, dtype=np.float32)
@@ -7356,7 +7248,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--telemetry",
         "--ball-telemetry",
-        dest="ball_telemetry",
+        dest="telemetry",
         help="Input ball telemetry JSONL (default: out/telemetry/<clip>.ball.jsonl)",
     )
     parser.add_argument(
@@ -7369,7 +7261,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Draw detected ball markers before cropping (requires --use-ball-telemetry)",
     )
-    parser.add_argument("--render-telemetry", dest="telemetry", help="Output JSONL telemetry file")
+    parser.add_argument("--render-telemetry", dest="render_telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
         "--plan",
         dest="plan",
@@ -7438,12 +7330,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             )
     setattr(args, "portrait_w", portrait_w)
     setattr(args, "portrait_h", portrait_h)
-    telemetry_path: Optional[Path] = None
+    render_telemetry_path: Optional[Path] = None
     telemetry_simple_path: Optional[Path] = None
     if getattr(args, "telemetry", None):
-        telemetry_path = Path(args.telemetry).expanduser()
-        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
-        args.telemetry = os.fspath(telemetry_path)
+        setattr(args, "ball_telemetry", args.telemetry)
+    if getattr(args, "render_telemetry", None):
+        render_telemetry_path = Path(args.render_telemetry).expanduser()
+        render_telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        args.render_telemetry = os.fspath(render_telemetry_path)
     if getattr(args, "telemetry_out", None):
         telemetry_simple_path = Path(args.telemetry_out).expanduser()
         telemetry_simple_path.parent.mkdir(parents=True, exist_ok=True)
@@ -7451,7 +7345,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
         args.ball_telemetry = telemetry_path_for_video(Path(args.input))
-    run(args, telemetry_path=telemetry_path, telemetry_simple_path=telemetry_simple_path)
+    run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
