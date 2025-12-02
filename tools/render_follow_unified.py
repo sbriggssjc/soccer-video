@@ -3995,6 +3995,7 @@ class Renderer:
         ball_samples: Optional[List[BallSample]] = None,
         keep_path_lookup_data: Optional[dict[int, Tuple[float, float]]] = None,
         debug_ball_overlay: bool = False,
+        follow_override: Optional[Mapping[int, Mapping[str, float]]] = None,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -4075,6 +4076,7 @@ class Renderer:
         self.ball_samples = ball_samples or []
         self.keep_path_lookup_data = keep_path_lookup_data or {}
         self.debug_ball_overlay = bool(debug_ball_overlay)
+        self.follow_override = follow_override
 
         normalized_ball_path: Optional[List[Optional[dict[str, float]]]] = None
         if ball_path:
@@ -4898,10 +4900,21 @@ class Renderer:
                 )
                 return clamped_target[0], clamped_target[1], state_label, pan_target
 
+            follow_override = self.follow_override
             for i, state in enumerate(states):
                 cx: float | None = None
                 cy: float | None = None
                 telemetry_rec: Optional[dict[str, object]] = None
+                # === FOLLOW OVERRIDE APPLIED (NEW) ===
+                if follow_override is not None and i in follow_override:
+                    fo = follow_override[i]
+                    # Planner gives cx,cy,zoom in source-space coordinates
+                    cx = float(fo.get("cx", cx))
+                    cy = float(fo.get("cy", cy))
+                    zoom = float(fo.get("zoom", zoom))
+                    # Skip jerk-follow computations, jump to crop application
+                    # This ensures planner completely replaces the camera solve
+                    # Continue into crop/FFmpeg rendering with overridden values
                 try:
                     ok, frame = cap.read()
                     if not ok or frame is None:
@@ -6937,6 +6950,7 @@ def run(
             ball_samples=ball_samples,
             keep_path_lookup_data=active_keep_path_lookup_data,
             debug_ball_overlay=debug_ball_overlay,
+            follow_override=follow_override,
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         print(
@@ -7013,6 +7027,7 @@ def run(
                     ball_samples=ball_samples,
                     keep_path_lookup_data=keep_path_lookup_data if use_ball_telemetry else {},
                     debug_ball_overlay=debug_ball_overlay,
+                    follow_override=follow_override,
                 )
                 jerk95 = renderer.write_frames(states)
             finally:
