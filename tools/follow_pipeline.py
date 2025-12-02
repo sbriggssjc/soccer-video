@@ -89,6 +89,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--telemetry",
         help="Optional telemetry path (overrides discovery/detection)",
     )
+    parser.add_argument(
+        "--follow-override",
+        type=str,
+        default=None,
+        help="Path to offline follow trajectory override (.jsonl).",
+    )
     # Accept (but ignore) some legacy flags so existing commands don't break.
     parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--init-manual", action="store_true", help=argparse.SUPPRESS)
@@ -105,6 +111,7 @@ def run_render(
     *,
     use_ball_telemetry: bool,
     telemetry_path: Path | None,
+    follow_override: str | None = None,
 ) -> Path:
     """Invoke render_follow_unified.py for a single clip and return portrait path."""
 
@@ -138,6 +145,14 @@ def run_render(
         )
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         cmd.extend(["--use-ball-telemetry", "--telemetry", str(telemetry_path)])
+
+    # === FOLLOW OVERRIDE SUPPORT (NEW) ===
+    follow_override_path = None
+    if follow_override:
+        follow_override_path = follow_override
+
+    if follow_override_path:
+        cmd.extend(["--follow-override", follow_override_path])
 
     print(f"[INFO] Rendering {clip_id}")
     print("[CMD]", " ".join(cmd))
@@ -272,6 +287,7 @@ def main(argv: list[str] | None = None) -> None:
                 ns.variant,
                 use_ball_telemetry=use_ball_telemetry,
                 telemetry_path=telemetry_path if use_ball_telemetry else None,
+                follow_override=ns.follow_override,
             )
             if ns.brand_script:
                 run_brand(Path(ns.brand_script), portrait, ns.aspect)
