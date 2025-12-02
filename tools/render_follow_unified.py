@@ -34,6 +34,60 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_float(v):
+    """
+    Convert v to a finite float, or return None if impossible.
+    Rejects None, NaN, and infinities.
+    """
+
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return f
+
+
+def _load_ball_telemetry(path):
+    """
+    Load ball telemetry JSONL and return a list of samples with finite
+    t, cx, cy. Skips any row with missing/non-finite values.
+    Supports both {t, cx, cy} and {t, x, y} style schemas.
+    """
+
+    samples = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            # Handle both new and old schemas
+            t_raw = row.get("t", row.get("time"))
+            x_raw = row.get("cx", row.get("x"))
+            y_raw = row.get("cy", row.get("y"))
+
+            t = _safe_float(t_raw)
+            cx = _safe_float(x_raw)
+            cy = _safe_float(y_raw)
+
+            if t is None or cx is None or cy is None:
+                # Skip rows with any bad value instead of crashing
+                continue
+
+            samples.append({"t": t, "cx": cx, "cy": cy})
+
+    if not samples:
+        raise ValueError("Telemetry does not contain any finite ball coordinates")
+
+    return samples
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -836,41 +890,58 @@ def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
 
 
 def load_ball_telemetry_jsonl(path: str, src_w: int, src_h: int, logger=None):
-    import json
-
     xs: list[float] = []
     ys: list[float] = []
 
     if logger:
         logger.info("[BALL-TELEMETRY] loading %s", path)
 
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, Mapping):
-                continue
+    try:
+        samples = _load_ball_telemetry(path)
+    except ValueError:
+        samples = []
 
-            if all(k in row for k in ("cx", "cy")):
-                bx = float(row["cx"])
-                by = float(row["cy"])
+    if samples:
+        xs = [s["cx"] for s in samples]
+        ys = [s["cy"] for s in samples]
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, Mapping):
+                    continue
 
-            elif all(k in row for k in ("cx_norm", "cy_norm")):
-                bx = float(row["cx_norm"]) * src_w
-                by = float(row["cy_norm"]) * src_h
+                bx: float | None = None
+                by: float | None = None
 
-            elif all(k in row for k in ("x1", "y1", "x2", "y2")):
-                bx = 0.5 * (float(row["x1"]) + float(row["x2"]))
-                by = 0.5 * (float(row["y1"]) + float(row["y2"]))
-            else:
-                continue
+                if all(k in row for k in ("cx", "cy")):
+                    bx = _safe_float(row.get("cx"))
+                    by = _safe_float(row.get("cy"))
+                elif all(k in row for k in ("cx_norm", "cy_norm")):
+                    cx_norm = _safe_float(row.get("cx_norm"))
+                    cy_norm = _safe_float(row.get("cy_norm"))
+                    if cx_norm is not None and cy_norm is not None:
+                        bx = cx_norm * src_w
+                        by = cy_norm * src_h
+                elif all(k in row for k in ("x1", "y1", "x2", "y2")):
+                    x1 = _safe_float(row.get("x1"))
+                    y1 = _safe_float(row.get("y1"))
+                    x2 = _safe_float(row.get("x2"))
+                    y2 = _safe_float(row.get("y2"))
+                    if None not in (x1, y1, x2, y2):
+                        bx = 0.5 * (x1 + x2)
+                        by = 0.5 * (y1 + y2)
 
-            xs.append(bx)
-            ys.append(by)
+                if bx is None or by is None:
+                    continue
+
+                xs.append(bx)
+                ys.append(by)
 
     if not xs:
         raise RuntimeError(f"No usable ball telemetry in {path}")
