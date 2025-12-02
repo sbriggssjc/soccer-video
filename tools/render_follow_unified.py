@@ -64,8 +64,24 @@ def _load_ball_telemetry(path):
                 continue
 
             t_raw = row.get("t") or row.get("time")
-            x_raw = row.get("cx") or row.get("x")
-            y_raw = row.get("cy") or row.get("y")
+
+            # --- ball coordinate fallbacks ---
+            # preferred order: cx/cy → ball → ball_src → ball_out → ball_path
+            x_raw = (
+                row.get("cx") or
+                (row.get("ball")[0] if isinstance(row.get("ball"), (list, tuple)) else None) or
+                (row.get("ball_src")[0] if isinstance(row.get("ball_src"), (list, tuple)) else None) or
+                (row.get("ball_out")[0] if isinstance(row.get("ball_out"), (list, tuple)) else None) or
+                (row.get("ball_path")[0] if isinstance(row.get("ball_path"), (list, tuple)) else None)
+            )
+
+            y_raw = (
+                row.get("cy") or
+                (row.get("ball")[1] if isinstance(row.get("ball"), (list, tuple)) else None) or
+                (row.get("ball_src")[1] if isinstance(row.get("ball_src"), (list, tuple)) else None) or
+                (row.get("ball_out")[1] if isinstance(row.get("ball_out"), (list, tuple)) else None) or
+                (row.get("ball_path")[1] if isinstance(row.get("ball_path"), (list, tuple)) else None)
+            )
 
             t = _safe_float(t_raw)
             cx = _safe_float(x_raw)
