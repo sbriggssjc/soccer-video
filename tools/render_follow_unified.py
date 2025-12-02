@@ -7152,7 +7152,6 @@ def run(
                     telemetry_handle.close()
                 if telemetry_simple_handle:
                     telemetry_simple_handle.close()
-            break
 
         logging.info(
             "jerk95 %.1f exceeds threshold %.1f; retuning follow_wn/deadzone", jerk95, jerk_threshold
