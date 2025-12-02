@@ -23,8 +23,7 @@ The new workflow is:
 
 from __future__ import annotations
 
-import os
-import sys
+import os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -40,10 +39,60 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 from ball_telemetry import BallSample, load_ball_telemetry
-from render_follow_unified import compute_follow_trajectory
 
 
 DEBUG_KEEPINVIEW = False
+
+
+def compute_follow_trajectory(
+    ball_samples,
+    src_w,
+    src_h,
+    fps,
+    zoom_min: float = 1.0,
+    zoom_max: float = 2.8,
+    smoothing: float = 0.85,
+    center_weight: float = 0.65,
+):
+    """
+    Construct a smooth (cx, cy, zoom) trajectory directly from ball telemetry.
+    """
+
+    out = []
+    last_cx = src_w * 0.5
+    last_cy = src_h * 0.55
+    last_zoom = 1.4  # mid zoom start
+
+    for b in ball_samples:
+        cx = b.cx
+        cy = b.cy
+
+        # smoothing center motion
+        cx = last_cx * (1 - smoothing) + cx * smoothing
+        cy = last_cy * (1 - smoothing) + cy * smoothing
+
+        # zoom based on distance from center
+        dx = abs(cx - src_w * 0.5)
+        dy = abs(cy - src_h * 0.5)
+        dist = max(dx, dy)
+        norm = dist / (src_w * 0.5)
+
+        zoom = zoom_min + (zoom_max - zoom_min) * (1 - center_weight * (1 - norm))
+        zoom = max(zoom_min, min(zoom, zoom_max))
+
+        out.append(
+            {
+                "f": b.f,
+                "t": b.t,
+                "cx": float(cx),
+                "cy": float(cy),
+                "zoom": float(zoom),
+            }
+        )
+
+        last_cx, last_cy, last_zoom = cx, cy, zoom
+
+    return out
 
 
 def _infer_fps_from_samples(samples: Sequence[BallSample]) -> float:
