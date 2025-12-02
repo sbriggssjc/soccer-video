@@ -46,64 +46,56 @@ def _safe_float(v):
 
 
 def _load_ball_telemetry(path):
-    """
-    Load ball telemetry JSONL and return finite (t, cx, cy) only.
-    Supports old style {t,x,y} and new style {t,cx,cy}.
-    Silently skips rows with null/None/NaN/infinite values.
-    """
-    samples = []
+    import json
+
+    rows = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line:
-                continue
-
             try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+                rows.append(json.loads(line))
+            except:
+                pass
 
-            t_raw = row.get("t") or row.get("time")
+    def safe_get(v, idx):
+        return v[idx] if isinstance(v, (list, tuple)) and len(v) > idx else None
 
-            # --- BALL COORDINATE FALLBACKS ---
-            # Order: cx/cy → ball → ball_src → ball_out → ball_path
-            ball = row.get("ball")
-            ball_src = row.get("ball_src")
-            ball_out = row.get("ball_out")
-            ball_path = row.get("ball_path")
+    out = []
+    for r in rows:
+        ball = r.get("ball")
+        ball_src = r.get("ball_src")
+        ball_out = r.get("ball_out")
+        ball_path = r.get("ball_path")
 
-            def safe_get(v, idx):
-                return v[idx] if isinstance(v, (list, tuple)) and len(v) > idx else None
+        x_raw = (
+            r.get("cx")
+            or safe_get(ball, 0)
+            or safe_get(ball_src, 0)
+            or safe_get(ball_out, 0)
+            or safe_get(ball_path, 0)
+        )
 
-            x_raw = (
-                row.get("cx") or
-                safe_get(ball, 0) or
-                safe_get(ball_src, 0) or
-                safe_get(ball_out, 0) or
-                safe_get(ball_path, 0)
-            )
+        y_raw = (
+            r.get("cy")
+            or safe_get(ball, 1)
+            or safe_get(ball_src, 1)
+            or safe_get(ball_out, 1)
+            or safe_get(ball_path, 1)
+        )
 
-            y_raw = (
-                row.get("cy") or
-                safe_get(ball, 1) or
-                safe_get(ball_src, 1) or
-                safe_get(ball_out, 1) or
-                safe_get(ball_path, 1)
-            )
+        # skip only if both coords missing
+        if x_raw is None and y_raw is None:
+            continue
 
-            t = _safe_float(t_raw)
-            cx = _safe_float(x_raw)
-            cy = _safe_float(y_raw)
+        # convert
+        try:
+            x = float(x_raw)
+            y = float(y_raw)
+        except:
+            continue
 
-            if t is None or cx is None or cy is None:
-                continue
+        out.append((x, y, r))
 
-            samples.append({"t": t, "cx": cx, "cy": cy})
-
-    if not samples:
-        raise ValueError(f"No valid ball telemetry found in {path}")
-
-    return samples
+    return out
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
