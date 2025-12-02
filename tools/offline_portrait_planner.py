@@ -23,6 +23,13 @@ The new workflow is:
 
 from __future__ import annotations
 
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 import argparse
 import json
 import math
@@ -32,7 +39,8 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from tools.ball_telemetry import BallSample, load_ball_telemetry
+from ball_telemetry import BallSample, load_ball_telemetry
+from render_follow_unified import compute_follow_trajectory
 
 
 DEBUG_KEEPINVIEW = False
