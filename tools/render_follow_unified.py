@@ -6626,6 +6626,16 @@ def run(
         fallback_fps = fps_in if fps_in > 0 else 30.0
         duration_s = frame_count / float(fallback_fps)
 
+    override_samples = getattr(args, "follow_override_samples", None)
+    total_frames = frame_count
+    if total_frames <= 0:
+        fps_hint = fps_in if fps_in > 0 else fps_out
+        total_frames = int(round((duration_s or 0.0) * fps_hint)) if fps_hint > 0 else 0
+    total_frames = max(total_frames, 1)
+
+    if override_samples:
+        use_ball_telemetry = False
+
     ball_samples: List[BallSample] = []
     keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
     keepinview_path: list[tuple[float, float]] | None = None
@@ -6878,6 +6888,54 @@ def run(
 
     debug_ball_overlay = bool(getattr(args, "debug_ball_overlay", False) and use_ball_telemetry)
 
+    # === FOLLOW OVERRIDE PATH (EXTERNAL) ===
+    follow_override = None
+    if override_samples:
+        cam_cx = {}
+        cam_cy = {}
+        cam_zoom = {}
+
+        for row in override_samples:
+            f = row["frame"]
+            cam_cx[f] = row["cx"]
+            cam_cy[f] = row["cy"]
+            cam_zoom[f] = row.get("zoom", 1.0)   # default: no zoom change
+
+        # convert into sorted arrays matching video length
+        final_cx = []
+        final_cy = []
+        final_zoom = []
+
+        for frame_idx in range(total_frames):
+            if frame_idx in cam_cx:
+                final_cx.append(cam_cx[frame_idx])
+                final_cy.append(cam_cy[frame_idx])
+                final_zoom.append(cam_zoom[frame_idx])
+            else:
+                # if a frame is missing: hold last or clamp safely
+                if final_cx:
+                    final_cx.append(final_cx[-1])
+                    final_cy.append(final_cy[-1])
+                    final_zoom.append(final_zoom[-1])
+                else:
+                    final_cx.append(width / 2)
+                    final_cy.append(height / 2)
+                    final_zoom.append(1.0)
+
+        cam_x = final_cx
+        cam_y = final_cy
+        cam_zoom = final_zoom
+
+        follow_override = {
+            idx: {"frame": idx, "cx": cam_x[idx], "cy": cam_y[idx], "zoom": cam_zoom[idx]}
+            for idx in range(len(cam_x))
+        }
+        keep_path_lookup_data = {}
+
+    elif 'follow_frames' in locals() and len(follow_frames) > 0:
+        # Convert follow_frames into a dictionary keyed by frame index
+        follow_override = { f["frame"]: f for f in follow_frames if f.get("frame") is not None }
+
     jerk_threshold = float(getattr(args, "jerk_threshold", 0.0) or 0.0)
     jerk_enabled = jerk_threshold > 0.0
     jerk_wn_scale = float(getattr(args, "jerk_wn_scale", 0.9) or 0.9)
@@ -6887,22 +6945,81 @@ def run(
     if use_ball_telemetry and telemetry_coverage_ratio >= 0.9:
         logging.info("Using ball telemetry path for keep-in-view (no jerk fallback).")
         jerk_enabled = False
+    if override_samples:
+        jerk_enabled = False
 
     current_follow_wn = float(follow_wn)
     current_deadzone = float(follow_deadzone)
     jerk95 = 0.0
     renderer: Optional[Renderer] = None
 
-    # === FOLLOW TELEMETRY OVERRIDE (NEW) ===
-    follow_override = None
-    if 'follow_frames' in locals() and len(follow_frames) > 0:
-        # Convert follow_frames into a dictionary keyed by frame index
-        follow_override = { f["frame"]: f for f in follow_frames if f.get("frame") is not None }
-
-    attempt = 0
-    while True:
-        attempt += 1
-        active_keep_path_lookup_data = keep_path_lookup_data if use_ball_telemetry else {}
+    if override_samples:
+        telemetry_handle: Optional[TextIO] = None
+        telemetry_simple_handle: Optional[TextIO] = None
+        try:
+            if telemetry_path is not None:
+                telemetry_handle = open(telemetry_path, "w", encoding="utf-8")
+            if telemetry_simple_path is not None:
+                telemetry_simple_handle = open(telemetry_simple_path, "w", encoding="utf-8")
+            renderer = Renderer(
+                input_path=input_path,
+                output_path=output_path,
+                temp_dir=temp_dir,
+                fps_in=fps_in,
+                fps_out=fps_out,
+                flip180=args.flip180,
+                portrait=portrait,
+                brand_overlay=brand_overlay_path,
+                endcard=endcard_path,
+                pad=pad,
+                zoom_min=zoom_min,
+                zoom_max=zoom_max,
+                speed_limit=speed_limit,
+                telemetry=telemetry_handle,
+                telemetry_simple=telemetry_simple_handle,
+                init_manual=getattr(args, "init_manual", False),
+                init_t=getattr(args, "init_t", 0.8),
+                ball_path=offline_ball_path,
+                follow_lead_time=lead_time_s,
+                follow_margin_px=margin_px,
+                follow_smoothing=smoothing,
+                follow_zeta=follow_zeta,
+                follow_wn=current_follow_wn,
+                follow_deadzone=current_deadzone,
+                follow_max_vel=follow_max_vel,
+                follow_max_acc=follow_max_acc,
+                follow_lookahead=follow_lookahead_frames,
+                follow_pre_smooth=follow_pre_smooth,
+                follow_zoom_out_max=follow_zoom_out_max,
+                follow_zoom_edge_frac=follow_zoom_edge_frac,
+                follow_center_frac=cy_frac,
+                lost_hold_ms=lost_hold_ms,
+                lost_pan_ms=lost_pan_ms,
+                lost_lookahead_s=lost_lookahead_s,
+                lost_chase_motion_ms=lost_chase_motion_ms,
+                lost_motion_thresh=lost_motion_thresh,
+                lost_use_motion=lost_use_motion,
+                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+                plan_override_data=plan_override_data,
+                plan_override_len=plan_override_len,
+                ball_samples=[],
+                keep_path_lookup_data={},
+                debug_ball_overlay=False,
+                follow_override=follow_override,
+            )
+            jerk95 = renderer.write_frames(states)
+        finally:
+            if telemetry_handle:
+                telemetry_handle.close()
+            if telemetry_simple_handle:
+                telemetry_simple_handle.close()
+    else:
+        attempt = 0
+        while True:
+            attempt += 1
+            active_keep_path_lookup_data = keep_path_lookup_data if use_ball_telemetry else {}
 
         probe_renderer = Renderer(
             input_path=input_path,
@@ -7358,6 +7475,13 @@ def build_parser() -> argparse.ArgumentParser:
         dest="ball_path",
         help="JSONL from ball_path_planner_v2.py",
     )
+    parser.add_argument(
+        "--follow-override",
+        dest="follow_override",
+        type=str,
+        default=None,
+        help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
+    )
     return parser
 
 
@@ -7365,6 +7489,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     args = parser.parse_args(argv)
+    override_samples = None
+    if args.follow_override:
+        override_samples = []
+        with open(args.follow_override, "r", encoding="utf-8") as f:
+            for line in f:
+                row = json.loads(line)
+                # Must contain: frame, cx, cy, zoom
+                if "frame" in row and "cx" in row and "cy" in row:
+                    override_samples.append(row)
     follow_lookahead_cli = any(
         arg == "--lookahead" or arg.startswith("--lookahead=") for arg in raw_argv
     )
@@ -7395,6 +7528,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
         args.ball_telemetry = telemetry_path_for_video(Path(args.input))
+    setattr(args, "follow_override_samples", override_samples)
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
 
 
