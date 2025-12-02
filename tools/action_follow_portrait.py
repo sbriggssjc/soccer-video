@@ -152,9 +152,9 @@ def main():
         if "cx" in row and "cy" in row:
             # This is follow telemetry
             try:
-                cx = float(row["cx"])
-                cy = float(row["cy"])
-                zoom = float(row.get("zoom", 1.0))
+                cx = float(row.get("cx") or 0)
+                cy = float(row.get("cy") or 0)
+                zoom = float(row.get("zoom") or 1.0)
                 use_follow = True
             except (TypeError, ValueError):
                 use_follow = False
@@ -179,6 +179,12 @@ def main():
 
         if zoom <= 0:
             zoom = 1.0
+
+        cx, cy = center
+        cx = max(0, min(cx, src_w))
+        cy = max(0, min(cy, src_h))
+        zoom = max(0.2, min(zoom, 4.0))
+        center = (cx, cy)
 
         crop_w = int(args.width / zoom)
         crop_h = int(args.height / zoom)

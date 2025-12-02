@@ -253,16 +253,24 @@ def emit_follow_telemetry(
     root = Path(workdir) if workdir is not None else (Path(path).parent if path else Path.cwd())
     root.mkdir(parents=True, exist_ok=True)
 
+    cx = [0.0 if v is None else float(v) for v in cx]
+    cy = [0.0 if v is None else float(v) for v in cy]
+    zoom = [1.0 if v is None else float(v) for v in zoom]
+
     out_path = root / f"{stem}.follow.jsonl"
-    with out_path.open("w", encoding="utf-8") as handle:
+    with out_path.open("w", encoding="utf-8") as f:
         for i in range(len(cx)):
-            handle.write(
+            cx_i = float(cx[i] or 0)
+            cy_i = float(cy[i] or 0)
+            zoom_i = float(zoom[i] or 1.0)
+
+            f.write(
                 json.dumps(
                     {
                         "f": i,
-                        "cx": float(cx[i]),
-                        "cy": float(cy[i]),
-                        "zoom": float(zoom[i]) if i < len(zoom) else float(1.0),
+                        "cx": cx_i,
+                        "cy": cy_i,
+                        "zoom": zoom_i,
                     }
                 )
                 + "\n"
