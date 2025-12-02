@@ -65,22 +65,30 @@ def _load_ball_telemetry(path):
 
             t_raw = row.get("t") or row.get("time")
 
-            # --- ball coordinate fallbacks ---
-            # preferred order: cx/cy → ball → ball_src → ball_out → ball_path
+            # --- BALL COORDINATE FALLBACKS ---
+            # Order: cx/cy → ball → ball_src → ball_out → ball_path
+            ball = row.get("ball")
+            ball_src = row.get("ball_src")
+            ball_out = row.get("ball_out")
+            ball_path = row.get("ball_path")
+
+            def safe_get(v, idx):
+                return v[idx] if isinstance(v, (list, tuple)) and len(v) > idx else None
+
             x_raw = (
                 row.get("cx") or
-                (row.get("ball")[0] if isinstance(row.get("ball"), (list, tuple)) else None) or
-                (row.get("ball_src")[0] if isinstance(row.get("ball_src"), (list, tuple)) else None) or
-                (row.get("ball_out")[0] if isinstance(row.get("ball_out"), (list, tuple)) else None) or
-                (row.get("ball_path")[0] if isinstance(row.get("ball_path"), (list, tuple)) else None)
+                safe_get(ball, 0) or
+                safe_get(ball_src, 0) or
+                safe_get(ball_out, 0) or
+                safe_get(ball_path, 0)
             )
 
             y_raw = (
                 row.get("cy") or
-                (row.get("ball")[1] if isinstance(row.get("ball"), (list, tuple)) else None) or
-                (row.get("ball_src")[1] if isinstance(row.get("ball_src"), (list, tuple)) else None) or
-                (row.get("ball_out")[1] if isinstance(row.get("ball_out"), (list, tuple)) else None) or
-                (row.get("ball_path")[1] if isinstance(row.get("ball_path"), (list, tuple)) else None)
+                safe_get(ball, 1) or
+                safe_get(ball_src, 1) or
+                safe_get(ball_out, 1) or
+                safe_get(ball_path, 1)
             )
 
             t = _safe_float(t_raw)
