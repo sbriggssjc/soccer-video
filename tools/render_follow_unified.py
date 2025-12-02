@@ -35,6 +35,73 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def load_any_telemetry(path):
+    """
+    Unified loader for ball telemetry (JSONL) and follow telemetry
+    (JSON or JSONL). Returns a list of dicts with keys:
+        t, cx, cy, zoom, valid
+    No other fields required.
+    """
+
+    import json, os
+
+    rows = []
+
+    # JSON follow telemetry (single JSON containing "keyframes")
+    if path.lower().endswith(".json"):
+        with open(path, "r", encoding="utf-8") as f:
+            root = json.load(f)
+        kfs = root.get("keyframes", [])
+        for kf in kfs:
+            rows.append({
+                "t": kf.get("t"),
+                "cx": kf.get("cx"),
+                "cy": kf.get("cy"),
+                "zoom": kf.get("zoom", 1.0),
+                "valid": True,
+            })
+        return rows
+
+    # JSONL (either ball telemetry or flattened follow telemetry)
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except:
+                continue
+
+            # Modern follow telemetry (already has cx/cy/zoom)
+            if "cx" in row and "cy" in row:
+                rows.append({
+                    "t": row.get("t"),
+                    "cx": row.get("cx"),
+                    "cy": row.get("cy"),
+                    "zoom": row.get("zoom", 1.0),
+                    "valid": True,
+                })
+                continue
+
+            # Legacy ball telemetry (ball→camera logic will fill zoom later)
+            if "ball" in row or "ball_src" in row:
+                cx = row.get("cx")
+                cy = row.get("cy")
+                if cx is None or cy is None:
+                    continue
+                rows.append({
+                    "t": row.get("t"),
+                    "cx": cx,
+                    "cy": cy,
+                    "zoom": 1.0,
+                    "valid": True,
+                })
+                continue
+
+    return rows
+
+
 def _safe_float(v):
     try:
         f = float(v)
