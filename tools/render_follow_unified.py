@@ -36,11 +36,6 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_float(v):
-    """
-    Convert v to a finite float, or return None if impossible.
-    Rejects None, NaN, and infinities.
-    """
-
     try:
         f = float(v)
     except (TypeError, ValueError):
@@ -52,39 +47,37 @@ def _safe_float(v):
 
 def _load_ball_telemetry(path):
     """
-    Load ball telemetry JSONL and return a list of samples with finite
-    t, cx, cy. Skips any row with missing/non-finite values.
-    Supports both {t, cx, cy} and {t, x, y} style schemas.
+    Load ball telemetry JSONL and return finite (t, cx, cy) only.
+    Supports old style {t,x,y} and new style {t,cx,cy}.
+    Silently skips rows with null/None/NaN/infinite values.
     """
-
     samples = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
+
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue
 
-            # Handle both new and old schemas
-            t_raw = row.get("t", row.get("time"))
-            x_raw = row.get("cx", row.get("x"))
-            y_raw = row.get("cy", row.get("y"))
+            t_raw = row.get("t") or row.get("time")
+            x_raw = row.get("cx") or row.get("x")
+            y_raw = row.get("cy") or row.get("y")
 
             t = _safe_float(t_raw)
             cx = _safe_float(x_raw)
             cy = _safe_float(y_raw)
 
             if t is None or cx is None or cy is None:
-                # Skip rows with any bad value instead of crashing
                 continue
 
             samples.append({"t": t, "cx": cx, "cy": cy})
 
     if not samples:
-        raise ValueError("Telemetry does not contain any finite ball coordinates")
+        raise ValueError(f"No valid ball telemetry found in {path}")
 
     return samples
 
@@ -247,9 +240,15 @@ def load_ball_path_from_jsonl(path: str, logger=None):
 
             if chosen is None:
                 if "ball_src" in row and isinstance(row["ball_src"], (list, tuple)) and len(row["ball_src"]) >= 2:
-                    chosen = tuple(map(float, row["ball_src"][:2]))  # type: ignore[arg-type]
+                    bx = _safe_float(row["ball_src"][0])
+                    by = _safe_float(row["ball_src"][1])
+                    if bx is not None and by is not None:
+                        chosen = (bx, by)
                 elif "ball" in row and isinstance(row["ball"], (list, tuple)) and len(row["ball"]) >= 2:
-                    chosen = tuple(map(float, row["ball"][:2]))  # type: ignore[arg-type]
+                    bx = _safe_float(row["ball"][0])
+                    by = _safe_float(row["ball"][1])
+                    if bx is not None and by is not None:
+                        chosen = (bx, by)
 
             if chosen is None:
                 continue
@@ -875,76 +874,30 @@ def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     samples = load_ball_telemetry(path)
     arr = np.full((num_frames, 3), np.nan, dtype=float)
     for sample in samples:
-        frame_idx = int(getattr(sample, "frame", -1))
+        try:
+            frame_idx = int(getattr(sample, "frame", -1))
+        except (TypeError, ValueError):
+            continue
         if frame_idx < 0 or frame_idx >= num_frames:
             continue
-        conf = float(getattr(sample, "conf", 0.0))
-        x = float(getattr(sample, "x", float("nan")))
-        y = float(getattr(sample, "y", float("nan")))
-        if not (math.isfinite(x) and math.isfinite(y)):
+        conf = _safe_float(getattr(sample, "conf", None))
+        x = _safe_float(getattr(sample, "x", None))
+        y = _safe_float(getattr(sample, "y", None))
+        if x is None or y is None:
             continue
         arr[frame_idx, 0] = x
         arr[frame_idx, 1] = y
-        arr[frame_idx, 2] = conf
+        arr[frame_idx, 2] = conf if conf is not None else 0.0
     return arr
 
 
 def load_ball_telemetry_jsonl(path: str, src_w: int, src_h: int, logger=None):
-    xs: list[float] = []
-    ys: list[float] = []
-
     if logger:
         logger.info("[BALL-TELEMETRY] loading %s", path)
 
-    try:
-        samples = _load_ball_telemetry(path)
-    except ValueError:
-        samples = []
-
-    if samples:
-        xs = [s["cx"] for s in samples]
-        ys = [s["cy"] for s in samples]
-    else:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(row, Mapping):
-                    continue
-
-                bx: float | None = None
-                by: float | None = None
-
-                if all(k in row for k in ("cx", "cy")):
-                    bx = _safe_float(row.get("cx"))
-                    by = _safe_float(row.get("cy"))
-                elif all(k in row for k in ("cx_norm", "cy_norm")):
-                    cx_norm = _safe_float(row.get("cx_norm"))
-                    cy_norm = _safe_float(row.get("cy_norm"))
-                    if cx_norm is not None and cy_norm is not None:
-                        bx = cx_norm * src_w
-                        by = cy_norm * src_h
-                elif all(k in row for k in ("x1", "y1", "x2", "y2")):
-                    x1 = _safe_float(row.get("x1"))
-                    y1 = _safe_float(row.get("y1"))
-                    x2 = _safe_float(row.get("x2"))
-                    y2 = _safe_float(row.get("y2"))
-                    if None not in (x1, y1, x2, y2):
-                        bx = 0.5 * (x1 + x2)
-                        by = 0.5 * (y1 + y2)
-
-                if bx is None or by is None:
-                    continue
-
-                xs.append(bx)
-                ys.append(by)
-
-    if not xs:
-        raise RuntimeError(f"No usable ball telemetry in {path}")
+    ball_samples = _load_ball_telemetry(path)
+    xs = [s["cx"] for s in ball_samples]
+    ys = [s["cy"] for s in ball_samples]
 
     if logger:
         logger.info(
@@ -4434,14 +4387,14 @@ class Renderer:
                                 }
                             )
                             continue
-                        bx = getattr(sample, "x", float("nan"))
-                        by = getattr(sample, "y", float("nan"))
+                        bx = _safe_float(getattr(sample, "x", None))
+                        by = _safe_float(getattr(sample, "y", None))
                         telemetry_frames.append(
                             {
                                 "t": getattr(sample, "t", idx / fps_hint),
                                 "x": bx,
                                 "y": by,
-                                "visible": math.isfinite(bx) and math.isfinite(by),
+                                "visible": bx is not None and by is not None,
                             }
                         )
                     raw_cx, raw_cy = build_raw_ball_center_path(
@@ -6856,18 +6809,30 @@ def run(
             ball_key_y=str(getattr(args, "ball_key_y", "by_stab")),
         )
     elif use_ball_telemetry and ball_samples:
-        max_frame_idx = max((int(s.frame) for s in ball_samples if isinstance(s.frame, int)), default=0)
+        max_frame_idx = max(
+            (
+                int(frame_idx)
+                for frame_idx in (getattr(s, "frame", None) for s in ball_samples)
+                if frame_idx is not None and isinstance(frame_idx, (int, float))
+            ),
+            default=0,
+        )
         total_frames = max(len(states), frame_count, max_frame_idx + 1)
         path: list[Optional[dict[str, float]]] = [None] * total_frames
         for sample in ball_samples:
-            if not (math.isfinite(sample.x) and math.isfinite(sample.y)):
+            bx_val = _safe_float(getattr(sample, "x", None))
+            by_val = _safe_float(getattr(sample, "y", None))
+            if bx_val is None or by_val is None:
                 continue
-            idx = int(sample.frame)
+            try:
+                idx = int(getattr(sample, "frame", None))
+            except (TypeError, ValueError):
+                continue
             if idx < 0:
                 continue
             if idx >= len(path):
                 path.extend([None] * (idx - len(path) + 1))
-            path[idx] = {"bx": float(sample.x), "by": float(sample.y)}
+            path[idx] = {"bx": float(bx_val), "by": float(by_val)}
         offline_ball_path = path
 
         if portrait:
