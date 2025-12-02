@@ -234,6 +234,88 @@ def load_ball_path_from_jsonl(path: str, logger=None):
     return xs_arr, ys_arr, meta
 
 
+def emit_follow_telemetry(
+    path: str | os.PathLike[str] | None,
+    cx: Sequence[float],
+    cy: Sequence[float],
+    zoom: Sequence[float],
+    *,
+    workdir: str | os.PathLike[str] | None = None,
+    basename: str | None = None,
+) -> str:
+    """Write a follow-telemetry JSONL file from camera centers.
+
+    The output filename is derived from ``basename`` (or the telemetry stem) and
+    is always placed under ``workdir`` (or the telemetry directory).
+    """
+
+    stem = basename or (Path(path).stem if path else "follow")
+    root = Path(workdir) if workdir is not None else (Path(path).parent if path else Path.cwd())
+    root.mkdir(parents=True, exist_ok=True)
+
+    out_path = root / f"{stem}.follow.jsonl"
+    with out_path.open("w", encoding="utf-8") as handle:
+        for i in range(len(cx)):
+            handle.write(
+                json.dumps(
+                    {
+                        "f": i,
+                        "cx": float(cx[i]),
+                        "cy": float(cy[i]),
+                        "zoom": float(zoom[i]) if i < len(zoom) else float(1.0),
+                    }
+                )
+                + "\n"
+            )
+    return os.fspath(out_path)
+
+
+def smooth_follow_telemetry(path: str | os.PathLike[str]) -> str:
+    """Apply smoothing to a follow telemetry file and return the smoothed path."""
+
+    cx_vals: list[float] = []
+    cy_vals: list[float] = []
+    zoom_vals: list[float] = []
+
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            try:
+                cx_vals.append(float(row.get("cx", 0.0)))
+                cy_vals.append(float(row.get("cy", 0.0)))
+                zoom_vals.append(float(row.get("zoom", 1.0)))
+            except (TypeError, ValueError):
+                continue
+
+    smoothed_cx, smoothed_cy = smooth_and_limit_camera_path(cx_vals, cy_vals)
+    zoom_arr = np.asarray(zoom_vals, dtype=float)
+    if zoom_arr.size > 0:
+        kernel = np.array([0.25, 0.5, 0.25], dtype=float)
+        zoom_smoothed = np.convolve(zoom_arr, kernel, mode="same")
+    else:
+        zoom_smoothed = zoom_arr
+
+    out_path = Path(path).with_name(f"{Path(path).stem}__smooth.jsonl")
+    with out_path.open("w", encoding="utf-8") as handle:
+        for idx, (x, y) in enumerate(zip(smoothed_cx, smoothed_cy)):
+            handle.write(
+                json.dumps(
+                    {
+                        "f": idx,
+                        "cx": float(x),
+                        "cy": float(y),
+                        "zoom": float(zoom_smoothed[idx]) if idx < len(zoom_smoothed) else 1.0,
+                    }
+                )
+                + "\n"
+            )
+
+    return os.fspath(out_path)
+
+
 def edge_zoom_out(
     cx,
     cy,
@@ -6527,6 +6609,7 @@ def run(
     ball_samples: List[BallSample] = []
     keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
     keepinview_path: list[tuple[float, float]] | None = None
+    follow_telemetry_path: str | None = None
     use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
     telemetry_path: Path | None = None
 
@@ -6571,6 +6654,20 @@ def run(
                 if plan_override_data is None:
                     plan_override_data = {k: v for k, v in plan_data.items() if k in {"x0", "y0", "w", "h", "spd", "z"}}
                     plan_override_len = len(next(iter(plan_data.values()))) if plan_data else 0
+                if telemetry_path is not None:
+                    cx_vals = plan_data.get("cx")
+                    cy_vals = plan_data.get("cy")
+                    zoom_vals = plan_data.get("z")
+                    if cx_vals is not None and cy_vals is not None and zoom_vals is not None:
+                        follow_telemetry_path = emit_follow_telemetry(
+                            telemetry_path,
+                            cx_vals,
+                            cy_vals,
+                            zoom_vals,
+                            basename=telemetry_path.stem,
+                        )
+                        follow_telemetry_path = smooth_follow_telemetry(follow_telemetry_path)
+                        log_dict["follow_telemetry"] = follow_telemetry_path
                 ball_samples = load_ball_telemetry(telemetry_path)
                 jerk_stat = ball_cam_stats.get("jerk95_cam", ball_cam_stats.get("jerk95", 0.0))
                 jerk_raw = ball_cam_stats.get("jerk95_raw", 0.0)
@@ -6591,14 +6688,7 @@ def run(
                     jerk_stat,
                 )
                 if telemetry_quality < 0.6:
-                    logger.warning("Telemetry too weak, falling back to jerk-follow")
-                    use_ball_telemetry = False
-                    keep_path_lookup_data = {}
-                    plan_override_data = None
-                    plan_override_len = 0
-                    ball_samples = []
-                    plan_data = None
-                    ball_in_crop_pct = None
+                    logger.info("[FORCE-BALL-FOLLOW] Using ball telemetry even if weak")
                 if ball_in_crop_pct is not None and plan_data is not None:
                     logger.info(
                         "[BALL-CAM] ball_in_crop_horiz: %.1f%% (%d/%d)",
