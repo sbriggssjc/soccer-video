@@ -68,8 +68,6 @@ def load_any_telemetry(path):
             line = line.strip()
             if not line:
                 continue
-            except:
-                continue
 
             # Modern follow telemetry (already has cx/cy/zoom)
             if "cx" in row and "cy" in row:
@@ -101,8 +99,6 @@ def load_any_telemetry(path):
 
 
 def _safe_float(v):
-    except (TypeError, ValueError):
-        return None
     if not math.isfinite(f):
         return None
     return f
@@ -315,8 +311,6 @@ def smooth_follow_telemetry(path: str | os.PathLike[str]) -> str:
             if not line:
                 continue
             row = json.loads(line)
-            except (TypeError, ValueError):
-                continue
 
     smoothed_cx, smoothed_cy = smooth_and_limit_camera_path(cx_vals, cy_vals)
     zoom_arr = np.asarray(zoom_vals, dtype=float)
@@ -371,8 +365,6 @@ def edge_zoom_out(
 
     margin_px = max(0.0, float(margin_px))
     s_cap = max(1.0, float(s_cap))
-    except (TypeError, ValueError):
-        edge_frac = 1.0
     if not math.isfinite(edge_frac) or edge_frac <= 0.0:
         edge_frac = 1.0
 
@@ -433,8 +425,6 @@ def _motion_centroid(
     flow_thresh_px: float = 1.6,
 ) -> Optional[Tuple[float, float]]:
     if prev_gray is None or cur_gray is None:
-        return None
-    except cv2.error:
         return None
     mag = cv2.magnitude(flow[..., 0], flow[..., 1])
     mot = (mag >= float(flow_thresh_px)).astype(np.uint8) * 255
@@ -668,8 +658,6 @@ def build_raw_ball_center_path(
         by_raw = rec.get("y") if isinstance(rec, Mapping) else None
         vis = bool(rec.get("visible")) if isinstance(rec, Mapping) else False
 
-        except (TypeError, ValueError):
-            bx_val, by_val = float("nan"), float("nan")
 
         if vis and math.isfinite(bx_val) and math.isfinite(by_val):
             last_valid = (bx_val, by_val)
@@ -832,8 +820,6 @@ def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     samples = load_ball_telemetry(path)
     arr = np.full((num_frames, 3), np.nan, dtype=float)
     for sample in samples:
-        except (TypeError, ValueError):
-            continue
         if frame_idx < 0 or frame_idx >= num_frames:
             continue
         conf = _safe_float(getattr(sample, "conf", None))
@@ -1924,9 +1910,6 @@ def pick_ball(d, src_w, src_h):
         return bx, by
     if "ball" in d:
         ball_val = d["ball"]
-        if isinstance(ball_val, (list, tuple)) and len(ball_val) >= 2:
-            except (TypeError, ValueError):
-                return None, None
     return None, None
 
 
@@ -1949,13 +1932,9 @@ def _get_ball_xy_src(
             return None
         val_x = mapping.get(key_x)
         val_y = mapping.get(key_y)
-        except (TypeError, ValueError):
-            return None
 
     def _pair_from_sequence(seq: Sequence[object]) -> Optional[tuple[float, float]]:
         if len(seq) < 2:
-            return None
-        except (TypeError, ValueError):
             return None
 
     def _to_src(pair: tuple[float, float]) -> tuple[float, float]:
@@ -2133,11 +2112,6 @@ def _clamp(v, lo, hi):
     return lo if v < lo else (hi if v > hi else v)
 
 
-def _round_i(x):  # robust int rounding
-    except Exception:
-        return int(x)
-
-
 def _clamp_roi(x, y, w, h, W, H):
     x = _round_i(x)
     y = _round_i(y)
@@ -2226,21 +2200,12 @@ def plan_camera_from_ball(
     smooth_window = max(3, int(round((1.0 - float(np.clip(pan_alpha, 0.01, 0.95))) * 12.0)) | 1)
     headroom_frac = 0.5 - float(np.clip(center_frac, 0.0, 1.0))
     default_headroom = max(0.08, min(0.20, headroom_frac))
-    if headroom_frac_override is not None:
-        except (TypeError, ValueError):
-            default_headroom = max(0.08, min(0.20, headroom_frac))
     lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
-    if lead_px_override is not None:
-        except (TypeError, ValueError):
-            lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
     max_step_x = max(12.0, frame_w * 0.012)
     max_step_y = max(8.0, frame_h * 0.008)
     passes = 3 if pan_alpha < 0.3 else 2
 
     margin_value = max(bounds_pad, 90.0)
-    if margin_px_override is not None:
-        except (TypeError, ValueError):
-            margin_value = max(bounds_pad, 90.0)
 
     cfg = PlannerConfig(
         frame_size=(float(frame_w), float(frame_h)),
@@ -2366,8 +2331,6 @@ def to_jsonable(obj):
         return obj.tolist()
     if isinstance(obj, (float, int, bool, str)) or obj is None:
         return obj
-    except Exception:
-        return str(obj)
 
 
 def plan_crop_from_ball(
@@ -2408,13 +2371,8 @@ def plan_crop_from_ball(
     if aspect <= 0:
         aspect = float(src_w) / float(src_h) if src_h else 1.0
 
-    except (TypeError, ValueError):
-        zoom_value = float(zoom_max)
 
     candidates = [zoom_value]
-    for candidate in (zoom_min, zoom_max):
-        except (TypeError, ValueError):
-            continue
     zoom_value = next((c for c in reversed(candidates) if c and abs(c) > 1e-6), 1.0)
 
     if zoom_min > 0 and zoom_max > 0 and zoom_max >= zoom_min:
@@ -2428,12 +2386,6 @@ def plan_crop_from_ball(
 
     pad_px = 0.0
     pad_frac = 0.0
-    if pad <= 0.49:
-        except (TypeError, ValueError):
-            pad_frac = 0.0
-    else:
-        except (TypeError, ValueError):
-            pad_px = 0.0
 
     shrink = 1.0
     if pad_frac > 0.0:
@@ -2443,11 +2395,6 @@ def plan_crop_from_ball(
     max_crop_h = max(1.0, float(src_h) - 2.0 * pad_px)
 
     max_zoom_candidates = [zoom_value]
-    for candidate in (zoom_min, zoom_max):
-        except (TypeError, ValueError):
-            continue
-        if value > 0:
-            max_zoom_candidates.append(value)
     max_zoom = max(max_zoom_candidates) if max_zoom_candidates else 1.0
     if max_zoom <= 1e-6:
         max_zoom = 1.0
@@ -2478,19 +2425,11 @@ def plan_crop_from_ball(
             target_crop_w = max_crop_w
             target_crop_h = target_crop_w / max(aspect, 1e-6)
 
-    except (TypeError, ValueError):
-        prev_w = float(target_crop_w)
-    except (TypeError, ValueError):
-        prev_h = float(target_crop_h)
     if prev_w <= 0:
         prev_w = float(target_crop_w)
     if prev_h <= 0:
         prev_h = float(target_crop_h)
 
-    except (TypeError, ValueError):
-        prev_x = float(bx) - prev_w / 2.0
-    except (TypeError, ValueError):
-        prev_y = float(by) - prev_h / 2.0
 
     prev_cx = prev_x + prev_w / 2.0
     prev_cy = prev_y + prev_h / 2.0
@@ -2745,10 +2684,6 @@ def ffprobe_fps(path: Path) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - execution context dependant
-        raise RuntimeError(
-            "Failed to read FPS using ffprobe. Ensure ffmpeg is installed and on PATH."
-        ) from exc
 
     value = result.stdout.strip()
     if not value:
@@ -2776,17 +2711,11 @@ def ffprobe_duration(path: Path) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - depends on environment
-        raise RuntimeError(
-            "Failed to read duration using ffprobe. Ensure ffmpeg is installed and on PATH."
-        ) from exc
 
     value = result.stdout.strip()
     if not value:
         raise RuntimeError("ffprobe did not return a duration value.")
 
-    except ValueError as exc:
-        raise RuntimeError(f"Unable to parse ffprobe duration output: {value}") from exc
 
 
 def parse_portrait(value: Optional[str]) -> Optional[Tuple[int, int]]:
@@ -2823,16 +2752,12 @@ def portrait_config_from_preset(
             height = size_value.get("height")
             if width is None or height is None:
                 return None
-            except (TypeError, ValueError):
-                return None
             if w > 0 and h > 0:
                 return w, h
             return None
         if isinstance(size_value, Sequence):
             seq = list(size_value)
             if len(seq) < 2:
-                return None
-            except (TypeError, ValueError):
                 return None
             if w > 0 and h > 0:
                 return w, h
@@ -2853,25 +2778,12 @@ def portrait_config_from_preset(
         if isinstance(min_box_value, Mapping):
             mbw = min_box_value.get("width")
             mbh = min_box_value.get("height")
-            except (TypeError, ValueError):
-                mbw_f = mbh_f = None
             if mbw_f is not None and mbh_f is not None and mbw_f > 0 and mbh_f > 0:
                 min_box = (mbw_f, mbh_f)
         elif isinstance(min_box_value, Sequence):
             seq = list(min_box_value)
-            if len(seq) >= 2:
-                except (TypeError, ValueError):
-                    mbw_f = mbh_f = None
-                else:
-                    if mbw_f > 0 and mbh_f > 0:
-                        min_box = (mbw_f, mbh_f)
-
+    
         horizon_value = value.get("horizon_lock")
-        if horizon_value is not None:
-            except (TypeError, ValueError):
-                horizon_lock = 0.0
-            else:
-                horizon_lock = float(np.clip(horizon_lock, 0.0, 1.0))
 
         if portrait is None:
             inline = value.get("size")
@@ -2915,8 +2827,6 @@ def load_labels(
                     continue
                 parts = stripped.replace(",", " ").split()
                 if len(parts) < 3:
-                    continue
-                except Exception:
                     continue
 
                 if _detect_normalized(x_value, y_value, frame_width, frame_height):
@@ -3314,8 +3224,6 @@ class CameraPlanner:
         self.keepinview_min_band_frac = 0.25
         self.keepinview_max_band_frac = 0.75
 
-        except (TypeError, ValueError):
-            center_frac = 0.5
         if not math.isfinite(center_frac):
             center_frac = 0.5
         self.center_frac = float(np.clip(center_frac, 0.0, 1.0))
@@ -3330,36 +3238,10 @@ class CameraPlanner:
 
         self.min_box_w = 0.0
         self.min_box_h = 0.0
-        if min_box:
-            except (TypeError, ValueError, IndexError):
-                mbw = mbh = 0.0
-            else:
-                if mbw > 0:
-                    self.min_box_w = min(self.width, mbw)
-                if mbh > 0:
-                    self.min_box_h = min(self.height, mbh)
 
         self.horizon_lock = float(np.clip(horizon_lock, 0.0, 1.0))
 
         self.speed_zoom_config: Optional[dict[str, float]] = None
-        if speed_zoom and bool(speed_zoom.get("enabled", True)):
-            except (TypeError, ValueError):
-                self.speed_zoom_config = None
-            else:
-                if v_lo < 0:
-                    v_lo = 0.0
-                if v_hi < 0:
-                    v_hi = 0.0
-                if v_hi < v_lo:
-                    v_hi, v_lo = v_lo, v_hi
-                base_zoom = float(self.zoom_max)
-                self.speed_zoom_config = {
-                    "v_lo": v_lo,
-                    "v_hi": v_hi,
-                    "zoom_lo": zoom_lo,
-                    "zoom_hi": zoom_hi,
-                    "base_zoom": base_zoom,
-                }
 
         base_side = min(self.width, self.height)
         base_side = max(1.0, base_side)
@@ -3930,26 +3812,18 @@ class Renderer:
         self.follow_lookahead = int(follow_lookahead)
         self.follow_pre_smooth = float(np.clip(follow_pre_smooth, 0.0, 1.0))
         self.follow_zoom_out_max = max(1.0, float(follow_zoom_out_max))
-        except (TypeError, ValueError):
-            zoom_edge_frac = 1.0
         if not math.isfinite(zoom_edge_frac) or zoom_edge_frac <= 0.0:
             zoom_edge_frac = 1.0
         self.follow_zoom_edge_frac = zoom_edge_frac
-        except (TypeError, ValueError):
-            follow_center_frac = 0.5
         if not math.isfinite(follow_center_frac):
             follow_center_frac = 0.5
         self.follow_center_frac = float(np.clip(follow_center_frac, 0.0, 1.0))
         self.lost_hold_ms = max(0, int(lost_hold_ms))
         self.lost_pan_ms = max(0, int(lost_pan_ms))
         self.lost_chase_motion_ms = max(0, int(lost_chase_motion_ms))
-        except (TypeError, ValueError):
-            lost_lookahead_s = 0.0
         if not math.isfinite(lost_lookahead_s) or lost_lookahead_s < 0.0:
             lost_lookahead_s = 0.0
         self.lost_lookahead_s = lost_lookahead_s
-        except (TypeError, ValueError):
-            motion_thresh_value = 1.6
         if not math.isfinite(motion_thresh_value):
             motion_thresh_value = 1.6
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
@@ -3961,8 +3835,6 @@ class Renderer:
 
         def _coerce_float(value: Optional[float]) -> Optional[float]:
             if value is None:
-                return None
-            except (TypeError, ValueError):
                 return None
 
         self.portrait_plan_margin_px = _coerce_float(portrait_plan_margin_px)
@@ -3989,8 +3861,6 @@ class Renderer:
                             sanitized[key] = float(value)
                     if "z" not in sanitized:
                         z_value = entry.get("z", 1.30) if hasattr(entry, "get") else 1.30
-                        except (TypeError, ValueError):
-                            sanitized["z"] = 1.30
                     bx_norm = sanitized.get("bx")
                     by_norm = sanitized.get("by")
                     if bx_norm is None or by_norm is None:
@@ -4013,8 +3883,6 @@ class Renderer:
                         normalized_ball_path.append(None)
                         continue
                     z_val = entry_seq[2] if len(entry_seq) >= 3 else 1.30
-                    except (TypeError, ValueError):
-                        normalized_ball_path.append(None)
         self.offline_ball_path = normalized_ball_path
 
     def _simulate_follow_centers(
@@ -4078,10 +3946,6 @@ class Renderer:
 
     @staticmethod
     def _center_bias_px_for_height(frame_h: float, center_frac: float) -> float:
-        except (TypeError, ValueError):
-            frame_h = 0.0
-        except (TypeError, ValueError):
-            center_frac = 0.5
         if not math.isfinite(center_frac):
             center_frac = 0.5
         return (0.5 - center_frac) * frame_h
@@ -4231,8 +4095,6 @@ class Renderer:
                     telemetry_frames = []
                     sample_by_frame: dict[int, BallSample] = {}
                     for s in samples:
-                        except Exception:
-                            continue
                         if idx < 0:
                             continue
                         sample_by_frame[idx] = s
@@ -4472,8 +4334,6 @@ class Renderer:
             fps_plan = 30.0
         if follow_targets_len > 0 and follow_targets:
             for idx in range(follow_targets_len):
-                except (TypeError, ValueError):
-                    continue
                 plan_pts.append((idx / fps_plan if fps_plan > 0 else 0.0, bx_plan, by_plan))
         elif states:
             for state in states:
@@ -4536,14 +4396,6 @@ class Renderer:
         self.last_jerk95 = float(jerk95)
 
         tf = self.telemetry
-        finally:
-            cap.release()
-            if tf:
-                tf.close()
-                self.telemetry = None
-            if simple_tf:
-                simple_tf.close()
-                self.telemetry_simple = None
 
         endcard_frames = self._append_endcard(output_size)
         if endcard_frames:
@@ -4610,8 +4462,6 @@ class Renderer:
             ]
         )
 
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError("ffmpeg failed during stitching.") from exc
 
         self.last_ffmpeg_command = list(command)
 
@@ -4623,10 +4473,6 @@ def _prepare_temp_dir(temp_dir: Path, clean: bool) -> None:
     if not temp_dir.exists():
         temp_dir.mkdir(parents=True, exist_ok=True)
         return
-    for file in temp_dir.glob("*.jpg"):
-        except OSError:
-            logging.warning("Failed to remove temp frame %s", file)
-
 
 def _default_output_path(input_path: Path, preset: str) -> Path:
     suffix = f".__{preset.upper()}.mp4"
@@ -4648,9 +4494,6 @@ def load_ball_path(
             if not line:
                 seq.append(None)
                 continue
-            except json.JSONDecodeError:
-                seq.append(None)
-                continue
             if not isinstance(data, Mapping):
                 seq.append(None)
                 continue
@@ -4665,9 +4508,6 @@ def load_ball_path(
                 val_x = data.get(key_x)
                 val_y = data.get(key_y)
                 if val_x is None or val_y is None:
-                    continue
-                except (TypeError, ValueError):
-                    bx_norm = by_norm = None
                     continue
                 else:
                     break
@@ -4692,15 +4532,11 @@ def load_ball_path(
                 val_y = data.get(key_y)
                 if val_x is None or val_y is None:
                     continue
-                except (TypeError, ValueError):
-                    continue
 
             rec["bx"] = bx_norm
             rec["by"] = by_norm
 
             z_value = data.get("z", default_zoom)
-            except (TypeError, ValueError):
-                rec["z"] = float(default_zoom)
 
             t_value = data.get("t")
             if isinstance(t_value, (int, float)):
@@ -4748,8 +4584,6 @@ def run(
     preset_config = presets[preset_key]
 
     fps_in = float(ffprobe_fps(input_path))
-    except RuntimeError:
-        duration_s = 0.0
     fps_out = float(args.fps) if args.fps is not None else float(preset_config.get("fps", fps_in))
     if fps_out <= 0:
         fps_out = fps_in if fps_in > 0 else 30.0
@@ -4810,16 +4644,11 @@ def run(
     lookahead = max(0, lookahead)
     smoothing_default = preset_config.get("smoothing", 0.65)
     follow_smoothing = follow_config.get("smoothing") if follow_config else None
-    if follow_smoothing is not None:
-        except (TypeError, ValueError):
-            smoothing_default = preset_config.get("smoothing", 0.65)
     smoothing = float(args.smoothing) if args.smoothing is not None else float(smoothing_default)
     pad = float(args.pad) if args.pad is not None else float(preset_config.get("pad", 0.22))
     speed_limit = float(args.speed_limit) if args.speed_limit is not None else float(preset_config.get("speed_limit", 480))
     zoom_min = float(args.zoom_min) if args.zoom_min is not None else float(preset_config.get("zoom_min", 1.0))
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
-    except (TypeError, ValueError, AttributeError):
-        cy_frac = 0.46
     if not math.isfinite(cy_frac):
         cy_frac = 0.46
     cy_frac = float(np.clip(cy_frac, 0.0, 1.0))
@@ -4843,8 +4672,6 @@ def run(
         value = _controller_value(key)
         if value is None:
             return fallback
-        except (TypeError, ValueError):
-            return fallback
 
     def _controller_optional_float(key: str, fallback: Optional[float]) -> Optional[float]:
         value = _controller_value(key)
@@ -4852,14 +4679,10 @@ def run(
             return fallback
         if isinstance(value, str) and value.strip().lower() in {"none", "", "null"}:
             return None
-        except (TypeError, ValueError):
-            return fallback
 
     def _controller_int(key: str, fallback: int) -> int:
         value = _controller_value(key)
         if value is None:
-            return fallback
-        except (TypeError, ValueError):
             return fallback
 
     follow_zeta = (
@@ -4908,36 +4731,14 @@ def run(
 
     margin_px = 0.0
     margin_val = follow_config.get("margin_px") if follow_config else None
-    if margin_val is not None:
-        except (TypeError, ValueError):
-            margin_px = 0.0
 
     keepinview_margin = max(96.0, margin_px)
     keepinview_nudge = 0.6
     keepinview_zoom_gain = 0.55
     keepinview_zoom_cap = 1.8
     keepinview_cfg = follow_config.get("keepinview") if follow_config else None
-    if isinstance(keepinview_cfg, Mapping):
-        if "margin" in keepinview_cfg:
-            except (TypeError, ValueError):
-                keepinview_margin = margin_px
-        elif "margin_px" in keepinview_cfg:
-            except (TypeError, ValueError):
-                keepinview_margin = margin_px
-        if "nudge_gain" in keepinview_cfg:
-            except (TypeError, ValueError):
-                keepinview_nudge = 0.5
-        if "zoom_gain" in keepinview_cfg:
-            except (TypeError, ValueError):
-                keepinview_zoom_gain = 0.4
-        if "zoom_out_max" in keepinview_cfg:
-            except (TypeError, ValueError):
-                keepinview_zoom_cap = 1.6
 
     keepinview_margin_arg = getattr(args, "keepinview_margin", None)
-    if keepinview_margin_arg is not None:
-        except (TypeError, ValueError):
-            keepinview_margin = margin_px
 
     plan_override_data: Optional[dict[str, np.ndarray]] = None
     plan_override_len = 0
@@ -4955,26 +4756,12 @@ def run(
             plan_override_len,
         )
     keepinview_nudge_arg = getattr(args, "keepinview_nudge", None)
-    if keepinview_nudge_arg is not None:
-        except (TypeError, ValueError):
-            keepinview_nudge = 0.5
     keepinview_zoom_arg = getattr(args, "keepinview_zoom", None)
-    if keepinview_zoom_arg is not None:
-        except (TypeError, ValueError):
-            keepinview_zoom_gain = 0.4
     keepinview_zoom_cap_arg = getattr(args, "keepinview_zoom_cap", None)
     keepinview_zoom_cap_override = False
-    if keepinview_zoom_cap_arg is not None:
-        except (TypeError, ValueError):
-            keepinview_zoom_cap = 1.6
-        else:
-            keepinview_zoom_cap_override = True
 
     zoom_out_max_default = follow_config.get("zoom_out_max") if follow_config else None
     follow_zoom_out_max = 1.35
-    if zoom_out_max_default is not None:
-        except (TypeError, ValueError):
-            follow_zoom_out_max = 1.35
     if getattr(args, "zoom_out_max", None) is not None:
         follow_zoom_out_max = max(1.0, float(args.zoom_out_max))
 
@@ -4984,9 +4771,6 @@ def run(
 
     zoom_edge_frac_default = follow_config.get("zoom_edge_frac") if follow_config else None
     follow_zoom_edge_frac = 0.80
-    if zoom_edge_frac_default is not None:
-        except (TypeError, ValueError):
-            follow_zoom_edge_frac = 0.80
     if getattr(args, "zoom_edge_frac", None) is not None:
         follow_zoom_edge_frac = float(args.zoom_edge_frac)
     if not math.isfinite(follow_zoom_edge_frac) or follow_zoom_edge_frac <= 0.0:
@@ -4998,22 +4782,9 @@ def run(
     lost_chase_motion_ms = getattr(args, "lost_chase_motion_ms", 900)
     lost_motion_thresh = getattr(args, "lost_motion_thresh", 1.6)
     lost_use_motion = bool(getattr(args, "lost_use_motion", False))
-    except (TypeError, ValueError):
-        lost_hold_ms = 500
-    except (TypeError, ValueError):
-        lost_pan_ms = 1200
-    except (TypeError, ValueError):
-        lost_lookahead_s = 6.0
-    except (TypeError, ValueError):
-        lost_chase_motion_ms = 900
-    except (TypeError, ValueError):
-        lost_motion_thresh = 1.6
 
     lead_time_s = 0.0
     lead_val = follow_config.get("lead_time") if follow_config else None
-    if lead_val is not None:
-        except (TypeError, ValueError):
-            lead_time_s = 0.0
     lead_frames = int(round(lead_time_s * fps_out)) if fps_out > 0 else 0
 
     speed_zoom_value = follow_config.get("speed_zoom") if follow_config else None
@@ -5022,10 +4793,6 @@ def run(
     default_ball_key_x = "bx_stab"
     default_ball_key_y = "by_stab"
     keys_value = follow_config.get("keys") if follow_config else None
-    if isinstance(keys_value, Sequence) and len(keys_value) >= 2:
-        except Exception:
-            default_ball_key_x = "bx_stab"
-            default_ball_key_y = "by_stab"
 
     if not getattr(args, "ball_key_x", None):
         setattr(args, "ball_key_x", default_ball_key_x)
@@ -5299,8 +5066,6 @@ def run(
             by_val = _safe_float(getattr(sample, "y", None))
             if bx_val is None or by_val is None:
                 continue
-            except (TypeError, ValueError):
-                continue
             if idx < 0:
                 continue
             if idx >= len(path):
@@ -5405,11 +5170,6 @@ def run(
     if override_samples:
         telemetry_handle: Optional[TextIO] = None
         telemetry_simple_handle: Optional[TextIO] = None
-        finally:
-            if telemetry_handle:
-                telemetry_handle.close()
-            if telemetry_simple_handle:
-                telemetry_simple_handle.close()
     else:
         attempt = 0
         while True:
@@ -5485,16 +5245,11 @@ def run(
             if jerk_enabled and jerk95 > jerk_threshold and attempt >= jerk_max_attempts:
                 logging.warning(
                     "jerk95 %.1f exceeds threshold %.1f; reached max attempts, proceeding with last settings.",
-                    jerk95,
-                    jerk_threshold,
-                )
+                jerk95,
+                jerk_threshold,
+            )
             telemetry_handle: Optional[TextIO] = None
             telemetry_simple_handle: Optional[TextIO] = None
-            finally:
-                if telemetry_handle:
-                    telemetry_handle.close()
-                if telemetry_simple_handle:
-                    telemetry_simple_handle.close()
 
         logging.info(
             "jerk95 %.1f exceeds threshold %.1f; retuning follow_wn/deadzone", jerk95, jerk_threshold
@@ -5851,11 +5606,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     setattr(args, "_follow_lookahead_cli", follow_lookahead_cli)
     # --- portrait helpers ---
     portrait_w, portrait_h = (None, None)
-    if args.portrait:
-        except Exception:
-            raise SystemExit(
-                f"Bad --portrait '{args.portrait}'. Use e.g. 1080x1920"
-            )
     setattr(args, "portrait_w", portrait_w)
     setattr(args, "portrait_h", portrait_h)
     render_telemetry_path: Optional[Path] = None
@@ -5877,4 +5627,3 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
 
 
-if __name__ == "__main__":  # pragma: no cover - CLI entry point
