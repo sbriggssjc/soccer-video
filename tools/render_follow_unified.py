@@ -4926,44 +4926,43 @@ class Renderer:
                     # Skip jerk-follow computations, jump to crop application
                     # This ensures planner completely replaces the camera solve
                     # Continue into crop/FFmpeg rendering with overridden values
-                try:
-                    ok, frame = cap.read()
-                    if not ok or frame is None:
-                        break
-                    if self.flip180:
-                        frame = cv2.rotate(frame, cv2.ROTATE_180)
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
+                if self.flip180:
+                    frame = cv2.rotate(frame, cv2.ROTATE_180)
 
-                    cur_gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                cur_gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                    n = state.frame
-                    t = n / float(render_fps) if render_fps else 0.0
+                n = state.frame
+                t = n / float(render_fps) if render_fps else 0.0
 
                 prev_crop_h_val = (
                     float(src_h_f) / float(prev_zoom)
                     if prev_zoom and prev_zoom > 1e-6
                     else float(src_h_f)
                 )
-                    if target_aspect:
-                        prev_crop_w_val = prev_crop_h_val * float(target_aspect)
-                    else:
-                        prev_crop_w_val = float(src_w_f)
-                    if prev_crop_w_val > float(src_w_f) and target_aspect:
-                        prev_crop_w_val = float(src_w_f)
-                        prev_crop_h_val = prev_crop_w_val / float(target_aspect)
-                    half_prev_w = 0.5 * prev_crop_w_val
-                    half_prev_h = 0.5 * prev_crop_h_val
-                    max_prev_margin = max(0.0, min(half_prev_w, half_prev_h) - 1.0)
-                    inside_margin = float(self.follow_margin_px) if self.follow_margin_px > 0 else 90.0
-                    if max_prev_margin > 0.0:
-                        inside_margin = min(inside_margin, max_prev_margin)
-                    else:
-                        inside_margin = 0.0
-                    frame_follow_state = "track"
+                if target_aspect:
+                    prev_crop_w_val = prev_crop_h_val * float(target_aspect)
+                else:
+                    prev_crop_w_val = float(src_w_f)
+                if prev_crop_w_val > float(src_w_f) and target_aspect:
+                    prev_crop_w_val = float(src_w_f)
+                    prev_crop_h_val = prev_crop_w_val / float(target_aspect)
+                half_prev_w = 0.5 * prev_crop_w_val
+                half_prev_h = 0.5 * prev_crop_h_val
+                max_prev_margin = max(0.0, min(half_prev_w, half_prev_h) - 1.0)
+                inside_margin = float(self.follow_margin_px) if self.follow_margin_px > 0 else 90.0
+                if max_prev_margin > 0.0:
+                    inside_margin = min(inside_margin, max_prev_margin)
+                else:
+                    inside_margin = 0.0
+                frame_follow_state = "track"
 
-                    exact_entry: Optional[Mapping[str, float]] = None
-                    if self.follow_exact and self.follow_trajectory:
-                        idx = min(i, len(self.follow_trajectory) - 1)
-                        exact_entry = self.follow_trajectory[idx]
+                exact_entry: Optional[Mapping[str, float]] = None
+                if self.follow_exact and self.follow_trajectory:
+                    idx = min(i, len(self.follow_trajectory) - 1)
+                    exact_entry = self.follow_trajectory[idx]
 
                     if exact_entry is not None:
                         aspect = target_aspect if target_aspect else (float(width) / float(height))
