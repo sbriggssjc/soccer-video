@@ -6109,11 +6109,6 @@ class Renderer:
                     if not success:
                         raise RuntimeError(f"Failed to write frame to {out_path}")
                     prev_gray_frame = cur_gray_frame
-                except Exception as exc:
-                    if simple_tf:
-                        err = {"error": str(exc), "t": float(t) if "t" in locals() else None}
-                        simple_tf.write(json.dumps(err) + "\n")
-                    raise
         finally:
             cap.release()
             if tf:
@@ -7642,7 +7637,3 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
     try:
         main()
-    except Exception as exc:  # pylint: disable=broad-except
-        logging.error(str(exc))
-        sys.exit(1)
-
