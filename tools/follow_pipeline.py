@@ -95,6 +95,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Path to offline follow trajectory override (.jsonl).",
     )
+    parser.add_argument(
+        "--follow-exact",
+        action="store_true",
+        help="Use override follow telemetry exactly with no smoothing or follow controller.",
+    )
     # Accept (but ignore) some legacy flags so existing commands don't break.
     parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--init-manual", action="store_true", help=argparse.SUPPRESS)
@@ -112,6 +117,7 @@ def run_render(
     use_ball_telemetry: bool,
     telemetry_path: Path | None,
     follow_override: str | None = None,
+    follow_exact: bool = False,
 ) -> Path:
     """Invoke render_follow_unified.py for a single clip and return portrait path."""
 
@@ -153,6 +159,9 @@ def run_render(
 
     if follow_override_path:
         cmd.extend(["--follow-override", follow_override_path])
+
+    if follow_exact:
+        cmd.append("--follow-exact")
 
     print(f"[INFO] Rendering {clip_id}")
     print("[CMD]", " ".join(cmd))
@@ -288,6 +297,7 @@ def main(argv: list[str] | None = None) -> None:
                 use_ball_telemetry=use_ball_telemetry,
                 telemetry_path=telemetry_path if use_ball_telemetry else None,
                 follow_override=ns.follow_override,
+                follow_exact=ns.follow_exact,
             )
             if ns.brand_script:
                 run_brand(Path(ns.brand_script), portrait, ns.aspect)
