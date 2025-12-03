@@ -3996,6 +3996,9 @@ class Renderer:
         keep_path_lookup_data: Optional[dict[int, Tuple[float, float]]] = None,
         debug_ball_overlay: bool = False,
         follow_override: Optional[Mapping[int, Mapping[str, float]]] = None,
+        follow_exact: bool = False,
+        disable_controller: bool = False,
+        follow_trajectory: Optional[List[Mapping[str, float]]] = None,
     ) -> None:
         self.input_path = input_path
         self.output_path = output_path
@@ -4059,6 +4062,9 @@ class Renderer:
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
         self.lost_use_motion = bool(lost_use_motion)
         self.keepinview_min_band_frac = 0.12
+        self.follow_exact = bool(follow_exact)
+        self.disable_controller = bool(disable_controller)
+        self.follow_trajectory = list(follow_trajectory) if follow_trajectory else None
 
         def _coerce_float(value: Optional[float]) -> Optional[float]:
             if value is None:
@@ -4577,6 +4583,9 @@ class Renderer:
         prev_ball_src_y: Optional[float] = None
         prev_bx = float(prev_cx)
         prev_by = float(prev_cy)
+        if self.disable_controller:
+            follow_targets = None
+            follow_valid_mask = None
         follow_targets_len = len(follow_targets[0]) if follow_targets else 0
         plan_pts: List[Tuple[float, float, float]] = []
         fps_plan = render_fps if render_fps and render_fps > 0 else (src_fps if src_fps and src_fps > 0 else 30.0)
@@ -4604,7 +4613,9 @@ class Renderer:
                 plan_pts.append((frame_time, bx_plan, by_plan))
         follow_lookahead_frames = max(0, int(self.follow_lookahead))
         follower: Optional[CamFollow2O]
-        if render_fps > 0:
+        if self.disable_controller:
+            follower = None
+        elif render_fps > 0:
             follower = CamFollow2O(
                 zeta=self.follow_zeta,
                 wn=self.follow_wn,
@@ -4927,11 +4938,11 @@ class Renderer:
                     n = state.frame
                     t = n / float(render_fps) if render_fps else 0.0
 
-                    prev_crop_h_val = (
-                        float(src_h_f) / float(prev_zoom)
-                        if prev_zoom and prev_zoom > 1e-6
-                        else float(src_h_f)
-                    )
+                prev_crop_h_val = (
+                    float(src_h_f) / float(prev_zoom)
+                    if prev_zoom and prev_zoom > 1e-6
+                    else float(src_h_f)
+                )
                     if target_aspect:
                         prev_crop_w_val = prev_crop_h_val * float(target_aspect)
                     else:
@@ -4948,6 +4959,67 @@ class Renderer:
                     else:
                         inside_margin = 0.0
                     frame_follow_state = "track"
+
+                    exact_entry: Optional[Mapping[str, float]] = None
+                    if self.follow_exact and self.follow_trajectory:
+                        idx = min(i, len(self.follow_trajectory) - 1)
+                        exact_entry = self.follow_trajectory[idx]
+
+                    if exact_entry is not None:
+                        aspect = target_aspect if target_aspect else (float(width) / float(height))
+                        cx = float(exact_entry.get("cx", prev_cx))
+                        cy = float(exact_entry.get("cy", prev_cy))
+                        zoom = float(np.clip(float(exact_entry.get("zoom", prev_zoom)), zoom_min, zoom_max))
+
+                        view_h = height / float(zoom) if zoom > 0 else float(height)
+                        view_w = view_h * aspect if aspect > 0 else float(width)
+                        if view_w > width:
+                            view_w = float(width)
+                            view_h = view_w / aspect if aspect > 0 else view_h
+
+                        x0 = min(max(cx - 0.5 * view_w, 0.0), width - view_w)
+                        y0 = min(max(cy - 0.5 * view_h, 0.0), height - view_h)
+                        cx = x0 + 0.5 * view_w
+                        cy = y0 + 0.5 * view_h
+                        crop_w = view_w
+                        crop_h = view_h
+
+                        if tf:
+                            telemetry_rec = {
+                                "t": float(t),
+                                "frame": int(state.frame),
+                                "used": "follow_exact",
+                                "cx": float(cx),
+                                "cy": float(cy),
+                                "zoom": float(zoom),
+                                "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
+                            }
+                            tf.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
+
+                        frame_state = CamState(
+                            frame=state.frame,
+                            cx=float(cx),
+                            cy=float(cy),
+                            zoom=float(zoom),
+                            crop_w=float(crop_w),
+                            crop_h=float(crop_h),
+                            x0=float(x0),
+                            y0=float(y0),
+                            used_label=state.used_label,
+                            clamp_flags=list(state.clamp_flags) if state.clamp_flags is not None else [],
+                            ball=state.ball,
+                            zoom_scale=state.zoom_scale,
+                        )
+
+                        composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
+
+                        out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
+                        success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                        if not success:
+                            raise RuntimeError(f"Failed to write frame to {out_path}")
+                        prev_cx, prev_cy, prev_zoom = float(cx), float(cy), float(zoom)
+                        prev_gray_frame = cur_gray_frame
+                        continue
                     frame_pan_target: Optional[Tuple[float, float]] = None
 
                     have_ball = False
@@ -6633,6 +6705,26 @@ def run(
         total_frames = int(round((duration_s or 0.0) * fps_hint)) if fps_hint > 0 else 0
     total_frames = max(total_frames, 1)
 
+    disable_controller = bool(getattr(args, "follow_exact", False))
+    follow_trajectory: list[dict[str, float]] | None = None
+    override_keyframes = override_samples or []
+
+    if getattr(args, "follow_exact", False) and override_keyframes:
+        exact_traj: list[dict[str, float]] = []
+        for kf in override_keyframes:
+            exact_traj.append(
+                {
+                    "frame": kf["frame"],
+                    "t": kf.get("t", None),
+                    "cx": float(kf["cx"]),
+                    "cy": float(kf["cy"]),
+                    "zoom": float(kf.get("zoom", 1.0)),
+                }
+            )
+
+        disable_controller = True
+        follow_trajectory = exact_traj
+
     if override_samples:
         use_ball_telemetry = False
 
@@ -6942,6 +7034,9 @@ def run(
     jerk_deadzone_step = float(getattr(args, "jerk_deadzone_step", 2.0) or 2.0)
     jerk_max_attempts = max(1, int(getattr(args, "jerk_max_attempts", 3) or 3))
 
+    if disable_controller:
+        jerk_enabled = False
+
     if use_ball_telemetry and telemetry_coverage_ratio >= 0.9:
         logging.info("Using ball telemetry path for keep-in-view (no jerk fallback).")
         jerk_enabled = False
@@ -7008,6 +7103,9 @@ def run(
                 keep_path_lookup_data={},
                 debug_ball_overlay=False,
                 follow_override=follow_override,
+                follow_exact=getattr(args, "follow_exact", False),
+                disable_controller=disable_controller,
+                follow_trajectory=follow_trajectory,
             )
             jerk95 = renderer.write_frames(states)
         finally:
@@ -7068,6 +7166,9 @@ def run(
             keep_path_lookup_data=active_keep_path_lookup_data,
             debug_ball_overlay=debug_ball_overlay,
             follow_override=follow_override,
+            follow_exact=getattr(args, "follow_exact", False),
+            disable_controller=disable_controller,
+            follow_trajectory=follow_trajectory,
         )
         jerk95 = probe_renderer.write_frames(states, probe_only=True)
         print(
@@ -7145,6 +7246,9 @@ def run(
                     keep_path_lookup_data=keep_path_lookup_data if use_ball_telemetry else {},
                     debug_ball_overlay=debug_ball_overlay,
                     follow_override=follow_override,
+                    follow_exact=getattr(args, "follow_exact", False),
+                    disable_controller=disable_controller,
+                    follow_trajectory=follow_trajectory,
                 )
                 jerk95 = renderer.write_frames(states)
             finally:
@@ -7480,6 +7584,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
+    )
+    parser.add_argument(
+        "--follow-exact",
+        action="store_true",
+        help="Use override follow telemetry exactly, bypassing controller and smoothing.",
     )
     return parser
 
