@@ -68,8 +68,6 @@ def load_any_telemetry(path):
             line = line.strip()
             if not line:
                 continue
-            try:
-                row = json.loads(line)
             except:
                 continue
 
@@ -103,8 +101,6 @@ def load_any_telemetry(path):
 
 
 def _safe_float(v):
-    try:
-        f = float(v)
     except (TypeError, ValueError):
         return None
     if not math.isfinite(f):
@@ -319,10 +315,6 @@ def smooth_follow_telemetry(path: str | os.PathLike[str]) -> str:
             if not line:
                 continue
             row = json.loads(line)
-            try:
-                cx_vals.append(float(row.get("cx", 0.0)))
-                cy_vals.append(float(row.get("cy", 0.0)))
-                zoom_vals.append(float(row.get("zoom", 1.0)))
             except (TypeError, ValueError):
                 continue
 
@@ -379,8 +371,6 @@ def edge_zoom_out(
 
     margin_px = max(0.0, float(margin_px))
     s_cap = max(1.0, float(s_cap))
-    try:
-        edge_frac = float(edge_frac)
     except (TypeError, ValueError):
         edge_frac = 1.0
     if not math.isfinite(edge_frac) or edge_frac <= 0.0:
@@ -444,10 +434,6 @@ def _motion_centroid(
 ) -> Optional[Tuple[float, float]]:
     if prev_gray is None or cur_gray is None:
         return None
-    try:
-        flow = cv2.calcOpticalFlowFarneback(
-            prev_gray, cur_gray, None, 0.5, 3, 21, 3, 5, 1.2, 0
-        )
     except cv2.error:
         return None
     mag = cv2.magnitude(flow[..., 0], flow[..., 1])
@@ -682,9 +668,6 @@ def build_raw_ball_center_path(
         by_raw = rec.get("y") if isinstance(rec, Mapping) else None
         vis = bool(rec.get("visible")) if isinstance(rec, Mapping) else False
 
-        try:
-            bx_val = float(bx_raw) if bx_raw is not None else float("nan")
-            by_val = float(by_raw) if by_raw is not None else float("nan")
         except (TypeError, ValueError):
             bx_val, by_val = float("nan"), float("nan")
 
@@ -849,8 +832,6 @@ def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     samples = load_ball_telemetry(path)
     arr = np.full((num_frames, 3), np.nan, dtype=float)
     for sample in samples:
-        try:
-            frame_idx = int(getattr(sample, "frame", -1))
         except (TypeError, ValueError):
             continue
         if frame_idx < 0 or frame_idx >= num_frames:
@@ -1944,8 +1925,6 @@ def pick_ball(d, src_w, src_h):
     if "ball" in d:
         ball_val = d["ball"]
         if isinstance(ball_val, (list, tuple)) and len(ball_val) >= 2:
-            try:
-                return float(ball_val[0]), float(ball_val[1])
             except (TypeError, ValueError):
                 return None, None
     return None, None
@@ -1970,16 +1949,12 @@ def _get_ball_xy_src(
             return None
         val_x = mapping.get(key_x)
         val_y = mapping.get(key_y)
-        try:
-            return float(val_x), float(val_y)
         except (TypeError, ValueError):
             return None
 
     def _pair_from_sequence(seq: Sequence[object]) -> Optional[tuple[float, float]]:
         if len(seq) < 2:
             return None
-        try:
-            return float(seq[0]), float(seq[1])
         except (TypeError, ValueError):
             return None
 
@@ -2159,8 +2134,6 @@ def _clamp(v, lo, hi):
 
 
 def _round_i(x):  # robust int rounding
-    try:
-        return int(round(float(x)))
     except Exception:
         return int(x)
 
@@ -2254,14 +2227,10 @@ def plan_camera_from_ball(
     headroom_frac = 0.5 - float(np.clip(center_frac, 0.0, 1.0))
     default_headroom = max(0.08, min(0.20, headroom_frac))
     if headroom_frac_override is not None:
-        try:
-            default_headroom = float(headroom_frac_override)
         except (TypeError, ValueError):
             default_headroom = max(0.08, min(0.20, headroom_frac))
     lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
     if lead_px_override is not None:
-        try:
-            lead_px = max(0.0, float(lead_px_override))
         except (TypeError, ValueError):
             lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
     max_step_x = max(12.0, frame_w * 0.012)
@@ -2270,8 +2239,6 @@ def plan_camera_from_ball(
 
     margin_value = max(bounds_pad, 90.0)
     if margin_px_override is not None:
-        try:
-            margin_value = max(bounds_pad, float(margin_px_override))
         except (TypeError, ValueError):
             margin_value = max(bounds_pad, 90.0)
 
@@ -2399,8 +2366,6 @@ def to_jsonable(obj):
         return obj.tolist()
     if isinstance(obj, (float, int, bool, str)) or obj is None:
         return obj
-    try:
-        return float(obj)
     except Exception:
         return str(obj)
 
@@ -2443,15 +2408,11 @@ def plan_crop_from_ball(
     if aspect <= 0:
         aspect = float(src_w) / float(src_h) if src_h else 1.0
 
-    try:
-        zoom_value = float(state.get("zoom", zoom_max))
     except (TypeError, ValueError):
         zoom_value = float(zoom_max)
 
     candidates = [zoom_value]
     for candidate in (zoom_min, zoom_max):
-        try:
-            candidates.append(float(candidate))
         except (TypeError, ValueError):
             continue
     zoom_value = next((c for c in reversed(candidates) if c and abs(c) > 1e-6), 1.0)
@@ -2468,13 +2429,9 @@ def plan_crop_from_ball(
     pad_px = 0.0
     pad_frac = 0.0
     if pad <= 0.49:
-        try:
-            pad_frac = max(0.0, min(float(pad), 0.49))
         except (TypeError, ValueError):
             pad_frac = 0.0
     else:
-        try:
-            pad_px = float(max(0, int(round(pad))))
         except (TypeError, ValueError):
             pad_px = 0.0
 
@@ -2487,8 +2444,6 @@ def plan_crop_from_ball(
 
     max_zoom_candidates = [zoom_value]
     for candidate in (zoom_min, zoom_max):
-        try:
-            value = float(candidate)
         except (TypeError, ValueError):
             continue
         if value > 0:
@@ -2523,12 +2478,8 @@ def plan_crop_from_ball(
             target_crop_w = max_crop_w
             target_crop_h = target_crop_w / max(aspect, 1e-6)
 
-    try:
-        prev_w = float(state.get("w", target_crop_w))
     except (TypeError, ValueError):
         prev_w = float(target_crop_w)
-    try:
-        prev_h = float(state.get("h", target_crop_h))
     except (TypeError, ValueError):
         prev_h = float(target_crop_h)
     if prev_w <= 0:
@@ -2536,12 +2487,8 @@ def plan_crop_from_ball(
     if prev_h <= 0:
         prev_h = float(target_crop_h)
 
-    try:
-        prev_x = float(state.get("x", float(bx) - prev_w / 2.0))
     except (TypeError, ValueError):
         prev_x = float(bx) - prev_w / 2.0
-    try:
-        prev_y = float(state.get("y", float(by) - prev_h / 2.0))
     except (TypeError, ValueError):
         prev_y = float(by) - prev_h / 2.0
 
@@ -2798,14 +2745,6 @@ def ffprobe_fps(path: Path) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
-    try:
-        result = subprocess.run(
-            command,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - execution context dependant
         raise RuntimeError(
             "Failed to read FPS using ffprobe. Ensure ffmpeg is installed and on PATH."
@@ -2837,14 +2776,6 @@ def ffprobe_duration(path: Path) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
-    try:
-        result = subprocess.run(
-            command,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - depends on environment
         raise RuntimeError(
             "Failed to read duration using ffprobe. Ensure ffmpeg is installed and on PATH."
@@ -2854,8 +2785,6 @@ def ffprobe_duration(path: Path) -> float:
     if not value:
         raise RuntimeError("ffprobe did not return a duration value.")
 
-    try:
-        return float(value)
     except ValueError as exc:
         raise RuntimeError(f"Unable to parse ffprobe duration output: {value}") from exc
 
@@ -2894,9 +2823,6 @@ def portrait_config_from_preset(
             height = size_value.get("height")
             if width is None or height is None:
                 return None
-            try:
-                w = int(width)
-                h = int(height)
             except (TypeError, ValueError):
                 return None
             if w > 0 and h > 0:
@@ -2906,9 +2832,6 @@ def portrait_config_from_preset(
             seq = list(size_value)
             if len(seq) < 2:
                 return None
-            try:
-                w = int(seq[0])
-                h = int(seq[1])
             except (TypeError, ValueError):
                 return None
             if w > 0 and h > 0:
@@ -2930,9 +2853,6 @@ def portrait_config_from_preset(
         if isinstance(min_box_value, Mapping):
             mbw = min_box_value.get("width")
             mbh = min_box_value.get("height")
-            try:
-                mbw_f = float(mbw) if mbw is not None else None
-                mbh_f = float(mbh) if mbh is not None else None
             except (TypeError, ValueError):
                 mbw_f = mbh_f = None
             if mbw_f is not None and mbh_f is not None and mbw_f > 0 and mbh_f > 0:
@@ -2940,9 +2860,6 @@ def portrait_config_from_preset(
         elif isinstance(min_box_value, Sequence):
             seq = list(min_box_value)
             if len(seq) >= 2:
-                try:
-                    mbw_f = float(seq[0])
-                    mbh_f = float(seq[1])
                 except (TypeError, ValueError):
                     mbw_f = mbh_f = None
                 else:
@@ -2951,8 +2868,6 @@ def portrait_config_from_preset(
 
         horizon_value = value.get("horizon_lock")
         if horizon_value is not None:
-            try:
-                horizon_lock = float(horizon_value)
             except (TypeError, ValueError):
                 horizon_lock = 0.0
             else:
@@ -3001,10 +2916,6 @@ def load_labels(
                 parts = stripped.replace(",", " ").split()
                 if len(parts) < 3:
                     continue
-                try:
-                    frame_idx = int(float(parts[0]))
-                    x_value = float(parts[1])
-                    y_value = float(parts[2])
                 except Exception:
                     continue
 
@@ -3403,8 +3314,6 @@ class CameraPlanner:
         self.keepinview_min_band_frac = 0.25
         self.keepinview_max_band_frac = 0.75
 
-        try:
-            center_frac = float(center_frac)
         except (TypeError, ValueError):
             center_frac = 0.5
         if not math.isfinite(center_frac):
@@ -3422,9 +3331,6 @@ class CameraPlanner:
         self.min_box_w = 0.0
         self.min_box_h = 0.0
         if min_box:
-            try:
-                mbw = float(min_box[0])
-                mbh = float(min_box[1])
             except (TypeError, ValueError, IndexError):
                 mbw = mbh = 0.0
             else:
@@ -3437,11 +3343,6 @@ class CameraPlanner:
 
         self.speed_zoom_config: Optional[dict[str, float]] = None
         if speed_zoom and bool(speed_zoom.get("enabled", True)):
-            try:
-                v_lo = float(speed_zoom.get("v_lo", 0.0))
-                v_hi = float(speed_zoom.get("v_hi", 0.0))
-                zoom_lo = float(speed_zoom.get("zoom_lo", 1.0))
-                zoom_hi = float(speed_zoom.get("zoom_hi", 1.0))
             except (TypeError, ValueError):
                 self.speed_zoom_config = None
             else:
@@ -4029,15 +3930,11 @@ class Renderer:
         self.follow_lookahead = int(follow_lookahead)
         self.follow_pre_smooth = float(np.clip(follow_pre_smooth, 0.0, 1.0))
         self.follow_zoom_out_max = max(1.0, float(follow_zoom_out_max))
-        try:
-            zoom_edge_frac = float(follow_zoom_edge_frac)
         except (TypeError, ValueError):
             zoom_edge_frac = 1.0
         if not math.isfinite(zoom_edge_frac) or zoom_edge_frac <= 0.0:
             zoom_edge_frac = 1.0
         self.follow_zoom_edge_frac = zoom_edge_frac
-        try:
-            follow_center_frac = float(follow_center_frac)
         except (TypeError, ValueError):
             follow_center_frac = 0.5
         if not math.isfinite(follow_center_frac):
@@ -4046,15 +3943,11 @@ class Renderer:
         self.lost_hold_ms = max(0, int(lost_hold_ms))
         self.lost_pan_ms = max(0, int(lost_pan_ms))
         self.lost_chase_motion_ms = max(0, int(lost_chase_motion_ms))
-        try:
-            lost_lookahead_s = float(lost_lookahead_s)
         except (TypeError, ValueError):
             lost_lookahead_s = 0.0
         if not math.isfinite(lost_lookahead_s) or lost_lookahead_s < 0.0:
             lost_lookahead_s = 0.0
         self.lost_lookahead_s = lost_lookahead_s
-        try:
-            motion_thresh_value = float(lost_motion_thresh)
         except (TypeError, ValueError):
             motion_thresh_value = 1.6
         if not math.isfinite(motion_thresh_value):
@@ -4069,8 +3962,6 @@ class Renderer:
         def _coerce_float(value: Optional[float]) -> Optional[float]:
             if value is None:
                 return None
-            try:
-                return float(value)
             except (TypeError, ValueError):
                 return None
 
@@ -4098,8 +3989,6 @@ class Renderer:
                             sanitized[key] = float(value)
                     if "z" not in sanitized:
                         z_value = entry.get("z", 1.30) if hasattr(entry, "get") else 1.30
-                        try:
-                            sanitized["z"] = float(z_value)
                         except (TypeError, ValueError):
                             sanitized["z"] = 1.30
                     bx_norm = sanitized.get("bx")
@@ -4124,10 +4013,6 @@ class Renderer:
                         normalized_ball_path.append(None)
                         continue
                     z_val = entry_seq[2] if len(entry_seq) >= 3 else 1.30
-                    try:
-                        normalized_ball_path.append(
-                            {"bx": float(bx_val), "by": float(by_val), "z": float(z_val)}
-                        )
                     except (TypeError, ValueError):
                         normalized_ball_path.append(None)
         self.offline_ball_path = normalized_ball_path
@@ -4193,12 +4078,8 @@ class Renderer:
 
     @staticmethod
     def _center_bias_px_for_height(frame_h: float, center_frac: float) -> float:
-        try:
-            frame_h = float(frame_h)
         except (TypeError, ValueError):
             frame_h = 0.0
-        try:
-            center_frac = float(center_frac)
         except (TypeError, ValueError):
             center_frac = 0.5
         if not math.isfinite(center_frac):
@@ -4350,8 +4231,6 @@ class Renderer:
                     telemetry_frames = []
                     sample_by_frame: dict[int, BallSample] = {}
                     for s in samples:
-                        try:
-                            idx = int(getattr(s, "frame", 0))
                         except Exception:
                             continue
                         if idx < 0:
@@ -4593,9 +4472,6 @@ class Renderer:
             fps_plan = 30.0
         if follow_targets_len > 0 and follow_targets:
             for idx in range(follow_targets_len):
-                try:
-                    bx_plan = float(follow_targets[0][idx])
-                    by_plan = float(follow_targets[1][idx])
                 except (TypeError, ValueError):
                     continue
                 plan_pts.append((idx / fps_plan if fps_plan > 0 else 0.0, bx_plan, by_plan))
@@ -4660,1455 +4536,6 @@ class Renderer:
         self.last_jerk95 = float(jerk95)
 
         tf = self.telemetry
-        try:
-            if probe_only:
-                return float(jerk95)
-
-            if self.init_manual:
-                frame0, _fps0 = grab_frame_at_time(
-                    input_mp4, max(0.0, self.init_t), fps_hint=src_fps or 30.0
-                )
-                if frame0 is not None:
-                    roi = manual_select_ball(frame0, window="Drag around the BALL, press Enter")
-                    if roi:
-                        x, y, w, h = roi
-                        bx0 = x + w / 2.0
-                        by0 = y + h / 2.0
-                        kal = CV2DKalman(bx0, by0)
-                        frame0_gray = cv2.cvtColor(frame0, cv2.COLOR_BGR2GRAY)
-                        tx0 = int(max(0, bx0 - tpl_side // 2))
-                        ty0 = int(max(0, by0 - tpl_side // 2))
-                        tx1 = int(min(frame0.shape[1], tx0 + tpl_side))
-                        ty1 = int(min(frame0.shape[0], ty0 + tpl_side))
-                        template = frame0_gray[ty0:ty1, tx0:tx1].copy()
-                        prev_cx, prev_cy = float(bx0), float(by0)
-                        if tf:
-                            tf.write(
-                                json.dumps(
-                                    to_jsonable(
-                                        {
-                                            "t": float(self.init_t),
-                                            "used": "manual_bootstrap",
-                                            "cx": float(prev_cx),
-                                            "cy": float(prev_cy),
-                                            "zoom": 1.2,
-                                            "crop": [
-                                                float(max(0, bx0 - 240)),
-                                                float(max(0, by0 - 432)),
-                                                480.0,
-                                                864.0,
-                                            ],
-                                            "ball": [float(bx0), float(by0)],
-                                        }
-                                    )
-                                )
-                                + "\n"
-                            )
-                    else:
-                        print("[WARN] Manual init skipped (no ROI selected).")
-                else:
-                    print(f"[WARN] Could not grab frame for manual init at t={self.init_t:.2f} s")
-
-            lost_state = "track"
-            lost_t0 = 0.0
-            lost_cx = float(prev_cx)
-            lost_cy = float(prev_cy)
-            pan_from: Tuple[float, float] = (float(prev_cx), float(prev_cy))
-            pan_to: Tuple[float, float] = (float(prev_cx), float(prev_cy))
-            lost_phase: str = "none"
-            lost_phase_ms: int = 0
-            prev_gray_frame: Optional[np.ndarray] = None
-            cur_gray_frame: Optional[np.ndarray] = None
-            field_mask: Optional[np.ndarray] = None
-
-            def _resolve_lost_target(
-                bx_value: Optional[float],
-                by_value: Optional[float],
-                base_target: Tuple[float, float],
-                crop_w_inside: float,
-                crop_h_inside: float,
-                margin_inside: float,
-                time_s: float,
-                frame_index: int,
-            ) -> Tuple[float, float, str, Optional[Tuple[float, float]]]:
-                nonlocal lost_state, lost_t0, lost_cx, lost_cy, pan_from, pan_to, lost_phase, lost_phase_ms
-                state_label = "track"
-                pan_target: Optional[Tuple[float, float]] = None
-                if follower is None:
-                    lost_state = "track"
-                    return base_target[0], base_target[1], state_label, pan_target
-                if crop_w_inside <= 1e-6 or crop_h_inside <= 1e-6:
-                    lost_state = "track"
-                    return base_target[0], base_target[1], state_label, pan_target
-                margin_val = max(0.0, float(margin_inside))
-                inside = False
-                if (
-                    bx_value is not None
-                    and by_value is not None
-                    and math.isfinite(bx_value)
-                    and math.isfinite(by_value)
-                ):
-                    inside = _inside_crop(
-                        float(bx_value),
-                        float(by_value),
-                        float(follower.cx),
-                        float(follower.cy),
-                        float(crop_w_inside),
-                        float(crop_h_inside),
-                        margin_val,
-                    )
-                now_s = float(time_s)
-                hold_dur = max(0.0, float(self.lost_hold_ms) / 1000.0)
-                lookahead_s = max(0.0, float(self.lost_lookahead_s))
-
-                def _find_reentry_target() -> Tuple[float, float]:
-                    fps_lookup = (
-                        render_fps
-                        if render_fps and render_fps > 0.0
-                        else (
-                            src_fps
-                            if src_fps and src_fps > 0.0
-                            else (float(self.fps_in) if self.fps_in > 0.0 else 30.0)
-                        )
-                    )
-                    if fps_lookup <= 0.0:
-                        fps_lookup = 30.0
-                    max_ahead_frames = int(max(0.0, lookahead_s * fps_lookup))
-                    re_cx = float(follower.cx)
-                    re_cy = float(follower.cy)
-                    if plan_pts and max_ahead_frames > 0:
-                        j = min(max(frame_index, 0), len(plan_pts) - 1)
-                        for offset in range(1, max_ahead_frames + 1):
-                            jj = min(j + offset, len(plan_pts) - 1)
-                            _, bx_future, by_future = plan_pts[jj]
-                            cx_future, cy_future = _clamp_cam(
-                                float(bx_future),
-                                float(by_future),
-                                float(src_w_f),
-                                float(src_h_f),
-                                float(crop_w_inside),
-                                float(crop_h_inside),
-                            )
-                            if _inside_crop(
-                                float(bx_future),
-                                float(by_future),
-                                cx_future,
-                                cy_future,
-                                float(crop_w_inside),
-                                float(crop_h_inside),
-                                margin_val,
-                            ):
-                                re_cx, re_cy = cx_future, cy_future
-                                break
-                    return re_cx, re_cy
-
-                if lost_state == "track":
-                    if lost_phase != "none" or lost_phase_ms != 0:
-                        lost_phase = "none"
-                        lost_phase_ms = 0
-                    if not inside:
-                        lost_state = "hold"
-                        lost_t0 = now_s
-                        lost_cx = float(follower.cx)
-                        lost_cy = float(follower.cy)
-                        pan_from = (lost_cx, lost_cy)
-                if lost_state == "hold":
-                    if inside:
-                        lost_state = "track"
-                        lost_phase = "none"
-                        lost_phase_ms = 0
-                    elif (now_s - lost_t0) >= hold_dur:
-                        pan_from = (float(follower.cx), float(follower.cy))
-                        pan_to = pan_from
-                        lost_phase = "none"
-                        lost_phase_ms = 0
-                        motion_target: Optional[Tuple[float, float]] = None
-                        if self.lost_use_motion:
-                            motion_target = _motion_centroid(
-                                prev_gray_frame,
-                                cur_gray_frame,
-                                field_mask,
-                                self.lost_motion_thresh,
-                            )
-                        if motion_target is not None:
-                            mx, my = motion_target
-                            mx, my = _clamp_cam(
-                                float(mx),
-                                float(my),
-                                float(src_w_f),
-                                float(src_h_f),
-                                float(crop_w_inside),
-                                float(crop_h_inside),
-                            )
-                            pan_to = (mx, my)
-                            lost_phase = "motion"
-                            lost_phase_ms = self.lost_chase_motion_ms
-                        else:
-                            re_cx, re_cy = _find_reentry_target()
-                            pan_to = (re_cx, re_cy)
-                            lost_phase = "reentry"
-                            lost_phase_ms = self.lost_pan_ms
-                        lost_state = "pan"
-                        lost_t0 = now_s
-                if lost_state == "pan":
-                    if inside:
-                        lost_state = "track"
-                        lost_phase = "none"
-                        lost_phase_ms = 0
-                    else:
-                        if lost_phase != "none":
-                            phase_ms = float(lost_phase_ms)
-                        else:
-                            phase_ms = float(self.lost_pan_ms)
-                        phase_dur = max(0.0, phase_ms / 1000.0)
-                        if phase_dur <= 1e-6:
-                            alpha = 1.0
-                        else:
-                            alpha = min(1.0, max(0.0, (now_s - lost_t0) / max(phase_dur, 1e-6)))
-                        a = alpha * alpha * (3.0 - 2.0 * alpha)
-                        cx_interp = pan_from[0] + a * (pan_to[0] - pan_from[0])
-                        cy_interp = pan_from[1] + a * (pan_to[1] - pan_from[1])
-                        cx_interp, cy_interp = _clamp_cam(
-                            float(cx_interp),
-                            float(cy_interp),
-                            float(src_w_f),
-                            float(src_h_f),
-                            float(crop_w_inside),
-                            float(crop_h_inside),
-                        )
-                        state_label = "lost_pan"
-                        pan_target = (cx_interp, cy_interp)
-                        if alpha >= 1.0 and lost_phase == "motion":
-                            re_cx, re_cy = _find_reentry_target()
-                            pan_from = (cx_interp, cy_interp)
-                            pan_to = (re_cx, re_cy)
-                            lost_phase = "reentry"
-                            lost_phase_ms = self.lost_pan_ms
-                            lost_t0 = now_s
-                        return cx_interp, cy_interp, state_label, pan_target
-                if lost_state == "hold":
-                    hold_cx, hold_cy = _clamp_cam(
-                        float(lost_cx),
-                        float(lost_cy),
-                        float(src_w_f),
-                        float(src_h_f),
-                        float(crop_w_inside),
-                        float(crop_h_inside),
-                    )
-                    state_label = "lost_hold"
-                    return hold_cx, hold_cy, state_label, pan_target
-                lost_state = "track"
-                lost_phase = "none"
-                lost_phase_ms = 0
-                state_label = "track"
-                clamped_target = _clamp_cam(
-                    float(base_target[0]),
-                    float(base_target[1]),
-                    float(src_w_f),
-                    float(src_h_f),
-                    float(crop_w_inside),
-                    float(crop_h_inside),
-                )
-                return clamped_target[0], clamped_target[1], state_label, pan_target
-
-            follow_override = self.follow_override
-            for i, state in enumerate(states):
-                cx: float | None = None
-                cy: float | None = None
-                telemetry_rec: Optional[dict[str, object]] = None
-                # === FOLLOW OVERRIDE APPLIED (NEW) ===
-                if follow_override is not None and i in follow_override:
-                    fo = follow_override[i]
-                    # Planner gives cx,cy,zoom in source-space coordinates
-                    cx = float(fo.get("cx", cx))
-                    cy = float(fo.get("cy", cy))
-                    zoom = float(fo.get("zoom", zoom))
-                    # Skip jerk-follow computations, jump to crop application
-                    # This ensures planner completely replaces the camera solve
-                    # Continue into crop/FFmpeg rendering with overridden values
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    break
-                if self.flip180:
-                    frame = cv2.rotate(frame, cv2.ROTATE_180)
-
-                cur_gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-                n = state.frame
-                t = n / float(render_fps) if render_fps else 0.0
-
-                prev_crop_h_val = (
-                    float(src_h_f) / float(prev_zoom)
-                    if prev_zoom and prev_zoom > 1e-6
-                    else float(src_h_f)
-                )
-                if target_aspect:
-                    prev_crop_w_val = prev_crop_h_val * float(target_aspect)
-                else:
-                    prev_crop_w_val = float(src_w_f)
-                if prev_crop_w_val > float(src_w_f) and target_aspect:
-                    prev_crop_w_val = float(src_w_f)
-                    prev_crop_h_val = prev_crop_w_val / float(target_aspect)
-                half_prev_w = 0.5 * prev_crop_w_val
-                half_prev_h = 0.5 * prev_crop_h_val
-                max_prev_margin = max(0.0, min(half_prev_w, half_prev_h) - 1.0)
-                inside_margin = float(self.follow_margin_px) if self.follow_margin_px > 0 else 90.0
-                if max_prev_margin > 0.0:
-                    inside_margin = min(inside_margin, max_prev_margin)
-                else:
-                    inside_margin = 0.0
-                frame_follow_state = "track"
-
-                exact_entry: Optional[Mapping[str, float]] = None
-                if self.follow_exact and self.follow_trajectory:
-                    idx = min(i, len(self.follow_trajectory) - 1)
-                    exact_entry = self.follow_trajectory[idx]
-
-                    if exact_entry is not None:
-                        aspect = target_aspect if target_aspect else (float(width) / float(height))
-                        cx = float(exact_entry.get("cx", prev_cx))
-                        cy = float(exact_entry.get("cy", prev_cy))
-                        zoom = float(np.clip(float(exact_entry.get("zoom", prev_zoom)), zoom_min, zoom_max))
-
-                        view_h = height / float(zoom) if zoom > 0 else float(height)
-                        view_w = view_h * aspect if aspect > 0 else float(width)
-                        if view_w > width:
-                            view_w = float(width)
-                            view_h = view_w / aspect if aspect > 0 else view_h
-
-                        x0 = min(max(cx - 0.5 * view_w, 0.0), width - view_w)
-                        y0 = min(max(cy - 0.5 * view_h, 0.0), height - view_h)
-                        cx = x0 + 0.5 * view_w
-                        cy = y0 + 0.5 * view_h
-                        crop_w = view_w
-                        crop_h = view_h
-
-                        if tf:
-                            telemetry_rec = {
-                                "t": float(t),
-                                "frame": int(state.frame),
-                                "used": "follow_exact",
-                                "cx": float(cx),
-                                "cy": float(cy),
-                                "zoom": float(zoom),
-                                "crop": [float(x0), float(y0), float(crop_w), float(crop_h)],
-                            }
-                            tf.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
-
-                        frame_state = CamState(
-                            frame=state.frame,
-                            cx=float(cx),
-                            cy=float(cy),
-                            zoom=float(zoom),
-                            crop_w=float(crop_w),
-                            crop_h=float(crop_h),
-                            x0=float(x0),
-                            y0=float(y0),
-                            used_label=state.used_label,
-                            clamp_flags=list(state.clamp_flags) if state.clamp_flags is not None else [],
-                            ball=state.ball,
-                            zoom_scale=state.zoom_scale,
-                        )
-
-                        composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
-
-                        out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
-                        success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-                        if not success:
-                            raise RuntimeError(f"Failed to write frame to {out_path}")
-                        prev_cx, prev_cy, prev_zoom = float(cx), float(cy), float(zoom)
-                        prev_gray_frame = cur_gray_frame
-                        continue
-                    frame_pan_target: Optional[Tuple[float, float]] = None
-
-                    have_ball = False
-                    bx = by = None
-                    ball_available = False
-                    label_available = False
-                    used_tag = "planner"
-                    ball_source_tag: Optional[str] = prev_ball_source
-                    planned_zoom: Optional[float] = None
-                    telemetry_ball_src: Optional[Tuple[float, float]] = None
-                    telemetry_ball_out: Optional[Tuple[Optional[float], Optional[float]]] = None
-                    telemetry_crop: Optional[Tuple[float, float, float, float]] = None
-                    planner_spd: Optional[float] = None
-                    planner_zoom: Optional[float] = None
-                    edge_zoom_scale_follow = 1.0
-                    eff_bx: Optional[float] = None
-                    eff_by: Optional[float] = None
-    
-                    def _refresh_template(cx_val: float, cy_val: float) -> None:
-                        nonlocal template
-                        g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        sx0 = int(max(0, cx_val - tpl_side // 2))
-                        sy0 = int(max(0, cy_val - tpl_side // 2))
-                        sx1 = int(min(frame.shape[1], sx0 + tpl_side))
-                        sy1 = int(min(frame.shape[0], sy0 + tpl_side))
-                        cur_tpl = g[sy0:sy1, sx0:sx1]
-                        if cur_tpl.size < 9:
-                            return
-                        if template is None or template.shape != cur_tpl.shape:
-                            template = cur_tpl.copy()
-                        else:
-                            template = cv2.addWeighted(template, 0.85, cur_tpl, 0.15, 0)
-
-                    cam_center_override: Optional[Tuple[float, float]] = None
-                    keep_center: Optional[Tuple[float, float]] = None
-                    if keep_path_lookup:
-                        keep_center = keep_path_lookup.get(n)
-                        if keep_center is not None and keepinview_enabled and portrait_w and portrait_h:
-                            half_w = float(portrait_w) * 0.5
-                            half_h = float(portrait_h) * 0.5
-                            keep_cx = max(half_w, min(float(width) - half_w, float(keep_center[0])))
-                            keep_cy = max(half_h, min(float(height) - half_h, float(keep_center[1])))
-                            keep_center = (keep_cx, keep_cy)
-
-                    if cx is None or cy is None:
-                        if i > 0:
-                            cx, cy = float(prev_cx), float(prev_cy)
-                        else:
-                            cx = float(width) / 2.0
-                            cy = float(height) / 2.0
-
-                    ball_path_entry: Optional[Tuple[float, float]] = None
-                    ball_path_space: Optional[str] = None
-                    ball_path_rec_for_frame: Optional[Union[Mapping[str, object], Sequence[object]]] = None
-    
-                    if offline_ball_path and n < len(offline_ball_path):
-                        path_rec = offline_ball_path[n]
-                        if path_rec is not None:
-                            ball_path_rec_for_frame = path_rec
-                            entry_bx: Optional[float] = None
-                            entry_by: Optional[float] = None
-                            entry_space: Optional[str] = None
-                            z_planned_val: float = zoom
-    
-                            if isinstance(path_rec, Mapping):
-                                ball_x, ball_y = pick_ball(path_rec, frame.shape[1], frame.shape[0])
-                                if ball_x is not None and ball_y is not None:
-                                    entry_bx = float(ball_x)
-                                    entry_by = float(ball_y)
-                                    if "bx_stab" in path_rec:
-                                        entry_space = "stab"
-                                    elif "bx_raw" in path_rec:
-                                        entry_space = "raw"
-                                    elif "ball" in path_rec:
-                                        entry_space = "ball"
-                                    elif "bx" in path_rec:
-                                        entry_space = "generic"
-    
-                                z_candidate = path_rec.get("z")
-                                if z_candidate is not None:
-                                    try:
-                                        z_planned_val = float(z_candidate)
-                                    except (TypeError, ValueError):
-                                        z_planned_val = zoom
-                            else:
-                                entry_vals = tuple(path_rec)
-                                if len(entry_vals) >= 2:
-                                    entry_bx_val = entry_vals[0]
-                                    entry_by_val = entry_vals[1]
-                                    if entry_bx_val is not None and entry_by_val is not None:
-                                        try:
-                                            entry_bx = float(entry_bx_val)
-                                            entry_by = float(entry_by_val)
-                                            entry_space = "generic"
-                                        except (TypeError, ValueError):
-                                            entry_bx = None
-                                            entry_by = None
-                                    if len(entry_vals) >= 3:
-                                        z_candidate = entry_vals[2]
-                                        if z_candidate is not None:
-                                            try:
-                                                z_planned_val = float(z_candidate)
-                                            except (TypeError, ValueError):
-                                                pass
-    
-                            if entry_bx is not None and entry_by is not None:
-                                bx = entry_bx
-                                by = entry_by
-                                ball_path_entry = (bx, by)
-                                ball_path_space = entry_space
-                                ball_available = True
-                                used_tag = "offline_path"
-                                ball_source_tag = "ball_path"
-                                planned_zoom = None
-                                if kal is None:
-                                    kal = CV2DKalman(bx, by)
-                                else:
-                                    kal.bx, kal.by = bx, by
-                                _refresh_template(bx, by)
-                    else:
-                        if state.ball:
-                            label_bx, label_by = state.ball
-                            label_bx = float(label_bx)
-                            label_by = float(label_by)
-                            bx, by = label_bx, label_by
-                            ball_available = True
-                            label_available = True
-                            used_tag = "label"
-                            ball_source_tag = "label"
-    
-                        pred_x = pred_y = None
-                        if kal is not None:
-                            pred_x, pred_y = kal.predict()
-    
-                        if label_available and bx is not None and by is not None:
-                            if kal is None:
-                                kal = CV2DKalman(bx, by)
-                            else:
-                                kal.correct(bx, by)
-                            _refresh_template(bx, by)
-                        elif kal is not None and pred_x is not None and pred_y is not None:
-                            cand = find_ball_candidate(
-                                frame,
-                                (pred_x, pred_y),
-                                tpl=template,
-                                search_r=280,
-                                min_r=7,
-                                max_r=22,
-                                min_circ=0.58,
-                            )
-                            if cand is not None:
-                                cbx, cby, _circ, ncc, dist = cand
-                                if dist < 140 or ncc >= 0.36:
-                                    bx, by = float(cbx), float(cby)
-                                    kal.correct(bx, by)
-                                    _refresh_template(bx, by)
-                                    ball_available = True
-                                    used_tag = "model_cand"
-                                    ball_source_tag = "model_cand"
-                                else:
-                                    bx, by = float(pred_x), float(pred_y)
-                                    kal.bx, kal.by = bx, by
-                                    ball_available = True
-                                    used_tag = "model_pred"
-                                    ball_source_tag = "model_pred"
-                            else:
-                                bx, by = float(pred_x), float(pred_y)
-                                kal.bx, kal.by = bx, by
-                                ball_available = True
-                                used_tag = "model_pred"
-                                ball_source_tag = "model_pred"
-    
-                    if label_available and kal is not None:
-                        ball_available = True
-                        if ball_source_tag is None:
-                            ball_source_tag = "label"
-    
-                    bx_src: Optional[float] = None
-                    by_src: Optional[float] = None
-                    if ball_available and bx is not None and by is not None:
-                        bx_src = float(bx)
-                        by_src = float(by)
-                        alpha = 0.25
-                        if (
-                            prev_ball_src_x is not None
-                            and prev_ball_src_y is not None
-                        ):
-                            bx_src = prev_ball_src_x + alpha * (bx_src - prev_ball_src_x)
-                            by_src = prev_ball_src_y + alpha * (by_src - prev_ball_src_y)
-                    prev_ball_src_x, prev_ball_src_y = bx_src, by_src
-                    if bx_src is not None:
-                        bx_src = max(0.0, min(src_w_f - 1.0, bx_src))
-                    if by_src is not None:
-                        by_src = max(0.0, min(src_h_f - 1.0, by_src))
-                    if bx_src is not None:
-                        bx = bx_src
-                    if by_src is not None:
-                        by = by_src
-
-                    if (
-                        self.debug_ball_overlay
-                        and bx is not None
-                        and by is not None
-                        and frame is not None
-                    ):
-                        cv2.circle(
-                            frame,
-                            (int(round(bx)), int(round(by))),
-                            5,
-                            (0, 255, 255),
-                            -1,
-                        )
-
-                    have_ball = bool(ball_available and bx is not None and by is not None)
-
-                    if used_tag == "offline_path":
-                        W = float(width)
-                        H = float(height)
-                        prev_ball_bx = float(prev_bx)
-                        prev_ball_by = float(prev_by)
-
-                        if have_ball:
-                            eff_bx = float(bx) if bx is not None else None
-                            eff_by = float(by) if by is not None else None
-                        else:
-                            eff_bx = prev_ball_bx
-                            eff_by = prev_ball_by
-
-                        planner_handled = False
-                        planner_zoom = None
-                        planner_spd = None
-                        planned_crop: Optional[Tuple[float, float, float, float]] = None
-                        holding_follow = False
-                        if offline_plan_data is not None and n < offline_plan_len:
-                            plan_x0 = float(offline_plan_data["x0"][n])
-                            plan_y0 = float(offline_plan_data["y0"][n])
-                            plan_w = float(offline_plan_data["w"][n])
-                            plan_h = float(offline_plan_data["h"][n])
-                            planner_zoom = float(offline_plan_data["z"][n])
-                            planner_spd = float(offline_plan_data["spd"][n])
-                            if planner_zoom <= 0:
-                                planner_zoom = float(H / plan_h) if plan_h > 0 else prev_zoom
-
-                            planned_crop = (plan_x0, plan_y0, plan_w, plan_h)
-                            used_tag = "planner"
-                            planner_handled = True
-                            lost_state = "track"
-                            frame_follow_state = "track"
-                            frame_pan_target = None
-                            prev_ball_x = eff_bx
-                            prev_ball_y = eff_by
-                            follow_hold.reset_target(plan_x0 + 0.5 * plan_w, plan_y0 + 0.5 * plan_h)
-                            if have_ball and eff_bx is not None and eff_by is not None:
-                                ball_path_entry = (eff_bx, eff_by)
-                        if not planner_handled:
-                            base_target_x = float(eff_bx)
-                            base_target_y = float(
-                                np.clip(eff_by + center_bias_px, 0.0, src_h_f)
-                            )
-                            if keep_center is not None:
-                                base_target_x, base_target_y = keep_center
-                            if (
-                                have_ball
-                                and eff_bx is not None
-                                and eff_by is not None
-                                and follow_targets
-                                and follow_targets_len > 0
-                            ):
-                                idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
-                                base_target_x = float(follow_targets[0][idx])
-                                base_target_y = float(follow_targets[1][idx])
-
-                            fps_for_vel = (
-                                float(render_fps)
-                                if render_fps and render_fps > 0
-                                else (float(src_fps) if src_fps and src_fps > 0 else 30.0)
-                            )
-                            plan_len = follow_targets_len if follow_targets else len(states)
-                            plan_idx = min(max(n, 0), plan_len - 1) if plan_len > 0 else 0
-                            vx = 0.0
-                            vy = 0.0
-                            if (
-                                follow_targets
-                                and follow_targets_len > 1
-                                and plan_idx > 0
-                                and plan_idx < follow_targets_len - 1
-                                and fps_for_vel > 0.0
-                            ):
-                                bx_prev_plan = float(follow_targets[0][plan_idx - 1])
-                                by_prev_plan = float(follow_targets[1][plan_idx - 1])
-                                bx_next_plan = float(follow_targets[0][plan_idx + 1])
-                                by_next_plan = float(follow_targets[1][plan_idx + 1])
-                                vx = 0.5 * (bx_next_plan - bx_prev_plan) * fps_for_vel
-                                vy = 0.5 * (by_next_plan - by_prev_plan) * fps_for_vel
-                            elif n > 0:
-                                vx = float(base_target_x - prev_cx)
-                                vy = float(base_target_y - prev_cy)
-
-                            lead_k = 0.02
-                            target_x = float(base_target_x + lead_k * vx)
-                            target_y = float(base_target_y + lead_k * vy)
-                            if follower is not None:
-                                target_x, target_y, frame_follow_state, frame_pan_target = _resolve_lost_target(
-                                    float(eff_bx)
-                                    if have_ball and eff_bx is not None
-                                    else None,
-                                    float(eff_by)
-                                    if have_ball and eff_by is not None
-                                    else None,
-                                    (target_x, target_y),
-                                    float(prev_crop_w_val),
-                                    float(prev_crop_h_val),
-                                    float(inside_margin),
-                                    t,
-                                    i,
-                                )
-                            valid_for_hold = bool(
-                                have_ball and eff_bx is not None and eff_by is not None
-                            )
-                            if follow_valid_mask and n < len(follow_valid_mask):
-                                valid_for_hold = valid_for_hold and bool(follow_valid_mask[n])
-                            if lost_state == "track":
-                                eff_target_x, eff_target_y, holding_follow = follow_hold.apply(
-                                    target_x,
-                                    target_y,
-                                    valid_for_hold,
-                                )
-                            else:
-                                eff_target_x = target_x
-                                eff_target_y = target_y
-                                holding_follow = False
-                            if follower is not None:
-                                if holding_follow and 0.0 < follow_hold.decay_factor < 1.0:
-                                    follower.damp_velocity(follow_hold.decay_factor)
-                                cam_x, cam_y = follower.step(
-                                    float(eff_target_x), float(eff_target_y)
-                                )
-                            else:
-                                alpha_pan = 0.30 if not holding_follow else 0.0
-                                cam_x = alpha_pan * eff_target_x + (1 - alpha_pan) * prev_cx
-                                cam_y = alpha_pan * eff_target_y + (1 - alpha_pan) * prev_cy
-                            if not holding_follow:
-                                follow_hold.reset_target(cam_x, cam_y)
-    
-                            speed = hypot(eff_bx - prev_ball_bx, eff_by - prev_ball_by)
-                            norm = min(1.0, speed / 24.0)
-                            z_min = float(zoom_min)
-                            z_max = float(zoom_max)
-                            zoom_target = z_min + (z_max - z_min) * (1.0 - norm)
-                            slew = 0.02
-                            zoom = prev_zoom + max(-slew, min(slew, zoom_target - prev_zoom))
-                            zoom = float(np.clip(zoom, z_min if z_min > 0 else 1.0, z_max))
-                        else:
-                            cam_x = cx
-                            cam_y = cy
-    
-                        if not planner_handled:
-                            crop_h = H / float(zoom) if zoom > 0 else H
-                            crop_w = crop_h * target_aspect
-                            if crop_w > W:
-                                crop_w = float(W)
-                                crop_h = crop_w / target_aspect if target_aspect else crop_h
-
-                            margin_follow = (
-                                float(self.follow_margin_px)
-                                if self.follow_margin_px > 0
-                                else 16.0
-                            )
-                            margin_follow = max(0.0, float(margin_follow))
-                            half_w = 0.5 * float(crop_w)
-                            half_h = 0.5 * float(crop_h)
-                            max_margin = max(0.0, min(half_w, half_h) - 1.0)
-                            margin_follow = min(margin_follow, max_margin)
-
-                            s_out = edge_zoom_out(
-                                float(cam_x),
-                                float(cam_y),
-                                float(eff_bx),
-                                float(eff_by),
-                                float(crop_w),
-                                float(crop_h),
-                                float(W),
-                                float(H),
-                                margin_px=margin_follow,
-                                s_cap=self.follow_zoom_out_max,
-                                edge_frac=self.follow_zoom_edge_frac,
-                            )
-                            eff_w = float(crop_w * s_out)
-                            eff_h = float(crop_h * s_out)
-                            hx = 0.5 * eff_w
-                            hy = 0.5 * eff_h
-                            cam_x = max(hx, min((W - 1.0) - hx, float(cam_x)))
-                            cam_y = max(hy, min((H - 1.0) - hy, float(cam_y)))
-                            x0 = max(0.0, min(W - eff_w, cam_x - hx))
-                            y0 = max(0.0, min(H - eff_h, cam_y - hy))
-
-                            crop_w = eff_w
-                            crop_h = eff_h
-                            cx = float(cam_x)
-                            cy = float(cam_y)
-                            if eff_h > 1e-6:
-                                zoom = float(H / eff_h)
-
-                            edge_zoom_scale_follow = float(s_out)
-
-                            telemetry_ball_src = (eff_bx, eff_by)
-                            telemetry_crop = (x0, y0, crop_w, crop_h)
-
-                            if is_portrait and have_ball:
-                                portrait_plan_state["zoom"] = float(
-                                    max(zoom_min, min(zoom_max, float(zoom)))
-                                ) if zoom_max >= zoom_min else float(zoom)
-                                x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
-                                    eff_bx,
-                                    eff_by,
-                                    width,
-                                    height,
-                                    out_w=portrait_crop_w or portrait_w,
-                                    out_h=portrait_crop_h or portrait_h,
-                                    zoom_min=zoom_min,
-                                    zoom_max=zoom_max,
-                                    pad=self.pad,
-                                    state=portrait_plan_state,
-                                    center_frac=self.follow_center_frac,
-                                )
-                                zoom = float(height) / float(max(crop_h, 1.0))
-                                if zoom_max >= zoom_min:
-                                    zoom = max(zoom_min, min(zoom_max, zoom))
-                                cx = float(x0 + 0.5 * crop_w)
-                                cy = float(y0 + 0.5 * crop_h)
-                            else:
-                                x0, y0, crop_w, crop_h = compute_portrait_crop(
-                                    float(cx),
-                                    float(cy),
-                                    float(zoom),
-                                    width,
-                                    height,
-                                    target_aspect,
-                                    self.pad,
-                                )
-                        else:
-                            if planned_crop is not None:
-                                x0, y0, crop_w, crop_h = planned_crop
-                            else:
-                                crop_h = H / float(zoom) if zoom > 0 else H
-                                crop_w = crop_h * target_aspect
-                                x0 = max(0.0, min(W - crop_w, cx - 0.5 * crop_w))
-                                y0 = max(0.0, min(H - crop_h, cy - 0.5 * crop_h))
-                                crop_w = float(crop_w)
-                                crop_h = float(crop_h)
-                            zoom = float(planner_zoom) if planner_zoom is not None else float(
-                                H / float(max(crop_h, 1.0))
-                            )
-                            cx = float(x0 + 0.5 * crop_w)
-                            cy = float(y0 + 0.5 * crop_h)
-                            cam_x = cx
-                            cam_y = cy
-                            telemetry_ball_src = (eff_bx, eff_by)
-                            telemetry_crop = (x0, y0, crop_w, crop_h)
-    
-                        if (
-                            have_ball
-                            and eff_bx is not None
-                            and eff_by is not None
-                            and crop_w > 1
-                            and crop_h > 1
-                        ):
-                            x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
-                                x0,
-                                y0,
-                                crop_w,
-                                crop_h,
-                                eff_bx,
-                                eff_by,
-                                float(width),
-                                float(height),
-                                float(zoom),
-                                zoom_min,
-                                zoom_max,
-                                margin=self.pad,
-                            )
-    
-                            if (
-                                have_ball
-                                and eff_bx is not None
-                                and eff_by is not None
-                                and crop_w > 1
-                                and crop_h > 1
-                            ):
-                                x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
-                                    x0,
-                                    y0,
-                                    crop_w,
-                                    crop_h,
-                                    eff_bx,
-                                    eff_by,
-                                    float(width),
-                                    float(height),
-                                    float(zoom),
-                                    zoom_min,
-                                    zoom_max,
-                                    margin=0.10,
-                                    step_zoom=0.96,
-                                )
-                                prev_ball_x = eff_bx
-                                prev_ball_y = eff_by
-                            else:
-                                prev_ball_x = None
-                                prev_ball_y = None
-    
-                            cx = float(x0 + 0.5 * crop_w)
-                            cy = float(y0 + 0.5 * crop_h)
-                            telemetry_crop = (x0, y0, crop_w, crop_h)
-                            zoom = float(zoom)
-                            prev_cx = float(cx)
-                            prev_cy = float(cy)
-                            prev_zoom = float(zoom)
-                            if have_ball and eff_bx is not None and eff_by is not None:
-                                prev_bx = eff_bx
-                                prev_by = eff_by
-                            if not holding_follow:
-                                follow_hold.reset_target(cx, cy)
-                    else:
-                        zoom_speed: Optional[float] = None
-                        speed_px = 0.0
-                        bx_val: Optional[float] = None
-                        by_val: Optional[float] = None
-    
-                        if ball_available and bx is not None and by is not None:
-                            bx_val = float(bx)
-                            by_val = float(by)
-                            bx = bx_val
-                            by = by_val
-                            prev_bx_for_speed = prev_ball_x if prev_ball_x is not None else bx_val
-                            prev_by_for_speed = prev_ball_y if prev_ball_y is not None else by_val
-    
-                            speed_px = hypot(bx_val - prev_bx_for_speed, by_val - prev_by_for_speed)
-                            norm = min(1.0, speed_px / 24.0)
-                            z_min = zoom_min
-                            z_max = zoom_max
-                            zoom_target = z_min + (z_max - z_min) * (1.0 - norm)
-                            dmax = 0.02
-                            zoom_step = max(-dmax, min(dmax, zoom_target - prev_zoom))
-                            zoom_speed = float(np.clip(prev_zoom + zoom_step, z_min, z_max))
-    
-                        pcx, pcy, pzoom = cam[n] if n < len(cam) else (prev_cx, prev_cy, 1.2)
-                        target_x: Optional[float] = None
-                        target_y: Optional[float] = None
-                        if follow_targets and follow_targets_len > 0:
-                            idx = min(n + follow_lookahead_frames, follow_targets_len - 1)
-                            target_x = float(follow_targets[0][idx])
-                            target_y = float(np.clip(follow_targets[1][idx], 0.0, src_h_f))
-                        if target_x is None or target_y is None:
-                            if bx_val is not None and by_val is not None:
-                                target_x = bx_val
-                                target_y = float(np.clip(by_val + center_bias_px, 0.0, src_h_f))
-                            else:
-                                target_x = float(pcx)
-                                target_y = float(pcy)
-
-                        if keep_center is not None:
-                            target_x, target_y = keep_center
-
-                        candidate_x = float(target_x if target_x is not None else pcx)
-                        candidate_y = float(target_y if target_y is not None else pcy)
-                        if follower is not None:
-                            candidate_x, candidate_y, frame_follow_state, frame_pan_target = _resolve_lost_target(
-                                bx_val if ball_available else None,
-                                by_val if ball_available else None,
-                                (candidate_x, candidate_y),
-                                float(prev_crop_w_val),
-                                float(prev_crop_h_val),
-                                float(inside_margin),
-                                t,
-                                i,
-                            )
-
-                        ball_valid_for_hold = bool(
-                            bx_val is not None
-                            and by_val is not None
-                            and math.isfinite(bx_val)
-                            and math.isfinite(by_val)
-                        )
-                        if lost_state == "track":
-                            eff_target_x, eff_target_y, holding_follow = follow_hold.apply(
-                                candidate_x,
-                                candidate_y,
-                                ball_valid_for_hold,
-                            )
-                        else:
-                            eff_target_x = candidate_x
-                            eff_target_y = candidate_y
-                            holding_follow = False
-    
-                        if follower is not None:
-                            if holding_follow and 0.0 < follow_hold.decay_factor < 1.0:
-                                follower.damp_velocity(follow_hold.decay_factor)
-                            cx, cy = follower.step(eff_target_x, eff_target_y)
-                        else:
-                            if cam_center_override is not None:
-                                cx, cy = cam_center_override
-                            elif not holding_follow and bx_val is not None and by_val is not None:
-                                cx = 0.90 * bx_val + 0.10 * prev_cx
-                                cy = 0.90 * by_val + 0.10 * prev_cy
-                            else:
-                                cx = eff_target_x if not holding_follow else prev_cx
-                                cy = eff_target_y if not holding_follow else prev_cy
-    
-                        if cam_center_override is not None:
-                            cx, cy = cam_center_override
-                        if not holding_follow:
-                            follow_hold.reset_target(cx, cy)
-    
-                        if render_fps > 0:
-                            max_dx = 9999.0
-                            max_dy = 9999.0
-                            dx = cx - prev_cx
-                            dy = cy - prev_cy
-                            if abs(dx) > max_dx:
-                                cx = prev_cx + (max_dx if dx > 0 else -max_dx)
-                            if abs(dy) > max_dy:
-                                cy = prev_cy + (max_dy if dy > 0 else -max_dy)
-    
-                        if planned_zoom is not None:
-                            zoom = planned_zoom
-                        else:
-                            default_zoom = float(np.clip(float(pzoom), zoom_min, zoom_max))
-                            if zoom_speed is not None:
-                                zoom = zoom_speed
-                            else:
-                                zoom = default_zoom
-    
-                        if ball_available and bx is not None and by is not None and zoom > 0:
-                            view_h = height / float(zoom)
-                            view_w = view_h * target_aspect
-                            if view_w > width:
-                                view_w = float(width)
-                                view_h = view_w / target_aspect if target_aspect else view_h
-                            x0 = min(max(cx - 0.5 * view_w, 0.0), width - view_w)
-                            y0 = min(max(cy - 0.5 * view_h, 0.0), height - view_h)
-                            cx = x0 + 0.5 * view_w
-                            cy = y0 + 0.5 * view_h
-    
-                        if is_portrait and ball_available and bx is not None and by is not None:
-                            portrait_plan_state["zoom"] = float(
-                                max(zoom_min, min(zoom_max, float(zoom)))
-                            ) if zoom_max >= zoom_min else float(zoom)
-                            x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
-                                float(bx),
-                                float(by),
-                                width,
-                                height,
-                                out_w=portrait_crop_w or portrait_w,
-                                out_h=portrait_crop_h or portrait_h,
-                                zoom_min=zoom_min,
-                                zoom_max=zoom_max,
-                                pad=self.pad,
-                                state=portrait_plan_state,
-                                center_frac=self.follow_center_frac,
-                            )
-                            zoom = float(height) / float(max(crop_h, 1.0))
-                            if zoom_max >= zoom_min:
-                                zoom = max(zoom_min, min(zoom_max, zoom))
-                            cx = float(x0 + 0.5 * crop_w)
-                            cy = float(y0 + 0.5 * crop_h)
-                        else:
-                            x0, y0, crop_w, crop_h = compute_portrait_crop(
-                                float(cx),
-                                float(cy),
-                                zoom,
-                                width,
-                                height,
-                                target_aspect,
-                                self.pad,
-                            )
-    
-                        cur_bx: Optional[float] = None
-                        cur_by: Optional[float] = None
-                        speed_px = 0.0
-                        if ball_available and bx is not None and by is not None and crop_w > 1 and crop_h > 1:
-                            x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
-                                x0,
-                                y0,
-                                crop_w,
-                                crop_h,
-                                float(bx),
-                                float(by),
-                                float(width),
-                                float(height),
-                                float(zoom),
-                                zoom_min,
-                                zoom_max,
-                                margin=0.10,
-                                step_zoom=0.96,
-                            )
-                            cur_bx = float(bx)
-                            cur_by = float(by)
-                            if prev_ball_x is None or prev_ball_y is None:
-                                prev_ball_x, prev_ball_y = cur_bx, cur_by
-                            speed_px = math.hypot(cur_bx - prev_ball_x, cur_by - prev_ball_y)
-                            prev_ball_x, prev_ball_y = cur_bx, cur_by
-                            telemetry_ball_src = (cur_bx, cur_by)
-                        else:
-                            prev_ball_x = None
-                            prev_ball_y = None
-    
-                        if cur_bx is not None and cur_by is not None and crop_w > 1 and crop_h > 1:
-                            zoom = dynamic_zoom(
-                                prev_zoom=prev_zoom,
-                                bx=cur_bx,
-                                by=cur_by,
-                                x0=x0,
-                                y0=y0,
-                                cw=crop_w,
-                                ch=crop_h,
-                                src_w=float(width),
-                                src_h=float(height),
-                                speed_px=speed_px,
-                                target_zoom_min=zoom_min,
-                                target_zoom_max=zoom_max,
-                                k_speed_out=0.0007,
-                                edge_margin=0.14,
-                                edge_gain=0.10,
-                                z_rate=0.07,
-                            )
-    
-                            if is_portrait:
-                                portrait_plan_state["zoom"] = float(
-                                    max(zoom_min, min(zoom_max, float(zoom)))
-                                ) if zoom_max >= zoom_min else float(zoom)
-                                x0, y0, crop_w, crop_h, portrait_plan_state = plan_crop_from_ball(
-                                    cur_bx,
-                                    cur_by,
-                                    width,
-                                    height,
-                                    out_w=portrait_crop_w or portrait_w,
-                                    out_h=portrait_crop_h or portrait_h,
-                                    zoom_min=zoom_min,
-                                    zoom_max=zoom_max,
-                                    pad=self.pad,
-                                    state=portrait_plan_state,
-                                    center_frac=self.follow_center_frac,
-                                )
-                                zoom = float(height) / float(max(crop_h, 1.0))
-                                if zoom_max >= zoom_min:
-                                    zoom = max(zoom_min, min(zoom_max, zoom))
-                                cx = float(x0 + 0.5 * crop_w)
-                                cy = float(y0 + 0.5 * crop_h)
-                            else:
-                                x0, y0, crop_w, crop_h = compute_portrait_crop(
-                                    float(cx),
-                                    float(cy),
-                                    float(zoom),
-                                    width,
-                                    height,
-                                    target_aspect,
-                                    self.pad,
-                                )
-    
-                            x0, y0, crop_w, crop_h, zoom = guarantee_ball_in_crop(
-                                x0,
-                                y0,
-                                crop_w,
-                                crop_h,
-                                cur_bx,
-                                cur_by,
-                                float(width),
-                                float(height),
-                                float(zoom),
-                                zoom_min,
-                                zoom_max,
-                                margin=0.10,
-                                step_zoom=0.96,
-                            )
-    
-                        telemetry_crop = (x0, y0, crop_w, crop_h)
-                        if not holding_follow:
-                            follow_hold.reset_target(cx, cy)
-                        prev_cx, prev_cy = float(cx), float(cy)
-                        prev_zoom = float(zoom)
-                        if ball_available and bx is not None and by is not None:
-                            prev_bx = float(bx)
-                            prev_by = float(by)
-                    zoom_ball_x: Optional[float] = None
-                    zoom_ball_y: Optional[float] = None
-                    if have_ball and eff_bx is not None and eff_by is not None:
-                        try:
-                            zoom_ball_x = float(eff_bx)
-                            zoom_ball_y = float(eff_by)
-                        except (TypeError, ValueError):
-                            zoom_ball_x = zoom_ball_y = None
-                    if (
-                        zoom_ball_x is None
-                        or zoom_ball_y is None
-                    ) and ball_available and bx is not None and by is not None:
-                        try:
-                            zoom_ball_x = float(bx)
-                            zoom_ball_y = float(by)
-                        except (TypeError, ValueError):
-                            zoom_ball_x = zoom_ball_y = None
-    
-                    if (
-                        is_portrait
-                        and zoom_ball_x is not None
-                        and zoom_ball_y is not None
-                        and crop_w is not None
-                        and crop_h is not None
-                        and crop_w > 1.0
-                        and crop_h > 1.0
-                    ):
-                        margin_ratio = self.pad if self.pad > 0.0 else 0.10
-                        margin_px = float(margin_ratio) * min(float(crop_w), float(crop_h))
-                        if margin_px > 0.0:
-                            zoom_out_max = float(self.follow_zoom_out_max)
-                            edge_frac = float(self.follow_zoom_edge_frac)
-                            headroom_px = 4.0
-                            halfW = float(crop_w) * 0.5
-                            halfH = float(crop_h) * 0.5
-                            cx_val = float(cx)
-                            cy_val = float(cy)
-                            bx_val = float(zoom_ball_x)
-                            by_val = float(zoom_ball_y)
-    
-                            left_d = bx_val - (cx_val - halfW + margin_px)
-                            right_d = (cx_val + halfW - margin_px) - bx_val
-                            top_d = by_val - (cy_val - halfH + margin_px)
-                            bot_d = (cy_val + halfH - margin_px) - by_val
-    
-                            need_w = 0.0
-                            need_h = 0.0
-                            if min(left_d, right_d) < edge_frac * margin_px:
-                                req_halfW = max(
-                                    bx_val - (cx_val - margin_px - headroom_px),
-                                    (cx_val + margin_px + headroom_px) - bx_val,
-                                )
-                                need_w = max(0.0, req_halfW - halfW) * 2.0
-    
-                            if min(top_d, bot_d) < edge_frac * margin_px:
-                                req_halfH = max(
-                                    by_val - (cy_val - margin_px - headroom_px),
-                                    (cy_val + margin_px + headroom_px) - by_val,
-                                )
-                                need_h = max(0.0, req_halfH - halfH) * 2.0
-    
-                            effW = max(float(crop_w), need_w)
-                            effH = max(float(crop_h), need_h)
-    
-                            if effW > float(width):
-                                effW = float(width)
-                            if effH > float(height):
-                                effH = float(height)
-    
-                            base_zoom_out = max(
-                                1.0,
-                                min(
-                                    zoom_out_max,
-                                    max(
-                                        effW / max(float(crop_w), 1e-6),
-                                        effH / max(float(crop_h), 1e-6),
-                                    ),
-                                ),
-                            )
-    
-                            if base_zoom_out > 1.0 and effW > 1.0 and effH > 1.0:
-                                hx = 0.5 * effW
-                                hy = 0.5 * effH
-                                width_f = float(width)
-                                height_f = float(height)
-                                cx_val = max(hx, min((width_f - 1.0) - hx, cx_val))
-                                cy_val = max(hy, min((height_f - 1.0) - hy, cy_val))
-                                x0 = max(0.0, min(width_f - effW, cx_val - hx))
-                                y0 = max(0.0, min(height_f - effH, cy_val - hy))
-                                crop_w = effW
-                                crop_h = effH
-                                cx = float(cx_val)
-                                cy = float(cy_val)
-                                telemetry_crop = (x0, y0, crop_w, crop_h)
-                                zoom = float(height) / max(crop_h, 1e-6)
-                                if zoom_max >= zoom_min:
-                                    zoom = max(zoom_min, min(zoom_max, zoom))
-                                edge_zoom_scale_follow = float(
-                                    edge_zoom_scale_follow * base_zoom_out
-                                )
-                                prev_cx = float(cx)
-                                prev_cy = float(cy)
-                                prev_zoom = float(zoom)
-                    half_w_final = float(crop_w) * 0.5 if crop_w is not None else 0.0
-                    half_h_final = float(crop_h) * 0.5 if crop_h is not None else 0.0
-                    clamped_flag = 0
-                    if half_w_final > 0.0 and half_h_final > 0.0:
-                        clamped_flag = int(
-                            cy <= half_h_final + 0.5
-                            or cy >= (height - 1.0) - half_h_final - 0.5
-                            or cx <= half_w_final + 0.5
-                            or cx >= (width - 1.0) - half_w_final - 0.5
-                        )
-    
-                        if simple_tf:
-                            bx_val = float(bx) if bx is not None else None
-                            by_val = float(by) if by is not None else None
-                            if bx_val is not None and not math.isfinite(bx_val):
-                                bx_val = None
-                            if by_val is not None and not math.isfinite(by_val):
-                                by_val = None
-                            simple_record = {
-                                "t": float(t),
-                                "cx": float(cx),
-                                "cy": float(cy),
-                                "bx": bx_val,
-                                "by": by_val,
-                                "zoom": float(zoom),
-                                "zoom_out": float(edge_zoom_scale_follow),
-                                "clamped": int(clamped_flag),
-                            }
-                            simple_record["state"] = frame_follow_state
-                            if frame_pan_target is not None:
-                                simple_record["target_cx"] = float(frame_pan_target[0])
-                                simple_record["target_cy"] = float(frame_pan_target[1])
-                            simple_tf.write(json.dumps(simple_record) + "\n")
-
-                        if tf:
-                            telemetry_rec = {
-                                "t": float(t),
-                                "used": used_tag,
-                                "cx": float(cx),
-                                "cy": float(cy),
-                                "zoom": float(zoom),
-                                "zoom_out": float(edge_zoom_scale_follow),
-                            }
-                            if used_tag == "offline_path":
-                                telemetry_rec["zoom_edge_scale"] = float(edge_zoom_scale_follow)
-                            else:
-                                telemetry_rec["zoom_edge_scale"] = float(state.zoom_scale)
-                            telemetry_rec["f"] = int(state.frame)
-                            if used_tag == "planner":
-                                if planner_spd is not None:
-                                    telemetry_rec["plan_spd"] = float(planner_spd)
-                                if planner_zoom is not None:
-                                    telemetry_rec["plan_zoom"] = float(planner_zoom)
-                            crop_vals = telemetry_crop if telemetry_crop is not None else (x0, y0, crop_w, crop_h)
-                            crop_list = [
-                                float(crop_vals[0]),
-                                float(crop_vals[1]),
-                                float(crop_vals[2]),
-                                float(crop_vals[3]),
-                            ]
-                            telemetry_rec["crop"] = crop_list
-                            telemetry_rec["crop_src"] = list(crop_list)
-                            telemetry_rec["state"] = frame_follow_state
-                            if frame_follow_state == "lost_pan":
-                                telemetry_rec["lost_phase"] = lost_phase
-                            elif frame_follow_state == "lost_hold":
-                                telemetry_rec["lost_phase"] = "hold"
-                            else:
-                                telemetry_rec["lost_phase"] = "none"
-                            if frame_pan_target is not None:
-                                telemetry_rec["target_cx"] = float(frame_pan_target[0])
-                                telemetry_rec["target_cy"] = float(frame_pan_target[1])
-
-                            bx_src_val: Optional[float]
-                            by_src_val: Optional[float]
-                            if telemetry_ball_src is not None:
-                                bx_src_val, by_src_val = telemetry_ball_src
-                            else:
-                                bx_src_val = None
-                                by_src_val = None
-
-                            if (
-                                (bx_src_val is None or by_src_val is None)
-                                and ball_path_rec_for_frame is not None
-                            ):
-                                bx_candidate, by_candidate = _get_ball_xy_src(
-                                    ball_path_rec_for_frame,
-                                    float(width),
-                                    float(height),
-                                )
-                                if bx_candidate is not None and by_candidate is not None:
-                                    bx_src_val, by_src_val = bx_candidate, by_candidate
-
-                            if (
-                                (bx_src_val is None or by_src_val is None)
-                                and ball_path_entry is not None
-                                and ball_path_space in (None, "raw", "ball", "generic")
-                            ):
-                                bx_src_val = float(ball_path_entry[0])
-                                by_src_val = float(ball_path_entry[1])
-
-                            if (
-                                (bx_src_val is None or by_src_val is None)
-                                and bx is not None
-                                and by is not None
-                            ):
-                                bx_src_val = float(bx)
-                                by_src_val = float(by)
-
-                            if bx_src_val is not None and by_src_val is not None:
-                                telemetry_ball_src = (bx_src_val, by_src_val)
-
-                            out_w = float(output_size[0]) if output_size[0] else float(width)
-                            out_h = float(output_size[1]) if output_size[1] else float(height)
-                            if (
-                                bx_src_val is not None
-                                and by_src_val is not None
-                                and crop_vals[2] > 0
-                                and crop_vals[3] > 0
-                                and out_w > 0
-                                and out_h > 0
-                            ):
-                                crop_cx = float(cx)
-                                crop_cy = float(cy)
-                                crop_w = float(crop_vals[2])
-                                crop_h = float(crop_vals[3])
-                                crop_l = crop_cx - 0.5 * crop_w
-                                crop_t = crop_cy - 0.5 * crop_h
-                                sx = (bx_src_val - crop_l) / max(1e-6, crop_w)
-                                sy = (by_src_val - crop_t) / max(1e-6, crop_h)
-                                x_out = sx * out_w
-                                y_out = sy * out_h
-                                telemetry_ball_out = (x_out, y_out)
-                            else:
-                                telemetry_ball_out = (None, None)
-
-                            if telemetry_ball_src is not None:
-                                telemetry_rec["ball_src"] = [
-                                    float(telemetry_ball_src[0]),
-                                    float(telemetry_ball_src[1]),
-                                ]
-                                telemetry_rec["ball"] = [
-                                    float(telemetry_ball_src[0]),
-                                    float(telemetry_ball_src[1]),
-                                ]
-                            else:
-                                telemetry_rec["ball_src"] = [None, None]
-                                telemetry_rec["ball"] = [
-                                    float(bx) if bx is not None else float("nan"),
-                                    float(by) if by is not None else float("nan"),
-                                ]
-
-                            if telemetry_ball_out is not None:
-                                telemetry_rec["ball_out"] = [
-                                    float(telemetry_ball_out[0]) if telemetry_ball_out[0] is not None else None,
-                                    float(telemetry_ball_out[1]) if telemetry_ball_out[1] is not None else None,
-                                ]
-                            else:
-                                telemetry_rec["ball_out"] = [None, None]
-
-                            telemetry_rec["ball_space"] = "source"
-                            if ball_source_tag:
-                                telemetry_rec["ball_src_tag"] = ball_source_tag
-                                telemetry_rec["ball_src_name"] = ball_source_tag
-                            if ball_path_entry is not None:
-                                ball_path_x = float(ball_path_entry[0])
-                                ball_path_y = float(ball_path_entry[1])
-                                telemetry_rec["ball_path"] = [ball_path_x, ball_path_y]
-                                if ball_path_space == "stab":
-                                    telemetry_rec["bx_stab"] = ball_path_x
-                                    telemetry_rec["by_stab"] = ball_path_y
-                                    telemetry_rec["ball_path_space"] = "stab"
-                                elif ball_path_space == "raw":
-                                    telemetry_rec["bx_raw"] = ball_path_x
-                                    telemetry_rec["by_raw"] = ball_path_y
-                                    telemetry_rec["ball_path_space"] = "raw"
-                                elif ball_path_space:
-                                    telemetry_rec["ball_path_space"] = ball_path_space
-                            tf.write(json.dumps(to_jsonable(telemetry_rec)) + "\n")
-                    prev_ball_source = ball_source_tag
-    
-                    clamp_flags = list(state.clamp_flags) if state.clamp_flags is not None else []
-                    frame_state = CamState(
-                        frame=state.frame,
-                        cx=float(cx),
-                        cy=float(cy),
-                        zoom=float(zoom),
-                        crop_w=float(crop_w),
-                        crop_h=float(crop_h),
-                        x0=float(x0),
-                        y0=float(y0),
-                        used_label=state.used_label,
-                        clamp_flags=clamp_flags,
-                        ball=state.ball,
-                        zoom_scale=state.zoom_scale,
-                    )
-    
-                    composed, _ = self._compose_frame(frame, frame_state, output_size, overlay_image)
-
-                    out_path = self.temp_dir / f"f_{state.frame:06d}.jpg"
-                    success = cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-                    if not success:
-                        raise RuntimeError(f"Failed to write frame to {out_path}")
-                    prev_gray_frame = cur_gray_frame
         finally:
             cap.release()
             if tf:
@@ -6183,8 +4610,6 @@ class Renderer:
             ]
         )
 
-        try:
-            subprocess.run(command, check=True)
         except subprocess.CalledProcessError as exc:
             raise RuntimeError("ffmpeg failed during stitching.") from exc
 
@@ -6199,8 +4624,6 @@ def _prepare_temp_dir(temp_dir: Path, clean: bool) -> None:
         temp_dir.mkdir(parents=True, exist_ok=True)
         return
     for file in temp_dir.glob("*.jpg"):
-        try:
-            file.unlink()
         except OSError:
             logging.warning("Failed to remove temp frame %s", file)
 
@@ -6225,8 +4648,6 @@ def load_ball_path(
             if not line:
                 seq.append(None)
                 continue
-            try:
-                data = json.loads(line)
             except json.JSONDecodeError:
                 seq.append(None)
                 continue
@@ -6245,9 +4666,6 @@ def load_ball_path(
                 val_y = data.get(key_y)
                 if val_x is None or val_y is None:
                     continue
-                try:
-                    bx_norm = float(val_x)
-                    by_norm = float(val_y)
                 except (TypeError, ValueError):
                     bx_norm = by_norm = None
                     continue
@@ -6274,9 +4692,6 @@ def load_ball_path(
                 val_y = data.get(key_y)
                 if val_x is None or val_y is None:
                     continue
-                try:
-                    rec[key_x] = float(val_x)
-                    rec[key_y] = float(val_y)
                 except (TypeError, ValueError):
                     continue
 
@@ -6284,8 +4699,6 @@ def load_ball_path(
             rec["by"] = by_norm
 
             z_value = data.get("z", default_zoom)
-            try:
-                rec["z"] = float(z_value)
             except (TypeError, ValueError):
                 rec["z"] = float(default_zoom)
 
@@ -6335,8 +4748,6 @@ def run(
     preset_config = presets[preset_key]
 
     fps_in = float(ffprobe_fps(input_path))
-    try:
-        duration_s = float(ffprobe_duration(input_path))
     except RuntimeError:
         duration_s = 0.0
     fps_out = float(args.fps) if args.fps is not None else float(preset_config.get("fps", fps_in))
@@ -6400,8 +4811,6 @@ def run(
     smoothing_default = preset_config.get("smoothing", 0.65)
     follow_smoothing = follow_config.get("smoothing") if follow_config else None
     if follow_smoothing is not None:
-        try:
-            smoothing_default = float(follow_smoothing)
         except (TypeError, ValueError):
             smoothing_default = preset_config.get("smoothing", 0.65)
     smoothing = float(args.smoothing) if args.smoothing is not None else float(smoothing_default)
@@ -6409,8 +4818,6 @@ def run(
     speed_limit = float(args.speed_limit) if args.speed_limit is not None else float(preset_config.get("speed_limit", 480))
     zoom_min = float(args.zoom_min) if args.zoom_min is not None else float(preset_config.get("zoom_min", 1.0))
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
-    try:
-        cy_frac = float(args.cy_frac)
     except (TypeError, ValueError, AttributeError):
         cy_frac = 0.46
     if not math.isfinite(cy_frac):
@@ -6436,8 +4843,6 @@ def run(
         value = _controller_value(key)
         if value is None:
             return fallback
-        try:
-            return float(value)
         except (TypeError, ValueError):
             return fallback
 
@@ -6447,8 +4852,6 @@ def run(
             return fallback
         if isinstance(value, str) and value.strip().lower() in {"none", "", "null"}:
             return None
-        try:
-            return float(value)
         except (TypeError, ValueError):
             return fallback
 
@@ -6456,8 +4859,6 @@ def run(
         value = _controller_value(key)
         if value is None:
             return fallback
-        try:
-            return int(round(float(value)))
         except (TypeError, ValueError):
             return fallback
 
@@ -6508,8 +4909,6 @@ def run(
     margin_px = 0.0
     margin_val = follow_config.get("margin_px") if follow_config else None
     if margin_val is not None:
-        try:
-            margin_px = max(0.0, float(margin_val))
         except (TypeError, ValueError):
             margin_px = 0.0
 
@@ -6520,35 +4919,23 @@ def run(
     keepinview_cfg = follow_config.get("keepinview") if follow_config else None
     if isinstance(keepinview_cfg, Mapping):
         if "margin" in keepinview_cfg:
-            try:
-                keepinview_margin = max(0.0, float(keepinview_cfg["margin"]))
             except (TypeError, ValueError):
                 keepinview_margin = margin_px
         elif "margin_px" in keepinview_cfg:
-            try:
-                keepinview_margin = max(0.0, float(keepinview_cfg["margin_px"]))
             except (TypeError, ValueError):
                 keepinview_margin = margin_px
         if "nudge_gain" in keepinview_cfg:
-            try:
-                keepinview_nudge = max(0.0, float(keepinview_cfg["nudge_gain"]))
             except (TypeError, ValueError):
                 keepinview_nudge = 0.5
         if "zoom_gain" in keepinview_cfg:
-            try:
-                keepinview_zoom_gain = max(0.0, float(keepinview_cfg["zoom_gain"]))
             except (TypeError, ValueError):
                 keepinview_zoom_gain = 0.4
         if "zoom_out_max" in keepinview_cfg:
-            try:
-                keepinview_zoom_cap = max(1.0, float(keepinview_cfg["zoom_out_max"]))
             except (TypeError, ValueError):
                 keepinview_zoom_cap = 1.6
 
     keepinview_margin_arg = getattr(args, "keepinview_margin", None)
     if keepinview_margin_arg is not None:
-        try:
-            keepinview_margin = max(0.0, float(keepinview_margin_arg))
         except (TypeError, ValueError):
             keepinview_margin = margin_px
 
@@ -6569,21 +4956,15 @@ def run(
         )
     keepinview_nudge_arg = getattr(args, "keepinview_nudge", None)
     if keepinview_nudge_arg is not None:
-        try:
-            keepinview_nudge = max(0.0, float(keepinview_nudge_arg))
         except (TypeError, ValueError):
             keepinview_nudge = 0.5
     keepinview_zoom_arg = getattr(args, "keepinview_zoom", None)
     if keepinview_zoom_arg is not None:
-        try:
-            keepinview_zoom_gain = max(0.0, float(keepinview_zoom_arg))
         except (TypeError, ValueError):
             keepinview_zoom_gain = 0.4
     keepinview_zoom_cap_arg = getattr(args, "keepinview_zoom_cap", None)
     keepinview_zoom_cap_override = False
     if keepinview_zoom_cap_arg is not None:
-        try:
-            keepinview_zoom_cap = max(1.0, float(keepinview_zoom_cap_arg))
         except (TypeError, ValueError):
             keepinview_zoom_cap = 1.6
         else:
@@ -6592,8 +4973,6 @@ def run(
     zoom_out_max_default = follow_config.get("zoom_out_max") if follow_config else None
     follow_zoom_out_max = 1.35
     if zoom_out_max_default is not None:
-        try:
-            follow_zoom_out_max = max(1.0, float(zoom_out_max_default))
         except (TypeError, ValueError):
             follow_zoom_out_max = 1.35
     if getattr(args, "zoom_out_max", None) is not None:
@@ -6606,8 +4985,6 @@ def run(
     zoom_edge_frac_default = follow_config.get("zoom_edge_frac") if follow_config else None
     follow_zoom_edge_frac = 0.80
     if zoom_edge_frac_default is not None:
-        try:
-            follow_zoom_edge_frac = float(zoom_edge_frac_default)
         except (TypeError, ValueError):
             follow_zoom_edge_frac = 0.80
     if getattr(args, "zoom_edge_frac", None) is not None:
@@ -6621,32 +4998,20 @@ def run(
     lost_chase_motion_ms = getattr(args, "lost_chase_motion_ms", 900)
     lost_motion_thresh = getattr(args, "lost_motion_thresh", 1.6)
     lost_use_motion = bool(getattr(args, "lost_use_motion", False))
-    try:
-        lost_hold_ms = int(lost_hold_ms)
     except (TypeError, ValueError):
         lost_hold_ms = 500
-    try:
-        lost_pan_ms = int(lost_pan_ms)
     except (TypeError, ValueError):
         lost_pan_ms = 1200
-    try:
-        lost_lookahead_s = float(lost_lookahead_s)
     except (TypeError, ValueError):
         lost_lookahead_s = 6.0
-    try:
-        lost_chase_motion_ms = int(lost_chase_motion_ms)
     except (TypeError, ValueError):
         lost_chase_motion_ms = 900
-    try:
-        lost_motion_thresh = float(lost_motion_thresh)
     except (TypeError, ValueError):
         lost_motion_thresh = 1.6
 
     lead_time_s = 0.0
     lead_val = follow_config.get("lead_time") if follow_config else None
     if lead_val is not None:
-        try:
-            lead_time_s = max(0.0, float(lead_val))
         except (TypeError, ValueError):
             lead_time_s = 0.0
     lead_frames = int(round(lead_time_s * fps_out)) if fps_out > 0 else 0
@@ -6658,9 +5023,6 @@ def run(
     default_ball_key_y = "by_stab"
     keys_value = follow_config.get("keys") if follow_config else None
     if isinstance(keys_value, Sequence) and len(keys_value) >= 2:
-        try:
-            default_ball_key_x = str(keys_value[0])
-            default_ball_key_y = str(keys_value[1])
         except Exception:
             default_ball_key_x = "bx_stab"
             default_ball_key_y = "by_stab"
@@ -6937,8 +5299,6 @@ def run(
             by_val = _safe_float(getattr(sample, "y", None))
             if bx_val is None or by_val is None:
                 continue
-            try:
-                idx = int(getattr(sample, "frame", None))
             except (TypeError, ValueError):
                 continue
             if idx < 0:
@@ -7045,63 +5405,6 @@ def run(
     if override_samples:
         telemetry_handle: Optional[TextIO] = None
         telemetry_simple_handle: Optional[TextIO] = None
-        try:
-            if telemetry_path is not None:
-                telemetry_handle = open(telemetry_path, "w", encoding="utf-8")
-            if telemetry_simple_path is not None:
-                telemetry_simple_handle = open(telemetry_simple_path, "w", encoding="utf-8")
-            renderer = Renderer(
-                input_path=input_path,
-                output_path=output_path,
-                temp_dir=temp_dir,
-                fps_in=fps_in,
-                fps_out=fps_out,
-                flip180=args.flip180,
-                portrait=portrait,
-                brand_overlay=brand_overlay_path,
-                endcard=endcard_path,
-                pad=pad,
-                zoom_min=zoom_min,
-                zoom_max=zoom_max,
-                speed_limit=speed_limit,
-                telemetry=telemetry_handle,
-                telemetry_simple=telemetry_simple_handle,
-                init_manual=getattr(args, "init_manual", False),
-                init_t=getattr(args, "init_t", 0.8),
-                ball_path=offline_ball_path,
-                follow_lead_time=lead_time_s,
-                follow_margin_px=margin_px,
-                follow_smoothing=smoothing,
-                follow_zeta=follow_zeta,
-                follow_wn=current_follow_wn,
-                follow_deadzone=current_deadzone,
-                follow_max_vel=follow_max_vel,
-                follow_max_acc=follow_max_acc,
-                follow_lookahead=follow_lookahead_frames,
-                follow_pre_smooth=follow_pre_smooth,
-                follow_zoom_out_max=follow_zoom_out_max,
-                follow_zoom_edge_frac=follow_zoom_edge_frac,
-                follow_center_frac=cy_frac,
-                lost_hold_ms=lost_hold_ms,
-                lost_pan_ms=lost_pan_ms,
-                lost_lookahead_s=lost_lookahead_s,
-                lost_chase_motion_ms=lost_chase_motion_ms,
-                lost_motion_thresh=lost_motion_thresh,
-                lost_use_motion=lost_use_motion,
-                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-                plan_override_data=plan_override_data,
-                plan_override_len=plan_override_len,
-                ball_samples=[],
-                keep_path_lookup_data={},
-                debug_ball_overlay=False,
-                follow_override=follow_override,
-                follow_exact=getattr(args, "follow_exact", False),
-                disable_controller=disable_controller,
-                follow_trajectory=follow_trajectory,
-            )
-            jerk95 = renderer.write_frames(states)
         finally:
             if telemetry_handle:
                 telemetry_handle.close()
@@ -7187,64 +5490,6 @@ def run(
                 )
             telemetry_handle: Optional[TextIO] = None
             telemetry_simple_handle: Optional[TextIO] = None
-            try:
-                if telemetry_path is not None:
-                    telemetry_handle = open(telemetry_path, "w", encoding="utf-8")
-                if telemetry_simple_path is not None:
-                    telemetry_simple_handle = open(
-                        telemetry_simple_path, "w", encoding="utf-8"
-                    )
-                renderer = Renderer(
-                    input_path=input_path,
-                    output_path=output_path,
-                    temp_dir=temp_dir,
-                    fps_in=fps_in,
-                    fps_out=fps_out,
-                    flip180=args.flip180,
-                    portrait=portrait,
-                    brand_overlay=brand_overlay_path,
-                    endcard=endcard_path,
-                    pad=pad,
-                    zoom_min=zoom_min,
-                    zoom_max=zoom_max,
-                    speed_limit=speed_limit,
-                    telemetry=telemetry_handle,
-                    telemetry_simple=telemetry_simple_handle,
-                    init_manual=getattr(args, "init_manual", False),
-                    init_t=getattr(args, "init_t", 0.8),
-                    ball_path=offline_ball_path,
-                    follow_lead_time=lead_time_s,
-                    follow_margin_px=margin_px,
-                    follow_smoothing=smoothing,
-                    follow_zeta=follow_zeta,
-                    follow_wn=current_follow_wn,
-                    follow_deadzone=current_deadzone,
-                    follow_max_vel=follow_max_vel,
-                    follow_max_acc=follow_max_acc,
-                    follow_lookahead=follow_lookahead_frames,
-                    follow_pre_smooth=follow_pre_smooth,
-                    follow_zoom_out_max=follow_zoom_out_max,
-                    follow_zoom_edge_frac=follow_zoom_edge_frac,
-                    lost_hold_ms=lost_hold_ms,
-                    lost_pan_ms=lost_pan_ms,
-                    lost_lookahead_s=lost_lookahead_s,
-                    lost_chase_motion_ms=lost_chase_motion_ms,
-                    lost_motion_thresh=lost_motion_thresh,
-                    lost_use_motion=lost_use_motion,
-                    portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-                    portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-                    portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-                    plan_override_data=plan_override_data,
-                    plan_override_len=plan_override_len,
-                    ball_samples=ball_samples,
-                    keep_path_lookup_data=keep_path_lookup_data if use_ball_telemetry else {},
-                    debug_ball_overlay=debug_ball_overlay,
-                    follow_override=follow_override,
-                    follow_exact=getattr(args, "follow_exact", False),
-                    disable_controller=disable_controller,
-                    follow_trajectory=follow_trajectory,
-                )
-                jerk95 = renderer.write_frames(states)
             finally:
                 if telemetry_handle:
                     telemetry_handle.close()
@@ -7607,8 +5852,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     # --- portrait helpers ---
     portrait_w, portrait_h = (None, None)
     if args.portrait:
-        try:
-            portrait_w, portrait_h = map(int, str(args.portrait).lower().split("x"))
         except Exception:
             raise SystemExit(
                 f"Bad --portrait '{args.portrait}'. Use e.g. 1080x1920"
@@ -7635,5 +5878,3 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
-    try:
-        main()
