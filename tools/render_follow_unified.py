@@ -5456,6 +5456,34 @@ def run(
         current_follow_wn = max(0.1, current_follow_wn * max(jerk_wn_scale, 0.1))
         current_deadzone = max(0.0, current_deadzone + jerk_deadzone_step)
 
+    # ------------------------------------------------------------------
+    # FOLLOW-EXACT FALLBACK INITIALIZER
+    # Ensures renderer is always created even if upstream logic skipped
+    # defaults when --follow-exact is active.
+    # ------------------------------------------------------------------
+    if renderer is None:
+        print("[WARN] renderer was None — applying follow-exact fallback")
+        renderer = FollowRenderer(
+            input_path=input_path,
+            output_path=output_path,
+            width=portrait_w,
+            height=portrait_h,
+            fps=fps_in if fps_in else 24.0,
+            follow_trajectory=follow_trajectory if follow_trajectory else [],
+            follow_wn=8.0,
+            follow_zeta=1.2,
+            follow_deadzone=3.0,
+            max_vel=3000,
+            max_acc=12000,
+            zoom_min=1.0,
+            zoom_max=1.2,
+            zoom_edge_frac=0.15,
+            lost_hold_ms=150,
+            lost_pan_ms=300,
+            lost_motion_thresh=0.02,
+            keepinview_margin=30,
+        )
+
     assert renderer is not None
 
     keyint = max(1, int(round(float(keyint_factor) * float(fps_out))))
