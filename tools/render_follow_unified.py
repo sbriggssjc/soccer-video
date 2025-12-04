@@ -3811,6 +3811,7 @@ class Renderer:
     ) -> None:
         # Ensure defaults for variables that may have been assigned inside removed try/except blocks
         zoom_edge_frac = None
+        motion_thresh_value = None  # fallback for removed try/except
 
         self.input_path = input_path
         self.output_path = output_path
@@ -3856,6 +3857,8 @@ class Renderer:
         if not math.isfinite(lost_lookahead_s) or lost_lookahead_s < 0.0:
             lost_lookahead_s = 0.0
         self.lost_lookahead_s = lost_lookahead_s
+        if motion_thresh_value is None:
+            motion_thresh_value = 0.02  # safe small threshold
         if not math.isfinite(motion_thresh_value):
             motion_thresh_value = 1.6
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
