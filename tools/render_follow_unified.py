@@ -5026,6 +5026,30 @@ def run(
                 follow_trajectory=follow_trajectory,
             )
 
+        # Ensure renderer is always initialized even if follow_exact input is incomplete
+        if renderer is None:
+            # Create a minimal safe renderer with fallback values
+            renderer = FollowRenderer(
+                input_path=input_path,
+                output_path=output_path,
+                width=portrait_w,
+                height=portrait_h,
+                fps=fps_in,
+                follow_trajectory=[],  # fallback: stationary camera
+                follow_wn=8.0,
+                follow_zeta=1.2,
+                follow_deadzone=3.0,
+                max_vel=2500,
+                max_acc=9000,
+                zoom_min=1.0,
+                zoom_max=1.0,
+                zoom_edge_frac=0.15,
+                lost_hold_ms=200,
+                lost_pan_ms=400,
+                lost_motion_thresh=0.01,
+                keepinview_margin=40,
+            )
+
     if override_samples:
         use_ball_telemetry = False
 
