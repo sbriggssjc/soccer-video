@@ -104,6 +104,18 @@ def _safe_float(v):
     return f
 
 
+def safe_float(val, default):
+    try:
+        if val is None:
+            return default
+        x = float(val)
+        if not math.isfinite(x):
+            return default
+        return x
+    except Exception:
+        return default
+
+
 def _load_ball_telemetry(path):
     from render_follow_unified import load_any_telemetry
 
@@ -4775,11 +4787,16 @@ def run(
         if args.max_acc is not None
         else _controller_optional_float("max_acc", FOLLOW_DEFAULTS["max_acc"])
     )
-    follow_lookahead_value = (
-        int(args.follow_lookahead)
-        if args.follow_lookahead is not None
-        else _controller_int("lookahead", int(FOLLOW_DEFAULTS["lookahead"]))
-    )
+    # ---- SAFE LOOKAHEAD ----
+    raw_lookahead = getattr(args, "follow_lookahead", None)
+
+    try:
+        follow_lookahead_value = float(raw_lookahead)
+        if not math.isfinite(follow_lookahead_value):
+            raise ValueError()
+    except Exception:
+        follow_lookahead_value = FOLLOW_DEFAULTS.get("lookahead", 3.0)
+
     follow_lookahead_frames = max(0, int(follow_lookahead_value))
     follow_pre_smooth = (
         float(np.clip(float(args.pre_smooth), 0.0, 1.0))
