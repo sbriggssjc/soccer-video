@@ -4406,12 +4406,13 @@ class Renderer:
 
         return float(jerk95)
 
-    def ffmpeg_stitch(
+def ffmpeg_stitch(
         self,
         crf: int,
         keyint: int,
         log_path: Optional[Path] = None,
     ) -> None:
+        print("[DEBUG] building ffmpeg command")
         pattern = str(self.temp_dir / "f_%06d.jpg")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -4464,6 +4465,11 @@ class Renderer:
 
 
         self.last_ffmpeg_command = list(command)
+
+        print("[DEBUG] launching ffmpeg...")
+        subprocess.run(command, check=True)
+        print("[INFO] render complete")
+        print("[DEBUG] ffmpeg finished successfully")
 
 
 
@@ -5588,11 +5594,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
+    print("[DEBUG] main() entered")
     parser = build_parser()
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     args = parser.parse_args(argv)
+    print("[DEBUG] args parsed OK")
     override_samples = None
     if args.follow_override:
+        print("[DEBUG] follow_override =", args.follow_override)
         override_samples = []
         with open(args.follow_override, "r", encoding="utf-8") as f:
             for line in f:
@@ -5625,6 +5634,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         args.ball_telemetry = telemetry_path_for_video(Path(args.input))
     setattr(args, "follow_override_samples", override_samples)
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
+    print("[DEBUG] main() reached end")
 
 
 if __name__ == "__main__":
