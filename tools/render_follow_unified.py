@@ -3809,6 +3809,9 @@ class Renderer:
         disable_controller: bool = False,
         follow_trajectory: Optional[List[Mapping[str, float]]] = None,
     ) -> None:
+        # Ensure defaults for variables that may have been assigned inside removed try/except blocks
+        zoom_edge_frac = None
+
         self.input_path = input_path
         self.output_path = output_path
         self.temp_dir = temp_dir
@@ -3838,6 +3841,9 @@ class Renderer:
         self.follow_lookahead = int(follow_lookahead)
         self.follow_pre_smooth = float(np.clip(follow_pre_smooth, 0.0, 1.0))
         self.follow_zoom_out_max = max(1.0, float(follow_zoom_out_max))
+        zoom_edge_frac = follow_zoom_edge_frac
+        if zoom_edge_frac is None:
+            zoom_edge_frac = 0.15  # safe default; avoids crash
         if not math.isfinite(zoom_edge_frac) or zoom_edge_frac <= 0.0:
             zoom_edge_frac = 1.0
         self.follow_zoom_edge_frac = zoom_edge_frac
