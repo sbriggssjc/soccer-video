@@ -5627,3 +5627,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
 
 
+if __name__ == "__main__":
+    import traceback
+
+    try:
+        main()
+    except SystemExit:
+        # allow argparse / sys.exit() to behave normally
+        raise
+    except Exception as exc:
+        print("\n[FATAL] Unhandled exception in render_follow_unified.py:")
+        print(f"  {exc!r}")
+        traceback.print_exc()
+        # re-raise so the process has a non-zero exit code
+        raise
+
+
