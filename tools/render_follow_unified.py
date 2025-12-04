@@ -2669,33 +2669,47 @@ def load_presets() -> dict:
     return data
 
 
-def ffprobe_fps(path: Path) -> float:
-    """Return the floating-point FPS using ffprobe."""
+def ffprobe_fps(path):
+    """
+    Return the FPS of the input video using ffprobe.
+    Always returns a float. Errors bubble upward for visibility.
+    """
+    import subprocess
+    import json
 
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=r_frame_rate",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(path),
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=r_frame_rate",
+        "-of", "json", path
     ]
 
-    value = result.stdout.strip()
-    if not value:
-        raise RuntimeError("ffprobe did not return a frame rate value.")
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
-    if "/" in value:
-        num, den = value.split("/", 1)
-        den_value = float(den)
-        if den_value == 0:
-            return float(num)
-        return float(num) / den_value
-    return float(value)
+    # If ffprobe fails, raise an informative error
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {result.stderr}")
+
+    data = json.loads(result.stdout)
+
+    if "streams" not in data or not data["streams"]:
+        raise ValueError(f"No video stream found in {path}")
+
+    rate = data["streams"][0].get("r_frame_rate", "0/0")
+
+    # Convert "30000/1001" → float
+    num, den = rate.split("/")
+    num = float(num)
+    den = float(den)
+    if den == 0:
+        raise ValueError(f"Invalid r_frame_rate in ffprobe: {rate}")
+
+    return num / den
 
 
 def ffprobe_duration(path: Path) -> float:
