@@ -4578,6 +4578,18 @@ def run(
 ) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
+    ### PATCH: sanitize controller parameters
+    def _safe(val, default):
+        try:
+            if val is None:
+                return default
+            v = float(val)
+            if not math.isfinite(v):
+                return default
+            return v
+        except Exception:
+            return default
+
     original_source_path = Path(args.in_path).expanduser().resolve()
     if not original_source_path.exists():
         raise FileNotFoundError(f"Input file not found: {original_source_path}")
@@ -4707,10 +4719,22 @@ def run(
             return preset_config[preset_key_name]
         return None
 
-    def _controller_float(key: str, fallback: float) -> float:
-        value = _controller_value(key)
-        if value is None:
-            return fallback
+    def _controller_float(name, default):
+        """
+        Safe float reader for controller parameters.
+        Returns sanitized defaults when args or values are missing or invalid.
+        """
+        val = getattr(args, name, None)
+        if val is None:
+            return default
+
+        try:
+            x = float(val)
+            if not math.isfinite(x):
+                return default
+            return x
+        except Exception:
+            return default
 
     def _controller_optional_float(key: str, fallback: Optional[float]) -> Optional[float]:
         value = _controller_value(key)
@@ -4736,9 +4760,10 @@ def run(
     )
     follow_deadzone = max(
         0.0,
-        float(args.deadzone)
-        if args.deadzone is not None
-        else _controller_float("deadzone", FOLLOW_DEFAULTS["deadzone"]),
+        _safe(
+            _controller_float("deadzone", FOLLOW_DEFAULTS["deadzone"]),
+            FOLLOW_DEFAULTS["deadzone"],
+        ),
     )
     follow_max_vel = (
         float(args.max_vel)
