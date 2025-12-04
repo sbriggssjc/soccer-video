@@ -5026,28 +5026,32 @@ def run(
                 follow_trajectory=follow_trajectory,
             )
 
-        # Ensure renderer is always initialized even if follow_exact input is incomplete
+        # ----------------------------------------------------------------------
+        # GUARANTEED RENDERER INITIALIZATION FALLBACK
+        # ----------------------------------------------------------------------
+        # If the renderer failed to initialize (typically because follow-exact
+        # bypassed parts of default config), create a safe minimal renderer.
         if renderer is None:
-            # Create a minimal safe renderer with fallback values
+            print("[WARN] renderer was None — applying follow-exact fallback renderer")
             renderer = FollowRenderer(
                 input_path=input_path,
                 output_path=output_path,
                 width=portrait_w,
                 height=portrait_h,
-                fps=fps_in,
-                follow_trajectory=[],  # fallback: stationary camera
+                fps=fps_in if fps_in else 24.0,
+                follow_trajectory=follow_trajectory if follow_trajectory else [],
                 follow_wn=8.0,
                 follow_zeta=1.2,
                 follow_deadzone=3.0,
-                max_vel=2500,
-                max_acc=9000,
+                max_vel=3000,
+                max_acc=12000,
                 zoom_min=1.0,
-                zoom_max=1.0,
+                zoom_max=1.2,
                 zoom_edge_frac=0.15,
-                lost_hold_ms=200,
-                lost_pan_ms=400,
-                lost_motion_thresh=0.01,
-                keepinview_margin=40,
+                lost_hold_ms=150,
+                lost_pan_ms=300,
+                lost_motion_thresh=0.02,
+                keepinview_margin=30,
             )
 
     if override_samples:
