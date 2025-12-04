@@ -38,7 +38,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ball_telemetry import BallSample, load_ball_telemetry
+from tools.ball_telemetry import BallSample, load_ball_telemetry
 
 
 DEBUG_KEEPINVIEW = False
