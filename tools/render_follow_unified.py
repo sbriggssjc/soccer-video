@@ -4632,6 +4632,10 @@ def run(
     if fps_out <= 0:
         fps_out = fps_in if fps_in > 0 else 30.0
 
+    # --- Ensure duration_s always exists ---
+    duration_s = None
+    frame_count = None
+
     follow_config_raw = preset_config.get("follow")
     follow_config: Mapping[str, object] = {}
     if isinstance(follow_config_raw, Mapping):
@@ -4896,7 +4900,10 @@ def run(
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     capture.release()
 
-    if duration_s <= 0 and frame_count > 0 and fps_in > 0:
+    if duration_s is None:
+        duration_s = (frame_count / fps_in) if (frame_count and fps_in and fps_in > 0) else 0.0
+
+    if duration_s <= 0 and frame_count and frame_count > 0 and fps_in and fps_in > 0:
         duration_s = frame_count / float(fps_in)
     if duration_s <= 0 and frame_count > 0:
         fallback_fps = fps_in if fps_in > 0 else 30.0
