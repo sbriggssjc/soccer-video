@@ -4669,6 +4669,25 @@ def run(
     speed_limit = float(args.speed_limit) if args.speed_limit is not None else float(preset_config.get("speed_limit", 480))
     zoom_min = float(args.zoom_min) if args.zoom_min is not None else float(preset_config.get("zoom_min", 1.0))
     zoom_max = float(args.zoom_max) if args.zoom_max is not None else float(preset_config.get("zoom_max", 2.2))
+
+    ### PATCH START: Safe cy_frac initialization
+
+    # Initialize cy_frac safely
+    if hasattr(args, "cy_frac") and args.cy_frac is not None:
+        cy_frac = float(args.cy_frac)
+    else:
+        # Default: keep subject ~55% down the frame (good for portrait soccer tracking)
+        cy_frac = 0.55
+
+    # Validate
+    try:
+        if not math.isfinite(cy_frac) or cy_frac <= 0 or cy_frac >= 1:
+            cy_frac = 0.55
+    except Exception:
+        cy_frac = 0.55
+
+    ### PATCH END
+
     if not math.isfinite(cy_frac):
         cy_frac = 0.46
     cy_frac = float(np.clip(cy_frac, 0.0, 1.0))
