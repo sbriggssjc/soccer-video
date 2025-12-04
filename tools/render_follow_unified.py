@@ -4588,6 +4588,7 @@ def run(
     telemetry_path: Optional[Path] = None,
     telemetry_simple_path: Optional[Path] = None,
 ) -> None:
+    FollowRenderer = Renderer
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     ### PATCH: sanitize controller parameters
@@ -4916,6 +4917,15 @@ def run(
         total_frames = int(round((duration_s or 0.0) * fps_hint)) if fps_hint > 0 else 0
     total_frames = max(total_frames, 1)
 
+    renderer: Optional[Renderer] = renderer
+    ball_samples: List[BallSample] = []
+    keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
+    keepinview_path: list[tuple[float, float]] | None = None
+    follow_telemetry_path: str | None = None
+    use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
+    telemetry_path: Path | None = None
+    offline_ball_path: Optional[List[Optional[dict[str, float]]]] = None
+
     disable_controller = bool(getattr(args, "follow_exact", False))
     follow_trajectory: list[dict[str, float]] | None = None
     override_keyframes = override_samples or []
@@ -4936,15 +4946,73 @@ def run(
         disable_controller = True
         follow_trajectory = exact_traj
 
+        output_w = portrait[0] if portrait else width
+        output_h = portrait[1] if portrait else height
+        portrait_mode = portrait is not None
+
+        # --- Ensure renderer exists in follow-exact mode ---
+        if renderer is None:
+            temp_root = Path("out/autoframe_work")
+            temp_dir = temp_root / preset_key / original_source_path.stem
+            _prepare_temp_dir(temp_dir, args.clean_temp)
+
+            brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
+            endcard_path = Path(args.endcard).expanduser() if args.endcard else None
+
+            renderer = FollowRenderer(
+                input_path=input_path,
+                output_path=output_path,
+                temp_dir=temp_dir,
+                fps_in=fps_in,
+                fps_out=fps_out,
+                flip180=args.flip180,
+                portrait=portrait if portrait_mode else None,
+                brand_overlay=brand_overlay_path,
+                endcard=endcard_path,
+                pad=pad,
+                zoom_min=zoom_min,
+                zoom_max=zoom_max,
+                speed_limit=speed_limit,
+                telemetry=None,
+                telemetry_simple=None,
+                init_manual=getattr(args, "init_manual", False),
+                init_t=getattr(args, "init_t", 0.8),
+                ball_path=offline_ball_path,
+                follow_lead_time=lead_time_s,
+                follow_margin_px=margin_px,
+                follow_smoothing=smoothing,
+                follow_zeta=follow_zeta,
+                follow_wn=follow_wn,
+                follow_deadzone=follow_deadzone,
+                follow_max_vel=follow_max_vel,
+                follow_max_acc=follow_max_acc,
+                follow_lookahead=follow_lookahead_frames,
+                follow_pre_smooth=follow_pre_smooth,
+                follow_zoom_out_max=follow_zoom_out_max,
+                follow_zoom_edge_frac=follow_zoom_edge_frac,
+                follow_center_frac=cy_frac,
+                lost_hold_ms=lost_hold_ms,
+                lost_pan_ms=lost_pan_ms,
+                lost_lookahead_s=lost_lookahead_s,
+                lost_chase_motion_ms=lost_chase_motion_ms,
+                lost_motion_thresh=lost_motion_thresh,
+                lost_use_motion=lost_use_motion,
+                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+                plan_override_data=plan_override_data,
+                plan_override_len=plan_override_len,
+                ball_samples=ball_samples,
+                keep_path_lookup_data=keep_path_lookup_data,
+                debug_ball_overlay=False,
+                follow_override=None,
+                follow_exact=True,
+                disable_controller=disable_controller,
+                follow_trajectory=follow_trajectory,
+            )
+
     if override_samples:
         use_ball_telemetry = False
-
-    ball_samples: List[BallSample] = []
-    keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
-    keepinview_path: list[tuple[float, float]] | None = None
-    follow_telemetry_path: str | None = None
-    use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
-    telemetry_path: Path | None = None
 
     if getattr(args, "telemetry", None):
         telemetry_rows = load_any_telemetry(args.telemetry)
