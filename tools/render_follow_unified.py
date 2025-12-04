@@ -4588,6 +4588,7 @@ def run(
     telemetry_path: Optional[Path] = None,
     telemetry_simple_path: Optional[Path] = None,
 ) -> None:
+    renderer = None  # initialize renderer safely
     FollowRenderer = Renderer
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -4917,7 +4918,7 @@ def run(
         total_frames = int(round((duration_s or 0.0) * fps_hint)) if fps_hint > 0 else 0
     total_frames = max(total_frames, 1)
 
-    renderer: Optional[Renderer] = renderer
+    renderer: Optional[Renderer]
     ball_samples: List[BallSample] = []
     keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
     keepinview_path: list[tuple[float, float]] | None = None
