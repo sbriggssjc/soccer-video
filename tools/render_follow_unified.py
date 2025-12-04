@@ -3809,6 +3809,8 @@ class Renderer:
         disable_controller: bool = False,
         follow_trajectory: Optional[List[Mapping[str, float]]] = None,
     ) -> None:
+        # Fallback initialization for variables that used to be set in try/except blocks
+        motion_thresh_value = None
         # Ensure defaults for variables that may have been assigned inside removed try/except blocks
         zoom_edge_frac = None
         motion_thresh_value = None  # fallback for removed try/except
@@ -3859,6 +3861,9 @@ class Renderer:
         self.lost_lookahead_s = lost_lookahead_s
         if motion_thresh_value is None:
             motion_thresh_value = 0.02  # safe small threshold
+        # Ensure variable is initialized
+        if motion_thresh_value is None:
+            motion_thresh_value = 0.02  # safe fallback threshold
         if not math.isfinite(motion_thresh_value):
             motion_thresh_value = 1.6
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
