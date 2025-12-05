@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import sys
 
-# 🔥 RESTORE REQUIRED IMPORTS REMOVED DURING CLEANUP
+# --- REQUIRED IMPORTS RESTORED AFTER TRY/EXCEPT CLEANUP ---
 from pathlib import Path
 
 from dataclasses import dataclass
