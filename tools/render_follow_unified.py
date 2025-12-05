@@ -4214,6 +4214,11 @@ class Renderer:
         elif frame_count and len(cam) > frame_count:
             cam = cam[:frame_count]
 
+        if not hasattr(self, "base_crop_w") or not self.base_crop_w:
+            self.base_crop_w = float(width)
+        if not hasattr(self, "base_crop_h") or not self.base_crop_h:
+            self.base_crop_h = float(height)
+
         render_fps = float(self.fps_out)
         zoom_min = float(self.zoom_min)
         zoom_max = float(self.zoom_max)
@@ -4413,6 +4418,48 @@ class Renderer:
             decay_time=0.4,
             initial_target=(prev_cx, prev_cy),
         )
+
+        for frame_idx in range(frame_count):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+
+            if self.follow_exact:
+                ov = self.follow_override.get(frame_idx) if self.follow_override else None
+                if ov is None:
+                    continue
+                cx = ov["cx"]
+                cy = ov["cy"]
+                zoom = ov["zoom"]
+
+                crop_w = int(self.base_crop_w / zoom) if zoom else int(self.base_crop_w)
+                crop_h = int(self.base_crop_h / zoom) if zoom else int(self.base_crop_h)
+
+                exact_state = CamState(
+                    frame=frame_idx,
+                    cx=float(cx),
+                    cy=float(cy),
+                    zoom=float(zoom),
+                    crop_w=float(crop_w),
+                    crop_h=float(crop_h),
+                    x0=float(cx) - float(crop_w) / 2.0,
+                    y0=float(cy) - float(crop_h) / 2.0,
+                    used_label=False,
+                    clamp_flags=[],
+                )
+
+                composed, _ = self._compose_frame(frame, exact_state, output_size, overlay_image)
+                out_path = self.temp_dir / f"f_{frame_idx:06d}.jpg"
+                cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                continue
+
+            if frame_idx >= len(states):
+                break
+
+            state = states[frame_idx]
+            composed, _ = self._compose_frame(frame, state, output_size, overlay_image)
+            out_path = self.temp_dir / f"f_{frame_idx:06d}.jpg"
+            cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
         # --- PATCH: initialize tracking flags so they always exist ---
         have_ball = False
