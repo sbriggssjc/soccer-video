@@ -4603,7 +4603,8 @@ def run(
     telemetry_simple_path: Optional[Path] = None,
 ) -> None:
     renderer = None  # initialize renderer safely
-    FollowRenderer = Renderer
+    render_telemetry_path = telemetry_path
+    render_telemetry_simple_path = telemetry_simple_path
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     ### PATCH: sanitize controller parameters
@@ -4941,118 +4942,48 @@ def run(
     telemetry_path: Path | None = None
     offline_ball_path: Optional[List[Optional[dict[str, float]]]] = None
 
-    disable_controller = bool(getattr(args, "follow_exact", False))
-    follow_trajectory: list[dict[str, float]] | None = None
-    override_keyframes = override_samples or []
-
-    if getattr(args, "follow_exact", False) and override_keyframes:
-        exact_traj: list[dict[str, float]] = []
-        for kf in override_keyframes:
-            exact_traj.append(
-                {
-                    "frame": kf["frame"],
-                    "t": kf.get("t", None),
-                    "cx": float(kf["cx"]),
-                    "cy": float(kf["cy"]),
-                    "zoom": float(kf.get("zoom", 1.0)),
+    follow_exact_flag = bool(getattr(args, "follow_exact", False))
+    if follow_exact_flag:
+        print("[DEBUG] follow-exact mode active (controller disabled; using follow_override only)")
+    disable_controller = follow_exact_flag or bool(getattr(args, "disable_controller", False))
+    follow_override_map: Optional[Mapping[int, Mapping[str, float]]] = None
+    if args.follow_override:
+        follow_override_map = {}
+        with open(args.follow_override, "r", encoding="utf-8") as f:
+            for line in f:
+                row = json.loads(line)
+                frame = int(row["frame"])
+                follow_override_map[frame] = {
+                    "t": float(row.get("t", frame / fps_in)),
+                    "cx": float(row["cx"]),
+                    "cy": float(row["cy"]),
+                    "zoom": float(row.get("zoom", 1.0)),
                 }
-            )
+    elif override_samples:
+        follow_override_map = {}
+        for row in override_samples:
+            frame = int(row["frame"])
+            follow_override_map[frame] = {
+                "t": float(row.get("t", frame / fps_in)),
+                "cx": float(row["cx"]),
+                "cy": float(row["cy"]),
+                "zoom": float(row.get("zoom", 1.0)),
+            }
+    elif "follow_frames" in locals() and len(follow_frames) > 0:
+        follow_override_map = {
+            int(f["frame"]): {
+                "t": float(f.get("t", int(f["frame"]) / fps_in)),
+                "cx": float(f["cx"]),
+                "cy": float(f["cy"]),
+                "zoom": float(f.get("zoom", 1.0)),
+            }
+            for f in follow_frames
+            if f.get("frame") is not None
+        }
 
-        disable_controller = True
-        follow_trajectory = exact_traj
-
-        output_w = portrait[0] if portrait else width
-        output_h = portrait[1] if portrait else height
-        portrait_mode = portrait is not None
-
-        # --- Ensure renderer exists in follow-exact mode ---
-        if renderer is None:
-            temp_root = Path("out/autoframe_work")
-            temp_dir = temp_root / preset_key / original_source_path.stem
-            _prepare_temp_dir(temp_dir, args.clean_temp)
-
-            brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
-            endcard_path = Path(args.endcard).expanduser() if args.endcard else None
-
-            renderer = FollowRenderer(
-                input_path=input_path,
-                output_path=output_path,
-                temp_dir=temp_dir,
-                fps_in=fps_in,
-                fps_out=fps_out,
-                flip180=args.flip180,
-                portrait=portrait if portrait_mode else None,
-                brand_overlay=brand_overlay_path,
-                endcard=endcard_path,
-                pad=pad,
-                zoom_min=zoom_min,
-                zoom_max=zoom_max,
-                speed_limit=speed_limit,
-                telemetry=None,
-                telemetry_simple=None,
-                init_manual=getattr(args, "init_manual", False),
-                init_t=getattr(args, "init_t", 0.8),
-                ball_path=offline_ball_path,
-                follow_lead_time=lead_time_s,
-                follow_margin_px=margin_px,
-                follow_smoothing=smoothing,
-                follow_zeta=follow_zeta,
-                follow_wn=follow_wn,
-                follow_deadzone=follow_deadzone,
-                follow_max_vel=follow_max_vel,
-                follow_max_acc=follow_max_acc,
-                follow_lookahead=follow_lookahead_frames,
-                follow_pre_smooth=follow_pre_smooth,
-                follow_zoom_out_max=follow_zoom_out_max,
-                follow_zoom_edge_frac=follow_zoom_edge_frac,
-                follow_center_frac=cy_frac,
-                lost_hold_ms=lost_hold_ms,
-                lost_pan_ms=lost_pan_ms,
-                lost_lookahead_s=lost_lookahead_s,
-                lost_chase_motion_ms=lost_chase_motion_ms,
-                lost_motion_thresh=lost_motion_thresh,
-                lost_use_motion=lost_use_motion,
-                portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-                portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-                portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-                plan_override_data=plan_override_data,
-                plan_override_len=plan_override_len,
-                ball_samples=ball_samples,
-                keep_path_lookup_data=keep_path_lookup_data,
-                debug_ball_overlay=False,
-                follow_override=None,
-                follow_exact=True,
-                disable_controller=disable_controller,
-                follow_trajectory=follow_trajectory,
-            )
-
-        # ----------------------------------------------------------------------
-        # GUARANTEED RENDERER INITIALIZATION FALLBACK
-        # ----------------------------------------------------------------------
-        # If the renderer failed to initialize (typically because follow-exact
-        # bypassed parts of default config), create a safe minimal renderer.
-        if renderer is None:
-            print("[WARN] renderer was None — applying follow-exact fallback renderer")
-            renderer = FollowRenderer(
-                input_path=input_path,
-                output_path=output_path,
-                width=portrait_w,
-                height=portrait_h,
-                fps=fps_in if fps_in else 24.0,
-                follow_trajectory=follow_trajectory if follow_trajectory else [],
-                follow_wn=8.0,
-                follow_zeta=1.2,
-                follow_deadzone=3.0,
-                max_vel=3000,
-                max_acc=12000,
-                zoom_min=1.0,
-                zoom_max=1.2,
-                zoom_edge_frac=0.15,
-                lost_hold_ms=150,
-                lost_pan_ms=300,
-                lost_motion_thresh=0.02,
-                keepinview_margin=30,
-            )
+    if follow_override_map is not None:
+        keep_path_lookup_data = {}
+        use_ball_telemetry = False
 
     if override_samples:
         use_ball_telemetry = False
@@ -5298,191 +5229,66 @@ def run(
 
     debug_ball_overlay = bool(getattr(args, "debug_ball_overlay", False) and use_ball_telemetry)
 
-    # === FOLLOW OVERRIDE PATH (EXTERNAL) ===
-    follow_override = None
-    if override_samples:
-        cam_cx = {}
-        cam_cy = {}
-        cam_zoom = {}
+    telemetry_file: Optional[TextIO] = None
+    telemetry_simple_file: Optional[TextIO] = None
+    if render_telemetry_path:
+        telemetry_file = render_telemetry_path.open("w", encoding="utf-8")
+    if render_telemetry_simple_path:
+        telemetry_simple_file = render_telemetry_simple_path.open("w", encoding="utf-8")
 
-        for row in override_samples:
-            f = row["frame"]
-            cam_cx[f] = row["cx"]
-            cam_cy[f] = row["cy"]
-            cam_zoom[f] = row.get("zoom", 1.0)   # default: no zoom change
-
-        # convert into sorted arrays matching video length
-        final_cx = []
-        final_cy = []
-        final_zoom = []
-
-        for frame_idx in range(total_frames):
-            if frame_idx in cam_cx:
-                final_cx.append(cam_cx[frame_idx])
-                final_cy.append(cam_cy[frame_idx])
-                final_zoom.append(cam_zoom[frame_idx])
-            else:
-                # if a frame is missing: hold last or clamp safely
-                if final_cx:
-                    final_cx.append(final_cx[-1])
-                    final_cy.append(final_cy[-1])
-                    final_zoom.append(final_zoom[-1])
-                else:
-                    final_cx.append(width / 2)
-                    final_cy.append(height / 2)
-                    final_zoom.append(1.0)
-
-        cam_x = final_cx
-        cam_y = final_cy
-        cam_zoom = final_zoom
-
-        follow_override = {
-            idx: {"frame": idx, "cx": cam_x[idx], "cy": cam_y[idx], "zoom": cam_zoom[idx]}
-            for idx in range(len(cam_x))
-        }
-        keep_path_lookup_data = {}
-
-    elif 'follow_frames' in locals() and len(follow_frames) > 0:
-        # Convert follow_frames into a dictionary keyed by frame index
-        follow_override = { f["frame"]: f for f in follow_frames if f.get("frame") is not None }
-
-    jerk_threshold = float(getattr(args, "jerk_threshold", 0.0) or 0.0)
-    jerk_enabled = jerk_threshold > 0.0
-    jerk_wn_scale = float(getattr(args, "jerk_wn_scale", 0.9) or 0.9)
-    jerk_deadzone_step = float(getattr(args, "jerk_deadzone_step", 2.0) or 2.0)
-    jerk_max_attempts = max(1, int(getattr(args, "jerk_max_attempts", 3) or 3))
-
-    if disable_controller:
-        jerk_enabled = False
-
-    if use_ball_telemetry and telemetry_coverage_ratio >= 0.9:
-        logging.info("Using ball telemetry path for keep-in-view (no jerk fallback).")
-        jerk_enabled = False
-    if override_samples:
-        jerk_enabled = False
-
-    current_follow_wn = float(follow_wn)
-    current_deadzone = float(follow_deadzone)
     jerk95 = 0.0
-    renderer: Optional[Renderer] = None
-
-    if override_samples:
-        telemetry_handle: Optional[TextIO] = None
-        telemetry_simple_handle: Optional[TextIO] = None
-    else:
-        attempt = 0
-        while True:
-            attempt += 1
-            active_keep_path_lookup_data = keep_path_lookup_data if use_ball_telemetry else {}
-
-        probe_renderer = Renderer(
-            input_path=input_path,
-            output_path=output_path,
-            temp_dir=temp_dir,
-            fps_in=fps_in,
-            fps_out=fps_out,
-            flip180=args.flip180,
-            portrait=portrait,
-            brand_overlay=brand_overlay_path,
-            endcard=endcard_path,
-            pad=pad,
-            zoom_min=zoom_min,
-            zoom_max=zoom_max,
-            speed_limit=speed_limit,
-            telemetry=None,
-            telemetry_simple=None,
-            init_manual=getattr(args, "init_manual", False),
-            init_t=getattr(args, "init_t", 0.8),
-            ball_path=offline_ball_path,
-            follow_lead_time=lead_time_s,
-            follow_margin_px=margin_px,
-            follow_smoothing=smoothing,
-            follow_zeta=follow_zeta,
-            follow_wn=current_follow_wn,
-            follow_deadzone=current_deadzone,
-            follow_max_vel=follow_max_vel,
-            follow_max_acc=follow_max_acc,
-            follow_lookahead=follow_lookahead_frames,
-            follow_pre_smooth=follow_pre_smooth,
-            follow_zoom_out_max=follow_zoom_out_max,
-            follow_zoom_edge_frac=follow_zoom_edge_frac,
-            follow_center_frac=cy_frac,
-            lost_hold_ms=lost_hold_ms,
-            lost_pan_ms=lost_pan_ms,
-            lost_lookahead_s=lost_lookahead_s,
-            lost_chase_motion_ms=lost_chase_motion_ms,
-            lost_motion_thresh=lost_motion_thresh,
-            lost_use_motion=lost_use_motion,
-            portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
-            portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
-            portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
-            plan_override_data=plan_override_data,
-            plan_override_len=plan_override_len,
-            ball_samples=ball_samples,
-            keep_path_lookup_data=active_keep_path_lookup_data,
-            debug_ball_overlay=debug_ball_overlay,
-            follow_override=follow_override,
-            follow_exact=getattr(args, "follow_exact", False),
-            disable_controller=disable_controller,
-            follow_trajectory=follow_trajectory,
-        )
-        jerk95 = probe_renderer.write_frames(states, probe_only=True)
-        print(
-            f"[INFO] jerk95={jerk95:.1f} px/s^3 "
-            f"(attempt {attempt}/{jerk_max_attempts}, follow_wn={current_follow_wn:.2f}, deadzone={current_deadzone:.1f})"
-        )
-        logging.info(
-            "jerk95=%.1f px/s^3 (attempt %d/%d, follow_wn=%.2f, deadzone=%.1f)",
-            jerk95,
-            attempt,
-            jerk_max_attempts,
-            current_follow_wn,
-            current_deadzone,
-        )
-
-        if (not jerk_enabled) or jerk95 <= jerk_threshold or attempt >= jerk_max_attempts:
-            if jerk_enabled and jerk95 > jerk_threshold and attempt >= jerk_max_attempts:
-                logging.warning(
-                    "jerk95 %.1f exceeds threshold %.1f; reached max attempts, proceeding with last settings.",
-                jerk95,
-                jerk_threshold,
-            )
-            telemetry_handle: Optional[TextIO] = None
-            telemetry_simple_handle: Optional[TextIO] = None
-
-        logging.info(
-            "jerk95 %.1f exceeds threshold %.1f; retuning follow_wn/deadzone", jerk95, jerk_threshold
-        )
-        current_follow_wn = max(0.1, current_follow_wn * max(jerk_wn_scale, 0.1))
-        current_deadzone = max(0.0, current_deadzone + jerk_deadzone_step)
-
-    # ------------------------------------------------------------------
-    # FOLLOW-EXACT FALLBACK INITIALIZER
-    # Ensures renderer is always created even if upstream logic skipped
-    # defaults when --follow-exact is active.
-    # ------------------------------------------------------------------
-    if renderer is None:
-        print("[WARN] renderer was None — applying follow-exact fallback")
-        renderer = FollowRenderer(
-            input_path=input_path,
-            output_path=output_path,
-            width=portrait_w,
-            height=portrait_h,
-            fps=fps_in if fps_in else 24.0,
-            follow_trajectory=follow_trajectory if follow_trajectory else [],
-            follow_wn=8.0,
-            follow_zeta=1.2,
-            follow_deadzone=3.0,
-            max_vel=3000,
-            max_acc=12000,
-            zoom_min=1.0,
-            zoom_max=1.2,
-            zoom_edge_frac=0.15,
-            lost_hold_ms=150,
-            lost_pan_ms=300,
-            lost_motion_thresh=0.02,
-            keepinview_margin=30,
-        )
+    renderer = Renderer(
+        input_path=input_path,
+        output_path=output_path,
+        temp_dir=temp_dir,
+        fps_in=fps_in,
+        fps_out=fps_out,
+        flip180=args.flip180,
+        portrait=portrait,
+        brand_overlay=brand_overlay_path,
+        endcard=endcard_path,
+        pad=pad,
+        zoom_min=zoom_min,
+        zoom_max=zoom_max,
+        speed_limit=speed_limit,
+        telemetry=telemetry_file,
+        telemetry_simple=telemetry_simple_file,
+        init_manual=getattr(args, "init_manual", False),
+        init_t=getattr(args, "init_t", 0.8),
+        ball_path=offline_ball_path,
+        follow_lead_time=lead_time_s,
+        follow_margin_px=keepinview_margin,
+        follow_smoothing=smoothing,
+        follow_zeta=follow_zeta,
+        follow_wn=follow_wn,
+        follow_deadzone=follow_deadzone,
+        follow_max_vel=follow_max_vel,
+        follow_max_acc=follow_max_acc,
+        follow_lookahead=follow_lookahead_frames,
+        follow_pre_smooth=follow_pre_smooth,
+        follow_zoom_out_max=follow_zoom_out_max,
+        follow_zoom_edge_frac=follow_zoom_edge_frac,
+        follow_center_frac=cy_frac,
+        lost_hold_ms=lost_hold_ms,
+        lost_pan_ms=lost_pan_ms,
+        lost_lookahead_s=lost_lookahead_s,
+        lost_chase_motion_ms=lost_chase_motion_ms,
+        lost_motion_thresh=lost_motion_thresh,
+        lost_use_motion=lost_use_motion,
+        portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
+        portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
+        portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+        plan_override_data=plan_override_data,
+        plan_override_len=plan_override_len,
+        ball_samples=ball_samples,
+        keep_path_lookup_data=keep_path_lookup_data,
+        debug_ball_overlay=debug_ball_overlay,
+        follow_override=follow_override_map,
+        follow_exact=follow_exact_flag,
+        disable_controller=disable_controller,
+        follow_trajectory=None,
+    )
+    jerk95 = renderer.write_frames(states)
 
     assert renderer is not None
 
