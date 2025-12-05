@@ -119,6 +119,73 @@ def safe_float(val, default):
         return default
 
 
+def _interpolate_series(series: list[Optional[float]], default_value: float) -> list[float]:
+    if not series:
+        return []
+
+    filled = list(series)
+    valid_indices = [i for i, v in enumerate(filled) if v is not None and math.isfinite(v)]
+    if not valid_indices:
+        return [default_value for _ in filled]
+
+    first_idx, last_idx = valid_indices[0], valid_indices[-1]
+    for idx in range(0, first_idx):
+        filled[idx] = filled[first_idx]
+    for idx in range(last_idx + 1, len(filled)):
+        filled[idx] = filled[last_idx]
+
+    for start, end in zip(valid_indices, valid_indices[1:]):
+        start_val = float(filled[start])
+        end_val = float(filled[end])
+        gap = end - start
+        if gap > 1:
+            step = (end_val - start_val) / gap
+            for offset in range(1, gap):
+                filled[start + offset] = start_val + step * offset
+
+    return [default_value if v is None else float(v) for v in filled]
+
+
+def _normalize_follow_override_map(
+    override_map: Mapping[int, Mapping[str, float]], total_frames: int, fps_in: float
+) -> Mapping[int, Mapping[str, float]]:
+    if not override_map:
+        return override_map
+
+    target_len = max(total_frames, max(override_map.keys()) + 1)
+    cx_series: list[Optional[float]] = [None] * target_len
+    cy_series: list[Optional[float]] = [None] * target_len
+    zoom_series: list[Optional[float]] = [None] * target_len
+    t_series: list[Optional[float]] = [None] * target_len
+
+    for frame_idx, data in override_map.items():
+        if frame_idx < 0 or frame_idx >= target_len:
+            continue
+        cx_series[frame_idx] = safe_float(data.get("cx"), None)
+        cy_series[frame_idx] = safe_float(data.get("cy"), None)
+        zoom_series[frame_idx] = safe_float(data.get("zoom", 1.0), 1.0)
+        t_series[frame_idx] = safe_float(data.get("t"), None)
+
+    cx_interp = _interpolate_series(cx_series, 0.0)
+    cy_interp = _interpolate_series(cy_series, 0.0)
+    zoom_interp = _interpolate_series(zoom_series, 1.0)
+
+    for idx in range(target_len):
+        if t_series[idx] is None:
+            t_series[idx] = (idx / fps_in) if fps_in > 0 else 0.0
+
+    normalized: dict[int, Mapping[str, float]] = {}
+    for frame_idx in range(target_len):
+        normalized[frame_idx] = {
+            "t": float(t_series[frame_idx]) if t_series[frame_idx] is not None else 0.0,
+            "cx": float(cx_interp[frame_idx]),
+            "cy": float(cy_interp[frame_idx]),
+            "zoom": float(zoom_interp[frame_idx]),
+        }
+
+    return normalized
+
+
 def _load_ball_telemetry(path):
     from render_follow_unified import load_any_telemetry
 
@@ -4441,23 +4508,36 @@ class Renderer:
                 cy = ov["cy"]
                 zoom = ov["zoom"]
 
-                crop_w = int(self.base_crop_w / zoom) if zoom else int(self.base_crop_w)
-                crop_h = int(self.base_crop_h / zoom) if zoom else int(self.base_crop_h)
+                state: CamState
+                if frame_idx < len(states):
+                    state = states[frame_idx]
+                else:
+                    state = CamState(
+                        frame=frame_idx,
+                        cx=float(cx),
+                        cy=float(cy),
+                        zoom=float(zoom),
+                        crop_w=float(self.base_crop_w),
+                        crop_h=float(self.base_crop_h),
+                        x0=0.0,
+                        y0=0.0,
+                        used_label=False,
+                        clamp_flags=[],
+                    )
 
-                exact_state = CamState(
-                    frame=frame_idx,
-                    cx=float(cx),
-                    cy=float(cy),
-                    zoom=float(zoom),
-                    crop_w=float(crop_w),
-                    crop_h=float(crop_h),
-                    x0=float(cx) - float(crop_w) / 2.0,
-                    y0=float(cy) - float(crop_h) / 2.0,
-                    used_label=False,
-                    clamp_flags=[],
-                )
+                state.cx = float(cx)
+                state.cy = float(cy)
+                state.zoom = float(zoom)
 
-                composed, _ = self._compose_frame(frame, exact_state, output_size, overlay_image)
+                crop_w = int(self.base_crop_w / state.zoom) if state.zoom else int(self.base_crop_w)
+                crop_h = int(self.base_crop_h / state.zoom) if state.zoom else int(self.base_crop_h)
+                state.crop_w = float(crop_w)
+                state.crop_h = float(crop_h)
+                state.x0 = float(state.cx) - float(crop_w) / 2.0
+                state.y0 = float(state.cy) - float(crop_h) / 2.0
+                state.clamp_flags = getattr(state, "clamp_flags", []) or []
+
+                composed, _ = self._compose_frame(frame, state, output_size, overlay_image)
                 out_path = frames_dir / f"frame_{frame_idx:06d}.png"
                 cv2.imwrite(str(out_path), composed)
                 continue
@@ -5003,40 +5083,47 @@ def run(
     if follow_exact_flag:
         print("[DEBUG] follow-exact mode active (controller disabled; using follow_override only)")
     disable_controller = follow_exact_flag or bool(getattr(args, "disable_controller", False))
+    def _add_follow_override_row(target: dict[int, dict[str, float]], row: Mapping[str, object]):
+        frame_val = row.get("frame")
+        if frame_val is None:
+            return
+        try:
+            frame_idx = int(frame_val)
+        except Exception:
+            return
+
+        cx_val = safe_float(row.get("cx"), None)
+        cy_val = safe_float(row.get("cy"), None)
+        zoom_val = safe_float(row.get("zoom", 1.0), 1.0)
+        t_val = safe_float(row.get("t"), None)
+
+        target[frame_idx] = {
+            "t": t_val,
+            "cx": cx_val,
+            "cy": cy_val,
+            "zoom": zoom_val,
+        }
+
     follow_override_map: Optional[Mapping[int, Mapping[str, float]]] = None
     if args.follow_override:
         follow_override_map = {}
         with open(args.follow_override, "r", encoding="utf-8") as f:
             for line in f:
                 row = json.loads(line)
-                frame = int(row["frame"])
-                follow_override_map[frame] = {
-                    "t": float(row.get("t", frame / fps_in)),
-                    "cx": float(row["cx"]),
-                    "cy": float(row["cy"]),
-                    "zoom": float(row.get("zoom", 1.0)),
-                }
+                _add_follow_override_row(follow_override_map, row)
     elif override_samples:
         follow_override_map = {}
         for row in override_samples:
-            frame = int(row["frame"])
-            follow_override_map[frame] = {
-                "t": float(row.get("t", frame / fps_in)),
-                "cx": float(row["cx"]),
-                "cy": float(row["cy"]),
-                "zoom": float(row.get("zoom", 1.0)),
-            }
+            _add_follow_override_row(follow_override_map, row)
     elif "follow_frames" in locals() and len(follow_frames) > 0:
-        follow_override_map = {
-            int(f["frame"]): {
-                "t": float(f.get("t", int(f["frame"]) / fps_in)),
-                "cx": float(f["cx"]),
-                "cy": float(f["cy"]),
-                "zoom": float(f.get("zoom", 1.0)),
-            }
-            for f in follow_frames
-            if f.get("frame") is not None
-        }
+        follow_override_map = {}
+        for f in follow_frames:
+            if f.get("frame") is None:
+                continue
+            _add_follow_override_row(follow_override_map, f)
+
+    if follow_override_map is not None:
+        follow_override_map = _normalize_follow_override_map(follow_override_map, total_frames, fps_in)
 
     if follow_override_map is not None:
         keep_path_lookup_data = {}
@@ -5699,11 +5786,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
     )
     parser.add_argument(
+        "--follow-hybrid-elite",
+        action="store_true",
+        help="Enable Hybrid Elite smoothed + predictive follow mode",
+    )
+    parser.add_argument(
         "--follow-exact",
         action="store_true",
         help="Use override follow telemetry exactly, bypassing controller and smoothing.",
     )
     return parser
+
+
+def _load_override_samples(path: Optional[str]) -> Optional[list[dict]]:
+    if not path:
+        return None
+
+    samples: list[dict] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            row = json.loads(line)
+            if "frame" in row and "cx" in row and "cy" in row:
+                samples.append(row)
+    return samples
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
@@ -5712,16 +5817,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     args = parser.parse_args(argv)
     print("[DEBUG] args parsed OK")
-    override_samples = None
+    override_samples = _load_override_samples(args.follow_override)
     if args.follow_override:
         print("[DEBUG] follow_override =", args.follow_override)
-        override_samples = []
-        with open(args.follow_override, "r", encoding="utf-8") as f:
-            for line in f:
-                row = json.loads(line)
-                # Must contain: frame, cx, cy, zoom
-                if "frame" in row and "cx" in row and "cy" in row:
-                    override_samples.append(row)
     follow_lookahead_cli = any(
         arg == "--lookahead" or arg.startswith("--lookahead=") for arg in raw_argv
     )
@@ -5745,6 +5843,33 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
         args.ball_telemetry = telemetry_path_for_video(Path(args.input))
+
+    from tools.hybrid_elite_follow import hybrid_elite_process
+
+    if args.follow_hybrid_elite:
+        assert args.follow_override, "--follow-hybrid-elite requires --follow-override"
+
+        smoothed_path = str(
+            Path(args.follow_override).with_name(
+                Path(args.follow_override).stem + "_HYBRID_ELITE.flat.jsonl"
+            )
+        )
+
+        hybrid_elite_process(
+            in_path=args.follow_override,
+            out_path=smoothed_path,
+            smooth_window=11,
+            smooth_poly=3,
+            zoom_smooth=0.85,
+            predict_lookahead=0.08,
+            fps=24,
+        )
+
+        args.follow_override = smoothed_path
+        args.follow_exact = True
+        args.disable_controller = True
+        override_samples = _load_override_samples(args.follow_override)
+
     setattr(args, "follow_override_samples", override_samples)
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
     print("[DEBUG] main() reached end")
