@@ -21,9 +21,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+# 🔥 RESTORE REQUIRED IMPORTS REMOVED DURING CLEANUP
+from pathlib import Path
+
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import List, Mapping, Optional, Sequence, TextIO, Tuple, Union
 
 from math import hypot
