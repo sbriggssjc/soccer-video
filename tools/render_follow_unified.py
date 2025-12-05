@@ -4067,6 +4067,10 @@ class Renderer:
     def write_frames(self, states: Sequence[CamState], *, probe_only: bool = False) -> float:
         # Ensure idx is always defined, even in follow-exact mode
         idx = -1
+        frames_dir = self.temp_dir / "frames"
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir)
+        frames_dir.mkdir(parents=True, exist_ok=True)
         input_mp4 = str(self.input_path)
         cap = cv2.VideoCapture(input_mp4)
         if not cap.isOpened():
@@ -4451,8 +4455,8 @@ class Renderer:
                 )
 
                 composed, _ = self._compose_frame(frame, exact_state, output_size, overlay_image)
-                out_path = self.temp_dir / f"f_{frame_idx:06d}.jpg"
-                cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                out_path = frames_dir / f"frame_{frame_idx:06d}.png"
+                cv2.imwrite(str(out_path), composed)
                 continue
 
             if frame_idx >= len(states):
@@ -4460,8 +4464,8 @@ class Renderer:
 
             state = states[frame_idx]
             composed, _ = self._compose_frame(frame, state, output_size, overlay_image)
-            out_path = self.temp_dir / f"f_{frame_idx:06d}.jpg"
-            cv2.imwrite(str(out_path), composed, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+            out_path = frames_dir / f"frame_{frame_idx:06d}.png"
+            cv2.imwrite(str(out_path), composed)
 
         # --- PATCH: initialize tracking flags so they always exist ---
         have_ball = False
@@ -4490,8 +4494,8 @@ class Renderer:
         if endcard_frames:
             start_index = len(states)
             for offset, endcard_frame in enumerate(endcard_frames):
-                out_path = self.temp_dir / f"f_{start_index + offset:06d}.jpg"
-                cv2.imwrite(str(out_path), endcard_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                out_path = frames_dir / f"frame_{start_index + offset:06d}.png"
+                cv2.imwrite(str(out_path), endcard_frame)
 
         return float(jerk95)
 
@@ -4502,7 +4506,8 @@ def ffmpeg_stitch(
         log_path: Optional[Path] = None,
     ) -> None:
         print("[DEBUG] building ffmpeg command")
-        pattern = str(self.temp_dir / "f_%06d.jpg")
+        frames_dir = self.temp_dir / "frames"
+        pattern = str(frames_dir / "frame_%06d.png")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
         command = [
@@ -5343,7 +5348,37 @@ def run(
 
     keyint = max(1, int(round(float(keyint_factor) * float(fps_out))))
     log_path = Path(args.log).expanduser() if args.log else None
-    renderer.ffmpeg_stitch(crf=crf, keyint=keyint, log_path=log_path)
+
+    # ------------------------------------------------------------
+    # NEW FINAL STITCHING STEP
+    # Assemble rendered PNG frames into the final output MP4.
+    # ------------------------------------------------------------
+    import subprocess
+    from pathlib import Path
+
+    frames_dir = Path(renderer.temp_dir) / "frames"
+
+    # Frame pattern used by Renderer.write_frames()
+    frame_pattern = str(frames_dir / "frame_%06d.png")
+
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-y",
+        "-framerate", str(fps_out),
+        "-i", frame_pattern,
+        "-c:v", "libx264",
+        "-crf", str(crf),
+        "-pix_fmt", "yuv420p",
+        "-g", str(keyint),
+        os.fspath(output_path),
+    ]
+
+    renderer.last_ffmpeg_command = list(ffmpeg_cmd)
+
+    print(f"[FFMPEG] Stitching frames from {frames_dir} -> {output_path}")
+    subprocess.run(ffmpeg_cmd, check=True)
+
+    print("[DONE] Video stitched successfully.")
 
     log_dict["jerk95"] = float(jerk95)
 
