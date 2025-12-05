@@ -5357,7 +5357,6 @@ def run(
     # Assemble rendered PNG frames into the final output MP4.
     # ------------------------------------------------------------
     import subprocess
-    from pathlib import Path
 
     frames_dir = Path(renderer.temp_dir) / "frames"
 
