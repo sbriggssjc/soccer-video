@@ -4065,6 +4065,8 @@ class Renderer:
         return [resized for _ in range(frame_count)]
 
     def write_frames(self, states: Sequence[CamState], *, probe_only: bool = False) -> float:
+        # Ensure idx is always defined, even in follow-exact mode
+        idx = -1
         input_mp4 = str(self.input_path)
         cap = cv2.VideoCapture(input_mp4)
         if not cap.isOpened():
