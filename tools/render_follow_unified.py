@@ -3878,6 +3878,7 @@ class Renderer:
         disable_controller: bool = False,
         follow_trajectory: Optional[List[Mapping[str, float]]] = None,
         follow_smart: bool = False,
+        debug_pan_overlay: bool = False,
     ) -> None:
         # Fallback initialization for variables that used to be set in try/except blocks
         motion_thresh_value = None
@@ -3942,6 +3943,9 @@ class Renderer:
         self.follow_smart = bool(follow_smart)
         self.disable_controller = bool(disable_controller)
         self.follow_trajectory = list(follow_trajectory) if follow_trajectory else None
+        self.debug_pan_overlay = bool(debug_pan_overlay)
+        self.original_src_w: Optional[float] = None
+        self.original_src_h: Optional[float] = None
 
         def _coerce_float(value: Optional[float]) -> Optional[float]:
             if value is None:
@@ -4199,6 +4203,16 @@ class Renderer:
         overlay_image: Optional[np.ndarray],
     ) -> Tuple[np.ndarray, Tuple[float, float, float, float]]:
         height, width = frame.shape[:2]
+        src_w = float(self.original_src_w or width)
+        center_x = float(state.cx)
+        center_y = float(state.cy)
+        assert 0.0 <= center_x <= src_w
+
+        scale_x = float(width) / float(src_w) if src_w else 1.0
+        if not math.isclose(src_w, float(width), rel_tol=1e-6, abs_tol=1e-3):
+            scaled_center_x = center_x * scale_x
+        else:
+            scaled_center_x = center_x
         target_ar = 0.0
         if output_size[0] > 0 and output_size[1] > 0:
             target_ar = float(output_size[0]) / float(output_size[1])
@@ -4214,10 +4228,12 @@ class Renderer:
             elif desired_h <= height and not math.isclose(desired_h, crop_h, rel_tol=1e-4, abs_tol=1e-3):
                 crop_h = float(desired_h)
 
+        desired_x0 = scaled_center_x - crop_w / 2.0
+        desired_y0 = center_y - crop_h / 2.0
         max_x0 = max(0.0, float(width) - crop_w)
         max_y0 = max(0.0, float(height) - crop_h)
-        clamped_x0 = float(np.clip(state.x0, 0.0, max_x0))
-        clamped_y0 = float(np.clip(state.y0, 0.0, max_y0))
+        clamped_x0 = float(np.clip(desired_x0, 0.0, max_x0))
+        clamped_y0 = float(np.clip(desired_y0, 0.0, max_y0))
 
         x2_f = clamped_x0 + crop_w
         y2_f = clamped_y0 + crop_h
@@ -4228,14 +4244,39 @@ class Renderer:
             clamped_y0 = max(0.0, float(height) - crop_h)
             y2_f = clamped_y0 + crop_h
 
-        x1 = int(round(clamped_x0))
+        crop_left = int(round(clamped_x0))
         y1 = int(round(clamped_y0))
         x2 = int(round(min(x2_f, float(width))))
         y2 = int(round(min(y2_f, float(height))))
-        x1 = max(0, min(x1, width - 1))
+        x1 = max(0, min(crop_left, width - 1))
         y1 = max(0, min(y1, height - 1))
         x2 = max(x1 + 1, min(x2, width))
         y2 = max(y1 + 1, min(y2, height))
+
+        crop_right = x2
+        logger.debug("[PAN-DEBUG] crop_left=%d crop_right=%d", crop_left, crop_right)
+
+        if self.debug_pan_overlay:
+            overlay_frame = frame.copy()
+            if state.ball is not None:
+                bx, by = state.ball
+                cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 6, (0, 0, 255), -1)
+            cv2.line(
+                overlay_frame,
+                (int(round(scaled_center_x)), 0),
+                (int(round(scaled_center_x)), height),
+                (255, 0, 0),
+                2,
+            )
+            actual_center_x = clamped_x0 + crop_w / 2.0
+            cv2.line(
+                overlay_frame,
+                (int(round(actual_center_x)), 0),
+                (int(round(actual_center_x)), height),
+                (0, 255, 0),
+                2,
+            )
+            frame = overlay_frame
 
         cropped = frame[y1:y2, x1:x2]
         if cropped.size == 0:
@@ -4290,6 +4331,8 @@ class Renderer:
 
         width = int(src_w)
         height = int(src_h)
+        self.original_src_w = float(src_w)
+        self.original_src_h = float(src_h)
         if self.portrait:
             output_size = self.portrait
         else:
@@ -4320,6 +4363,18 @@ class Renderer:
             portrait_crop_h = float(src_h)
             portrait_crop_w = float(int(round(src_h * 9.0 / 16.0)))
             portrait_crop_w = max(1.0, min(portrait_crop_w, float(src_w)))
+
+        scaling_factor = float(portrait_crop_w or width) / float(src_w) if src_w else 1.0
+        offset_x = 0.0
+        logger.info(
+            "[PAN-DEBUG] src=(%d,%d) portrait_target=(%s,%s) scale_x=%.4f offset_x=%.2f",
+            src_w,
+            src_h,
+            portrait_crop_w if portrait_crop_w is not None else "-",
+            portrait_crop_h if portrait_crop_h is not None else "-",
+            scaling_factor,
+            offset_x,
+        )
 
         offline_ball_path = self.offline_ball_path
 
@@ -4620,6 +4675,7 @@ class Renderer:
             follow_targets = None
             follow_valid_mask = None
         follow_targets_len = len(follow_targets[0]) if follow_targets else 0
+        follow_lookahead_frames = max(0, int(self.follow_lookahead))
 
         smart_centers: Optional[List[Tuple[float, float]]] = None
         if self.follow_smart:
@@ -4643,52 +4699,6 @@ class Renderer:
                     crop_h = float(state.crop_h)
                     state.x0 = float(state.cx) - crop_w / 2.0
                     state.y0 = float(state.cy) - crop_h / 2.0
-        plan_pts: List[Tuple[float, float, float]] = []
-        fps_plan = render_fps if render_fps and render_fps > 0 else (src_fps if src_fps and src_fps > 0 else 30.0)
-        if fps_plan <= 0:
-            fps_plan = 30.0
-        if follow_targets_len > 0 and follow_targets:
-            for idx in range(follow_targets_len):
-                plan_pts.append((idx / fps_plan if fps_plan > 0 else 0.0, bx_plan, by_plan))
-        elif states:
-            for state in states:
-                bx_plan: float
-                by_plan: float
-                if state.ball is not None:
-                    bx_plan = float(state.ball[0])
-                    by_plan = float(state.ball[1])
-                else:
-                    bx_plan = float(state.cx)
-                    by_plan = float(state.cy)
-                frame_time = state.frame / fps_plan if fps_plan > 0 else 0.0
-                plan_pts.append((frame_time, bx_plan, by_plan))
-        follow_lookahead_frames = max(0, int(self.follow_lookahead))
-        follower: Optional[CamFollow2O]
-        if self.disable_controller:
-            follower = None
-        elif render_fps > 0:
-            follower = CamFollow2O(
-                zeta=self.follow_zeta,
-                wn=self.follow_wn,
-                dt=1.0 / render_fps,
-                max_vel=self.follow_max_vel,
-                max_acc=self.follow_max_acc,
-                deadzone=self.follow_deadzone,
-            )
-            follower.cx = float(prev_cx)
-            follower.cy = float(prev_cy)
-            follower.vx = 0.0
-            follower.vy = 0.0
-        else:
-            follower = None
-
-        follow_hold = FollowHoldController(
-            dt=1.0 / render_fps if render_fps > 1e-6 else 1.0 / 30.0,
-            release_frames=3,
-            decay_time=0.4,
-            initial_target=(prev_cx, prev_cy),
-        )
-
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -4698,6 +4708,10 @@ class Renderer:
                 break
 
             state = states[frame_idx]
+            desired_center_x = float(state.cx)
+            pan_vel_clamp = None
+            pan_accel_clamp = None
+            state.cx = desired_center_x
             composed, _ = self._compose_frame(frame, state, output_size, overlay_image)
             out_path = frames_dir / f"frame_{frame_idx:06d}.png"
             cv2.imwrite(str(out_path), composed)
@@ -5580,6 +5594,7 @@ def run(
         disable_controller=disable_controller,
         follow_trajectory=None,
         follow_smart=bool(getattr(args, "follow_smart", False)),
+        debug_pan_overlay=bool(getattr(args, "debug_pan_overlay", False)),
     )
     jerk95 = renderer.write_frames(states)
 
@@ -5879,6 +5894,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug-ball-overlay",
         action="store_true",
         help="Draw detected ball markers before cropping (requires --use-ball-telemetry)",
+    )
+    parser.add_argument(
+        "--debug-pan-overlay",
+        action="store_true",
+        help="Draw pan/crop diagnostics before cropping",
     )
     parser.add_argument("--render-telemetry", dest="render_telemetry", help="Output JSONL telemetry file")
     parser.add_argument(
