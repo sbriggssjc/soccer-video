@@ -310,6 +310,135 @@ def _normalize_follow_override_map(
     return normalized
 
 
+def _interp_at_time(samples, t):
+    """
+    Linear interpolate x at time t from a list of (t, x) pairs.
+    If t is outside the range, clamp to the nearest endpoint.
+    samples must be non-empty and sorted by t.
+    """
+    if not samples:
+        return None
+    if t <= samples[0][0]:
+        return samples[0][1]
+    if t >= samples[-1][0]:
+        return samples[-1][1]
+    for i in range(1, len(samples)):
+        t0, x0 = samples[i - 1]
+        t1, x1 = samples[i]
+        if t0 <= t <= t1:
+            if t1 == t0:
+                return x0
+            alpha = (t - t0) / (t1 - t0)
+            return x0 + alpha * (x1 - x0)
+    return samples[-1][1]
+
+
+def build_segment_predict_center_path(
+    ball_samples,
+    fps,
+    src_w,
+    portrait_w,
+    duration_s,
+    window_s=0.6,
+    lead_s=0.3,
+    tol_frac=0.35,
+    smooth_alpha=0.88,
+):
+    """
+    Return a list center_x_per_frame of length N_frames, where each entry is
+    the desired center X (in source pixel coords) for that frame, using a
+    segment-level prediction of the ball path.
+
+    - ball_samples: list of dicts or tuples with fields/time keys:
+        * 't' or index 0 => time in seconds
+        * 'x' or index 1 => x in source pixel coords
+    - fps: frames per second
+    - src_w: width of the source video
+    - portrait_w: width of the portrait crop
+    - duration_s: total duration of the clip in seconds
+    """
+    if fps <= 0 or src_w <= 0 or portrait_w <= 0 or duration_s <= 0:
+        return []
+
+    samples_tx = []
+    for s in ball_samples or []:
+        t_val = None
+        x_val = None
+        if isinstance(s, dict):
+            t_val = s.get("t") or s.get("time") or s.get("ts")
+            x_val = s.get("x") or s.get("cx") or s.get("ball_x")
+        else:
+            if hasattr(s, "t") or hasattr(s, "x"):
+                t_val = getattr(s, "t", None)
+                x_val = getattr(s, "x", None)
+            elif hasattr(s, "time") or hasattr(s, "cx"):
+                t_val = getattr(s, "time", None)
+                x_val = getattr(s, "cx", None)
+            else:
+                seq = tuple(s) if hasattr(s, "__len__") else None
+                if seq is not None and len(seq) >= 2:
+                    t_val, x_val = seq[0], seq[1]
+        if t_val is None or x_val is None:
+            continue
+        try:
+            samples_tx.append((float(t_val), float(x_val)))
+        except Exception:
+            continue
+
+    samples_tx.sort(key=lambda p: p[0])
+    if not samples_tx:
+        return []
+
+    n_frames = int(round(duration_s * fps))
+    center_x = [0.0] * n_frames
+
+    tol_px = (portrait_w * tol_frac) * (src_w / float(portrait_w))
+
+    half_p = portrait_w * 0.5
+
+    def clamp_center(xc):
+        return max(half_p, min(src_w - half_p, xc))
+
+    first_x = _interp_at_time(samples_tx, 0.0)
+    if first_x is None:
+        first_x = src_w / 2.0
+    prev_center = clamp_center(first_x)
+
+    for i in range(n_frames):
+        t_frame = i / float(fps)
+        t_lo = t_frame - window_s
+        t_hi = t_frame + window_s
+        window_points = [p for p in samples_tx if t_lo <= p[0] <= t_hi]
+
+        if not window_points:
+            center_x[i] = prev_center
+            continue
+
+        avg_x = sum(p[1] for p in window_points) / float(len(window_points))
+
+        t_lead = t_frame + lead_s
+        lead_x = _interp_at_time(samples_tx, t_lead)
+        if lead_x is None:
+            lead_x = avg_x
+
+        desired_raw = 0.3 * avg_x + 0.7 * lead_x
+
+        band_half = tol_px * 0.5
+        delta = desired_raw - prev_center
+        if abs(delta) <= band_half:
+            desired_center = prev_center
+        else:
+            step = delta * 0.35
+            desired_center = prev_center + step
+
+        smoothed_center = smooth_alpha * prev_center + (1.0 - smooth_alpha) * desired_center
+        smoothed_center = clamp_center(smoothed_center)
+        center_x[i] = smoothed_center
+        prev_center = smoothed_center
+
+    return center_x
+
+
 def _load_ball_telemetry(path):
     from render_follow_unified import load_any_telemetry
 
@@ -4001,7 +4130,6 @@ class Renderer:
         follow_override: Optional[Mapping[int, Mapping[str, float]]] = None,
         disable_controller: bool = False,
         follow_trajectory: Optional[List[Mapping[str, float]]] = None,
-        follow_smart: bool = False,
         debug_pan_overlay: bool = False,
     ) -> None:
         # Fallback initialization for variables that used to be set in try/except blocks
@@ -4064,7 +4192,6 @@ class Renderer:
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
         self.lost_use_motion = bool(lost_use_motion)
         self.keepinview_min_band_frac = 0.12
-        self.follow_smart = bool(follow_smart)
         self.disable_controller = bool(disable_controller)
         self.follow_trajectory = list(follow_trajectory) if follow_trajectory else None
         self.debug_pan_overlay = bool(debug_pan_overlay)
@@ -4317,7 +4444,6 @@ class Renderer:
         probe_only: bool = False,
         follow_centers: Optional[Sequence[float]] = None,
     ) -> float:
-        # Ensure idx is always defined, even in follow-exact mode
         idx = -1
         frames_dir = self.temp_dir / "frames"
         if frames_dir.exists():
@@ -5593,7 +5719,6 @@ def run(
         follow_override=follow_override_map,
         disable_controller=disable_controller,
         follow_trajectory=None,
-        follow_smart=bool(getattr(args, "follow_smart", False)),
         debug_pan_overlay=bool(getattr(args, "debug_pan_overlay", False)),
     )
     renderer.src_width = float(width)
@@ -5602,11 +5727,22 @@ def run(
     renderer.original_src_w = float(width)
     renderer.original_src_h = float(height)
 
-    follow_centers: Optional[np.ndarray] = None
-    if follow_override_map is not None:
-        follow_centers = None
-    elif bool(getattr(args, "follow_smart", False)) and ball_samples:
-        follow_centers = renderer._simulate_follow_centers(states, ball_samples)
+    follow_centers: Optional[Sequence[float]] = None
+    if follow_override_map is None and bool(getattr(args, "follow_segment_predict", False)):
+        fps_for_path = float(fps_out if fps_out and fps_out > 0 else fps_in or 0.0)
+        portrait_crop_width = float(follow_crop_width or width)
+        center_path = build_segment_predict_center_path(
+            ball_samples=ball_samples,
+            fps=fps_for_path,
+            src_w=float(width),
+            portrait_w=float(portrait_crop_width),
+            duration_s=float(duration_s or 0.0),
+        )
+        if center_path:
+            logger.info(
+                "[INFO] Using segment-predict follow (window=0.6s, lead=0.3s, tol_frac=0.35)"
+            )
+            follow_centers = center_path
 
     jerk95 = renderer.write_frames(states, follow_centers=follow_centers)
 
@@ -5967,9 +6103,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
     )
     parser.add_argument(
-        "--follow-smart",
+        "--follow-segment-predict",
         action="store_true",
-        help="Use predictive windowed follow based on ball path (primary mode).",
+        help="Use segment-level ball trajectory prediction for smooth portrait follow (recommended).",
     )
     return parser
 
