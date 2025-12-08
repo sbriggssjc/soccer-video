@@ -3875,9 +3875,9 @@ class Renderer:
         keep_path_lookup_data: Optional[dict[int, Tuple[float, float]]] = None,
         debug_ball_overlay: bool = False,
         follow_override: Optional[Mapping[int, Mapping[str, float]]] = None,
-        follow_exact: bool = False,
         disable_controller: bool = False,
         follow_trajectory: Optional[List[Mapping[str, float]]] = None,
+        follow_smart: bool = False,
     ) -> None:
         # Fallback initialization for variables that used to be set in try/except blocks
         motion_thresh_value = None
@@ -3939,7 +3939,7 @@ class Renderer:
         self.lost_motion_thresh = max(0.0, motion_thresh_value)
         self.lost_use_motion = bool(lost_use_motion)
         self.keepinview_min_band_frac = 0.12
-        self.follow_exact = bool(follow_exact)
+        self.follow_smart = bool(follow_smart)
         self.disable_controller = bool(disable_controller)
         self.follow_trajectory = list(follow_trajectory) if follow_trajectory else None
 
@@ -4052,6 +4052,137 @@ class Renderer:
             if not holding:
                 hold.reset_target(cx, cy)
             centers.append((cx, cy))
+        return centers
+
+    def _plan_follow_smart_path(
+        self,
+        states: Sequence[CamState],
+        follow_targets: Optional[Tuple[List[float], List[float]]],
+        follow_valid_mask: Optional[Sequence[bool]],
+        render_fps: float,
+        width: int,
+        height: int,
+    ) -> List[Tuple[float, float]]:
+        frame_count = len(states)
+        if not frame_count or render_fps <= 0:
+            return []
+
+        def _interp_nan(arr: np.ndarray, fill_val: float) -> np.ndarray:
+            out = arr.copy()
+            mask = np.isfinite(out)
+            if not mask.any():
+                out[:] = fill_val
+                return out
+            idx = np.arange(len(out))
+            valid_idx = idx[mask]
+            valid_vals = out[mask]
+            filled = np.interp(idx, valid_idx, valid_vals)
+            out[~mask] = filled[~mask]
+            return out
+
+        bx = np.full(frame_count, float("nan"), dtype=float)
+        by = np.full(frame_count, float("nan"), dtype=float)
+        if follow_targets:
+            bx_src, by_src = follow_targets
+            bx[: min(frame_count, len(bx_src))] = bx_src[:frame_count]
+            by[: min(frame_count, len(by_src))] = by_src[:frame_count]
+        else:
+            for idx, state in enumerate(states):
+                if state.ball is not None:
+                    bx[idx], by[idx] = state.ball
+
+        valid_mask_arr = np.isfinite(bx) & np.isfinite(by)
+        if follow_valid_mask is not None:
+            for idx in range(min(len(follow_valid_mask), frame_count)):
+                valid_mask_arr[idx] = bool(follow_valid_mask[idx]) and valid_mask_arr[idx]
+
+        center_default_x = width / 2.0
+        center_default_y = height * self.follow_center_frac
+        bx = _interp_nan(bx, center_default_x)
+        by = _interp_nan(by, center_default_y)
+
+        dt = 1.0 / render_fps
+        lookahead_time = 0.18
+        window_len = int(round(render_fps * 0.25))
+        if window_len % 2 == 0:
+            window_len += 1
+        window_len = max(5, window_len)
+
+        def _smooth_series(values: np.ndarray) -> np.ndarray:
+            try:
+                from scipy.signal import savgol_filter
+
+                return savgol_filter(values, window_length=window_len, polyorder=3, mode="interp")
+            except Exception:
+                kernel = np.ones(window_len, dtype=float)
+                kernel /= kernel.sum()
+                return np.convolve(values, kernel, mode="same")
+
+        vx = np.gradient(bx) / max(dt, 1e-6)
+        vy = np.gradient(by) / max(dt, 1e-6)
+        pred_x = bx + vx * lookahead_time
+        pred_y = by + vy * lookahead_time
+        pred_x = _smooth_series(pred_x)
+        pred_y = _smooth_series(pred_y)
+
+        tolerance_window_px = 140.0
+        max_pan_rate_px_per_s = 850.0
+        max_pan_accel_px_per_s2 = 2200.0
+
+        centers: List[Tuple[float, float]] = []
+        cx = states[0].cx if states else center_default_x
+        cy = states[0].cy if states else center_default_y
+        vx_cam = 0.0
+        vy_cam = 0.0
+        missing_count = 0
+        last_known_vx = 0.0
+        last_known_vy = 0.0
+
+        for idx in range(frame_count):
+            valid_now = bool(valid_mask_arr[idx])
+            target_x = float(pred_x[idx])
+            target_y = float(pred_y[idx])
+            if valid_now:
+                last_known_vx = float(vx[idx])
+                last_known_vy = float(vy[idx])
+                missing_count = 0
+            else:
+                missing_count += 1
+                if missing_count > 3:
+                    decay = 0.9 ** (missing_count - 3)
+                    target_x = cx + last_known_vx * lookahead_time * decay
+                    target_y = cy + last_known_vy * lookahead_time * decay
+
+            dx = target_x - cx
+            dy = target_y - cy
+            if abs(dx) <= tolerance_window_px and abs(dy) <= tolerance_window_px and valid_now:
+                target_x = cx
+                target_y = cy
+
+            desired_vx = np.clip((target_x - cx) / max(dt, 1e-6), -max_pan_rate_px_per_s, max_pan_rate_px_per_s)
+            desired_vy = np.clip((target_y - cy) / max(dt, 1e-6), -max_pan_rate_px_per_s, max_pan_rate_px_per_s)
+
+            ax_cmd = desired_vx - vx_cam
+            ay_cmd = desired_vy - vy_cam
+            max_delta_v = max_pan_accel_px_per_s2 * dt
+            ax_cmd = float(np.clip(ax_cmd, -max_delta_v, max_delta_v))
+            ay_cmd = float(np.clip(ay_cmd, -max_delta_v, max_delta_v))
+
+            vx_cam = float(np.clip(vx_cam + ax_cmd, -max_pan_rate_px_per_s, max_pan_rate_px_per_s))
+            vy_cam = float(np.clip(vy_cam + ay_cmd, -max_pan_rate_px_per_s, max_pan_rate_px_per_s))
+
+            cx = cx + vx_cam * dt
+            cy = cy + vy_cam * dt
+
+            crop_w = states[idx].crop_w if idx < len(states) else self.base_crop_w
+            crop_h = states[idx].crop_h if idx < len(states) else self.base_crop_h
+            half_w = max(1.0, float(crop_w) / 2.0)
+            half_h = max(1.0, float(crop_h) / 2.0)
+            cx = float(np.clip(cx, half_w, width - half_w))
+            cy = float(np.clip(cy, half_h, height - half_h))
+
+            centers.append((cx, cy))
+
         return centers
 
     @staticmethod
@@ -4295,6 +4426,46 @@ class Renderer:
         if not hasattr(self, "base_crop_h") or not self.base_crop_h:
             self.base_crop_h = float(height)
 
+        if self.follow_override:
+            states = list(states)
+            max_idx = max(self.follow_override.keys()) if self.follow_override else -1
+            target_len = max(len(states), max_idx + 1)
+            default_zoom = states[0].zoom if states else 1.0
+            default_w = float(self.base_crop_w)
+            default_h = float(self.base_crop_h)
+            for _ in range(len(states), target_len):
+                states.append(
+                    CamState(
+                        frame=len(states),
+                        cx=width / 2.0,
+                        cy=height / 2.0,
+                        zoom=default_zoom,
+                        crop_w=default_w,
+                        crop_h=default_h,
+                        x0=width / 2.0 - default_w / 2.0,
+                        y0=height / 2.0 - default_h / 2.0,
+                        used_label=False,
+                        clamp_flags=[],
+                    )
+                )
+
+            for frame_idx, override in self.follow_override.items():
+                if frame_idx < 0 or frame_idx >= len(states):
+                    continue
+                state = states[frame_idx]
+                cx = safe_float(override.get("cx"), state.cx)
+                cy = safe_float(override.get("cy"), state.cy)
+                zoom = safe_float(override.get("zoom", state.zoom), state.zoom)
+                crop_w = float(self.base_crop_w / zoom) if zoom else float(self.base_crop_w)
+                crop_h = float(self.base_crop_h / zoom) if zoom else float(self.base_crop_h)
+                state.cx = float(cx)
+                state.cy = float(cy)
+                state.zoom = float(zoom)
+                state.crop_w = float(crop_w)
+                state.crop_h = float(crop_h)
+                state.x0 = float(state.cx) - float(crop_w) / 2.0
+                state.y0 = float(state.cy) - float(crop_h) / 2.0
+
         render_fps = float(self.fps_out)
         zoom_min = float(self.zoom_min)
         zoom_max = float(self.zoom_max)
@@ -4449,6 +4620,29 @@ class Renderer:
             follow_targets = None
             follow_valid_mask = None
         follow_targets_len = len(follow_targets[0]) if follow_targets else 0
+
+        smart_centers: Optional[List[Tuple[float, float]]] = None
+        if self.follow_smart:
+            smart_centers = self._plan_follow_smart_path(
+                states,
+                follow_targets,
+                follow_valid_mask,
+                render_fps,
+                width,
+                height,
+            )
+            if smart_centers:
+                states = list(states)
+                for idx, (cx, cy) in enumerate(smart_centers):
+                    if idx >= len(states):
+                        break
+                    state = states[idx]
+                    state.cx = float(cx)
+                    state.cy = float(cy)
+                    crop_w = float(state.crop_w)
+                    crop_h = float(state.crop_h)
+                    state.x0 = float(state.cx) - crop_w / 2.0
+                    state.y0 = float(state.cy) - crop_h / 2.0
         plan_pts: List[Tuple[float, float, float]] = []
         fps_plan = render_fps if render_fps and render_fps > 0 else (src_fps if src_fps and src_fps > 0 else 30.0)
         if fps_plan <= 0:
@@ -4499,48 +4693,6 @@ class Renderer:
             ok, frame = cap.read()
             if not ok or frame is None:
                 break
-
-            if self.follow_exact:
-                ov = self.follow_override.get(frame_idx) if self.follow_override else None
-                if ov is None:
-                    continue
-                cx = ov["cx"]
-                cy = ov["cy"]
-                zoom = ov["zoom"]
-
-                state: CamState
-                if frame_idx < len(states):
-                    state = states[frame_idx]
-                else:
-                    state = CamState(
-                        frame=frame_idx,
-                        cx=float(cx),
-                        cy=float(cy),
-                        zoom=float(zoom),
-                        crop_w=float(self.base_crop_w),
-                        crop_h=float(self.base_crop_h),
-                        x0=0.0,
-                        y0=0.0,
-                        used_label=False,
-                        clamp_flags=[],
-                    )
-
-                state.cx = float(cx)
-                state.cy = float(cy)
-                state.zoom = float(zoom)
-
-                crop_w = int(self.base_crop_w / state.zoom) if state.zoom else int(self.base_crop_w)
-                crop_h = int(self.base_crop_h / state.zoom) if state.zoom else int(self.base_crop_h)
-                state.crop_w = float(crop_w)
-                state.crop_h = float(crop_h)
-                state.x0 = float(state.cx) - float(crop_w) / 2.0
-                state.y0 = float(state.cy) - float(crop_h) / 2.0
-                state.clamp_flags = getattr(state, "clamp_flags", []) or []
-
-                composed, _ = self._compose_frame(frame, state, output_size, overlay_image)
-                out_path = frames_dir / f"frame_{frame_idx:06d}.png"
-                cv2.imwrite(str(out_path), composed)
-                continue
 
             if frame_idx >= len(states):
                 break
@@ -5079,10 +5231,7 @@ def run(
     telemetry_path: Path | None = None
     offline_ball_path: Optional[List[Optional[dict[str, float]]]] = None
 
-    follow_exact_flag = bool(getattr(args, "follow_exact", False))
-    if follow_exact_flag:
-        print("[DEBUG] follow-exact mode active (controller disabled; using follow_override only)")
-    disable_controller = follow_exact_flag or bool(getattr(args, "disable_controller", False))
+    disable_controller = bool(getattr(args, "disable_controller", False))
     def _add_follow_override_row(target: dict[int, dict[str, float]], row: Mapping[str, object]):
         frame_val = row.get("frame")
         if frame_val is None:
@@ -5428,9 +5577,9 @@ def run(
         keep_path_lookup_data=keep_path_lookup_data,
         debug_ball_overlay=debug_ball_overlay,
         follow_override=follow_override_map,
-        follow_exact=follow_exact_flag,
         disable_controller=disable_controller,
         follow_trajectory=None,
+        follow_smart=bool(getattr(args, "follow_smart", False)),
     )
     jerk95 = renderer.write_frames(states)
 
@@ -5786,14 +5935,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
     )
     parser.add_argument(
-        "--follow-hybrid-elite",
+        "--follow-smart",
         action="store_true",
-        help="Enable Hybrid Elite smoothed + predictive follow mode",
-    )
-    parser.add_argument(
-        "--follow-exact",
-        action="store_true",
-        help="Use override follow telemetry exactly, bypassing controller and smoothing.",
+        help="Enable unified predictive follow mode with global smoothing",
     )
     return parser
 
@@ -5843,32 +5987,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
         args.ball_telemetry = telemetry_path_for_video(Path(args.input))
-
-    from tools.hybrid_elite_follow import hybrid_elite_process
-
-    if args.follow_hybrid_elite:
-        assert args.follow_override, "--follow-hybrid-elite requires --follow-override"
-
-        smoothed_path = str(
-            Path(args.follow_override).with_name(
-                Path(args.follow_override).stem + "_HYBRID_ELITE.flat.jsonl"
-            )
-        )
-
-        hybrid_elite_process(
-            in_path=args.follow_override,
-            out_path=smoothed_path,
-            smooth_window=11,
-            smooth_poly=3,
-            zoom_smooth=0.85,
-            predict_lookahead=0.08,
-            fps=24,
-        )
-
-        args.follow_override = smoothed_path
-        args.follow_exact = True
-        args.disable_controller = True
-        override_samples = _load_override_samples(args.follow_override)
 
     setattr(args, "follow_override_samples", override_samples)
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
