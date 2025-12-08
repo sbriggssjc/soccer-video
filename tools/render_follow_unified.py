@@ -226,6 +226,10 @@ def load_any_telemetry(path):
 
 
 def _safe_float(v):
+    try:
+        f = float(v)
+    except Exception:
+        return None
     if not math.isfinite(f):
         return None
     return f
@@ -268,6 +272,63 @@ def _interpolate_series(series: list[Optional[float]], default_value: float) -> 
                 filled[start + offset] = start_val + step * offset
 
     return [default_value if v is None else float(v) for v in filled]
+
+
+def _smooth_track(xs: list[float], window: int = 9) -> list[float]:
+    """
+    Simple centered moving-average smoother for camera centers.
+    Balanced preset:
+      - default window=9 frames (~0.37s @ 24fps)
+      - handles short clips by shrinking the window
+    """
+    if not xs:
+        return xs
+    n = len(xs)
+    # Ensure an odd window and cap by length
+    w = max(3, min(window, n))
+    if w % 2 == 0:
+        w += 1
+    half = w // 2
+
+    out: list[float] = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        segment = xs[lo:hi]
+        out.append(sum(segment) / len(segment))
+    return out
+
+
+def _clamp_velocity(xs: list[float], max_delta: float = 45.0) -> list[float]:
+    """
+    Limit frame-to-frame movement of the camera center.
+    max_delta is in pixels per frame (Balanced preset).
+    """
+    if not xs:
+        return xs
+    out = [float(xs[0])]
+    for x in xs[1:]:
+        prev = out[-1]
+        delta = float(x) - prev
+        if delta > max_delta:
+            delta = max_delta
+        elif delta < -max_delta:
+            delta = -max_delta
+        out.append(prev + delta)
+    return out
+
+
+def smooth_pan_track(xs: list[float]) -> list[float]:
+    """
+    Balanced smoothing preset for camera centers:
+      1) centered moving average
+      2) velocity clamp
+    """
+    if not xs:
+        return xs
+    xs = _smooth_track(xs, window=9)      # Balanced smoothness
+    xs = _clamp_velocity(xs, 45.0)        # Balanced responsiveness
+    return xs
 
 
 def _normalize_follow_override_map(
@@ -333,6 +394,36 @@ def _interp_at_time(samples, t):
     return samples[-1][1]
 
 
+def _ball_tx_pairs(ball_samples) -> list[tuple[float, float]]:
+    samples_tx: list[tuple[float, float]] = []
+    for s in ball_samples or []:
+        t_val = None
+        x_val = None
+        if isinstance(s, dict):
+            t_val = s.get("t") or s.get("time") or s.get("ts")
+            x_val = s.get("x") or s.get("cx") or s.get("ball_x")
+        else:
+            if hasattr(s, "t") or hasattr(s, "x"):
+                t_val = getattr(s, "t", None)
+                x_val = getattr(s, "x", None)
+            elif hasattr(s, "time") or hasattr(s, "cx"):
+                t_val = getattr(s, "time", None)
+                x_val = getattr(s, "cx", None)
+            else:
+                seq = tuple(s) if hasattr(s, "__len__") else None
+                if seq is not None and len(seq) >= 2:
+                    t_val, x_val = seq[0], seq[1]
+        if t_val is None or x_val is None:
+            continue
+        try:
+            samples_tx.append((float(t_val), float(x_val)))
+        except Exception:
+            continue
+
+    samples_tx.sort(key=lambda p: p[0])
+    return samples_tx
+
+
 def build_segment_predict_center_path(
     ball_samples,
     fps,
@@ -360,32 +451,7 @@ def build_segment_predict_center_path(
     if fps <= 0 or src_w <= 0 or portrait_w <= 0 or duration_s <= 0:
         return []
 
-    samples_tx = []
-    for s in ball_samples or []:
-        t_val = None
-        x_val = None
-        if isinstance(s, dict):
-            t_val = s.get("t") or s.get("time") or s.get("ts")
-            x_val = s.get("x") or s.get("cx") or s.get("ball_x")
-        else:
-            if hasattr(s, "t") or hasattr(s, "x"):
-                t_val = getattr(s, "t", None)
-                x_val = getattr(s, "x", None)
-            elif hasattr(s, "time") or hasattr(s, "cx"):
-                t_val = getattr(s, "time", None)
-                x_val = getattr(s, "cx", None)
-            else:
-                seq = tuple(s) if hasattr(s, "__len__") else None
-                if seq is not None and len(seq) >= 2:
-                    t_val, x_val = seq[0], seq[1]
-        if t_val is None or x_val is None:
-            continue
-        try:
-            samples_tx.append((float(t_val), float(x_val)))
-        except Exception:
-            continue
-
-    samples_tx.sort(key=lambda p: p[0])
+    samples_tx = _ball_tx_pairs(ball_samples)
     if not samples_tx:
         return []
 
@@ -437,6 +503,39 @@ def build_segment_predict_center_path(
         prev_center = smoothed_center
 
     return center_x
+
+
+def build_exact_follow_center_path(
+    ball_samples,
+    fps,
+    src_w,
+    portrait_w,
+    duration_s,
+):
+    """Return raw, clamped camera centers directly from ball telemetry."""
+
+    if fps <= 0 or src_w <= 0 or portrait_w <= 0 or duration_s <= 0:
+        return []
+
+    samples_tx = _ball_tx_pairs(ball_samples)
+    if not samples_tx:
+        return []
+
+    n_frames = int(round(duration_s * fps))
+    half_p = portrait_w * 0.5
+
+    def clamp_center(xc):
+        return max(half_p, min(src_w - half_p, xc))
+
+    centers: list[float] = []
+    for i in range(n_frames):
+        t_frame = i / float(fps)
+        cx_val = _interp_at_time(samples_tx, t_frame)
+        if cx_val is None:
+            cx_val = centers[-1] if centers else samples_tx[0][1]
+        centers.append(clamp_center(float(cx_val)))
+
+    return centers
 
 
 def _load_ball_telemetry(path):
@@ -1118,37 +1217,6 @@ def smooth_series(values, alpha: float = 0.1, passes: int = 3):
             vals[i] = prev
 
     return vals
-
-
-def smooth_centered(seq, window):
-    """
-    Zero-lag, centered moving average with edge handling by reflection.
-    window must be an odd integer >= 1.
-    """
-    n = len(seq)
-    if n == 0 or window <= 1:
-        return list(seq)
-
-    if window % 2 == 0:
-        window += 1  # ensure odd
-
-    half = window // 2
-    out = [0.0] * n
-
-    for i in range(n):
-        acc = 0.0
-        cnt = 0
-        for k in range(-half, half + 1):
-            j = i + k
-            # reflect at edges
-            if j < 0:
-                j = -j
-            elif j >= n:
-                j = 2 * n - j - 2
-            acc += seq[j]
-            cnt += 1
-        out[i] = acc / cnt
-    return out
 
 
 def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
@@ -4392,18 +4460,11 @@ class Renderer:
             if state.ball is not None:
                 bx, by = state.ball
                 cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 6, (0, 0, 255), -1)
+            actual_center_x = int(round(clamped_x0 + crop_w / 2.0))
             cv2.line(
                 overlay_frame,
-                (int(round(scaled_center_x)), 0),
-                (int(round(scaled_center_x)), height),
-                (255, 0, 0),
-                2,
-            )
-            actual_center_x = clamped_x0 + crop_w / 2.0
-            cv2.line(
-                overlay_frame,
-                (int(round(actual_center_x)), 0),
-                (int(round(actual_center_x)), height),
+                (actual_center_x, 0),
+                (actual_center_x, height - 1),
                 (0, 255, 0),
                 2,
             )
@@ -5421,6 +5482,11 @@ def run(
     if override_samples:
         use_ball_telemetry = False
 
+    follow_mode = getattr(args, "follow_mode", None) or "segment_predict"
+    if follow_mode not in {"exact", "smart", "segment_predict"}:
+        follow_mode = "segment_predict"
+    log_dict["follow_mode"] = follow_mode
+
     if getattr(args, "telemetry", None):
         telemetry_rows = load_any_telemetry(args.telemetry)
 
@@ -5728,23 +5794,42 @@ def run(
     renderer.original_src_h = float(height)
 
     follow_centers: Optional[Sequence[float]] = None
-    if follow_override_map is None and bool(getattr(args, "follow_segment_predict", False)):
+    follow_centers_int: Optional[list[int]] = None
+    if follow_override_map is None:
         fps_for_path = float(fps_out if fps_out and fps_out > 0 else fps_in or 0.0)
         portrait_crop_width = float(follow_crop_width or width)
-        center_path = build_segment_predict_center_path(
-            ball_samples=ball_samples,
-            fps=fps_for_path,
-            src_w=float(width),
-            portrait_w=float(portrait_crop_width),
-            duration_s=float(duration_s or 0.0),
-        )
-        if center_path:
-            logger.info(
-                "[INFO] Using segment-predict follow (window=0.6s, lead=0.3s, tol_frac=0.35)"
-            )
-            follow_centers = center_path
 
-    jerk95 = renderer.write_frames(states, follow_centers=follow_centers)
+        if follow_mode == "segment_predict":
+            center_path = build_segment_predict_center_path(
+                ball_samples=ball_samples,
+                fps=fps_for_path,
+                src_w=float(width),
+                portrait_w=float(portrait_crop_width),
+                duration_s=float(duration_s or 0.0),
+            )
+            if center_path:
+                cam_x = smooth_pan_track(list(center_path))
+                cam_x_int = [int(round(x)) for x in cam_x]
+                logger.info(
+                    "[INFO] Using segment-predict follow (window=0.6s, lead=0.3s, tol_frac=0.35)"
+                )
+                follow_centers = cam_x
+                follow_centers_int = cam_x_int
+        elif follow_mode == "exact":
+            center_path = build_exact_follow_center_path(
+                ball_samples=ball_samples,
+                fps=fps_for_path,
+                src_w=float(width),
+                portrait_w=float(portrait_crop_width),
+                duration_s=float(duration_s or 0.0),
+            )
+            if center_path:
+                cam_x_int = [int(round(x)) for x in center_path]
+                logger.info("[INFO] Using exact follow (raw ball centers; unsmoothed)")
+                follow_centers = center_path
+                follow_centers_int = cam_x_int
+
+    jerk95 = renderer.write_frames(states, follow_centers=follow_centers_int or follow_centers)
 
     assert renderer is not None
 
@@ -6102,11 +6187,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
     )
-    parser.add_argument(
-        "--follow-segment-predict",
-        action="store_true",
-        help="Use segment-level ball trajectory prediction for smooth portrait follow (recommended).",
+    group_follow = parser.add_mutually_exclusive_group()
+    group_follow.add_argument(
+        "--follow-exact",
+        action="store_const",
+        dest="follow_mode",
+        const="exact",
+        help="Debug: lock camera center to raw ball telemetry each frame.",
     )
+    group_follow.add_argument(
+        "--follow-smart",
+        action="store_const",
+        dest="follow_mode",
+        const="smart",
+        help="Legacy heuristic follow using the standard planner.",
+    )
+    group_follow.add_argument(
+        "--follow-segment-predict",
+        action="store_const",
+        dest="follow_mode",
+        const="segment_predict",
+        help="Recommended: segment-based predictive follow with balanced smoothing.",
+    )
+    parser.set_defaults(follow_mode="segment_predict")
     return parser
 
 
