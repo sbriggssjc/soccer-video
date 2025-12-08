@@ -38,6 +38,130 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def compute_predictive_follow_centers(
+    ball_x: "np.ndarray",
+    t: "np.ndarray",
+    src_width: int,
+    crop_width: int,
+    fps: float,
+    *,
+    window_frac: float = 0.25,
+    horizon_s: float = 0.35,
+    alpha: float = 0.90,
+    max_cam_speed_px_per_s: float = 850.0,
+) -> "np.ndarray":
+    """
+    Compute smooth camera centers for a horizontal follow that:
+    - Tracks the *path* of the ball, not its exact position.
+    - Lets the ball drift inside a central window of the crop.
+    - Pans only when the ball exits that window.
+    - Limits camera speed so motion is smooth and never jerky.
+
+    Parameters
+    ----------
+    ball_x : np.ndarray
+        Ball x positions in source pixels, one per frame.
+    t : np.ndarray
+        Timestamps in seconds, same length as ball_x.
+    src_width : int
+        Width of the source video in pixels.
+    crop_width : int
+        Width of the portrait crop (the vertical slice) in pixels.
+    fps : float
+        Output frame rate in frames per second.
+
+    Tunables (keyword-only)
+    -----------------------
+    window_frac : float
+        Half-width of the safe window as a fraction of crop width.
+        E.g. 0.25 => ball can drift ±25% of crop width around center
+        before we pan.
+    horizon_s : float
+        Look-ahead horizon for prediction, in seconds.
+    alpha : float
+        EMA smoothing factor over the predicted path (0.9 = heavy smoothing).
+    max_cam_speed_px_per_s : float
+        Max horizontal speed of the camera center, in pixels/sec.
+    """
+    import numpy as np
+
+    if len(ball_x) == 0:
+        return np.zeros(0, dtype=float)
+
+    ball_x = np.asarray(ball_x, dtype=float)
+    t = np.asarray(t, dtype=float)
+
+    # Basic temporal spacing; fall back to 1/fps if timestamps are weird.
+    if len(t) > 1:
+        dt = float(np.median(np.diff(t)))
+        if not np.isfinite(dt) or dt <= 0:
+            dt = 1.0 / float(fps or 24.0)
+    else:
+        dt = 1.0 / float(fps or 24.0)
+
+    # --- 2.1: estimate velocity and accel along x -------------------------
+    # Use central differences for interior points; forward/backward at edges.
+    v = np.zeros_like(ball_x)
+    a = np.zeros_like(ball_x)
+
+    if len(ball_x) >= 2:
+        v[1:-1] = (ball_x[2:] - ball_x[:-2]) / (t[2:] - t[:-2])
+        v[0] = (ball_x[1] - ball_x[0]) / max(t[1] - t[0], dt)
+        v[-1] = (ball_x[-1] - ball_x[-2]) / max(t[-1] - t[-2], dt)
+
+    if len(ball_x) >= 3:
+        a[1:-1] = (v[2:] - v[:-2]) / (t[2:] - t[:-2])
+        a[0] = 0.0
+        a[-1] = 0.0
+
+    # --- 2.2: predict a little into the future ----------------------------
+    H = float(horizon_s)
+    predicted = ball_x + v * H + 0.5 * a * H * H
+
+    # --- 2.3: EMA smoothing over the predicted path -----------------------
+    smooth = np.empty_like(predicted)
+    smooth[0] = predicted[0]
+    for i in range(1, len(predicted)):
+        smooth[i] = alpha * smooth[i - 1] + (1.0 - alpha) * predicted[i]
+
+    # --- 2.4: convert to camera centers with window + max speed ----------
+    centers = np.empty_like(smooth)
+    # Start centered on first smoothed point, but clamped to valid crop range.
+    half_crop = crop_width / 2.0
+    min_center = half_crop
+    max_center = src_width - half_crop
+
+    def clamp_center(x):
+        return float(min(max(x, min_center), max_center))
+
+    centers[0] = clamp_center(smooth[0])
+
+    safe_half_window = window_frac * crop_width
+    # Max camera step per frame in pixels.
+    max_step = max_cam_speed_px_per_s * dt
+
+    for i in range(1, len(smooth)):
+        cam_prev = centers[i - 1]
+        bx = ball_x[i]
+
+        # If the ball is within the safe window of the previous camera center,
+        # keep the camera where it is. This avoids jittery micro-motions.
+        if abs(bx - cam_prev) <= safe_half_window:
+            target = cam_prev  # no pan; optionally nudge slightly toward smooth[i]
+        else:
+            # Ball exiting the window => pan toward the *smoothed, predicted* path.
+            target = smooth[i]
+
+        # Move toward target with a max step to enforce smoothness.
+        delta = target - cam_prev
+        if abs(delta) > max_step:
+            delta = max_step if delta > 0 else -max_step
+
+        centers[i] = clamp_center(cam_prev + delta)
+
+    return centers
+
+
 def load_any_telemetry(path):
     """
     Unified loader for ball telemetry (JSONL) and follow telemetry
@@ -4001,191 +4125,71 @@ class Renderer:
 
     def _simulate_follow_centers(
         self,
-        follow_targets: Optional[Tuple[List[float], List[float]]],
-        follow_lookahead_frames: int,
-        render_fps: float,
-        start_cx: float,
-        start_cy: float,
-        frame_count: int,
-        follow_valid_mask: Optional[Sequence[bool]] = None,
-    ) -> List[Tuple[float, float]]:
-        if (
-            follow_targets is None
-            or render_fps <= 0.0
-            or frame_count <= 0
-            or not follow_targets[0]
-            or not follow_targets[1]
-        ):
-            return []
-
-        follower = CamFollow2O(
-            zeta=self.follow_zeta,
-            wn=self.follow_wn,
-            dt=1.0 / render_fps,
-            max_vel=self.follow_max_vel,
-            max_acc=self.follow_max_acc,
-            deadzone=self.follow_deadzone,
-        )
-        follower.cx = float(start_cx)
-        follower.cy = float(start_cy)
-        follower.vx = 0.0
-        follower.vy = 0.0
-
-        xs, ys = follow_targets
-        last_idx = min(len(xs), len(ys)) - 1
-        hold = FollowHoldController(
-            dt=1.0 / render_fps if render_fps > 1e-6 else 1.0 / 30.0,
-            release_frames=3,
-            decay_time=0.4,
-            initial_target=(start_cx, start_cy),
-        )
-        centers: List[Tuple[float, float]] = []
-        for frame_idx in range(frame_count):
-            target_idx = min(frame_idx + follow_lookahead_frames, last_idx)
-            target_x = float(xs[target_idx])
-            target_y = float(ys[target_idx])
-            valid = True
-            if follow_valid_mask is not None and target_idx < len(follow_valid_mask):
-                valid = bool(follow_valid_mask[target_idx])
-            elif not (math.isfinite(target_x) and math.isfinite(target_y)):
-                valid = False
-            eff_x, eff_y, holding = hold.apply(target_x, target_y, valid)
-            if holding and 0.0 < hold.decay_factor < 1.0:
-                follower.damp_velocity(hold.decay_factor)
-            cx, cy = follower.step(eff_x, eff_y)
-            if not holding:
-                hold.reset_target(cx, cy)
-            centers.append((cx, cy))
-        return centers
-
-    def _plan_follow_smart_path(
-        self,
         states: Sequence[CamState],
-        follow_targets: Optional[Tuple[List[float], List[float]]],
-        follow_valid_mask: Optional[Sequence[bool]],
-        render_fps: float,
-        width: int,
-        height: int,
-    ) -> List[Tuple[float, float]]:
-        frame_count = len(states)
-        if not frame_count or render_fps <= 0:
-            return []
+        ball_samples: Sequence[BallSample],
+    ) -> np.ndarray:
+        """
+        Compute horizontal camera centers for each frame using the
+        predictive, windowed follow model.
 
-        def _interp_nan(arr: np.ndarray, fill_val: float) -> np.ndarray:
-            out = arr.copy()
-            mask = np.isfinite(out)
-            if not mask.any():
-                out[:] = fill_val
-                return out
-            idx = np.arange(len(out))
-            valid_idx = idx[mask]
-            valid_vals = out[mask]
-            filled = np.interp(idx, valid_idx, valid_vals)
-            out[~mask] = filled[~mask]
-            return out
+        `states` is the list of CamState (or similar) objects built for
+        each output frame. We only need timing and crop vs source widths.
 
-        bx = np.full(frame_count, float("nan"), dtype=float)
-        by = np.full(frame_count, float("nan"), dtype=float)
-        if follow_targets:
-            bx_src, by_src = follow_targets
-            bx[: min(frame_count, len(bx_src))] = bx_src[:frame_count]
-            by[: min(frame_count, len(by_src))] = by_src[:frame_count]
+        `ball_samples` is the list of BallSample objects loaded from
+        telemetry, which have at least t, x, y (we only use t and x here).
+        """
+        import numpy as np
+
+        if not states:
+            return np.zeros(0, dtype=float)
+        if not ball_samples:
+            return np.zeros(len(states), dtype=float)
+
+        fps = float(self.fps_out or self.fps_in or 24.0)
+        dt = 1.0 / float(fps if fps > 0 else 24.0)
+        frame_t = np.arange(len(states), dtype=float) * dt
+
+        ball_t = np.array([getattr(b, "t", idx * dt) for idx, b in enumerate(ball_samples)], dtype=float)
+        ball_x_samples = np.array([getattr(b, "x", float("nan")) for b in ball_samples], dtype=float)
+
+        valid_mask = np.isfinite(ball_t) & np.isfinite(ball_x_samples)
+        if not valid_mask.any():
+            return np.full(len(states), float(np.nan), dtype=float)
+
+        sort_idx = np.argsort(ball_t[valid_mask])
+        sorted_t = ball_t[valid_mask][sort_idx]
+        sorted_x = ball_x_samples[valid_mask][sort_idx]
+
+        ball_x = np.interp(
+            frame_t,
+            sorted_t,
+            sorted_x,
+            left=sorted_x[0],
+            right=sorted_x[-1],
+        )
+
+        if hasattr(self, "follow_crop_width") and self.follow_crop_width:
+            crop_width = int(self.follow_crop_width)
         else:
-            for idx, state in enumerate(states):
-                if state.ball is not None:
-                    bx[idx], by[idx] = state.ball
+            crop_width = int(round(np.median([s.crop_w for s in states]))) if states else 0
+        if crop_width <= 0:
+            crop_width = int(round(self.original_src_w or getattr(self, "src_width", 0) or 0))
 
-        valid_mask_arr = np.isfinite(bx) & np.isfinite(by)
-        if follow_valid_mask is not None:
-            for idx in range(min(len(follow_valid_mask), frame_count)):
-                valid_mask_arr[idx] = bool(follow_valid_mask[idx]) and valid_mask_arr[idx]
+        src_width = int(round(self.original_src_w or getattr(self, "src_width", crop_width)))
+        if src_width <= 0:
+            src_width = max(crop_width, int(np.nanmax(ball_x)) if np.isfinite(ball_x).any() else crop_width)
 
-        center_default_x = width / 2.0
-        center_default_y = height * self.follow_center_frac
-        bx = _interp_nan(bx, center_default_x)
-        by = _interp_nan(by, center_default_y)
-
-        dt = 1.0 / render_fps
-        lookahead_time = 0.18
-        window_len = int(round(render_fps * 0.25))
-        if window_len % 2 == 0:
-            window_len += 1
-        window_len = max(5, window_len)
-
-        def _smooth_series(values: np.ndarray) -> np.ndarray:
-            try:
-                from scipy.signal import savgol_filter
-
-                return savgol_filter(values, window_length=window_len, polyorder=3, mode="interp")
-            except Exception:
-                kernel = np.ones(window_len, dtype=float)
-                kernel /= kernel.sum()
-                return np.convolve(values, kernel, mode="same")
-
-        vx = np.gradient(bx) / max(dt, 1e-6)
-        vy = np.gradient(by) / max(dt, 1e-6)
-        pred_x = bx + vx * lookahead_time
-        pred_y = by + vy * lookahead_time
-        pred_x = _smooth_series(pred_x)
-        pred_y = _smooth_series(pred_y)
-
-        tolerance_window_px = 140.0
-        max_pan_rate_px_per_s = 850.0
-        max_pan_accel_px_per_s2 = 2200.0
-
-        centers: List[Tuple[float, float]] = []
-        cx = states[0].cx if states else center_default_x
-        cy = states[0].cy if states else center_default_y
-        vx_cam = 0.0
-        vy_cam = 0.0
-        missing_count = 0
-        last_known_vx = 0.0
-        last_known_vy = 0.0
-
-        for idx in range(frame_count):
-            valid_now = bool(valid_mask_arr[idx])
-            target_x = float(pred_x[idx])
-            target_y = float(pred_y[idx])
-            if valid_now:
-                last_known_vx = float(vx[idx])
-                last_known_vy = float(vy[idx])
-                missing_count = 0
-            else:
-                missing_count += 1
-                if missing_count > 3:
-                    decay = 0.9 ** (missing_count - 3)
-                    target_x = cx + last_known_vx * lookahead_time * decay
-                    target_y = cy + last_known_vy * lookahead_time * decay
-
-            dx = target_x - cx
-            dy = target_y - cy
-            if abs(dx) <= tolerance_window_px and abs(dy) <= tolerance_window_px and valid_now:
-                target_x = cx
-                target_y = cy
-
-            desired_vx = np.clip((target_x - cx) / max(dt, 1e-6), -max_pan_rate_px_per_s, max_pan_rate_px_per_s)
-            desired_vy = np.clip((target_y - cy) / max(dt, 1e-6), -max_pan_rate_px_per_s, max_pan_rate_px_per_s)
-
-            ax_cmd = desired_vx - vx_cam
-            ay_cmd = desired_vy - vy_cam
-            max_delta_v = max_pan_accel_px_per_s2 * dt
-            ax_cmd = float(np.clip(ax_cmd, -max_delta_v, max_delta_v))
-            ay_cmd = float(np.clip(ay_cmd, -max_delta_v, max_delta_v))
-
-            vx_cam = float(np.clip(vx_cam + ax_cmd, -max_pan_rate_px_per_s, max_pan_rate_px_per_s))
-            vy_cam = float(np.clip(vy_cam + ay_cmd, -max_pan_rate_px_per_s, max_pan_rate_px_per_s))
-
-            cx = cx + vx_cam * dt
-            cy = cy + vy_cam * dt
-
-            crop_w = states[idx].crop_w if idx < len(states) else self.base_crop_w
-            crop_h = states[idx].crop_h if idx < len(states) else self.base_crop_h
-            half_w = max(1.0, float(crop_w) / 2.0)
-            half_h = max(1.0, float(crop_h) / 2.0)
-            cx = float(np.clip(cx, half_w, width - half_w))
-            cy = float(np.clip(cy, half_h, height - half_h))
-
-            centers.append((cx, cy))
+        centers = compute_predictive_follow_centers(
+            ball_x=ball_x,
+            t=frame_t,
+            src_width=src_width,
+            crop_width=crop_width,
+            fps=fps,
+            window_frac=0.25,
+            horizon_s=0.35,
+            alpha=0.90,
+            max_cam_speed_px_per_s=850.0,
+        )
 
         return centers
 
@@ -4306,7 +4310,13 @@ class Renderer:
         frame_count = int(round(self.fps_out * 2.0))
         return [resized for _ in range(frame_count)]
 
-    def write_frames(self, states: Sequence[CamState], *, probe_only: bool = False) -> float:
+    def write_frames(
+        self,
+        states: Sequence[CamState],
+        *,
+        probe_only: bool = False,
+        follow_centers: Optional[Sequence[float]] = None,
+    ) -> float:
         # Ensure idx is always defined, even in follow-exact mode
         idx = -1
         frames_dir = self.temp_dir / "frames"
@@ -4677,28 +4687,17 @@ class Renderer:
         follow_targets_len = len(follow_targets[0]) if follow_targets else 0
         follow_lookahead_frames = max(0, int(self.follow_lookahead))
 
-        smart_centers: Optional[List[Tuple[float, float]]] = None
-        if self.follow_smart:
-            smart_centers = self._plan_follow_smart_path(
-                states,
-                follow_targets,
-                follow_valid_mask,
-                render_fps,
-                width,
-                height,
-            )
-            if smart_centers:
-                states = list(states)
-                for idx, (cx, cy) in enumerate(smart_centers):
-                    if idx >= len(states):
-                        break
-                    state = states[idx]
-                    state.cx = float(cx)
-                    state.cy = float(cy)
-                    crop_w = float(state.crop_w)
-                    crop_h = float(state.crop_h)
-                    state.x0 = float(state.cx) - crop_w / 2.0
-                    state.y0 = float(state.cy) - crop_h / 2.0
+        if follow_centers is not None:
+            states = list(states)
+            for idx, cx in enumerate(follow_centers):
+                if idx >= len(states):
+                    break
+                state = states[idx]
+                crop_w = float(state.crop_w)
+                half_w = crop_w / 2.0 if crop_w > 0 else float(width) / 2.0
+                clamped_cx = float(np.clip(float(cx), half_w, float(width) - half_w))
+                state.cx = clamped_cx
+                state.x0 = clamped_cx - crop_w / 2.0
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -4721,20 +4720,16 @@ class Renderer:
         bx = by = None
 
         jerk95 = 0.0
-        if follow_targets_len and render_fps > 0:
-            centers = self._simulate_follow_centers(
-                follow_targets,
-                follow_lookahead_frames,
-                render_fps,
-                prev_cx,
-                prev_cy,
-                len(states),
-                follow_valid_mask=follow_valid_mask,
-            )
-            if centers:
-                xs = [c[0] for c in centers]
-                ys = [c[1] for c in centers]
-                jerk95 = compute_camera_jerk95(xs, ys, render_fps)
+        centers_for_jerk: Optional[np.ndarray] = None
+        if follow_centers is not None:
+            centers_for_jerk = np.asarray(list(follow_centers), dtype=float)
+        elif self.ball_samples and render_fps > 0:
+            centers_for_jerk = self._simulate_follow_centers(states, self.ball_samples)
+
+        if centers_for_jerk is not None and centers_for_jerk.size > 1:
+            xs = centers_for_jerk.astype(float).tolist()
+            ys = [float(state.cy) for state in states[: len(xs)]]
+            jerk95 = compute_camera_jerk95(xs, ys, render_fps)
         self.last_jerk95 = float(jerk95)
 
         tf = self.telemetry
@@ -5229,6 +5224,11 @@ def run(
         fallback_fps = fps_in if fps_in > 0 else 30.0
         duration_s = frame_count / float(fallback_fps)
 
+    follow_crop_width = width
+    if portrait_w and portrait_h and portrait_w < portrait_h:
+        follow_crop_width = int(round(height * 9.0 / 16.0))
+        follow_crop_width = max(1, min(follow_crop_width, width))
+
     override_samples = getattr(args, "follow_override_samples", None)
     total_frames = frame_count
     if total_frames <= 0:
@@ -5596,7 +5596,19 @@ def run(
         follow_smart=bool(getattr(args, "follow_smart", False)),
         debug_pan_overlay=bool(getattr(args, "debug_pan_overlay", False)),
     )
-    jerk95 = renderer.write_frames(states)
+    renderer.src_width = float(width)
+    renderer.src_height = float(height)
+    renderer.follow_crop_width = float(follow_crop_width)
+    renderer.original_src_w = float(width)
+    renderer.original_src_h = float(height)
+
+    follow_centers: Optional[np.ndarray] = None
+    if follow_override_map is not None:
+        follow_centers = None
+    elif bool(getattr(args, "follow_smart", False)) and ball_samples:
+        follow_centers = renderer._simulate_follow_centers(states, ball_samples)
+
+    jerk95 = renderer.write_frames(states, follow_centers=follow_centers)
 
     assert renderer is not None
 
@@ -5957,7 +5969,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--follow-smart",
         action="store_true",
-        help="Enable unified predictive follow mode with global smoothing",
+        help="Use predictive windowed follow based on ball path (primary mode).",
     )
     return parser
 
