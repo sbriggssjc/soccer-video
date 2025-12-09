@@ -505,6 +505,65 @@ def build_segment_predict_center_path(
     return center_x
 
 
+def _build_smooth_pan_plan(ball_x, fps, src_w, max_speed_px_per_s=900.0):
+    """
+    ball_x: 1D np.array of per-frame ball X in source pixels (NaN or None allowed)
+    fps:    frames per second
+    src_w:  source width in pixels
+    max_speed_px_per_s: cap on camera pan speed used when clamping
+
+    Returns: np.array of per-frame pan centers (float32).
+    """
+
+    n = len(ball_x)
+    if n == 0:
+        return np.zeros(0, dtype=np.float32)
+    x = np.array(ball_x, dtype=float)
+
+    # 1) Fill gaps (NaNs / invalid) with nearest-neighbor then global mean.
+    mask = ~np.isfinite(x)
+    if np.any(mask):
+        # forward fill then backward fill
+        for i in range(1, n):
+            if not np.isfinite(x[i]) and np.isfinite(x[i - 1]):
+                x[i] = x[i - 1]
+        for i in range(n - 2, -1, -1):
+            if not np.isfinite(x[i]) and np.isfinite(x[i + 1]):
+                x[i] = x[i + 1]
+        if not np.all(np.isfinite(x)):
+            # final fallback: center of frame
+            x[~np.isfinite(x)] = src_w / 2.0
+
+    # 2) LOOKAHEAD: have the camera lead the ball slightly.
+    # Use a forward window of about 0.25s.
+    lookahead_frames = max(1, int(round(0.25 * fps)))
+    x_lead = np.copy(x)
+    for i in range(n):
+        j = min(n - 1, i + lookahead_frames)
+        # simple blend between current and short-term future
+        x_lead[i] = 0.6 * x[i] + 0.4 * x[j]
+
+    # 3) SMOOTHING: apply a symmetric low-pass filter.
+    # Kernel roughly ~ 5 frames wide, weighted middle.
+    kernel = np.array([1.0, 2.0, 3.0, 2.0, 1.0], dtype=float)
+    kernel /= kernel.sum()
+    x_smooth = np.convolve(x_lead, kernel, mode="same")
+
+    # 4) Clamp max per-frame delta to avoid whip pans.
+    max_delta = max_speed_px_per_s / float(max(fps, 1))
+    for i in range(1, n):
+        delta = x_smooth[i] - x_smooth[i - 1]
+        if delta > max_delta:
+            x_smooth[i] = x_smooth[i - 1] + max_delta
+        elif delta < -max_delta:
+            x_smooth[i] = x_smooth[i - 1] - max_delta
+
+    # 5) Clamp to valid horizontal range.
+    x_smooth = np.clip(x_smooth, 0.0, float(src_w))
+
+    return x_smooth.astype(np.float32)
+
+
 def build_exact_follow_center_path(
     ball_samples,
     fps,
@@ -4266,6 +4325,7 @@ class Renderer:
         self.original_src_w: Optional[float] = None
         self.original_src_h: Optional[float] = None
         self.follow_plan_x: Optional[np.ndarray] = None
+        self.pan_x_plan: Optional[np.ndarray] = None
 
         def _coerce_float(value: Optional[float]) -> Optional[float]:
             if value is None:
@@ -4398,32 +4458,75 @@ class Renderer:
     def _compose_frame(
         self,
         frame: np.ndarray,
-        state: CamState,
-        output_size: Tuple[int, int],
-        overlay_image: Optional[np.ndarray],
-        *,
+        t,
         pan_x: Optional[float] = None,
+        **kwargs,
     ) -> Tuple[np.ndarray, Tuple[float, float, float, float]]:
+        state: Optional[CamState] = kwargs.pop("state", None)
+        if state is None and isinstance(t, CamState):
+            state = t
+        output_size: Optional[Tuple[int, int]] = kwargs.pop("output_size", None)
+        if output_size is None:
+            output_size = kwargs.pop("size", None)
+        overlay_image: Optional[np.ndarray] = kwargs.pop("overlay_image", None)
+
         height, width = frame.shape[:2]
-        src_w = float(self.original_src_w or width)
+        self.src_w = float(getattr(self, "src_w", None) or self.original_src_w or width)
+        self.src_h = float(getattr(self, "src_h", None) or self.original_src_h or height)
+        portrait_w = float(
+            getattr(self, "portrait_w", 0.0) or getattr(self, "follow_crop_width", 0.0) or width
+        )
+        self.portrait_w = portrait_w
+
+        # --- horizontal pan center (source coords) ---
         if pan_x is not None and math.isfinite(pan_x):
             center_x = float(pan_x)
-        else:
+        elif state is not None and math.isfinite(getattr(state, "cx", float("nan"))):
             center_x = float(state.cx)
-        center_y = float(state.cy)
-        assert 0.0 <= center_x <= src_w
-
-        scale_x = float(width) / float(src_w) if src_w else 1.0
-        if not math.isclose(src_w, float(width), rel_tol=1e-6, abs_tol=1e-3):
-            scaled_center_x = center_x * scale_x
         else:
-            scaled_center_x = center_x
+            center_x = self.src_w / 2.0
+        center_y = float(getattr(state, "cy", 0.0)) if state is not None else 0.0
+
+        if getattr(self, "debug_pan_overlay", False):
+            cx = int(round(center_x))
+            cv2.line(frame, (cx, 0), (cx, height - 1), (0, 255, 0), 2)
+
+        half_w = portrait_w / 2.0
+        left = int(round(center_x - half_w))
+        right = int(round(center_x + half_w))
+
+        if left < 0:
+            left = 0
+        if right > self.src_w:
+            right = int(self.src_w)
+        if right - left < portrait_w:
+            if left == 0:
+                right = min(int(self.src_w), int(left + portrait_w))
+            else:
+                left = max(0, int(round(right - portrait_w)))
+
+        cropped = frame[:, left:right]
+        width = cropped.shape[1]
+        height = cropped.shape[0]
+        frame = cropped
+        center_x = float(center_x - left)
+        if state is not None:
+            state.cx = center_x
+
+        if output_size is None:
+            output_size = (width, height)
+
+        src_w = float(width)
+        if src_w <= 0:
+            src_w = float(width)
+        scale_x = float(width) / float(src_w) if src_w else 1.0
+        scaled_center_x = center_x * scale_x
         target_ar = 0.0
         if output_size[0] > 0 and output_size[1] > 0:
             target_ar = float(output_size[0]) / float(output_size[1])
 
-        crop_w = float(np.clip(state.crop_w, 1.0, float(width)))
-        crop_h = float(np.clip(state.crop_h, 1.0, float(height)))
+        crop_w = float(np.clip(state.crop_w, 1.0, float(width))) if state is not None else float(width)
+        crop_h = float(np.clip(state.crop_h, 1.0, float(height))) if state is not None else float(height)
 
         if target_ar > 0.0 and crop_h > 0.0:
             desired_w = crop_h * target_ar
@@ -4463,7 +4566,7 @@ class Renderer:
 
         if self.debug_pan_overlay:
             overlay_frame = frame.copy()
-            if state.ball is not None:
+            if state is not None and state.ball is not None:
                 bx, by = state.ball
                 cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 6, (0, 0, 255), -1)
             actual_center_x = int(round(clamped_x0 + crop_w / 2.0))
@@ -4498,6 +4601,7 @@ class Renderer:
         actual_crop = (float(x1), float(y1), float(x2 - x1), float(y2 - y1))
         return resized, actual_crop
 
+
     def _append_endcard(self, output_size: Tuple[int, int]) -> List[np.ndarray]:
         if not self.endcard_path:
             return []
@@ -4518,6 +4622,7 @@ class Renderer:
         *,
         probe_only: bool = False,
         follow_centers: Optional[Sequence[float]] = None,
+        pan_x_plan: Optional[Sequence[float]] = None,
     ) -> float:
         idx = -1
         frames_dir = self.temp_dir / "frames"
@@ -4544,6 +4649,8 @@ class Renderer:
         height = int(src_h)
         self.original_src_w = float(src_w)
         self.original_src_h = float(src_h)
+        self.src_w = float(src_w)
+        self.src_h = float(src_h)
         if self.portrait:
             output_size = self.portrait
         else:
@@ -4574,6 +4681,9 @@ class Renderer:
             portrait_crop_h = float(src_h)
             portrait_crop_w = float(int(round(src_h * 9.0 / 16.0)))
             portrait_crop_w = max(1.0, min(portrait_crop_w, float(src_w)))
+
+        self.portrait_w = float(portrait_crop_w or portrait_w or width)
+        self.portrait_h = float(portrait_crop_h or portrait_h or height)
 
         scaling_factor = float(portrait_crop_w or width) / float(src_w) if src_w else 1.0
         offset_x = 0.0
@@ -4899,7 +5009,13 @@ class Renderer:
                 clamped_cx = float(np.clip(float(cx), half_w, float(width) - half_w))
                 state.cx = clamped_cx
                 state.x0 = clamped_cx - crop_w / 2.0
-        pan_plan = self.follow_plan_x if hasattr(self, "follow_plan_x") else None
+        active_pan_plan = None
+        if pan_x_plan is not None:
+            active_pan_plan = pan_x_plan
+        elif getattr(self, "pan_x_plan", None) is not None:
+            active_pan_plan = self.pan_x_plan
+        elif hasattr(self, "follow_plan_x"):
+            active_pan_plan = self.follow_plan_x
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -4914,14 +5030,14 @@ class Renderer:
             pan_accel_clamp = None
             state.cx = desired_center_x
             pan_x = None
-            if pan_plan is not None and frame_idx < len(pan_plan):
-                pan_x = pan_plan[frame_idx]
+            if active_pan_plan is not None and frame_idx < len(active_pan_plan):
+                pan_x = active_pan_plan[frame_idx]
             composed, _ = self._compose_frame(
                 frame,
                 state,
-                output_size,
-                overlay_image,
                 pan_x=pan_x,
+                output_size=output_size,
+                overlay_image=overlay_image,
             )
             out_path = frames_dir / f"frame_{frame_idx:06d}.png"
             cv2.imwrite(str(out_path), composed)
@@ -5819,6 +5935,7 @@ def run(
 
     follow_centers: Optional[Sequence[float]] = None
     follow_centers_int: Optional[list[int]] = None
+    pan_plan: Optional[np.ndarray] = None
     if follow_override_map is None:
         fps_for_path = float(fps_out if fps_out and fps_out > 0 else fps_in or 0.0)
         portrait_crop_width = float(follow_crop_width or width)
@@ -5840,6 +5957,25 @@ def run(
                 follow_centers = cam_x
                 follow_centers_int = cam_x_int
                 renderer.follow_plan_x = np.array(cam_x, dtype=float)
+            total_frames_for_pan = len(states) if states else int(round(duration_s * fps_for_path))
+            if total_frames_for_pan > 0:
+                tx_pairs = _ball_tx_pairs(ball_samples)
+                if tx_pairs:
+                    ball_x_per_frame: list[float] = []
+                    for idx in range(total_frames_for_pan):
+                        t_frame = idx / float(fps_for_path or 1.0)
+                        x_val = _interp_at_time(tx_pairs, t_frame)
+                        ball_x_per_frame.append(x_val if x_val is not None else float("nan"))
+                    pan_plan = _build_smooth_pan_plan(ball_x_per_frame, fps_for_path, float(width))
+                    renderer.pan_x_plan = pan_plan
+                    if pan_plan is not None:
+                        print(
+                            f"[PAN] plan built: {len(pan_plan)} samples, x range={pan_plan.min():.1f}–{pan_plan.max():.1f}"
+                        )
+                else:
+                    print("[PAN] no plan built; using centered crop")
+            else:
+                print("[PAN] no plan built; using centered crop")
         elif follow_mode == "exact":
             center_path = build_exact_follow_center_path(
                 ball_samples=ball_samples,
@@ -5854,11 +5990,21 @@ def run(
                 follow_centers = center_path
                 follow_centers_int = cam_x_int
                 renderer.follow_plan_x = np.array(center_path, dtype=float)
+                renderer.pan_x_plan = renderer.follow_plan_x
 
     if renderer.follow_plan_x is None and follow_centers is not None:
         renderer.follow_plan_x = np.asarray(follow_centers, dtype=float)
+    if renderer.pan_x_plan is None and pan_plan is not None:
+        renderer.pan_x_plan = pan_plan
+    elif renderer.pan_x_plan is None and renderer.follow_plan_x is not None:
+        renderer.pan_x_plan = renderer.follow_plan_x
 
-    jerk95 = renderer.write_frames(states, follow_centers=follow_centers_int or follow_centers)
+    pan_plan_for_render = getattr(renderer, "pan_x_plan", None)
+    jerk95 = renderer.write_frames(
+        states,
+        follow_centers=follow_centers_int or follow_centers,
+        pan_x_plan=pan_plan_for_render,
+    )
 
     assert renderer is not None
 
