@@ -4265,6 +4265,7 @@ class Renderer:
         self.debug_pan_overlay = bool(debug_pan_overlay)
         self.original_src_w: Optional[float] = None
         self.original_src_h: Optional[float] = None
+        self.follow_plan_x: Optional[np.ndarray] = None
 
         def _coerce_float(value: Optional[float]) -> Optional[float]:
             if value is None:
@@ -4400,10 +4401,15 @@ class Renderer:
         state: CamState,
         output_size: Tuple[int, int],
         overlay_image: Optional[np.ndarray],
+        *,
+        pan_x: Optional[float] = None,
     ) -> Tuple[np.ndarray, Tuple[float, float, float, float]]:
         height, width = frame.shape[:2]
         src_w = float(self.original_src_w or width)
-        center_x = float(state.cx)
+        if pan_x is not None and math.isfinite(pan_x):
+            center_x = float(pan_x)
+        else:
+            center_x = float(state.cx)
         center_y = float(state.cy)
         assert 0.0 <= center_x <= src_w
 
@@ -4468,6 +4474,14 @@ class Renderer:
                 (0, 255, 0),
                 2,
             )
+            if math.isfinite(center_x):
+                cv2.line(
+                    overlay_frame,
+                    (int(center_x), 0),
+                    (int(center_x), height - 1),
+                    (0, 255, 0),
+                    2,
+                )
             frame = overlay_frame
 
         cropped = frame[y1:y2, x1:x2]
@@ -4885,6 +4899,7 @@ class Renderer:
                 clamped_cx = float(np.clip(float(cx), half_w, float(width) - half_w))
                 state.cx = clamped_cx
                 state.x0 = clamped_cx - crop_w / 2.0
+        pan_plan = self.follow_plan_x if hasattr(self, "follow_plan_x") else None
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -4898,7 +4913,16 @@ class Renderer:
             pan_vel_clamp = None
             pan_accel_clamp = None
             state.cx = desired_center_x
-            composed, _ = self._compose_frame(frame, state, output_size, overlay_image)
+            pan_x = None
+            if pan_plan is not None and frame_idx < len(pan_plan):
+                pan_x = pan_plan[frame_idx]
+            composed, _ = self._compose_frame(
+                frame,
+                state,
+                output_size,
+                overlay_image,
+                pan_x=pan_x,
+            )
             out_path = frames_dir / f"frame_{frame_idx:06d}.png"
             cv2.imwrite(str(out_path), composed)
 
@@ -5815,6 +5839,7 @@ def run(
                 )
                 follow_centers = cam_x
                 follow_centers_int = cam_x_int
+                renderer.follow_plan_x = np.array(cam_x, dtype=float)
         elif follow_mode == "exact":
             center_path = build_exact_follow_center_path(
                 ball_samples=ball_samples,
@@ -5828,6 +5853,10 @@ def run(
                 logger.info("[INFO] Using exact follow (raw ball centers; unsmoothed)")
                 follow_centers = center_path
                 follow_centers_int = cam_x_int
+                renderer.follow_plan_x = np.array(center_path, dtype=float)
+
+    if renderer.follow_plan_x is None and follow_centers is not None:
+        renderer.follow_plan_x = np.asarray(follow_centers, dtype=float)
 
     jerk95 = renderer.write_frames(states, follow_centers=follow_centers_int or follow_centers)
 
