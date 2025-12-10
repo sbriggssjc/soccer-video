@@ -27,7 +27,7 @@ from pathlib import Path
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Mapping, Optional, Sequence, TextIO, Tuple, Union
+from typing import Dict, List, Mapping, Optional, Sequence, TextIO, Tuple, Union
 
 from math import hypot
 from statistics import median
@@ -36,6 +36,129 @@ import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def build_fallback_pan_plan(
+    ball_samples: List[Dict[str, float]],
+    *,
+    src_w: int,
+    crop_w: int,
+    fps: float = 24.0,
+    anticipation_s: float = 0.35,
+    edge_margin: int = 40,
+    max_speed_px_per_s: float = 900.0,
+    smooth_alpha: float = 0.18,
+) -> List[float]:
+    """
+    Returns a list of crop-center X positions in *source pixel* coords,
+    one per frame, for the entire clip.
+
+    This is used only when the segment-predict planner fails to build any
+    segments, so we always produce *some* reasonable follow behavior.
+    """
+
+    if not ball_samples:
+        # Last resort: static center
+        center = src_w * 0.5
+        return [center]
+
+    # Extract time-ordered ball timeline
+    ball_samples_sorted = sorted(ball_samples, key=lambda r: r["t"])
+    ts = [r["t"] for r in ball_samples_sorted]
+    xs = [r["x"] for r in ball_samples_sorted]
+
+    # Clamp usable crop centers so that the portrait crop never leaves frame
+    half_crop = crop_w * 0.5
+    min_center = half_crop + edge_margin
+    max_center = src_w - half_crop - edge_margin
+
+    # Helper: clamp within field bounds
+    def clamp_center(x: float) -> float:
+        return max(min_center, min(max_center, x))
+
+    # Estimate per-sample velocity (px/sec)
+    vxs = [0.0] * len(xs)
+    for i in range(1, len(xs)):
+        dt = ts[i] - ts[i - 1]
+        if dt <= 1e-6:
+            vxs[i] = vxs[i - 1]
+        else:
+            vxs[i] = (xs[i] - xs[i - 1]) / dt
+
+    # Simple median smoothing on position + velocity to remove spikes
+    def median_filter(vals: List[float], window: int = 5) -> List[float]:
+        n = len(vals)
+        if n == 0 or window <= 1:
+            return vals[:]
+        half = window // 2
+        out = []
+        for i in range(n):
+            lo = max(0, i - half)
+            hi = min(n, i + half + 1)
+            window_vals = sorted(vals[lo:hi])
+            out.append(window_vals[len(window_vals) // 2])
+        return out
+
+    xs_smooth = median_filter(xs, window=5)
+    vxs_smooth = median_filter(vxs, window=5)
+
+    # Convert the irregular telemetry times into per-frame targets.
+    # We assume the first sample is near frame 0.
+    duration_s = ts[-1] - ts[0]
+    num_frames_est = max(1, int(math.ceil(duration_s * fps)) + 1)
+
+    frame_centers: List[float] = []
+    max_step_px = max_speed_px_per_s / fps
+
+    # Start from smoothed ball X around first sample
+    prev_center = clamp_center(xs_smooth[0])
+
+    for f in range(num_frames_est):
+        t = ts[0] + f / fps
+
+        # Find nearest sample index for this time
+        # (linear scan is fine for short clips; could binary-search if desired)
+        j = min(range(len(ts)), key=lambda k: abs(ts[k] - t))
+
+        x_ball = xs_smooth[j]
+        vx_ball = vxs_smooth[j]
+
+        # Forward anticipation: project ahead in time
+        x_proj = x_ball + vx_ball * anticipation_s
+
+        # Adaptive bias (Option C):
+        # - if vx > 0 (moving right) -> keep ball slightly left of center
+        # - if vx < 0 (moving left)  -> keep ball slightly right of center
+        # We implement this by nudging the projected center in motion direction
+        # but only a fraction of the remaining room.
+        motion_sign = 1.0 if vx_ball > 0 else (-1.0 if vx_ball < 0 else 0.0)
+
+        # How far could we move toward that side within bounds?
+        if motion_sign > 0:
+            room_right = max_center - x_proj
+            bias = 0.35 * room_right
+        elif motion_sign < 0:
+            room_left = x_proj - min_center
+            bias = -0.35 * room_left
+        else:
+            bias = 0.0
+
+        target_center = clamp_center(x_proj + bias)
+
+        # Limit pan speed so we don't whip across the field
+        delta = target_center - prev_center
+        if abs(delta) > max_step_px:
+            delta = max_step_px if delta > 0 else -max_step_px
+            target_center = prev_center + delta
+
+        # Low-pass smoothing to keep motion buttery
+        smoothed_center = prev_center + smooth_alpha * (target_center - prev_center)
+        smoothed_center = clamp_center(smoothed_center)
+
+        frame_centers.append(smoothed_center)
+        prev_center = smoothed_center
+
+    return frame_centers
 
 
 def _gaussian1d(values: Sequence[float], sigma: float, mode: str = "nearest") -> np.ndarray:
@@ -6015,10 +6138,25 @@ def run(
                         print(
                             f"[PAN] plan built: {len(pan_plan)} samples, x range={pan_plan.min():.1f}–{pan_plan.max():.1f}"
                         )
-                else:
-                    print("[PAN] no plan built; using centered crop")
-            else:
-                print("[PAN] no plan built; using centered crop")
+                if pan_plan is None or len(pan_plan) == 0:
+                    logger.info("[PAN] no plan built from segments; using fallback full-track follow")
+                    try:
+                        fallback_centers = build_fallback_pan_plan(
+                            ball_samples=ball_samples,
+                            src_w=int(width),
+                            crop_w=int(round(portrait_crop_width)),
+                            fps=float(fps_for_path or 24.0),
+                            anticipation_s=0.35,
+                            edge_margin=40,
+                            max_speed_px_per_s=900.0,
+                            smooth_alpha=0.18,
+                        )
+
+                        pan_plan = np.asarray(fallback_centers, dtype=float)
+                        renderer.pan_x_plan = pan_plan
+                    except Exception as exc:
+                        logger.warning("Fallback follow failed; using centered crop: %s", exc)
+                        pan_plan = None
         elif follow_mode == "exact":
             center_path = build_exact_follow_center_path(
                 ball_samples=ball_samples,
