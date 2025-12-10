@@ -38,6 +38,38 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _gaussian1d(values: Sequence[float], sigma: float, mode: str = "nearest") -> np.ndarray:
+    """Lightweight 1D Gaussian smooth without requiring SciPy.
+
+    Parameters
+    ----------
+    values : Sequence[float]
+        Input samples to smooth.
+    sigma : float
+        Standard deviation of the Gaussian kernel.
+    mode : str
+        Border handling; only "nearest" is supported.
+    """
+
+    arr = np.asarray(values, dtype=float)
+    if sigma <= 0 or arr.size == 0:
+        return arr.astype(float)
+
+    # 3-sigma kernel radius for a good approximation.
+    radius = max(1, int(round(float(sigma) * 3)))
+    x = np.arange(-radius, radius + 1, dtype=float)
+    kernel = np.exp(-0.5 * (x / float(sigma)) ** 2)
+    kernel_sum = kernel.sum()
+    if not np.isfinite(kernel_sum) or kernel_sum == 0:
+        return arr.astype(float)
+    kernel /= kernel_sum
+
+    pad_mode = "edge" if mode == "nearest" else mode
+    padded = np.pad(arr, radius, mode=pad_mode)
+    smoothed = np.convolve(padded, kernel, mode="same")
+    return smoothed[radius:-radius]
+
+
 def compute_predictive_follow_centers(
     ball_x: "np.ndarray",
     t: "np.ndarray",
@@ -452,57 +484,68 @@ def build_segment_predict_center_path(
         return []
 
     samples_tx = _ball_tx_pairs(ball_samples)
-    if not samples_tx:
-        return []
+    samples_tx.sort(key=lambda p: p[0])
+
+    def build_plan_segment_predict(ball_xy, fps, crop_w, src_width):
+        # 1. Soft filtering: keep almost everything, only drop impossible values
+        filtered = [(t, x) for (t, x) in ball_xy if 0 <= x <= src_width]
+
+        # If extremely few usable samples, fall back to raw ball_xy
+        if len(filtered) < 3:
+            filtered = list(ball_xy)
+
+        if not filtered:
+            return [], []
+
+        # 2. Base pan = ball-centered (move ball slightly right inside portrait)
+        target_bias = crop_w * 0.25  # ball 25% from left
+        pan = [(x - target_bias) for (_, x) in filtered]
+
+        # 3. Soft clamp pan into valid region (no more rejection)
+        clamped = [max(0.0, min(p, src_width - crop_w)) for p in pan]
+
+        # 4. Smooth with adjustable parameters
+        smoothed = _gaussian1d(clamped, sigma=6.0, mode="nearest")
+
+        # 5. Predict forward 0.20s
+        dt = 1.0 / float(fps) if fps > 0 else 0.0
+        lead_frames = max(1, int(0.20 / dt)) if dt > 0 else 1
+        lead = np.roll(smoothed, -lead_frames)
+
+        # 6. Additional light smooth
+        out = _gaussian1d(lead, sigma=3.0, mode="nearest")
+
+        # Always return a plan — even if imperfect
+        times = [t for (t, _) in filtered]
+        return times, out.tolist()
 
     n_frames = int(round(duration_s * fps))
-    center_x = [0.0] * n_frames
+    frame_times = [i / float(fps) for i in range(n_frames)]
 
-    tol_px = (portrait_w * tol_frac) * (src_w / float(portrait_w))
+    times, pan_plan = build_plan_segment_predict(samples_tx, fps, portrait_w, src_w)
 
-    half_p = portrait_w * 0.5
+    if not pan_plan:
+        # Fallback: steady center plan keeping crop fully inside frame
+        default_center = float(src_w) / 2.0
+        return [default_center] * n_frames
 
-    def clamp_center(xc):
-        return max(half_p, min(src_w - half_p, xc))
-
-    first_x = _interp_at_time(samples_tx, 0.0)
-    if first_x is None:
-        first_x = src_w / 2.0
-    prev_center = clamp_center(first_x)
-
-    for i in range(n_frames):
-        t_frame = i / float(fps)
-        t_lo = t_frame - window_s
-        t_hi = t_frame + window_s
-        window_points = [p for p in samples_tx if t_lo <= p[0] <= t_hi]
-
-        if not window_points:
-            center_x[i] = prev_center
+    # Interpolate plan to per-frame centers
+    # Ensure strictly increasing times for interpolation
+    uniq_times = []
+    uniq_pans = []
+    for t, p in zip(times, pan_plan):
+        if uniq_times and t <= uniq_times[-1]:
             continue
+        uniq_times.append(t)
+        uniq_pans.append(p)
 
-        avg_x = sum(p[1] for p in window_points) / float(len(window_points))
+    if len(uniq_times) == 1:
+        uniq_times = [0.0, max(frame_times[-1], 0.0)]
+        uniq_pans = [uniq_pans[0], uniq_pans[0]]
 
-        t_lead = t_frame + lead_s
-        lead_x = _interp_at_time(samples_tx, t_lead)
-        if lead_x is None:
-            lead_x = avg_x
-
-        desired_raw = 0.3 * avg_x + 0.7 * lead_x
-
-        band_half = tol_px * 0.5
-        delta = desired_raw - prev_center
-        if abs(delta) <= band_half:
-            desired_center = prev_center
-        else:
-            step = delta * 0.35
-            desired_center = prev_center + step
-
-        smoothed_center = smooth_alpha * prev_center + (1.0 - smooth_alpha) * desired_center
-        smoothed_center = clamp_center(smoothed_center)
-        center_x[i] = smoothed_center
-        prev_center = smoothed_center
-
-    return center_x
+    pan_interp = np.interp(frame_times, uniq_times, uniq_pans)
+    center_x = (pan_interp + (portrait_w * 0.5)).tolist()
+    return [max(portrait_w * 0.5, min(src_w - portrait_w * 0.5, cx)) for cx in center_x]
 
 
 def _build_smooth_pan_plan(ball_x, fps, src_w, max_speed_px_per_s=900.0):
