@@ -733,20 +733,33 @@ def build_option_c_follow_centers(
     frame_times = np.arange(frame_count, dtype=float) / fps if fps > 0 else np.zeros(frame_count)
     ball_x = np.interp(frame_times, telem_times, telem_x)
     vx = np.gradient(ball_x) * fps if fps > 0 else np.zeros_like(ball_x)
-    predicted = ball_x + vx * float(anticipation_s)
+    max_anticipation_px = 0.08 * float(portrait_w)
+    anticipation_dx = vx * float(anticipation_s)
+    anticipation_dx = np.clip(
+        anticipation_dx, -max_anticipation_px, max_anticipation_px
+    )
+    predicted = ball_x + anticipation_dx
     predicted = np.clip(predicted, min_center, max_center)
 
     max_delta = max_speed_px_per_s / float(max(fps, 1.0))
     centers_option_c = np.zeros(frame_count, dtype=float)
     prev_center = _clamp_center(centers_segment_arr[0] if centers_segment_arr.size else predicted[0])
+    prev_delta = 0.0
     centers_option_c[0] = prev_center
+    reversal_threshold_px = 0.04 * float(portrait_w)
     for idx in range(1, frame_count):
         base = centers_segment_arr[idx] if idx < centers_segment_arr.size else prev_center
         desired = 0.6 * predicted[idx] + 0.4 * _clamp_center(base)
-        delta = desired - prev_center
-        if abs(delta) > max_delta:
-            delta = math.copysign(max_delta, delta)
-        prev_center = _clamp_center(prev_center + delta)
+        new_delta = desired - prev_center
+        if math.copysign(1.0, new_delta) != math.copysign(1.0, prev_delta) and abs(new_delta) < reversal_threshold_px:
+            new_delta = prev_delta * 0.7
+        if abs(new_delta) > max_delta:
+            new_delta = math.copysign(max_delta, new_delta)
+        target_center = _clamp_center(prev_center + new_delta)
+        smoothed_center = prev_center + 0.18 * (target_center - prev_center)
+        smoothed_center = _clamp_center(smoothed_center)
+        prev_delta = smoothed_center - prev_center
+        prev_center = smoothed_center
         centers_option_c[idx] = prev_center
 
     return centers_option_c
