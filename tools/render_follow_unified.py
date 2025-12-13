@@ -671,6 +671,87 @@ def build_segment_predict_center_path(
     return [max(portrait_w * 0.5, min(src_w - portrait_w * 0.5, cx)) for cx in center_x]
 
 
+def _resample_path(values: Sequence[float], target_len: int) -> np.ndarray:
+    if target_len <= 0:
+        return np.zeros(0, dtype=float)
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        return np.zeros(target_len, dtype=float)
+    if arr.size == target_len:
+        return arr.astype(float)
+    x_src = np.linspace(0.0, 1.0, num=arr.size)
+    x_dst = np.linspace(0.0, 1.0, num=target_len)
+    return np.interp(x_dst, x_src, arr).astype(float)
+
+
+def build_option_c_follow_centers(
+    *,
+    ball_samples: Sequence[Mapping[str, float]] | Sequence[BallSample] | None,
+    fps: float,
+    src_w: int,
+    portrait_w: int,
+    frame_count: int,
+    anticipation_s: float = 0.25,
+    max_speed_px_per_s: float = 900.0,
+) -> np.ndarray:
+    """Compute per-frame horizontal centers for follow option C.
+
+    This always returns a per-frame array (never ``None``), first attempting
+    the segment-predict planner and then falling back to telemetry-driven
+    smoothing with forward anticipation.
+    """
+
+    fps = float(fps if fps and fps > 0 else 24.0)
+    portrait_w = int(max(1, portrait_w))
+    half_crop = portrait_w * 0.5
+    min_center = half_crop
+    max_center = float(src_w) - half_crop
+
+    def _clamp_center(x: float) -> float:
+        return max(min_center, min(max_center, x))
+
+    duration_s = frame_count / fps if fps > 0 else 0.0
+    centers_segment = build_segment_predict_center_path(
+        ball_samples=ball_samples or [],
+        fps=fps,
+        src_w=float(src_w),
+        portrait_w=float(portrait_w),
+        duration_s=float(duration_s),
+    )
+
+    centers_segment_arr = np.asarray(centers_segment, dtype=float)
+    centers_segment_arr = _resample_path(centers_segment_arr, frame_count)
+
+    samples_tx = _ball_tx_pairs(ball_samples or [])
+    if samples_tx:
+        telem_times = np.array([t for (t, _) in samples_tx], dtype=float)
+        telem_x = np.array([x for (_, x) in samples_tx], dtype=float)
+    else:
+        telem_times = np.array([0.0, max(duration_s, 1.0 / max(fps, 1.0))], dtype=float)
+        telem_x = np.array([float(src_w) / 2.0, float(src_w) / 2.0], dtype=float)
+
+    frame_times = np.arange(frame_count, dtype=float) / fps if fps > 0 else np.zeros(frame_count)
+    ball_x = np.interp(frame_times, telem_times, telem_x)
+    vx = np.gradient(ball_x) * fps if fps > 0 else np.zeros_like(ball_x)
+    predicted = ball_x + vx * float(anticipation_s)
+    predicted = np.clip(predicted, min_center, max_center)
+
+    max_delta = max_speed_px_per_s / float(max(fps, 1.0))
+    centers_option_c = np.zeros(frame_count, dtype=float)
+    prev_center = _clamp_center(centers_segment_arr[0] if centers_segment_arr.size else predicted[0])
+    centers_option_c[0] = prev_center
+    for idx in range(1, frame_count):
+        base = centers_segment_arr[idx] if idx < centers_segment_arr.size else prev_center
+        desired = 0.6 * predicted[idx] + 0.4 * _clamp_center(base)
+        delta = desired - prev_center
+        if abs(delta) > max_delta:
+            delta = math.copysign(max_delta, delta)
+        prev_center = _clamp_center(prev_center + delta)
+        centers_option_c[idx] = prev_center
+
+    return centers_option_c
+
+
 def _build_smooth_pan_plan(ball_x, fps, src_w, max_speed_px_per_s=900.0):
     """
     ball_x: 1D np.array of per-frame ball X in source pixels (NaN or None allowed)
@@ -5788,9 +5869,7 @@ def run(
     if override_samples:
         use_ball_telemetry = False
 
-    follow_mode = getattr(args, "follow_mode", None) or "segment_predict"
-    if follow_mode not in {"exact", "smart", "segment_predict"}:
-        follow_mode = "segment_predict"
+    follow_mode = "option_c"
     log_dict["follow_mode"] = follow_mode
 
     if getattr(args, "telemetry", None):
@@ -6102,76 +6181,45 @@ def run(
     follow_centers: Optional[Sequence[float]] = None
     follow_centers_int: Optional[list[int]] = None
     pan_plan: Optional[np.ndarray] = None
+    fps_for_path = float(fps_out if fps_out and fps_out > 0 else fps_in or 0.0)
+    portrait_crop_width = float(follow_crop_width or width)
     if follow_override_map is None:
-        fps_for_path = float(fps_out if fps_out and fps_out > 0 else fps_in or 0.0)
-        portrait_crop_width = float(follow_crop_width or width)
 
-        if follow_mode == "segment_predict":
-            center_path = build_segment_predict_center_path(
-                ball_samples=ball_samples,
-                fps=fps_for_path,
-                src_w=float(width),
-                portrait_w=float(portrait_crop_width),
-                duration_s=float(duration_s or 0.0),
-            )
-            if center_path:
-                cam_x = smooth_pan_track(list(center_path))
-                cam_x_int = [int(round(x)) for x in cam_x]
-                logger.info(
-                    "[INFO] Using segment-predict follow (window=0.6s, lead=0.3s, tol_frac=0.35)"
-                )
-                follow_centers = cam_x
-                follow_centers_int = cam_x_int
-                renderer.follow_plan_x = np.array(cam_x, dtype=float)
+        if portrait_crop_width > 0 and width > 0:
             total_frames_for_pan = len(states) if states else int(round(duration_s * fps_for_path))
-            if total_frames_for_pan > 0:
-                tx_pairs = _ball_tx_pairs(ball_samples)
-                if tx_pairs:
-                    ball_x_per_frame: list[float] = []
-                    for idx in range(total_frames_for_pan):
-                        t_frame = idx / float(fps_for_path or 1.0)
-                        x_val = _interp_at_time(tx_pairs, t_frame)
-                        ball_x_per_frame.append(x_val if x_val is not None else float("nan"))
-                    pan_plan = _build_smooth_pan_plan(ball_x_per_frame, fps_for_path, float(width))
-                    renderer.pan_x_plan = pan_plan
-                    if pan_plan is not None:
-                        print(
-                            f"[PAN] plan built: {len(pan_plan)} samples, x range={pan_plan.min():.1f}–{pan_plan.max():.1f}"
-                        )
-                if pan_plan is None or len(pan_plan) == 0:
-                    logger.info("[PAN] no plan built from segments; using fallback full-track follow")
-                    try:
-                        fallback_centers = build_fallback_pan_plan(
-                            ball_samples=ball_samples,
-                            src_w=int(width),
-                            crop_w=int(round(portrait_crop_width)),
-                            fps=float(fps_for_path or 24.0),
-                            anticipation_s=0.35,
-                            edge_margin=40,
-                            max_speed_px_per_s=900.0,
-                            smooth_alpha=0.18,
-                        )
-
-                        pan_plan = np.asarray(fallback_centers, dtype=float)
-                        renderer.pan_x_plan = pan_plan
-                    except Exception as exc:
-                        logger.warning("Fallback follow failed; using centered crop: %s", exc)
-                        pan_plan = None
-        elif follow_mode == "exact":
-            center_path = build_exact_follow_center_path(
+            centers_option_c = build_option_c_follow_centers(
                 ball_samples=ball_samples,
                 fps=fps_for_path,
-                src_w=float(width),
-                portrait_w=float(portrait_crop_width),
-                duration_s=float(duration_s or 0.0),
+                src_w=int(width),
+                portrait_w=int(round(portrait_crop_width)),
+                frame_count=total_frames_for_pan if total_frames_for_pan > 0 else int(frame_count or 0),
+                anticipation_s=0.25,
+                max_speed_px_per_s=900.0,
             )
-            if center_path:
-                cam_x_int = [int(round(x)) for x in center_path]
-                logger.info("[INFO] Using exact follow (raw ball centers; unsmoothed)")
-                follow_centers = center_path
-                follow_centers_int = cam_x_int
-                renderer.follow_plan_x = np.array(center_path, dtype=float)
-                renderer.pan_x_plan = renderer.follow_plan_x
+            centers_option_c = _resample_path(centers_option_c, int(frame_count))
+            centers_option_c = np.nan_to_num(centers_option_c, nan=float(width) / 2.0)
+            follow_centers = centers_option_c.tolist()
+            follow_centers_int = [int(round(x)) for x in centers_option_c]
+            renderer.follow_plan_x = centers_option_c
+            renderer.pan_x_plan = centers_option_c
+
+    if renderer.pan_x_plan is None:
+        frames_for_plan = len(states)
+        centers_option_c = build_option_c_follow_centers(
+            ball_samples=ball_samples,
+            fps=fps_for_path,
+            src_w=int(width),
+            portrait_w=int(round(portrait_crop_width)),
+            frame_count=frames_for_plan,
+            anticipation_s=0.25,
+            max_speed_px_per_s=900.0,
+        )
+        centers_option_c = _resample_path(centers_option_c, frames_for_plan)
+        centers_option_c = np.nan_to_num(centers_option_c, nan=float(width) / 2.0)
+        renderer.pan_x_plan = centers_option_c
+        if follow_centers is None:
+            follow_centers = centers_option_c.tolist()
+            follow_centers_int = [int(round(x)) for x in centers_option_c]
 
     if renderer.follow_plan_x is None and follow_centers is not None:
         renderer.follow_plan_x = np.asarray(follow_centers, dtype=float)
@@ -6181,6 +6229,9 @@ def run(
         renderer.pan_x_plan = renderer.follow_plan_x
 
     pan_plan_for_render = getattr(renderer, "pan_x_plan", None)
+    num_frames = len(states)
+    assert pan_plan_for_render is not None, "Follow plan missing centers_x"
+    assert len(pan_plan_for_render) == num_frames, "Follow plan centers_x length mismatch"
     jerk95 = renderer.write_frames(
         states,
         follow_centers=follow_centers_int or follow_centers,
@@ -6543,29 +6594,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a JSONL file with explicit per-frame cx/cy/zoom overrides.",
     )
-    group_follow = parser.add_mutually_exclusive_group()
-    group_follow.add_argument(
-        "--follow-exact",
-        action="store_const",
+    parser.add_argument(
+        "--follow",
         dest="follow_mode",
-        const="exact",
-        help="Debug: lock camera center to raw ball telemetry each frame.",
+        choices=["option_c"],
+        default="option_c",
+        help="Portrait follow mode (option_c: segment + smoothing + anticipation).",
     )
-    group_follow.add_argument(
-        "--follow-smart",
-        action="store_const",
-        dest="follow_mode",
-        const="smart",
-        help="Legacy heuristic follow using the standard planner.",
-    )
-    group_follow.add_argument(
-        "--follow-segment-predict",
-        action="store_const",
-        dest="follow_mode",
-        const="segment_predict",
-        help="Recommended: segment-based predictive follow with balanced smoothing.",
-    )
-    parser.set_defaults(follow_mode="segment_predict")
     return parser
 
 
