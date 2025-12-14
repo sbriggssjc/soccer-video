@@ -693,12 +693,13 @@ def build_option_c_follow_centers(
     frame_count: int,
     anticipation_s: float = 0.25,
     max_speed_px_per_s: float = 900.0,
-) -> np.ndarray:
+    debug_pan_overlay: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute per-frame horizontal centers for follow option C.
 
-    This always returns a per-frame array (never ``None``), first attempting
-    the segment-predict planner and then falling back to telemetry-driven
-    smoothing with forward anticipation.
+    Returns the pan centers along with per-frame crop width scale factors and
+    recovery flags. The plan first attempts the segment-predict planner and
+    then falls back to telemetry-driven smoothing with forward anticipation.
     """
 
     fps = float(fps if fps and fps > 0 else 24.0)
@@ -706,6 +707,8 @@ def build_option_c_follow_centers(
     half_crop = portrait_w * 0.5
     min_center = half_crop
     max_center = float(src_w) - half_crop
+    mid_center = (min_center + max_center) * 0.5
+    max_pan_x = max_center - mid_center
 
     def _clamp_center(x: float) -> float:
         return max(min_center, min(max_center, x))
@@ -734,94 +737,82 @@ def build_option_c_follow_centers(
     ball_x = np.interp(frame_times, telem_times, telem_x)
     vx = np.gradient(ball_x) * fps if fps > 0 else np.zeros_like(ball_x)
     max_anticipation_px = 0.08 * float(portrait_w)
-    anticipation_dx = vx * float(anticipation_s)
-    anticipation_dx = np.clip(
-        anticipation_dx, -max_anticipation_px, max_anticipation_px
-    )
-    predicted = ball_x + anticipation_dx
-    predicted = np.clip(predicted, min_center, max_center)
-
     max_delta = max_speed_px_per_s / float(max(fps, 1.0))
     centers_option_c = np.zeros(frame_count, dtype=float)
-    prev_center = _clamp_center(centers_segment_arr[0] if centers_segment_arr.size else predicted[0])
+    crop_scales = np.ones(frame_count, dtype=float)
+    recovery_flags = np.zeros(frame_count, dtype=float)
+    prev_center = _clamp_center(centers_segment_arr[0] if centers_segment_arr.size else ball_x[0])
     prev_delta = 0.0
     centers_option_c[0] = prev_center
+    base_smoothing_alpha = 0.18
     reversal_threshold_px = 0.04 * float(portrait_w)
+    saturation_margin = 0.85 * max_pan_x
+    recovery_clear_margin = 0.65 * max_pan_x
+    recovery_release_frames_required = 6
+    recovery_release_counter = 0
+    recovery_active = False
+    current_scale = 1.0
+    scale_alpha = 0.22  # ~4-6 frame lerp
+
     for idx in range(1, frame_count):
+        ball_pos = ball_x[idx]
+        vx_val = vx[idx]
+        lookahead_s = float(anticipation_s)
+        if recovery_active:
+            lookahead_s += 0.15
+        max_anticipation_eff = max_anticipation_px * min(1.6, lookahead_s / max(float(anticipation_s), 1e-6))
+        anticipation_dx = np.clip(vx_val * lookahead_s, -max_anticipation_eff, max_anticipation_eff)
+        predicted = _clamp_center(ball_pos + anticipation_dx)
+
         base = centers_segment_arr[idx] if idx < centers_segment_arr.size else prev_center
-        desired = 0.6 * predicted[idx] + 0.4 * _clamp_center(base)
-        new_delta = desired - prev_center
+        desired = 0.6 * predicted + 0.4 * _clamp_center(base)
+
+        predicted_pan = desired - mid_center
+        if not recovery_active and abs(predicted_pan) > saturation_margin:
+            recovery_active = True
+            recovery_release_counter = 0
+            if debug_pan_overlay:
+                logger.info("[option_c] recovery start at frame %d", idx)
+        elif recovery_active:
+            if abs(predicted_pan) < recovery_clear_margin:
+                recovery_release_counter += 1
+                if recovery_release_counter >= recovery_release_frames_required:
+                    recovery_active = False
+                    recovery_release_counter = 0
+                    if debug_pan_overlay:
+                        logger.info("[option_c] recovery end at frame %d", idx)
+            else:
+                recovery_release_counter = 0
+
+        if recovery_active:
+            overshoot = max(0.0, abs(predicted_pan) - saturation_margin)
+            overshoot_span = max(max_pan_x - saturation_margin, 1e-6)
+            risk_frac = min(1.0, overshoot / overshoot_span)
+            target_scale = 1.0 + 0.18 * risk_frac
+        else:
+            target_scale = 1.0
+        current_scale += scale_alpha * (target_scale - current_scale)
+        current_scale = min(1.18, max(1.0, current_scale))
+        crop_scales[idx] = current_scale
+        recovery_flags[idx] = 1.0 if recovery_active else 0.0
+
+        follow_gain = 0.6 if recovery_active else 1.0
+        new_delta = (desired - prev_center) * follow_gain
         if math.copysign(1.0, new_delta) != math.copysign(1.0, prev_delta) and abs(new_delta) < reversal_threshold_px:
             new_delta = prev_delta * 0.7
         if abs(new_delta) > max_delta:
             new_delta = math.copysign(max_delta, new_delta)
         target_center = _clamp_center(prev_center + new_delta)
-        smoothed_center = prev_center + 0.18 * (target_center - prev_center)
+        smoothing_alpha = base_smoothing_alpha * (0.75 if recovery_active else 1.0)
+        smoothing_alpha = max(0.05, smoothing_alpha)
+        smoothed_center = prev_center + smoothing_alpha * (target_center - prev_center)
         smoothed_center = _clamp_center(smoothed_center)
         prev_delta = smoothed_center - prev_center
         prev_center = smoothed_center
         centers_option_c[idx] = prev_center
 
-    return centers_option_c
+    return centers_option_c, crop_scales, recovery_flags
 
-
-def _build_smooth_pan_plan(ball_x, fps, src_w, max_speed_px_per_s=900.0):
-    """
-    ball_x: 1D np.array of per-frame ball X in source pixels (NaN or None allowed)
-    fps:    frames per second
-    src_w:  source width in pixels
-    max_speed_px_per_s: cap on camera pan speed used when clamping
-
-    Returns: np.array of per-frame pan centers (float32).
-    """
-
-    n = len(ball_x)
-    if n == 0:
-        return np.zeros(0, dtype=np.float32)
-    x = np.array(ball_x, dtype=float)
-
-    # 1) Fill gaps (NaNs / invalid) with nearest-neighbor then global mean.
-    mask = ~np.isfinite(x)
-    if np.any(mask):
-        # forward fill then backward fill
-        for i in range(1, n):
-            if not np.isfinite(x[i]) and np.isfinite(x[i - 1]):
-                x[i] = x[i - 1]
-        for i in range(n - 2, -1, -1):
-            if not np.isfinite(x[i]) and np.isfinite(x[i + 1]):
-                x[i] = x[i + 1]
-        if not np.all(np.isfinite(x)):
-            # final fallback: center of frame
-            x[~np.isfinite(x)] = src_w / 2.0
-
-    # 2) LOOKAHEAD: have the camera lead the ball slightly.
-    # Use a forward window of about 0.25s.
-    lookahead_frames = max(1, int(round(0.25 * fps)))
-    x_lead = np.copy(x)
-    for i in range(n):
-        j = min(n - 1, i + lookahead_frames)
-        # simple blend between current and short-term future
-        x_lead[i] = 0.6 * x[i] + 0.4 * x[j]
-
-    # 3) SMOOTHING: apply a symmetric low-pass filter.
-    # Kernel roughly ~ 5 frames wide, weighted middle.
-    kernel = np.array([1.0, 2.0, 3.0, 2.0, 1.0], dtype=float)
-    kernel /= kernel.sum()
-    x_smooth = np.convolve(x_lead, kernel, mode="same")
-
-    # 4) Clamp max per-frame delta to avoid whip pans.
-    max_delta = max_speed_px_per_s / float(max(fps, 1))
-    for i in range(1, n):
-        delta = x_smooth[i] - x_smooth[i - 1]
-        if delta > max_delta:
-            x_smooth[i] = x_smooth[i - 1] + max_delta
-        elif delta < -max_delta:
-            x_smooth[i] = x_smooth[i - 1] - max_delta
-
-    # 5) Clamp to valid horizontal range.
-    x_smooth = np.clip(x_smooth, 0.0, float(src_w))
-
-    return x_smooth.astype(np.float32)
 
 
 def build_exact_follow_center_path(
@@ -4829,6 +4820,8 @@ class Renderer:
             if state is not None and state.ball is not None:
                 bx, by = state.ball
                 cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 6, (0, 0, 255), -1)
+            if state is not None and getattr(state, "recovery_active", False):
+                cv2.line(overlay_frame, (0, 8), (width - 1, 8), (0, 255, 255), 3)
             actual_center_x = int(round(clamped_x0 + crop_w / 2.0))
             cv2.line(
                 overlay_frame,
@@ -5258,17 +5251,31 @@ class Renderer:
         follow_targets_len = len(follow_targets[0]) if follow_targets else 0
         follow_lookahead_frames = max(0, int(self.follow_lookahead))
 
+        crop_scale_plan = getattr(self, "follow_crop_scale_plan", None)
+        recovery_flags = getattr(self, "pan_recovery_flags", None)
+        original_crop_sizes: list[tuple[float, float]] = []
+        if states:
+            original_crop_sizes = [(float(s.crop_w), float(s.crop_h)) for s in states]
         if follow_centers is not None:
             states = list(states)
             for idx, cx in enumerate(follow_centers):
                 if idx >= len(states):
                     break
                 state = states[idx]
-                crop_w = float(state.crop_w)
-                half_w = crop_w / 2.0 if crop_w > 0 else float(width) / 2.0
+                base_crop_w, base_crop_h = original_crop_sizes[idx] if idx < len(original_crop_sizes) else (state.crop_w, state.crop_h)
+                scale = 1.0
+                if crop_scale_plan is not None and idx < len(crop_scale_plan):
+                    scale = float(crop_scale_plan[idx])
+                scaled_w = float(np.clip(base_crop_w * scale, 1.0, float(width)))
+                scaled_h = float(np.clip(base_crop_h * scale, 1.0, float(height)))
+                state.crop_w = scaled_w
+                state.crop_h = scaled_h
+                half_w = scaled_w / 2.0 if scaled_w > 0 else float(width) / 2.0
                 clamped_cx = float(np.clip(float(cx), half_w, float(width) - half_w))
                 state.cx = clamped_cx
-                state.x0 = clamped_cx - crop_w / 2.0
+                state.x0 = clamped_cx - scaled_w / 2.0
+                if recovery_flags is not None and idx < len(recovery_flags):
+                    state.recovery_active = bool(recovery_flags[idx])
         active_pan_plan = None
         if pan_x_plan is not None:
             active_pan_plan = pan_x_plan
@@ -6200,7 +6207,11 @@ def run(
 
         if portrait_crop_width > 0 and width > 0:
             total_frames_for_pan = len(states) if states else int(round(duration_s * fps_for_path))
-            centers_option_c = build_option_c_follow_centers(
+            (
+                centers_option_c,
+                crop_scales_option_c,
+                recovery_flags_option_c,
+            ) = build_option_c_follow_centers(
                 ball_samples=ball_samples,
                 fps=fps_for_path,
                 src_w=int(width),
@@ -6208,17 +6219,27 @@ def run(
                 frame_count=total_frames_for_pan if total_frames_for_pan > 0 else int(frame_count or 0),
                 anticipation_s=0.25,
                 max_speed_px_per_s=900.0,
+                debug_pan_overlay=bool(getattr(args, "debug_pan_overlay", False)),
             )
             centers_option_c = _resample_path(centers_option_c, int(frame_count))
             centers_option_c = np.nan_to_num(centers_option_c, nan=float(width) / 2.0)
+            crop_scales_option_c = _resample_path(crop_scales_option_c, int(frame_count))
+            recovery_flags_option_c = _resample_path(recovery_flags_option_c, int(frame_count))
+            recovery_flags_option_c = recovery_flags_option_c > 0.5
             follow_centers = centers_option_c.tolist()
             follow_centers_int = [int(round(x)) for x in centers_option_c]
             renderer.follow_plan_x = centers_option_c
             renderer.pan_x_plan = centers_option_c
+            renderer.follow_crop_scale_plan = np.asarray(crop_scales_option_c, dtype=float)
+            renderer.pan_recovery_flags = np.asarray(recovery_flags_option_c, dtype=bool)
 
     if renderer.pan_x_plan is None:
         frames_for_plan = len(states)
-        centers_option_c = build_option_c_follow_centers(
+        (
+            centers_option_c,
+            crop_scales_option_c,
+            recovery_flags_option_c,
+        ) = build_option_c_follow_centers(
             ball_samples=ball_samples,
             fps=fps_for_path,
             src_w=int(width),
@@ -6226,10 +6247,16 @@ def run(
             frame_count=frames_for_plan,
             anticipation_s=0.25,
             max_speed_px_per_s=900.0,
+            debug_pan_overlay=bool(getattr(args, "debug_pan_overlay", False)),
         )
         centers_option_c = _resample_path(centers_option_c, frames_for_plan)
         centers_option_c = np.nan_to_num(centers_option_c, nan=float(width) / 2.0)
+        crop_scales_option_c = _resample_path(crop_scales_option_c, frames_for_plan)
+        recovery_flags_option_c = _resample_path(recovery_flags_option_c, frames_for_plan)
+        recovery_flags_option_c = recovery_flags_option_c > 0.5
         renderer.pan_x_plan = centers_option_c
+        renderer.follow_crop_scale_plan = np.asarray(crop_scales_option_c, dtype=float)
+        renderer.pan_recovery_flags = np.asarray(recovery_flags_option_c, dtype=bool)
         if follow_centers is None:
             follow_centers = centers_option_c.tolist()
             follow_centers_int = [int(round(x)) for x in centers_option_c]
