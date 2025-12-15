@@ -3891,6 +3891,7 @@ class CamState:
     clamp_flags: List[str]
     ball: Optional[Tuple[float, float]] = None
     zoom_scale: float = 1.0
+    keepinview_override: bool = False
 
 
 class CameraPlanner:
@@ -4077,6 +4078,15 @@ class CameraPlanner:
 
             return crop_w, crop_h, x0, y0, actual_cx, actual_cy, zoom_clamped, bounds_clamped
 
+        anticipate_dt = float(self.lookahead) / render_fps if render_fps > 0 else 0.0
+        keepinview_nudge = float(self.keepinview_nudge_gain)
+        keepinview_zoom = float(self.keepinview_zoom_gain)
+        keepinview_zoom_cap = float(self.keepinview_zoom_out_max)
+        base_keepinview_margin = float(self.keepinview_margin_px)
+
+        prev_bx = prev_cx
+        prev_by = prev_cy
+
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
             has_position = bool(used_mask[frame_idx]) and not np.isnan(pos).any()
@@ -4101,16 +4111,6 @@ class CameraPlanner:
                 )
                 target = fallback_center
 
-            # Lookahead bias.
-            if self.lookahead > 0 and frame_idx < frame_count - 1:
-                max_future = min(frame_count - 1, frame_idx + self.lookahead)
-                future_positions = positions[frame_idx + 1 : max_future + 1]
-                future_mask = used_mask[frame_idx + 1 : max_future + 1]
-                valid_future = future_positions[future_mask]
-                if valid_future.size:
-                    future_mean = valid_future.mean(axis=0)
-                    target = 0.65 * target + 0.35 * future_mean
-
             bx_used = float(target[0])
             by_used = float(target[1])
 
@@ -4120,6 +4120,8 @@ class CameraPlanner:
                 )
             else:
                 target_center_y = float(np.clip(by_used, 0.0, self.height))
+
+            clamp_flags: List[str] = []
 
             speed_pf = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
             if self.speed_zoom_config:
@@ -4142,82 +4144,59 @@ class CameraPlanner:
             zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
-            cx = center_alpha * bx_used + (1.0 - center_alpha) * prev_cx
-            cy = center_alpha * target_center_y + (1.0 - center_alpha) * prev_cy
+            vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
+            vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
+
+            # --- OPTION C: KEEP-IN-VIEW DOMINANT FOLLOW ---
+
+            # 1) Predict future ball position (anticipation)
+            bx_pred = bx_used + vx * anticipate_dt
+            by_pred = target_center_y + vy * anticipate_dt
+
+            # 2) Compute desired center from anticipation
+            cx_anticipate = bx_pred
+            cy_anticipate = by_pred
+
+            # 3) Apply smoothing toward anticipated center
+            cx_smooth = prev_cx + center_alpha * (cx_anticipate - prev_cx)
+            cy_smooth = prev_cy + center_alpha * (cy_anticipate - prev_cy)
+
+            # 4) KEEP-IN-VIEW GUARD (DOMINANT)
+            kv_zoom, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
+            kv_zoom = kv_zoom  # kept for clarity; zoom already clamped
+            guard_frac = max(0.0, float(self.keepinview_min_band_frac))
+            margin_x = max(base_keepinview_margin, kv_crop_w * guard_frac)
+            margin_y = max(base_keepinview_margin, kv_crop_h * guard_frac)
+
+            dx = abs(bx_used - cx_smooth)
+            dy = abs(target_center_y - cy_smooth)
+
+            keepinview_override = dx > margin_x or dy > margin_y
+            if keepinview_override:
+                # OVERRIDE: hard recenter toward CURRENT ball
+                cx = prev_cx + keepinview_nudge * (bx_used - prev_cx)
+                cy = prev_cy + keepinview_nudge * (target_center_y - prev_cy)
+
+                clamp_flags.append("keepin_override")
+            else:
+                # Safe: allow anticipation + smoothing
+                cx = cx_smooth
+                cy = cy_smooth
+
+            # If keep-in-view triggered, DO NOT apply further anticipation this frame
+            if keepinview_override:
+                vx = 0.0
+                vy = 0.0
 
             ball_point: Optional[Tuple[float, float]] = None
             if has_position:
                 ball_point = (float(pos[0]), float(pos[1]))
-
-            clamp_flags: List[str] = []
             edge_zoom_scale = 1.0
 
+
             keepinview_zoom_out = 1.0
-            keepinview_margin = self.keepinview_margin_px
-            if keepinview_margin > 0.0:
-                bx_guard: Optional[float]
-                by_guard: Optional[float]
-                if ball_point:
-                    bx_guard, by_guard = ball_point
-                else:
-                    bx_guard, by_guard = float(target[0]), float(target[1])
-
-                if math.isfinite(bx_guard) and math.isfinite(by_guard):
-                    _, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
-                    if kv_crop_w > 0.0 and kv_crop_h > 0.0:
-                        guard_frac = max(0.0, float(self.keepinview_min_band_frac))
-                        if guard_frac > 0.0:
-                            keepinview_margin = max(
-                                keepinview_margin,
-                                kv_crop_w * guard_frac,
-                                kv_crop_h * guard_frac,
-                            )
-                        half_w = kv_crop_w * 0.5
-                        half_h = kv_crop_h * 0.5
-
-                        left_gap = bx_guard - (cx - half_w + keepinview_margin)
-                        right_gap = (cx + half_w - keepinview_margin) - bx_guard
-                        top_gap = by_guard - (cy - half_h + keepinview_margin)
-                        bot_gap = (cy + half_h - keepinview_margin) - by_guard
-                        tight = min(left_gap, right_gap, top_gap, bot_gap)
-
-                        threshold_nudge = keepinview_margin * 0.15
-                        if self.keepinview_nudge_gain > 0.0 and tight < threshold_nudge:
-                            ex = 0.0
-                            ey = 0.0
-                            if left_gap < threshold_nudge:
-                                ex -= threshold_nudge - left_gap
-                            if right_gap < threshold_nudge:
-                                ex += threshold_nudge - right_gap
-                            if top_gap < threshold_nudge:
-                                ey -= threshold_nudge - top_gap
-                            if bot_gap < threshold_nudge:
-                                ey += threshold_nudge - bot_gap
-                            if ex or ey:
-                                cx += self.keepinview_nudge_gain * ex
-                                cy += self.keepinview_nudge_gain * ey
-                                if "keepin_nudge" not in clamp_flags:
-                                    clamp_flags.append("keepin_nudge")
-                                left_gap = bx_guard - (cx - half_w + keepinview_margin)
-                                right_gap = (cx + half_w - keepinview_margin) - bx_guard
-                                top_gap = by_guard - (cy - half_h + keepinview_margin)
-                                bot_gap = (cy + half_h - keepinview_margin) - by_guard
-
-                        threshold_zoom = keepinview_margin * 0.25
-                        min_gap = min(left_gap, right_gap, top_gap, bot_gap)
-                        if (
-                            self.keepinview_zoom_gain > 0.0
-                            and threshold_zoom > 0.0
-                            and min_gap < threshold_zoom
-                        ):
-                            deficit = threshold_zoom - min_gap
-                            keepinview_zoom_out = 1.0 + self.keepinview_zoom_gain * (
-                                deficit / threshold_zoom
-                            )
-                            keepinview_zoom_out = min(
-                                keepinview_zoom_out,
-                                self.keepinview_zoom_out_max,
-                            )
+            if keepinview_override and keepinview_zoom > 0.0:
+                keepinview_zoom_out = min(1.0 + keepinview_zoom, keepinview_zoom_cap)
 
             if keepinview_zoom_out > 1.0:
                 keepin_scale = 1.0 / keepinview_zoom_out
@@ -4411,6 +4390,8 @@ class CameraPlanner:
             prev_zoom = zoom
             prev_target_x = bx_used
             prev_target_y = target_center_y
+            prev_bx = bx_used
+            prev_by = target_center_y
 
             states.append(
                 CamState(
@@ -4426,6 +4407,7 @@ class CameraPlanner:
                     clamp_flags=clamp_flags,
                     ball=ball_point,
                     zoom_scale=edge_zoom_scale,
+                    keepinview_override=keepinview_override,
                 )
             )
 
@@ -4822,6 +4804,17 @@ class Renderer:
                 cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 6, (0, 0, 255), -1)
             if state is not None and getattr(state, "recovery_active", False):
                 cv2.line(overlay_frame, (0, 8), (width - 1, 8), (0, 255, 255), 3)
+            if state is not None and getattr(state, "keepinview_override", False):
+                cv2.putText(
+                    overlay_frame,
+                    "KEEP-IN-VIEW OVERRIDE",
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
             actual_center_x = int(round(clamped_x0 + crop_w / 2.0))
             cv2.line(
                 overlay_frame,
