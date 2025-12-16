@@ -318,6 +318,7 @@ def compute_predictive_follow_centers(
 
 
 def load_any_telemetry(path):
+    path = str(path)
     """
     Unified loader for ball telemetry (JSONL) and follow telemetry
     (JSON or JSONL). Returns a list of dicts with keys:
