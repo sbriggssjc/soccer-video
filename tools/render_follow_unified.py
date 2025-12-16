@@ -352,32 +352,24 @@ def load_any_telemetry(path):
             if not line:
                 continue
 
-            # Modern follow telemetry (already has cx/cy/zoom)
-            if "cx" in row and "cy" in row:
-                rows.append({
-                    "t": row.get("t"),
-                    "cx": row.get("cx"),
-                    "cy": row.get("cy"),
-                    "zoom": row.get("zoom", 1.0),
-                    "valid": True,
-                })
+            try:
+                row = json.loads(line)
+            except Exception:
                 continue
 
-            # Legacy ball telemetry (ball→camera logic will fill zoom later)
-            if "ball" in row or "ball_src" in row:
-                cx = row.get("cx")
-                cy = row.get("cy")
-                if cx is None or cy is None:
-                    continue
-                rows.append({
-                    "t": row.get("t"),
-                    "cx": cx,
-                    "cy": cy,
-                    "zoom": 1.0,
-                    "valid": True,
-                })
-                continue
+            rows.append(row)
 
+    if not rows:
+        return rows
+
+    # Inspect first row to infer schema
+    first = rows[0]
+
+    if isinstance(first, dict) and "cx" in first and "cy" in first:
+        # Already in camera-plan / ball-plan format
+        return rows
+
+    # Otherwise assume raw telemetry rows
     return rows
 
 
