@@ -6681,12 +6681,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         args.telemetry_out = os.fspath(telemetry_simple_path)
 
     if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
-        # Resolve input video path safely (supports --in or legacy --input)
-        video_path = getattr(args, "input", None)
-        if video_path is None:
-            video_path = getattr(args, "in_", None)
+        # Resolve input video path (argparse uses in_path for --in)
+        video_path = getattr(args, "in_path", None)
 
+        # Backward compatibility (older variants)
         if video_path is None:
+            video_path = getattr(args, "input", None)
+
+        if not video_path:
             raise ValueError("No input video provided (expected --in <video>)")
 
         args.ball_telemetry = telemetry_path_for_video(Path(video_path))
