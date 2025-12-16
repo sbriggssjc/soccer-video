@@ -6681,7 +6681,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         args.telemetry_out = os.fspath(telemetry_simple_path)
 
     if getattr(args, "use_ball_telemetry", False) and not getattr(args, "ball_telemetry", None):
-        args.ball_telemetry = telemetry_path_for_video(Path(args.input))
+        # Resolve input video path safely (supports --in or legacy --input)
+        video_path = getattr(args, "input", None)
+        if video_path is None:
+            video_path = getattr(args, "in_", None)
+
+        if video_path is None:
+            raise ValueError("No input video provided (expected --in <video>)")
+
+        args.ball_telemetry = telemetry_path_for_video(Path(video_path))
 
     setattr(args, "follow_override_samples", override_samples)
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
