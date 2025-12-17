@@ -4956,9 +4956,7 @@ class Renderer:
                         total_frames = max((int(getattr(s, "frame", 0)) for s in samples), default=0) + 1
                     telemetry_frames = []
                     sample_by_frame: dict[int, BallSample] = {}
-                    for s in samples:
-                        if idx < 0:
-                            continue
+                    for idx, s in enumerate(samples):
                         sample_by_frame[idx] = s
                     fps_hint = float(self.fps_out or src_fps or 30.0)
                     for idx in range(total_frames):
@@ -6081,12 +6079,10 @@ def run(
         )
         total_frames = max(len(states), frame_count, max_frame_idx + 1)
         path: list[Optional[dict[str, float]]] = [None] * total_frames
-        for sample in ball_samples:
+        for idx, sample in enumerate(ball_samples):
             bx_val = _safe_float(getattr(sample, "x", None))
             by_val = _safe_float(getattr(sample, "y", None))
             if bx_val is None or by_val is None:
-                continue
-            if idx < 0:
                 continue
             if idx >= len(path):
                 path.extend([None] * (idx - len(path) + 1))
