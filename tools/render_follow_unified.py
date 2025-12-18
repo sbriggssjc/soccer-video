@@ -1525,9 +1525,7 @@ def smooth_series(values, alpha: float = 0.1, passes: int = 3):
 def _load_ball_cam_array(path: Path, num_frames: int) -> np.ndarray:
     samples = load_ball_telemetry(path)
     arr = np.full((num_frames, 3), np.nan, dtype=float)
-    for sample in samples:
-        if frame_idx < 0 or frame_idx >= num_frames:
-            continue
+    for frame_idx, sample in enumerate(samples):
         conf = _safe_float(getattr(sample, "conf", None))
         x = _safe_float(getattr(sample, "x", None))
         y = _safe_float(getattr(sample, "y", None))
@@ -6701,5 +6699,4 @@ if __name__ == "__main__":
         traceback.print_exc()
         # re-raise so the process has a non-zero exit code
         raise
-
 
