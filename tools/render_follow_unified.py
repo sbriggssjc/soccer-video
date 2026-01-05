@@ -1390,11 +1390,29 @@ def build_raw_ball_center_path(
     cy_vals: list[float] = []
     last_valid: tuple[float, float] | None = None
 
-    for rec in telemetry:
-        bx_raw = rec.get("x") if isinstance(rec, Mapping) else None
-        by_raw = rec.get("y") if isinstance(rec, Mapping) else None
-        vis = bool(rec.get("visible")) if isinstance(rec, Mapping) else False
+    for i, rec in enumerate(telemetry):
+        row = rec if isinstance(rec, Mapping) else {}
 
+        # visibility: accept explicit 'vis'/'visible', else infer from confidence if present
+        vis = row.get("vis", row.get("visible", None))
+        if vis is None:
+            conf = row.get("conf", row.get("confidence", 0.0))
+            try:
+                vis = float(conf) >= 0.5
+            except Exception:
+                vis = False
+
+        def _as_float(v):
+            try:
+                if v is None:
+                    return float("nan")
+                return float(v)
+            except Exception:
+                return float("nan")
+
+        # telemetry keys can vary: bx/by, x/y, cx/cy (support all)
+        bx_val = _as_float(row.get("bx", row.get("x", row.get("cx"))))
+        by_val = _as_float(row.get("by", row.get("y", row.get("cy"))))
 
         if vis and math.isfinite(bx_val) and math.isfinite(by_val):
             last_valid = (bx_val, by_val)
