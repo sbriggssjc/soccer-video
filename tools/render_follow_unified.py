@@ -1557,6 +1557,18 @@ def load_ball_telemetry_jsonl(path: str, src_w: int, src_h: int, logger=None):
     return xs, ys
 
 
+def telemetry_sanity(ball_x, ball_y, w, h, *, max_top_frac=0.33) -> float:
+    ok = 0
+    n = 0
+    for x, y in zip(ball_x, ball_y):
+        if x is None or y is None:
+            continue
+        n += 1
+        if 0 <= x < w and (h * max_top_frac) <= y < h:
+            ok += 1
+    return (ok / max(1, n))
+
+
 def build_raw_ball_path(telemetry: np.ndarray, fps: float) -> np.ndarray:
     """Return Nx2 array of raw ball positions with finite interpolation."""
 
@@ -2142,6 +2154,19 @@ def build_ball_cam_plan(
 
     ball_cx_values, ball_cy_values, telemetry_meta = load_ball_path_from_jsonl(telemetry_path, logger)
 
+    sanity = telemetry_sanity(ball_cx_values, ball_cy_values, src_w, src_h)
+    if sanity < 0.60:
+        logger.warning(
+            f"[BALL-TELEMETRY] sanity too low ({sanity:.2f}) -> disabling ball telemetry for this clip"
+        )
+        return None, {
+            "coverage": 0.0,
+            "telemetry_rows": int(telemetry_meta.get("total_rows", 0)),
+            "telemetry_kept": int(telemetry_meta.get("kept_rows", 0)),
+            "telemetry_conf": float(telemetry_meta.get("avg_conf", 0.0)),
+            "telemetry_quality": float(telemetry_meta.get("telemetry_quality", 0.0)),
+        }
+
     vpos = float(cfg.get("ball_cam_vertical_pos", 0.55))
 
     ball_cx_raw = np.full(num_frames, np.nan, dtype=float)
@@ -2682,6 +2707,99 @@ def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
     mask = cv2.medianBlur(mask, 5)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     return mask
+
+
+def _red_mask_hsv(frame_bgr: np.ndarray) -> np.ndarray:
+    """Binary mask for red/orange objects (soccer ball) in HSV space."""
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+
+    # Red wraps around hue=0, so use two bands.
+    lower1 = np.array([0, 120, 70], dtype=np.uint8)
+    upper1 = np.array([12, 255, 255], dtype=np.uint8)
+
+    lower2 = np.array([170, 120, 70], dtype=np.uint8)
+    upper2 = np.array([180, 255, 255], dtype=np.uint8)
+
+    m1 = cv2.inRange(hsv, lower1, upper1)
+    m2 = cv2.inRange(hsv, lower2, upper2)
+    mask = cv2.bitwise_or(m1, m2)
+
+    # Clean up speckle / fill small gaps
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=2)
+    return mask
+
+
+def detect_red_ball_xy(
+    frame_bgr: np.ndarray,
+    prev_xy: tuple[float, float] | None,
+    *,
+    ignore_top_frac: float = 0.33,
+    min_area: float = 20.0,
+    max_area: float = 1200.0,
+) -> tuple[float, float] | None:
+    """
+    Returns (x,y) of the most likely red/orange ball in the frame, else None.
+    Uses color + region + size + circularity + temporal proximity scoring.
+    """
+
+    h, w = frame_bgr.shape[:2]
+
+    mask = _red_mask_hsv(frame_bgr)
+
+    # Ignore sky/tents/stands region (top part of the image)
+    y0 = int(h * ignore_top_frac)
+    mask[:y0, :] = 0
+
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+
+    best = None
+    best_score = -1e18
+
+    for c in cnts:
+        area = float(cv2.contourArea(c))
+        if area < min_area or area > max_area:
+            continue
+
+        per = float(cv2.arcLength(c, True))
+        if per <= 1e-6:
+            continue
+
+        # Circularity: 1.0 is perfect circle
+        circ = 4.0 * np.pi * area / (per * per)
+
+        x, y, ww, hh = cv2.boundingRect(c)
+        aspect = ww / max(1.0, float(hh))
+        if aspect < 0.5 or aspect > 1.8:
+            continue
+
+        M = cv2.moments(c)
+        if abs(M["m00"]) < 1e-6:
+            continue
+        cx = float(M["m10"] / M["m00"])
+        cy = float(M["m01"] / M["m00"])
+
+        # Base score: prefer circular + “not huge”
+        score = 0.0
+        score += 3.0 * circ
+        score += 0.5 * (1.0 - abs(aspect - 1.0))  # closer to 1 is better
+        score += -0.001 * area  # slight bias toward smaller
+
+        # Temporal: prefer near previous location
+        if prev_xy is not None:
+            dx = cx - prev_xy[0]
+            dy = cy - prev_xy[1]
+            d2 = dx * dx + dy * dy
+            score += -0.002 * d2
+
+        if score > best_score:
+            best_score = score
+            best = (cx, cy)
+
+    return best
 
 
 def _circularity(cnt):
@@ -5907,6 +6025,44 @@ def run(
     if use_ball_telemetry:
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
+        if not telemetry_path.is_file():
+            telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info("[BALL] Building telemetry at %s", telemetry_path)
+
+            cap = cv2.VideoCapture(str(input_path))
+            fps_hint = cap.get(cv2.CAP_PROP_FPS) or fps_in or fps_out or 30.0
+            prev_xy: tuple[float, float] | None = None
+            with telemetry_path.open("w", encoding="utf-8") as f:
+                frame_idx = 0
+                while True:
+                    ok, frame_bgr = cap.read()
+                    if not ok or frame_bgr is None:
+                        break
+
+                    xy = detect_red_ball_xy(frame_bgr, prev_xy)
+                    if xy is not None:
+                        prev_xy = xy
+                        bx, by = xy
+                        conf = 1.0
+                    else:
+                        bx, by = None, None
+                        conf = 0.0
+
+                    f.write(
+                        json.dumps(
+                            {
+                                "frame": frame_idx,
+                                "t": frame_idx / fps_hint if fps_hint else frame_idx,
+                                "cx": bx,
+                                "cy": by,
+                                "conf": conf,
+                            }
+                        )
+                        + "\n"
+                    )
+                    frame_idx += 1
+            cap.release()
+
         if telemetry_path.is_file():
             set_telemetry_frame_bounds(width, height)
             total_frames = frame_count
