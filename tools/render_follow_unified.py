@@ -5061,8 +5061,6 @@ class Renderer:
                 )
 
             for frame_idx, override in self.follow_override.items():
-                if frame_idx < 0 or frame_idx >= len(states):
-                    continue
                 state = states[frame_idx]
                 cx = safe_float(override.get("cx"), state.cx)
                 cy = safe_float(override.get("cy"), state.cy)
