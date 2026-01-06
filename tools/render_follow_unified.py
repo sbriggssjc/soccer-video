@@ -1414,8 +1414,30 @@ def build_raw_ball_center_path(
         bx_val = _as_float(row.get("bx", row.get("x", row.get("cx"))))
         by_val = _as_float(row.get("by", row.get("y", row.get("cy"))))
 
-        if vis and math.isfinite(bx_val) and math.isfinite(by_val):
+        fallback_xy_raw = row.get("fallback_ball_xy")
+        fallback_xy: tuple[float, float] | None = None
+        if isinstance(fallback_xy_raw, Sequence) and len(fallback_xy_raw) >= 2:
+            fx = _as_float(fallback_xy_raw[0])
+            fy = _as_float(fallback_xy_raw[1])
+            if math.isfinite(fx) and math.isfinite(fy):
+                fallback_xy = (fx, fy)
+
+        motion_centroid_raw = row.get("motion_centroid")
+        motion_centroid_xy: tuple[float, float] | None = None
+        if isinstance(motion_centroid_raw, Sequence) and len(motion_centroid_raw) >= 2:
+            mx = _as_float(motion_centroid_raw[0])
+            my = _as_float(motion_centroid_raw[1])
+            if math.isfinite(mx) and math.isfinite(my):
+                motion_centroid_xy = (mx, my)
+
+        telemetry_ok = vis and math.isfinite(bx_val) and math.isfinite(by_val)
+
+        if fallback_xy is not None:
+            last_valid = fallback_xy
+        elif telemetry_ok:
             last_valid = (bx_val, by_val)
+        elif motion_centroid_xy is not None:
+            last_valid = motion_centroid_xy
 
         if last_valid is not None:
             bx_use, by_use = last_valid
