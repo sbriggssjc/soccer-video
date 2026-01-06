@@ -6726,6 +6726,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable ball-aware portrait planning when telemetry is available",
     )
     parser.add_argument(
+        "--ball-min-sanity",
+        type=float,
+        default=0.60,
+        help="Minimum sanity score required to trust ball telemetry.",
+    )
+    parser.add_argument(
+        "--ball-fallback-red",
+        action="store_true",
+        help="If ball telemetry sanity is low, try HSV red-ball detection fallback.",
+    )
+    parser.add_argument(
         "--debug-ball-overlay",
         action="store_true",
         help="Draw detected ball markers before cropping (requires --use-ball-telemetry)",
