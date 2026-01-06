@@ -5115,13 +5115,15 @@ class Renderer:
                                 "visible": bx is not None and by is not None,
                             }
                         )
-                    raw_cx, raw_cy = build_raw_ball_center_path(
-                        telemetry_frames,
-                        frame_width=int(width),
-                        frame_height=int(height),
-                        crop_width=int(crop_w),
-                        crop_height=int(crop_h),
-                    )
+                    raw_cx = raw_cy = None
+                    if self.debug_ball_overlay:
+                        raw_cx, raw_cy = build_raw_ball_center_path(
+                            telemetry_frames,
+                            frame_width=int(width),
+                            frame_height=int(height),
+                            crop_width=int(crop_w),
+                            crop_height=int(crop_h),
+                        )
                     if raw_cx and raw_cy and len(raw_cx) == len(raw_cy):
                         cx_vals, cy_vals = smooth_center_path(
                             raw_cx,
@@ -6282,6 +6284,7 @@ def run(
                 keep_path_lookup_data = {frame: (cx, cy) for frame, (cx, cy, _z) in planned.items()}
     if not use_ball_telemetry:
         keep_path_lookup_data = {}
+        args.debug_ball_overlay = False
 
     debug_ball_overlay = bool(getattr(args, "debug_ball_overlay", False) and use_ball_telemetry)
 
