@@ -6660,6 +6660,13 @@ def run(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Unified cinematic ball-follow renderer")
+    def _add_argument_once(p, *option_strings, **kwargs):
+        # Avoid argparse crash if flags are accidentally defined twice
+        for a in p._actions:
+            if any(os in a.option_strings for os in option_strings):
+                return
+        p.add_argument(*option_strings, **kwargs)
+
     parser.add_argument("--in", dest="in_path", required=True, help="Input MP4 path")
     parser.add_argument("--src", dest="src", help="Legacy compatibility input path (ignored)")
     parser.add_argument("--out", dest="out", help="Output MP4 path")
@@ -6741,12 +6748,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="px/s^2 clamp on camera acceleration (defaults to preset)",
     )
-    parser.add_argument(
+    _add_argument_once(
+        parser,
         "--ball-min-sanity",
-        dest="ball_min_sanity",
         type=float,
-        default=0.50,
-        help="Minimum telemetry sanity required to enable ball tracking (default: 0.50).",
+        default=0.6,
+        help="Minimum sanity score required to trust ball telemetry.",
     )
     parser.add_argument(
         "--pre-smooth",
@@ -6902,16 +6909,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable ball-aware portrait planning when telemetry is available",
     )
-    parser.add_argument(
+    _add_argument_once(
+        parser,
         "--ball-min-sanity",
         type=float,
-        default=0.60,
+        default=0.6,
         help="Minimum sanity score required to trust ball telemetry.",
     )
-    parser.add_argument(
+    _add_argument_once(
+        parser,
         "--ball-fallback-red",
         action="store_true",
-        help="If ball telemetry sanity is low, try HSV red-ball detection fallback.",
+        help="If ball telemetry sanity is low, try HSV red-ball",
     )
     parser.add_argument(
         "--debug-ball-overlay",
