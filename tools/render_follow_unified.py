@@ -2176,6 +2176,7 @@ def build_ball_cam_plan(
     preset_name: str | None = None,
     in_path: Path | None = None,
     out_path: Path | None = None,
+    min_sanity: float | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
     cfg = dict(BALL_CAM_CONFIG)
     if config:
@@ -2194,8 +2195,9 @@ def build_ball_cam_plan(
 
     ball_cx_values, ball_cy_values, telemetry_meta = load_ball_path_from_jsonl(telemetry_path, logger)
 
+    min_sanity = float(min_sanity if min_sanity is not None else 0.50)
     sanity = telemetry_sanity(ball_cx_values, ball_cy_values, src_w, src_h)
-    if sanity < 0.60:
+    if sanity < min_sanity:
         logger.warning(
             f"[BALL-TELEMETRY] sanity too low ({sanity:.2f}) -> disabling ball telemetry for this clip"
         )
@@ -6124,6 +6126,7 @@ def run(
                 preset_name=preset_key,
                 in_path=input_path,
                 out_path=output_path,
+                min_sanity=float(getattr(args, "ball_min_sanity", 0.50)),
             )
             telemetry_coverage_ratio = float(ball_cam_stats.get("coverage", 0.0))
             telemetry_coverage = int(round(telemetry_coverage_ratio * total_frames))
@@ -6594,6 +6597,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="px/s^2 clamp on camera acceleration (defaults to preset)",
     )
     parser.add_argument(
+        "--ball-min-sanity",
+        dest="ball_min_sanity",
+        type=float,
+        default=0.50,
+        help="Minimum telemetry sanity required to enable ball tracking (default: 0.50).",
+    )
+    parser.add_argument(
         "--pre-smooth",
         dest="pre_smooth",
         type=float,
@@ -6907,4 +6917,3 @@ if __name__ == "__main__":
         traceback.print_exc()
         # re-raise so the process has a non-zero exit code
         raise
-
