@@ -6911,13 +6911,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_argument_once(
         parser,
-        "--ball-min-sanity",
-        type=float,
-        default=0.6,
-        help="Minimum sanity score required to trust ball telemetry.",
-    )
-    _add_argument_once(
-        parser,
         "--ball-fallback-red",
         action="store_true",
         help="If ball telemetry sanity is low, try HSV red-ball",
