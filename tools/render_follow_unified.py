@@ -931,7 +931,13 @@ BALL_CONF_THRESH = 0.5
 PLAYER_CONF_THRESH = 0.5
 
 
-def load_ball_path_from_jsonl(path: str, logger=None):
+def load_ball_path_from_jsonl(
+    path: str,
+    logger=None,
+    *,
+    use_red_fallback: bool = False,
+    use_ball_telemetry: bool = True,
+):
     """
     Return (ball_x, ball_y, stats) from a telemetry jsonl file.
 
@@ -953,12 +959,38 @@ def load_ball_path_from_jsonl(path: str, logger=None):
     high_conf_valid_frames = 0
 
     for row in telemetry_rows:
+        fallback_xy_raw = row.get("fallback_ball_xy")
+        fallback_xy: tuple[float, float] | None = None
+        if isinstance(fallback_xy_raw, Sequence) and len(fallback_xy_raw) >= 2:
+            fx = _safe_float(fallback_xy_raw[0])
+            fy = _safe_float(fallback_xy_raw[1])
+            if fx is not None and fy is not None:
+                fallback_xy = (float(fx), float(fy))
+
+        motion_centroid_raw = row.get("motion_centroid")
+        motion_centroid_xy: tuple[float, float] | None = None
+        if isinstance(motion_centroid_raw, Sequence) and len(motion_centroid_raw) >= 2:
+            mx = _safe_float(motion_centroid_raw[0])
+            my = _safe_float(motion_centroid_raw[1])
+            if mx is not None and my is not None:
+                motion_centroid_xy = (float(mx), float(my))
+
         cx = _safe_float(row.get("cx"))
         cy = _safe_float(row.get("cy"))
-        if cx is None or cy is None:
+
+        ball_xy = None
+        if use_red_fallback and fallback_xy is not None:
+            ball_xy = fallback_xy
+        elif use_ball_telemetry and cx is not None and cy is not None:
+            ball_xy = (float(cx), float(cy))
+        elif motion_centroid_xy is not None:
+            ball_xy = motion_centroid_xy
+
+        if ball_xy is None:
             continue
-        xs.append(float(cx))
-        ys.append(float(cy))
+
+        xs.append(float(ball_xy[0]))
+        ys.append(float(ball_xy[1]))
         kept_rows += 1
 
         conf_val = _safe_float(row.get("conf"))
@@ -1349,6 +1381,8 @@ def build_raw_ball_center_path(
     *,
     default_y_frac: float = 0.45,
     vertical_bias_frac: float = 0.08,
+    use_red_fallback: bool = False,
+    use_ball_telemetry: bool = True,
 ) -> tuple[list[float], list[float]]:
     """
     Build raw crop centers from telemetry, clamping to keep the crop window in
@@ -1432,12 +1466,16 @@ def build_raw_ball_center_path(
 
         telemetry_ok = vis and math.isfinite(bx_val) and math.isfinite(by_val)
 
-        if fallback_xy is not None:
-            last_valid = fallback_xy
-        elif telemetry_ok:
-            last_valid = (bx_val, by_val)
+        ball_xy = None
+        if use_red_fallback and fallback_xy is not None:
+            ball_xy = fallback_xy
+        elif use_ball_telemetry and telemetry_ok:
+            ball_xy = (bx_val, by_val)
         elif motion_centroid_xy is not None:
-            last_valid = motion_centroid_xy
+            ball_xy = motion_centroid_xy
+
+        if ball_xy is not None:
+            last_valid = ball_xy
 
         if last_valid is not None:
             bx_use, by_use = last_valid
@@ -2194,7 +2232,12 @@ def build_ball_cam_plan(
     src_w = float(frame_width)
     src_h = float(frame_height)
 
-    ball_cx_values, ball_cy_values, telemetry_meta = load_ball_path_from_jsonl(telemetry_path, logger)
+    ball_cx_values, ball_cy_values, telemetry_meta = load_ball_path_from_jsonl(
+        telemetry_path,
+        logger,
+        use_red_fallback=use_red_fallback,
+        use_ball_telemetry=True,
+    )
 
     min_sanity = float(min_sanity if min_sanity is not None else 0.50)
     sanity = telemetry_sanity(ball_cx_values, ball_cy_values, src_w, src_h)
@@ -5205,6 +5248,8 @@ class Renderer:
                             frame_height=int(height),
                             crop_width=int(crop_w),
                             crop_height=int(crop_h),
+                            use_red_fallback=bool(self.fallback_ball_samples),
+                            use_ball_telemetry=bool(self.ball_samples),
                         )
                     if raw_cx and raw_cy and len(raw_cx) == len(raw_cy):
                         cx_vals, cy_vals = smooth_center_path(
