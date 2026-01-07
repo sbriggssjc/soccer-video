@@ -2177,6 +2177,7 @@ def build_ball_cam_plan(
     in_path: Path | None = None,
     out_path: Path | None = None,
     min_sanity: float | None = None,
+    use_red_fallback: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
     cfg = dict(BALL_CAM_CONFIG)
     if config:
@@ -2201,12 +2202,16 @@ def build_ball_cam_plan(
         logger.warning(
             f"[BALL-TELEMETRY] sanity too low ({sanity:.2f}) -> disabling ball telemetry for this clip"
         )
+        if use_red_fallback:
+            logger.info("[BALL-FALLBACK-RED] telemetry sanity low -> enabling HSV red-ball fallback")
         return None, {
             "coverage": 0.0,
             "telemetry_rows": int(telemetry_meta.get("total_rows", 0)),
             "telemetry_kept": int(telemetry_meta.get("kept_rows", 0)),
             "telemetry_conf": float(telemetry_meta.get("avg_conf", 0.0)),
             "telemetry_quality": float(telemetry_meta.get("telemetry_quality", 0.0)),
+            "sanity": float(sanity),
+            "sanity_low": 1.0,
         }
 
     vpos = float(cfg.get("ball_cam_vertical_pos", 0.55))
@@ -2238,6 +2243,8 @@ def build_ball_cam_plan(
         "telemetry_kept": int(telemetry_meta.get("kept_rows", 0)),
         "telemetry_conf": float(telemetry_meta.get("avg_conf", 1.0)),
         "telemetry_quality": float(telemetry_meta.get("telemetry_quality", coverage)),
+        "sanity": float(sanity),
+        "sanity_low": 0.0,
     }
     min_conf = float(cfg.get("min_confidence", 0.0))
     if coverage < min_coverage or stats["telemetry_conf"] < min_conf:
@@ -2842,6 +2849,55 @@ def detect_red_ball_xy(
             best = (cx, cy)
 
     return best
+
+
+def write_red_ball_telemetry(
+    in_path: Path,
+    out_path: Path,
+    fps_hint: float | None,
+    logger: logging.Logger,
+) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cap = cv2.VideoCapture(str(in_path))
+    if not cap.isOpened():
+        logger.warning("[BALL-FALLBACK-RED] Failed to open video for telemetry: %s", in_path)
+        return
+
+    fps_value = float(fps_hint or 0.0)
+    if fps_value <= 0:
+        fps_value = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+
+    prev_xy: tuple[float, float] | None = None
+    with out_path.open("w", encoding="utf-8") as f:
+        frame_idx = 0
+        while True:
+            ok, frame_bgr = cap.read()
+            if not ok or frame_bgr is None:
+                break
+
+            xy = detect_red_ball_xy(frame_bgr, prev_xy)
+            if xy is not None:
+                prev_xy = xy
+                bx, by = xy
+                conf = 1.0
+            else:
+                bx, by = None, None
+                conf = 0.0
+
+            f.write(
+                json.dumps(
+                    {
+                        "frame": frame_idx,
+                        "t": frame_idx / fps_value if fps_value else frame_idx,
+                        "cx": bx,
+                        "cy": by,
+                        "conf": conf,
+                    }
+                )
+                + "\n"
+            )
+            frame_idx += 1
+    cap.release()
 
 
 def _circularity(cnt):
@@ -4636,6 +4692,7 @@ class Renderer:
         plan_override_data: Optional[dict[str, np.ndarray]] = None,
         plan_override_len: int = 0,
         ball_samples: Optional[List[BallSample]] = None,
+        fallback_ball_samples: Optional[List[BallSample]] = None,
         keep_path_lookup_data: Optional[dict[int, Tuple[float, float]]] = None,
         debug_ball_overlay: bool = False,
         follow_override: Optional[Mapping[int, Mapping[str, float]]] = None,
@@ -4721,6 +4778,7 @@ class Renderer:
         self.plan_override_data = plan_override_data
         self.plan_override_len = int(plan_override_len or 0)
         self.ball_samples = ball_samples or []
+        self.fallback_ball_samples = fallback_ball_samples or []
         self.keep_path_lookup_data = keep_path_lookup_data or {}
         self.debug_ball_overlay = bool(debug_ball_overlay)
         self.follow_override = follow_override
@@ -5425,6 +5483,27 @@ class Renderer:
             active_pan_plan = self.pan_x_plan
         elif hasattr(self, "follow_plan_x"):
             active_pan_plan = self.follow_plan_x
+
+        telemetry_overlay_by_frame: dict[int, tuple[float, float]] = {}
+        fallback_overlay_by_frame: dict[int, tuple[float, float]] = {}
+        if self.debug_ball_overlay:
+            if not self.fallback_ball_samples:
+                for sample in self.ball_samples:
+                    frame = getattr(sample, "frame", None)
+                    bx = _safe_float(getattr(sample, "x", None))
+                    by = _safe_float(getattr(sample, "y", None))
+                    if frame is None or bx is None or by is None:
+                        continue
+                    telemetry_overlay_by_frame[int(frame)] = (float(bx), float(by))
+
+            for sample in self.fallback_ball_samples:
+                frame = getattr(sample, "frame", None)
+                bx = _safe_float(getattr(sample, "x", None))
+                by = _safe_float(getattr(sample, "y", None))
+                if frame is None or bx is None or by is None:
+                    continue
+                fallback_overlay_by_frame[int(frame)] = (float(bx), float(by))
+
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -5432,6 +5511,18 @@ class Renderer:
 
             if frame_idx >= len(states):
                 break
+
+            if self.debug_ball_overlay:
+                overlay_frame = frame.copy()
+                telem_xy = telemetry_overlay_by_frame.get(frame_idx)
+                if telem_xy is not None:
+                    bx, by = telem_xy
+                    cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 8, (255, 0, 0), -1)
+                fallback_xy = fallback_overlay_by_frame.get(frame_idx)
+                if fallback_xy is not None:
+                    bx, by = fallback_xy
+                    cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 10, (0, 0, 255), -1)
+                frame = overlay_frame
 
             state = states[frame_idx]
             desired_center_x = float(state.cx)
@@ -5974,10 +6065,12 @@ def run(
 
     renderer: Optional[Renderer]
     ball_samples: List[BallSample] = []
+    fallback_ball_samples: List[BallSample] = []
     keep_path_lookup_data: dict[int, Tuple[float, float]] = {}
     keepinview_path: list[tuple[float, float]] | None = None
     follow_telemetry_path: str | None = None
     use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
+    use_red_fallback = bool(getattr(args, "ball_fallback_red", False))
     telemetry_path: Path | None = None
     offline_ball_path: Optional[List[Optional[dict[str, float]]]] = None
 
@@ -6066,46 +6159,18 @@ def run(
     telemetry_coverage = 0
     telemetry_coverage_ratio = 0.0
     ball_cam_stats: dict[str, float] = {}
+    fallback_active = False
     if use_ball_telemetry:
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
         if not telemetry_path.is_file():
-            telemetry_path.parent.mkdir(parents=True, exist_ok=True)
             logger.info("[BALL] Building telemetry at %s", telemetry_path)
-
-            cap = cv2.VideoCapture(str(input_path))
-            fps_hint = cap.get(cv2.CAP_PROP_FPS) or fps_in or fps_out or 30.0
-            prev_xy: tuple[float, float] | None = None
-            with telemetry_path.open("w", encoding="utf-8") as f:
-                frame_idx = 0
-                while True:
-                    ok, frame_bgr = cap.read()
-                    if not ok or frame_bgr is None:
-                        break
-
-                    xy = detect_red_ball_xy(frame_bgr, prev_xy)
-                    if xy is not None:
-                        prev_xy = xy
-                        bx, by = xy
-                        conf = 1.0
-                    else:
-                        bx, by = None, None
-                        conf = 0.0
-
-                    f.write(
-                        json.dumps(
-                            {
-                                "frame": frame_idx,
-                                "t": frame_idx / fps_hint if fps_hint else frame_idx,
-                                "cx": bx,
-                                "cy": by,
-                                "conf": conf,
-                            }
-                        )
-                        + "\n"
-                    )
-                    frame_idx += 1
-            cap.release()
+            write_red_ball_telemetry(
+                input_path,
+                telemetry_path,
+                fps_in if fps_in > 0 else fps_out,
+                logger,
+            )
 
         if telemetry_path.is_file():
             set_telemetry_frame_bounds(width, height)
@@ -6127,7 +6192,39 @@ def run(
                 in_path=input_path,
                 out_path=output_path,
                 min_sanity=float(getattr(args, "ball_min_sanity", 0.50)),
+                use_red_fallback=use_red_fallback,
             )
+            if plan_data is None and use_red_fallback and ball_cam_stats.get("sanity_low"):
+                fallback_path = telemetry_path.with_suffix(".ball.red.jsonl")
+                if not fallback_path.is_file():
+                    logger.info("[BALL-FALLBACK-RED] Building HSV red-ball telemetry at %s", fallback_path)
+                    write_red_ball_telemetry(
+                        input_path,
+                        fallback_path,
+                        fps_in if fps_in > 0 else fps_out,
+                        logger,
+                    )
+                if fallback_path.is_file():
+                    fallback_plan, fallback_stats = build_ball_cam_plan(
+                        fallback_path,
+                        num_frames=total_frames,
+                        fps=fps_in if fps_in > 0 else fps_out,
+                        frame_width=width,
+                        frame_height=height,
+                        portrait_width=int(portrait[0]) if portrait else 1080,
+                        config=ball_cam_config,
+                        preset_name=preset_key,
+                        in_path=input_path,
+                        out_path=output_path,
+                        min_sanity=0.0,
+                        use_red_fallback=False,
+                    )
+                    if fallback_plan is not None:
+                        logger.info("[BALL-FALLBACK-RED] Using HSV red-ball fallback telemetry for planning")
+                        plan_data = fallback_plan
+                        ball_cam_stats = fallback_stats
+                        telemetry_path = fallback_path
+                        fallback_active = True
             telemetry_coverage_ratio = float(ball_cam_stats.get("coverage", 0.0))
             telemetry_coverage = int(round(telemetry_coverage_ratio * total_frames))
             if plan_data is None:
@@ -6158,6 +6255,8 @@ def run(
                         follow_telemetry_path = smooth_follow_telemetry(follow_telemetry_path)
                         log_dict["follow_telemetry"] = follow_telemetry_path
                 ball_samples = load_ball_telemetry(telemetry_path)
+                if fallback_active:
+                    fallback_ball_samples = list(ball_samples)
                 jerk_stat = ball_cam_stats.get("jerk95_cam", ball_cam_stats.get("jerk95", 0.0))
                 jerk_raw = ball_cam_stats.get("jerk95_raw", 0.0)
                 ball_in_crop_pct = ball_cam_stats.get("ball_in_crop_pct")
@@ -6365,6 +6464,7 @@ def run(
         plan_override_data=plan_override_data,
         plan_override_len=plan_override_len,
         ball_samples=ball_samples,
+        fallback_ball_samples=fallback_ball_samples,
         keep_path_lookup_data=keep_path_lookup_data,
         debug_ball_overlay=debug_ball_overlay,
         follow_override=follow_override_map,
