@@ -1420,9 +1420,8 @@ def build_raw_ball_center_path(
 
         return cx_clamped, cy_clamped
 
-    cx_vals: list[float] = []
-    cy_vals: list[float] = []
-    last_valid: tuple[float, float] | None = None
+    bx_vals: list[float] = []
+    by_vals: list[float] = []
 
     for i, rec in enumerate(telemetry):
         row = rec if isinstance(rec, Mapping) else {}
@@ -1475,7 +1474,50 @@ def build_raw_ball_center_path(
             ball_xy = motion_centroid_xy
 
         if ball_xy is not None:
-            last_valid = ball_xy
+            bx_vals.append(float(ball_xy[0]))
+            by_vals.append(float(ball_xy[1]))
+        else:
+            bx_vals.append(float("nan"))
+            by_vals.append(float("nan"))
+
+    def _fill_nan_edges(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
+        n = len(xs)
+        if n == 0:
+            return xs, ys
+
+        first = None
+        for idx in range(n):
+            if math.isfinite(xs[idx]) and math.isfinite(ys[idx]):
+                first = idx
+                break
+
+        last = None
+        for idx in range(n - 1, -1, -1):
+            if math.isfinite(xs[idx]) and math.isfinite(ys[idx]):
+                last = idx
+                break
+
+        if first is None or last is None:
+            return xs, ys
+
+        for idx in range(0, first):
+            xs[idx] = xs[first]
+            ys[idx] = ys[first]
+
+        for idx in range(last + 1, n):
+            xs[idx] = xs[last]
+            ys[idx] = ys[last]
+
+        return xs, ys
+
+    bx_vals, by_vals = _fill_nan_edges(bx_vals, by_vals)
+
+    cx_vals: list[float] = []
+    cy_vals: list[float] = []
+    last_valid: tuple[float, float] | None = None
+    for bx_val, by_val in zip(bx_vals, by_vals):
+        if math.isfinite(bx_val) and math.isfinite(by_val):
+            last_valid = (bx_val, by_val)
 
         if last_valid is not None:
             bx_use, by_use = last_valid
