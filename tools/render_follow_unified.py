@@ -6433,6 +6433,10 @@ def run(
         keepinview_zoom_out_max=keepinview_zoom_cap,
         center_frac=cy_frac,
     )
+    num_frames = frame_count
+    fps = fps_out
+    print(f"[DEBUG] num_frames={num_frames} fps={fps} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
+    print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask)
 
     temp_root = Path("out/autoframe_work")
