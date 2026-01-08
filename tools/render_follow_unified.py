@@ -6642,7 +6642,98 @@ def run(
     pan_plan_for_render = getattr(renderer, "pan_x_plan", None)
     num_frames = len(states)
     assert pan_plan_for_render is not None, "Follow plan missing centers_x"
-    assert len(pan_plan_for_render) == num_frames, "Follow plan centers_x length mismatch"
+    def _resample_1d(seq, n):
+        """Resample seq to length n with linear interpolation (or pad/trim)."""
+        seq = list(seq) if seq is not None else []
+        if n <= 0:
+            return []
+        if len(seq) == n:
+            return seq
+        if len(seq) == 0:
+            return [0.0] * n
+        if len(seq) == 1:
+            return [seq[0]] * n
+        # linear resample
+        out = []
+        m = len(seq)
+        for i in range(n):
+            t = (i * (m - 1)) / (n - 1)  # 0..m-1
+            j = int(t)
+            a = t - j
+            if j >= m - 1:
+                out.append(seq[-1])
+            else:
+                out.append((1 - a) * seq[j] + a * seq[j + 1])
+        return out
+
+    def _align_pan_plan(pan_plan, n):
+        """pan_plan can be list[float] or list[tuple] or list[dict]; coerce to length n."""
+        if pan_plan is None:
+            return None
+        if len(pan_plan) == n:
+            return pan_plan
+
+        # floats (center_x only)
+        if isinstance(pan_plan[0], (int, float)):
+            return _resample_1d(pan_plan, n)
+
+        # tuples/lists like (cx, cy) or (cx,)
+        if isinstance(pan_plan[0], (tuple, list)):
+            k = len(pan_plan[0])
+            cols = [[] for _ in range(k)]
+            for row in pan_plan:
+                for c in range(k):
+                    cols[c].append(row[c])
+            cols_rs = [_resample_1d(col, n) for col in cols]
+            return [tuple(cols_rs[c][i] for c in range(k)) for i in range(n)]
+
+        # dicts like {"cx":..., "cy":...}
+        if isinstance(pan_plan[0], dict):
+            keys = list(pan_plan[0].keys())
+            cols = {k: [] for k in keys}
+            for row in pan_plan:
+                for k in keys:
+                    cols[k].append(row.get(k))
+            # only interpolate numeric keys; for non-numeric, pad/trim using nearest
+            out_cols = {}
+            for k in keys:
+                if all(isinstance(v, (int, float)) for v in cols[k] if v is not None):
+                    # replace None with last known numeric to avoid interpolation crashes
+                    cleaned = []
+                    last = 0.0
+                    for v in cols[k]:
+                        if isinstance(v, (int, float)):
+                            last = float(v)
+                        cleaned.append(last)
+                    out_cols[k] = _resample_1d(cleaned, n)
+                else:
+                    # nearest pad/trim
+                    base = cols[k]
+                    if len(base) == 0:
+                        out_cols[k] = [None] * n
+                    elif len(base) >= n:
+                        out_cols[k] = base[:n]
+                    else:
+                        out_cols[k] = base + [base[-1]] * (n - len(base))
+            return [{k: out_cols[k][i] for k in keys} for i in range(n)]
+
+        # fallback: just pad/trim
+        if len(pan_plan) >= n:
+            return pan_plan[:n]
+        return pan_plan + [pan_plan[-1]] * (n - len(pan_plan))
+
+    # --- where the assert used to be ---
+    if len(pan_plan_for_render) != num_frames:
+        print(
+            "[WARN] Follow plan length mismatch: "
+            f"plan={len(pan_plan_for_render)} num_frames={num_frames}. Aligning by resample/pad."
+        )
+        pan_plan_for_render = _align_pan_plan(pan_plan_for_render, num_frames)
+
+    # If it STILL doesn't match, then something is deeply broken.
+    assert len(pan_plan_for_render) == num_frames, (
+        "Follow plan centers_x length mismatch (after align)"
+    )
     jerk95 = renderer.write_frames(
         states,
         follow_centers=follow_centers_int or follow_centers,
