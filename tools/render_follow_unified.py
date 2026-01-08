@@ -6748,13 +6748,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="px/s^2 clamp on camera acceleration (defaults to preset)",
     )
-    _add_argument_once(
-        parser,
-        "--ball-min-sanity",
-        type=float,
-        default=0.6,
-        help="Minimum sanity score required to trust ball telemetry.",
-    )
     parser.add_argument(
         "--pre-smooth",
         dest="pre_smooth",
@@ -6908,6 +6901,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-ball-telemetry",
         action="store_true",
         help="Enable ball-aware portrait planning when telemetry is available",
+    )
+    parser.add_argument(
+        "--ball-min-sanity",
+        type=float,
+        default=0.6,
+        help="Minimum sanity score required to trust ball telemetry.",
     )
     _add_argument_once(
         parser,
