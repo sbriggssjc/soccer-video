@@ -6442,6 +6442,9 @@ def run(
     temp_root = Path("out/autoframe_work")
     temp_dir = temp_root / preset_key / original_source_path.stem
     _prepare_temp_dir(temp_dir, args.clean_temp)
+    frames_dir = temp_dir / "frames"
+    if frames_dir.is_dir() and not getattr(args, "resume", False):
+        shutil.rmtree(frames_dir, ignore_errors=True)
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
@@ -6842,6 +6845,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flip180", dest="flip180", action="store_true", help="Rotate frames by 180 degrees before processing")
     parser.add_argument("--labels-root", dest="labels_root", help="Root directory containing YOLO label shards")
     parser.add_argument("--clean-temp", dest="clean_temp", action="store_true", help="Remove temporary frame folder before rendering")
+    parser.add_argument("--resume", dest="resume", action="store_true", help="Reuse existing temp frames when resuming a previous run")
     parser.add_argument(
         "--lookahead",
         "--follow-lookahead",
