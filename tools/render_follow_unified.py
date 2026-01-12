@@ -1001,6 +1001,18 @@ def load_ball_path_from_jsonl(
 
     xs_arr = np.asarray(xs, dtype=np.float32)
     ys_arr = np.asarray(ys, dtype=np.float32)
+    total_frames = total_rows
+    conf_threshold = BALL_CONF_THRESH
+
+    if xs_arr.size == 0 or ys_arr.size == 0:
+        telemetry_meta = {
+            "kept": 0,
+            "total": int(total_frames) if "total_frames" in locals() else None,
+            "conf": float(conf_threshold) if "conf_threshold" in locals() else None,
+            "reason": "no_valid_ball_samples_after_filter",
+        }
+        return np.array([], dtype=np.float32), np.array([], dtype=np.float32), telemetry_meta
+
     meta = {
         "total_rows": total_rows,
         "kept_rows": kept_rows,
@@ -2280,6 +2292,13 @@ def build_ball_cam_plan(
         use_red_fallback=use_red_fallback,
         use_ball_telemetry=True,
     )
+    if len(ball_cx_values) == 0 or len(ball_cy_values) == 0:
+        return None, {
+            "coverage": 0.0,
+            "conf": 0.0,
+            "reason": "empty_ball_telemetry",
+            "telemetry_meta": telemetry_meta,
+        }
 
     min_sanity = float(min_sanity if min_sanity is not None else 0.50)
     sanity = telemetry_sanity(ball_cx_values, ball_cy_values, src_w, src_h)
