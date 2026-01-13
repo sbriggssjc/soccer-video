@@ -6,7 +6,11 @@ import sys
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--preset", required=True, help="e.g., wide_follow")
+    p.add_argument(
+        "--preset",
+        default="segment_smooth",
+        help="e.g., segment_smooth (default) or wide_follow",
+    )
     p.add_argument("--src-dir", default="out/atomic_clips", help="Root to scan for mp4s")
     p.add_argument(
         "--out-dir", default="out/portrait_reels/clean", help="Where renders go"
@@ -58,6 +62,7 @@ def main():
             str(out_path),
             "--portrait",
             args.portrait,
+            "--draw-ball",
         ]
 
         print(f"[RUN] {i}/{len(clips)} {clip.name}")
