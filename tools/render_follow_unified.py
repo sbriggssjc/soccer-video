@@ -6452,6 +6452,8 @@ def run(
         keepinview_zoom_out_max=keepinview_zoom_cap,
         center_frac=cy_frac,
     )
+    if not ball_samples:
+        ball_samples = load_ball_telemetry_for_clip(str(original_source_path))
     num_frames = frame_count
     fps = fps_out
     print(f"[DEBUG] num_frames={num_frames} fps={fps} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
