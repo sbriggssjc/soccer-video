@@ -3647,6 +3647,41 @@ DEFAULT_PRESETS = {
             },
         },
     },
+    "segment_smooth": {
+        "fps": 24,
+        "portrait": "1080x1920",
+        "lookahead": 20,
+        "smoothing": 0.30,
+        "pad": 0.02,
+        "speed_limit": 1400,
+        "zoom_min": 1.0,
+        "zoom_max": 1.25,
+        "crf": 19,
+        "keyint_factor": 4,
+        "follow": {
+            "smoothing": 0.30,
+            "lead_time": 0.10,
+            "margin_px": 140,
+            "zoom_out_max": 1.25,
+            "zoom_edge_frac": 0.9,
+            "speed_zoom": {
+                "enabled": True,
+                "v_lo": 2.0,
+                "v_hi": 10.0,
+                "zoom_lo": 1.0,
+                "zoom_hi": 0.90,
+            },
+            "controller": {
+                "zeta": 1.10,
+                "wn": 2.20,
+                "deadzone": 40,
+                "max_vel": 220,
+                "max_acc": 2200,
+                "pre_smooth": 0.45,
+                "lookahead": 4,
+            },
+        },
+    },
     "gentle": {
         "fps": 30,
         "portrait": "1080x1920",
@@ -5001,6 +5036,48 @@ class Renderer:
             center_frac = 0.5
         return (0.5 - center_frac) * frame_h
 
+    def _ball_overlay_samples(self, fps: float) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+        samples = self.ball_samples or self.fallback_ball_samples
+        if not samples:
+            return [], []
+
+        triples: list[tuple[float, float, float]] = []
+        for sample in samples:
+            t_val = None
+            x_val = None
+            y_val = None
+            if isinstance(sample, Mapping):
+                t_val = sample.get("t") or sample.get("time") or sample.get("ts")
+                x_val = sample.get("x") or sample.get("cx") or sample.get("ball_x")
+                y_val = sample.get("y") or sample.get("cy") or sample.get("ball_y")
+                if t_val is None:
+                    t_val = sample.get("frame")
+                    if t_val is not None and fps > 0:
+                        t_val = float(t_val) / float(fps)
+            else:
+                t_val = getattr(sample, "t", None) or getattr(sample, "time", None) or getattr(sample, "ts", None)
+                x_val = getattr(sample, "x", None) or getattr(sample, "cx", None)
+                y_val = getattr(sample, "y", None) or getattr(sample, "cy", None)
+                if t_val is None:
+                    frame_val = getattr(sample, "frame", None)
+                    if frame_val is not None and fps > 0:
+                        t_val = float(frame_val) / float(fps)
+
+            t_float = _safe_float(t_val)
+            x_float = _safe_float(x_val)
+            y_float = _safe_float(y_val)
+            if t_float is None or x_float is None or y_float is None:
+                continue
+            triples.append((t_float, x_float, y_float))
+
+        if not triples:
+            return [], []
+
+        triples.sort(key=lambda row: row[0])
+        samples_x = [(row[0], row[1]) for row in triples]
+        samples_y = [(row[0], row[2]) for row in triples]
+        return samples_x, samples_y
+
     def _compose_frame(
         self,
         frame: np.ndarray,
@@ -5590,25 +5667,10 @@ class Renderer:
         elif hasattr(self, "follow_plan_x"):
             active_pan_plan = self.follow_plan_x
 
-        telemetry_overlay_by_frame: dict[int, tuple[float, float]] = {}
-        fallback_overlay_by_frame: dict[int, tuple[float, float]] = {}
+        overlay_samples_x: list[tuple[float, float]] = []
+        overlay_samples_y: list[tuple[float, float]] = []
         if self.debug_ball_overlay:
-            if not self.fallback_ball_samples:
-                for sample in self.ball_samples:
-                    frame = getattr(sample, "frame", None)
-                    bx = _safe_float(getattr(sample, "x", None))
-                    by = _safe_float(getattr(sample, "y", None))
-                    if frame is None or bx is None or by is None:
-                        continue
-                    telemetry_overlay_by_frame[int(frame)] = (float(bx), float(by))
-
-            for sample in self.fallback_ball_samples:
-                frame = getattr(sample, "frame", None)
-                bx = _safe_float(getattr(sample, "x", None))
-                by = _safe_float(getattr(sample, "y", None))
-                if frame is None or bx is None or by is None:
-                    continue
-                fallback_overlay_by_frame[int(frame)] = (float(bx), float(by))
+            overlay_samples_x, overlay_samples_y = self._ball_overlay_samples(render_fps)
 
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
@@ -5620,14 +5682,11 @@ class Renderer:
 
             if self.debug_ball_overlay:
                 overlay_frame = frame.copy()
-                telem_xy = telemetry_overlay_by_frame.get(frame_idx)
-                if telem_xy is not None:
-                    bx, by = telem_xy
-                    cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 8, (255, 0, 0), -1)
-                fallback_xy = fallback_overlay_by_frame.get(frame_idx)
-                if fallback_xy is not None:
-                    bx, by = fallback_xy
-                    cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 10, (0, 0, 255), -1)
+                t_val = frame_idx / float(render_fps) if render_fps else 0.0
+                bx = _interp_at_time(overlay_samples_x, t_val) if overlay_samples_x else None
+                by = _interp_at_time(overlay_samples_y, t_val) if overlay_samples_y else None
+                if bx is not None and by is not None:
+                    cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 8, (0, 0, 255), -1)
                 frame = overlay_frame
 
             state = states[frame_idx]
@@ -5875,6 +5934,16 @@ def run(
 
     preset_config = presets[preset_key]
 
+    if getattr(args, "no_draw_ball", False):
+        setattr(args, "draw_ball", False)
+        setattr(args, "debug_ball_overlay", False)
+    elif preset_key == "segment_smooth" and not getattr(args, "draw_ball", False):
+        setattr(args, "draw_ball", True)
+
+    if getattr(args, "draw_ball", False):
+        setattr(args, "debug_ball_overlay", True)
+        setattr(args, "use_ball_telemetry", True)
+
     fps_in = float(ffprobe_fps(input_path))
     fps_out = float(args.fps) if args.fps is not None else float(preset_config.get("fps", fps_in))
     if fps_out <= 0:
@@ -5894,7 +5963,7 @@ def run(
     if isinstance(ball_cam_config_raw, Mapping):
         ball_cam_config = dict(ball_cam_config_raw)
 
-    if preset_key == "wide_follow":
+    if preset_key in {"wide_follow", "segment_smooth"}:
         ball_cam_config.setdefault("ball_cam_enabled", True)
         ball_cam_config.setdefault("ball_cam_mode", "strict_lock")
 
@@ -7080,6 +7149,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug-ball-overlay",
         action="store_true",
         help="Draw detected ball markers before cropping (requires --use-ball-telemetry)",
+    )
+    parser.add_argument(
+        "--draw-ball",
+        action="store_true",
+        help="Overlay red dot ball position for debugging",
+    )
+    parser.add_argument(
+        "--no-draw-ball",
+        action="store_true",
+        help="Disable ball overlay even if preset enables it",
     )
     parser.add_argument(
         "--debug-pan-overlay",
