@@ -69,3 +69,9 @@ out/reels/scratch/
 out/portrait_reels/previews/
 # Python venv
 .venv/
+
+# --- storage optimization: keep big media out of git ---
+raw/
+out/atomic_clips/
+out/portrait_reels/
+out/stabilized/
