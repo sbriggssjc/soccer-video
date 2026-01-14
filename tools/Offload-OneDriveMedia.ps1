@@ -12,6 +12,15 @@ $LogDir = Join-Path $RepoRoot "out\logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $LogPath = Join-Path $LogDir "storage_offload.log"
 
+# --- single-instance lock ---
+$LockPath = Join-Path $LogDir "storage_offload.lock"
+try {
+  $lockStream = [System.IO.File]::Open($LockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+} catch {
+  Log "[skip] Another offload run appears to be in progress (lock exists): $LockPath"
+  exit 0
+}
+
 function Log($msg){
   $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
   $line = "$ts $msg"
@@ -86,3 +95,6 @@ foreach ($f in $files){
 
 Log "Summary: scanned=$scanned eligible=$eligible offloaded=$offloaded skippedHot=$skippedHot skippedTooNew=$skippedNew failed=$failed"
 Log "=== Offload-OneDriveMedia done ==="
+
+# Release lock
+try { $lockStream.Close() } catch {}
