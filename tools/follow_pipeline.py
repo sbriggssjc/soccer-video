@@ -11,7 +11,7 @@ Behavior:
 - Call ``tools/render_follow_unified.py`` with the requested preset and
   portrait geometry to produce a portrait master under:
 
-    out/portrait_reels/clean/<ClipID>__<VARIANT>_portrait_FINAL.mp4
+    out/portrait_reels/clean/<ClipID>__<PRESET>_portrait_FINAL.mp4
 
 - If ``--brand-script`` is supplied, call that PowerShell script with
   ``-In`` and ``-Out`` to (re)brand the portrait reel.
@@ -22,9 +22,9 @@ Behavior:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -50,7 +50,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--clip",
         action="append",
-        required=True,
         help="Path to an atomic clip to process (can be passed multiple times)",
     )
     parser.add_argument(
@@ -62,6 +61,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--portrait",
         default="1080x1920",
         help="Portrait geometry WxH passed through to render_follow_unified (default: 1080x1920)",
+    )
+    parser.add_argument(
+        "--plan-csv",
+        help="Optional CSV of missing clips (expects column in_path/inPath/path)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=str(Path("out") / "portrait_reels" / "clean"),
+        help="Output directory for portrait renders (default: out/portrait_reels/clean)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-render output even if it already exists",
     )
     parser.add_argument(
         "--variant",
@@ -166,9 +179,9 @@ def _read_ball_track(telemetry_path: Path | None) -> list[tuple[float, float, fl
     Returns list of (t, x, y, conf).
     """
     track: list[tuple[float, float, float, float]] = []
-    if not telemetry_path or not os.path.exists(telemetry_path):
+    if not telemetry_path or not telemetry_path.exists():
         return track
-    with open(telemetry_path, "r", encoding="utf-8") as f:
+    with telemetry_path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -410,7 +423,7 @@ def run_render(
     clip: Path,
     preset: str,
     portrait: str,
-    variant: str,
+    out_dir: Path,
     *,
     use_ball_telemetry: bool,
     telemetry_path: Path | None,
@@ -425,10 +438,8 @@ def run_render(
 
     clip_id = clip.stem  # e.g. 001__SHOT__t155.50-t166.40
 
-    out_dir = REPO_ROOT / "out" / "portrait_reels" / "clean"
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    out_path = out_dir / f"{clip_id}__{variant}_portrait_FINAL.mp4"
+    out_path = out_dir / f"{clip_id}{_output_suffix(preset)}"
 
     cmd = [
         sys.executable,
@@ -443,12 +454,34 @@ def run_render(
         portrait,
     ]
 
+    if preset == "segment_smooth":
+        cmd.extend(
+            [
+                "--follow",
+                "option_c",
+                "--use-ball-telemetry",
+                "--ball-min-sanity",
+                "0.80",
+                "--ball-fallback-red",
+                "--keepinview-margin",
+                "80",
+                "--keepinview-nudge",
+                "0.65",
+                "--keepinview-zoom",
+                "--keepinview-zoom-cap",
+                "1.25",
+                "--lost-use-motion",
+            ]
+        )
+
     if use_ball_telemetry:
         telemetry_path = (
-            Path(telemetry_path).resolve() if telemetry_path else Path(telemetry_path_for_video(clip)).resolve()
+            telemetry_path.resolve() if telemetry_path else Path(telemetry_path_for_video(clip)).resolve()
         )
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
-        cmd.extend(["--use-ball-telemetry", "--telemetry", str(telemetry_path)])
+        if preset != "segment_smooth":
+            cmd.append("--use-ball-telemetry")
+        cmd.extend(["--telemetry", str(telemetry_path)])
 
     # === FOLLOW OVERRIDE SUPPORT (NEW) ===
     follow_override_path = None
@@ -529,17 +562,75 @@ def run_cleanup() -> None:
     subprocess.run(cmd, check=True)
 
 
+def _output_suffix(preset: str) -> str:
+    preset_lower = preset.lower()
+    if preset_lower == "segment_smooth":
+        suffix = "__SEGMENT_SMOOTH_portrait_FINAL.mp4"
+    elif preset_lower == "wide_follow":
+        suffix = "__WIDE_portrait_FINAL.mp4"
+    else:
+        suffix = f"__{preset.upper()}_portrait_FINAL.mp4"
+    return suffix
+
+
+def _read_plan_rows(plan_csv: Path) -> list[dict[str, str]]:
+    with plan_csv.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        return list(reader)
+
+
+def _extract_clip_path(row: dict[str, str]) -> str | None:
+    for key in ("in_path", "inPath", "path"):
+        value = row.get(key)
+        if value:
+            return value
+    return None
+
+
 def main(argv: list[str] | None = None) -> None:
     ns = parse_args(argv)
 
-    clips = [Path(c) for c in ns.clip]
+    if not ns.plan_csv and not ns.clip:
+        raise SystemExit("Error: either --clip or --plan-csv must be provided.")
+
+    out_dir = Path(ns.out_dir)
+
+    clips: list[Path] = []
+    plan_rows: list[dict[str, str]] = []
+    if ns.plan_csv:
+        plan_csv = Path(ns.plan_csv)
+        if not plan_csv.is_file():
+            raise FileNotFoundError(f"Plan CSV not found: {plan_csv}")
+        plan_rows = _read_plan_rows(plan_csv)
+    else:
+        clips = [Path(c) for c in ns.clip]
+
     ok = 0
-    for clip in clips:
+    skipped = 0
+    failed = 0
+    rows_to_process = (
+        [(Path(_extract_clip_path(row) or ""), row) for row in plan_rows]
+        if ns.plan_csv
+        else [(clip, {}) for clip in clips]
+    )
+    for clip, row in rows_to_process:
         try:
             preset = ns.preset
+            clip_path_value = str(clip)
+            if ns.plan_csv:
+                clip_path_value = _extract_clip_path(row) or ""
+                clip = Path(clip_path_value)
+            if not clip_path_value:
+                raise ValueError("Missing clip path in plan CSV row.")
+            output_path = out_dir / f"{clip.stem}{_output_suffix(preset)}"
+            if output_path.exists() and not ns.force:
+                print(f"[SKIP] Output exists: {output_path}")
+                skipped += 1
+                continue
+
             telemetry_path: Path | None = Path(ns.telemetry) if ns.telemetry else Path(telemetry_path_for_video(clip))
-            use_ball_telemetry = ns.use_ball_telemetry
-            if ns.use_ball_telemetry:
+            use_ball_telemetry = ns.use_ball_telemetry or preset.lower() == "segment_smooth"
+            if use_ball_telemetry:
                 if not telemetry_path.is_file() and ns.telemetry:
                     print(f"[BALL] Telemetry path missing ({telemetry_path}); falling back to reactive follow")
                     use_ball_telemetry = False
@@ -594,7 +685,7 @@ def main(argv: list[str] | None = None) -> None:
                 clip,
                 preset,
                 ns.portrait,
-                ns.variant,
+                out_dir,
                 use_ball_telemetry=use_ball_telemetry,
                 telemetry_path=telemetry_path if use_ball_telemetry else None,
                 follow_override=ns.follow_override,
@@ -605,8 +696,14 @@ def main(argv: list[str] | None = None) -> None:
             ok += 1
         except Exception as exc:  # noqa: BLE001
             print(f"[ERROR] Failed for {clip}: {exc}", file=sys.stderr)
+            failed += 1
 
-    print(f"[INFO] {ok}/{len(clips)} clips rendered")
+    if ns.plan_csv:
+        print(
+            f"[INFO] Summary rendered_count={ok} skipped_count={skipped} failed_count={failed}"
+        )
+    else:
+        print(f"[INFO] {ok}/{len(clips)} clips rendered")
 
     if ns.cleanup:
         try:
