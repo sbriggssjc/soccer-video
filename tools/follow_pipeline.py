@@ -468,6 +468,7 @@ def run_render(
                 "--keepinview-nudge",
                 "0.65",
                 "--keepinview-zoom",
+                "1",
                 "--keepinview-zoom-cap",
                 "1.25",
                 "--lost-use-motion",
