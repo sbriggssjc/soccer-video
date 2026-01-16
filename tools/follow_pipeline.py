@@ -117,6 +117,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Use override follow telemetry exactly with no smoothing or follow controller.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug overlays (ball overlays) for render_follow_unified.",
+    )
+    parser.add_argument(
+        "--debug-ball",
+        dest="debug_ball",
+        action="store_true",
+        help="Enable ball debug overlays for render_follow_unified.",
+    )
     # Accept (but ignore) some legacy flags so existing commands don't break.
     parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--init-manual", action="store_true", help=argparse.SUPPRESS)
@@ -426,6 +437,7 @@ def run_render(
     out_dir: Path,
     *,
     use_ball_telemetry: bool,
+    debug_ball: bool,
     telemetry_path: Path | None,
     follow_override: str | None = None,
     follow_exact: bool = False,
@@ -474,6 +486,13 @@ def run_render(
                 "--lost-use-motion",
             ]
         )
+
+    if debug_ball:
+        cmd.extend(["--draw-ball", "--debug-ball-overlay"])
+        if preset != "segment_smooth" and not use_ball_telemetry:
+            cmd.append("--use-ball-telemetry")
+    else:
+        cmd.append("--no-draw-ball")
 
     if use_ball_telemetry:
         telemetry_path = (
@@ -609,6 +628,7 @@ def main(argv: list[str] | None = None) -> None:
     ok = 0
     skipped = 0
     failed = 0
+    debug_ball = bool(getattr(ns, "debug", False) or getattr(ns, "debug_ball", False))
     rows_to_process = (
         [(Path(_extract_clip_path(row) or ""), row) for row in plan_rows]
         if ns.plan_csv
@@ -688,6 +708,7 @@ def main(argv: list[str] | None = None) -> None:
                 ns.portrait,
                 out_dir,
                 use_ball_telemetry=use_ball_telemetry,
+                debug_ball=debug_ball,
                 telemetry_path=telemetry_path if use_ball_telemetry else None,
                 follow_override=ns.follow_override,
                 follow_exact=ns.follow_exact,
