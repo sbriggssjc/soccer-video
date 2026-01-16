@@ -6186,7 +6186,9 @@ def run(
         setattr(args, "draw_ball", True)
 
     if getattr(args, "draw_ball", False):
-        setattr(args, "debug_ball_overlay", True)
+        setattr(args, "use_ball_telemetry", True)
+
+    if getattr(args, "debug_ball_overlay", False):
         setattr(args, "use_ball_telemetry", True)
 
     fps_in = float(ffprobe_fps(input_path))

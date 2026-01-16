@@ -21,6 +21,11 @@ def parse_args():
         "--skip-existing", action="store_true", help="Skip if output already exists"
     )
     p.add_argument("--portrait", default="1080x1920", help="Portrait output size")
+    p.add_argument(
+        "--debug-ball",
+        action="store_true",
+        help="Enable ball debug overlays for render_follow_unified.",
+    )
     return p.parse_args()
 
 
@@ -62,8 +67,11 @@ def main():
             str(out_path),
             "--portrait",
             args.portrait,
-            "--draw-ball",
         ]
+        if args.debug_ball:
+            cmd.extend(["--draw-ball", "--debug-ball-overlay", "--use-ball-telemetry"])
+        else:
+            cmd.append("--no-draw-ball")
 
         print(f"[RUN] {i}/{len(clips)} {clip.name}")
         print("[CMD]", " ".join(cmd))
