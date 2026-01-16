@@ -807,6 +807,220 @@ def build_option_c_follow_centers(
     return centers_option_c, crop_scales, recovery_flags
 
 
+def _ball_overlay_samples(
+    ball_samples: Sequence[Mapping[str, float]] | Sequence[BallSample],
+    fps: float,
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    if not ball_samples:
+        return [], []
+
+    triples: list[tuple[float, float, float]] = []
+    for sample in ball_samples:
+        t_val = None
+        x_val = None
+        y_val = None
+        if isinstance(sample, Mapping):
+            t_val = sample.get("t") or sample.get("time") or sample.get("ts")
+            x_val = (
+                sample.get("x")
+                or sample.get("cx")
+                or sample.get("ball_x")
+                or sample.get("bx")
+                or sample.get("bx_stab")
+            )
+            y_val = (
+                sample.get("y")
+                or sample.get("cy")
+                or sample.get("ball_y")
+                or sample.get("by")
+                or sample.get("by_stab")
+            )
+            if t_val is None:
+                t_val = sample.get("frame")
+                if t_val is not None and fps > 0:
+                    t_val = float(t_val) / float(fps)
+        else:
+            t_val = getattr(sample, "t", None) or getattr(sample, "time", None) or getattr(sample, "ts", None)
+            x_val = (
+                getattr(sample, "x", None)
+                or getattr(sample, "cx", None)
+                or getattr(sample, "ball_x", None)
+                or getattr(sample, "bx", None)
+                or getattr(sample, "bx_stab", None)
+            )
+            y_val = (
+                getattr(sample, "y", None)
+                or getattr(sample, "cy", None)
+                or getattr(sample, "ball_y", None)
+                or getattr(sample, "by", None)
+                or getattr(sample, "by_stab", None)
+            )
+            if t_val is None:
+                frame_val = getattr(sample, "frame", None)
+                if frame_val is not None and fps > 0:
+                    t_val = float(frame_val) / float(fps)
+
+        t_float = _safe_float(t_val)
+        x_float = _safe_float(x_val)
+        y_float = _safe_float(y_val)
+        if t_float is None or x_float is None or y_float is None:
+            continue
+        triples.append((t_float, x_float, y_float))
+
+    if not triples:
+        return [], []
+
+    triples.sort(key=lambda row: row[0])
+    samples_x = [(t, x) for (t, x, _) in triples]
+    samples_y = [(t, y) for (t, _, y) in triples]
+    return samples_x, samples_y
+
+
+def render_segment_smooth_follow(
+    in_path: str,
+    out_path: str,
+    portrait: str,
+    fps: float,
+    duration: float,
+    num_frames: int,
+    ball_samples: list,
+    draw_ball: bool,
+):
+    """
+    Segment-smooth follow:
+      - produces smooth camera motion for the entire clip
+      - uses ball_samples to drive the follow path
+      - optionally overlays a red dot at ball position on every frame
+    """
+    input_path = Path(in_path).expanduser().resolve()
+    output_path = Path(out_path).expanduser().resolve()
+    portrait_dims = parse_portrait(portrait)
+    if not portrait_dims:
+        raise ValueError(f"Invalid portrait size: {portrait}")
+    portrait_w, portrait_h = portrait_dims
+
+    cap = cv2.VideoCapture(str(input_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open input video: {input_path}")
+
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps_in = float(fps if fps and fps > 0 else ffprobe_fps(input_path))
+    frame_count = int(num_frames if num_frames and num_frames > 0 else cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_count = max(frame_count, 1)
+
+    target_aspect = float(portrait_w) / float(portrait_h)
+    _, _, crop_w, crop_h = compute_portrait_crop(
+        cx=float(src_w) / 2.0,
+        cy=float(src_h) / 2.0,
+        zoom=1.0,
+        src_w=src_w,
+        src_h=src_h,
+        target_aspect=target_aspect,
+        pad=0.0,
+    )
+    crop_w = int(round(crop_w))
+    crop_h = int(round(crop_h))
+
+    centers, _, _ = build_option_c_follow_centers(
+        ball_samples=ball_samples,
+        fps=float(fps_in),
+        src_w=src_w,
+        portrait_w=crop_w,
+        frame_count=frame_count,
+    )
+    centers = _resample_path(centers, frame_count)
+
+    overlay_samples_x, overlay_samples_y = ([], [])
+    if draw_ball:
+        overlay_samples_x, overlay_samples_y = _ball_overlay_samples(ball_samples, fps_in)
+
+    temp_root = Path("out/autoframe_work")
+    temp_dir = temp_root / "segment_smooth" / input_path.stem
+    _prepare_temp_dir(temp_dir, clean=True)
+    frames_dir = temp_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    for frame_idx in range(frame_count):
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+
+        if draw_ball and overlay_samples_x and overlay_samples_y:
+            t_val = frame_idx / float(fps_in) if fps_in > 0 else 0.0
+            bx = _interp_at_time(overlay_samples_x, t_val)
+            by = _interp_at_time(overlay_samples_y, t_val)
+            if bx is not None and by is not None:
+                cv2.circle(frame, (int(round(bx)), int(round(by))), 8, (0, 0, 255), -1)
+
+        center_x = float(centers[frame_idx]) if frame_idx < len(centers) else float(src_w) / 2.0
+        x0, y0, crop_w, crop_h = compute_portrait_crop(
+            cx=center_x,
+            cy=float(src_h) / 2.0,
+            zoom=1.0,
+            src_w=src_w,
+            src_h=src_h,
+            target_aspect=target_aspect,
+            pad=0.0,
+        )
+        x0 = int(round(x0))
+        y0 = int(round(y0))
+        crop_w = int(round(crop_w))
+        crop_h = int(round(crop_h))
+        x1 = max(0, min(src_w, x0 + crop_w))
+        y1 = max(0, min(src_h, y0 + crop_h))
+        cropped = frame[y0:y1, x0:x1]
+
+        resized = cv2.resize(cropped, (portrait_w, portrait_h), interpolation=cv2.INTER_AREA)
+        out_frame_path = frames_dir / f"frame_{frame_idx:06d}.png"
+        cv2.imwrite(str(out_frame_path), resized)
+
+    cap.release()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    keyint = max(1, int(round(float(fps_in) * 4)))
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-framerate",
+        str(fps_in),
+        "-i",
+        str(frames_dir / "frame_%06d.png"),
+        "-i",
+        str(input_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "19",
+        "-pix_fmt",
+        "yuv420p",
+        "-profile:v",
+        "high",
+        "-level",
+        "4.0",
+        "-x264-params",
+        f"keyint={keyint}:min-keyint={keyint}:scenecut=0",
+        "-movflags",
+        "+faststart",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        str(output_path),
+    ]
+    subprocess.run(ffmpeg_cmd, check=True)
+    print("[DONE] Video stitched successfully.")
+    return 0
+
+
 
 def build_exact_follow_center_path(
     ball_samples,
