@@ -13,6 +13,7 @@ Windows behaviour rather than raw performance.
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_left
 import glob
 import json
 import logging
@@ -542,6 +543,34 @@ def _interp_at_time(samples, t):
     return samples[-1][1]
 
 
+def _ball_xy_at_time(
+    samples_x: Sequence[tuple[float, float]],
+    samples_y: Sequence[tuple[float, float]],
+    t: float,
+    times: Optional[Sequence[float]] = None,
+) -> tuple[Optional[float], Optional[float]]:
+    if not samples_x or not samples_y:
+        return None, None
+    if times is None:
+        times = [row[0] for row in samples_x]
+    if not times:
+        return None, None
+    last_idx = min(len(samples_x), len(samples_y)) - 1
+    if last_idx < 0:
+        return None, None
+    idx = bisect_left(times, t)
+    if idx <= 0:
+        nearest_idx = 0
+    elif idx >= len(times):
+        nearest_idx = last_idx
+    else:
+        before = times[idx - 1]
+        after = times[idx]
+        nearest_idx = idx if abs(after - t) < abs(t - before) else idx - 1
+    nearest_idx = min(nearest_idx, last_idx)
+    return samples_x[nearest_idx][1], samples_y[nearest_idx][1]
+
+
 def _ball_tx_pairs(ball_samples) -> list[tuple[float, float]]:
     samples_tx: list[tuple[float, float]] = []
     for s in ball_samples or []:
@@ -932,8 +961,10 @@ def render_segment_smooth_follow(
     centers = _resample_path(centers, frame_count)
 
     overlay_samples_x, overlay_samples_y = ([], [])
-    if draw_ball:
+    overlay_times: list[float] = []
+    if draw_ball and ball_samples:
         overlay_samples_x, overlay_samples_y = _ball_overlay_samples(ball_samples, fps_in)
+        overlay_times = [row[0] for row in overlay_samples_x]
 
     temp_root = Path("out/autoframe_work")
     temp_dir = temp_root / "segment_smooth" / input_path.stem
@@ -946,10 +977,9 @@ def render_segment_smooth_follow(
         if not ok or frame is None:
             break
 
-        if draw_ball and overlay_samples_x and overlay_samples_y:
+        if draw_ball and ball_samples:
             t_val = frame_idx / float(fps_in) if fps_in > 0 else 0.0
-            bx = _interp_at_time(overlay_samples_x, t_val)
-            by = _interp_at_time(overlay_samples_y, t_val)
+            bx, by = _ball_xy_at_time(overlay_samples_x, overlay_samples_y, t_val, overlay_times)
             if bx is not None and by is not None:
                 cv2.circle(frame, (int(round(bx)), int(round(by))), 8, (0, 0, 255), -1)
 
@@ -5883,8 +5913,10 @@ class Renderer:
 
         overlay_samples_x: list[tuple[float, float]] = []
         overlay_samples_y: list[tuple[float, float]] = []
+        overlay_times: list[float] = []
         if self.debug_ball_overlay:
             overlay_samples_x, overlay_samples_y = self._ball_overlay_samples(render_fps)
+            overlay_times = [row[0] for row in overlay_samples_x]
 
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
@@ -5897,8 +5929,7 @@ class Renderer:
             if self.debug_ball_overlay:
                 overlay_frame = frame.copy()
                 t_val = frame_idx / float(render_fps) if render_fps else 0.0
-                bx = _interp_at_time(overlay_samples_x, t_val) if overlay_samples_x else None
-                by = _interp_at_time(overlay_samples_y, t_val) if overlay_samples_y else None
+                bx, by = _ball_xy_at_time(overlay_samples_x, overlay_samples_y, t_val, overlay_times)
                 if bx is not None and by is not None:
                     cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 8, (0, 0, 255), -1)
                 frame = overlay_frame
