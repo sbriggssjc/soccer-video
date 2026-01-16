@@ -6523,6 +6523,9 @@ def run(
     )
     if not ball_samples:
         ball_samples = load_ball_telemetry_for_clip(str(original_source_path))
+        if not ball_samples:
+            expected_path = Path(telemetry_path_for_video(original_source_path))
+            print(f"[BALL] No ball telemetry found (expected {expected_path})")
     num_frames = frame_count
     fps = fps_out
     print(f"[DEBUG] num_frames={num_frames} fps={fps} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
