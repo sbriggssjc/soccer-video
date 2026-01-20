@@ -92,7 +92,7 @@ commands manually (some filters require escaped font paths).
 out\atomic_clips\           # Hand-selected "atomic" highlights (input MP4s)
 out\upscaled\               # AI-upscaled intermediates (e.g., __x2.mp4)
 out\portrait_reels\clean\   # Final branded portrait reels (1080×1920)
-out\_tmp\                   # Scratch space for probes, frames, and caches
+out\_scratch\               # Scratch space for probes, frames, and caches (safe to delete)
 out\catalog\                # Catalog + tracking artifacts (CSV + sidecars)
   atomic_index.csv          # Clip inventory and descriptive metadata
   pipeline_status.csv       # Step completion log, outputs, timestamps, errors
@@ -107,9 +107,11 @@ Resume-Pipeline.ps1         # Wrapper: retry missing/failed steps
 ```
 
 All generated media lives under `out\`. You can safely delete the contents of
-`out\_tmp\` when you need to free disk space—the pipeline recreates scratch
-files automatically. Keep `out\catalog\` under version control to audit history
-but avoid checking in large MP4 outputs.
+`out\_scratch\` when you need to free disk space—the pipeline recreates scratch
+files automatically. Output filenames are deterministic: cosmetic dot-tags like
+`.__CINEMATIC` never repeat, preset suffixes appear once, and `_portrait_FINAL`
+is only appended for final renders. Keep `out\catalog\` under version control to
+audit history but avoid checking in large MP4 outputs.
 
 ### Two-Stage Portrait Follow
 

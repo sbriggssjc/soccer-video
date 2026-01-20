@@ -12,6 +12,7 @@ Behavior:
   portrait geometry to produce a portrait master under:
 
     out/portrait_reels/clean/<ClipID>__<PRESET>_portrait_FINAL.mp4
+    (normalized so preset/tags are deterministic and non-duplicating)
 
 - If ``--brand-script`` is supplied, call that PowerShell script with
   ``-In`` and ``-Out`` to (re)brand the portrait reel.
@@ -28,6 +29,8 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+
+from tools.path_utils import build_output_stem
 
 # Ensure ``tools`` can be imported when running the script directly (``python tools/follow_pipeline.py``)
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +80,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Re-render output even if it already exists",
     )
     parser.add_argument(
+        "--no-clobber",
+        action="store_true",
+        help="Skip rendering if output exists and is non-empty.",
+    )
+    parser.add_argument(
         "--variant",
         default="WIDE",
         help="Variant label used only in the output filename (default: WIDE)",
@@ -94,6 +102,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--cleanup",
         action="store_true",
         help="If set, run tools/Cleanup-Intermediates.ps1 at the end.",
+    )
+    parser.add_argument(
+        "--keep-scratch",
+        action="store_true",
+        help="Keep scratch artifacts under out/_scratch after rendering.",
     )
     parser.add_argument(
         "--use-ball-telemetry",
@@ -439,6 +452,8 @@ def run_render(
     use_ball_telemetry: bool,
     debug_ball: bool,
     telemetry_path: Path | None,
+    no_clobber: bool = False,
+    keep_scratch: bool = False,
     follow_override: str | None = None,
     follow_exact: bool = False,
 ) -> Path:
@@ -451,7 +466,15 @@ def run_render(
     clip_id = clip.stem  # e.g. 001__SHOT__t155.50-t166.40
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{clip_id}{_output_suffix(preset)}"
+    preset_label = _preset_label(preset)
+    output_stem = build_output_stem(
+        clip_id,
+        preset_label,
+        portrait=True,
+        is_final=True,
+        extra_tags=[],
+    )
+    out_path = out_dir / f"{output_stem}.mp4"
 
     cmd = [
         sys.executable,
@@ -465,6 +488,10 @@ def run_render(
         "--portrait",
         portrait,
     ]
+    if no_clobber:
+        cmd.append("--no-clobber")
+    if keep_scratch:
+        cmd.append("--keep-scratch")
 
     if preset == "segment_smooth":
         cmd.extend(
@@ -582,15 +609,13 @@ def run_cleanup() -> None:
     subprocess.run(cmd, check=True)
 
 
-def _output_suffix(preset: str) -> str:
+def _preset_label(preset: str) -> str:
     preset_lower = preset.lower()
     if preset_lower == "segment_smooth":
-        suffix = "__SEGMENT_SMOOTH_portrait_FINAL.mp4"
-    elif preset_lower == "wide_follow":
-        suffix = "__WIDE_portrait_FINAL.mp4"
-    else:
-        suffix = f"__{preset.upper()}_portrait_FINAL.mp4"
-    return suffix
+        return "SEGMENT_SMOOTH"
+    if preset_lower == "wide_follow":
+        return "WIDE"
+    return preset.upper()
 
 
 def _read_plan_rows(plan_csv: Path) -> list[dict[str, str]]:
@@ -643,11 +668,20 @@ def main(argv: list[str] | None = None) -> None:
                 clip = Path(clip_path_value)
             if not clip_path_value:
                 raise ValueError("Missing clip path in plan CSV row.")
-            output_path = out_dir / f"{clip.stem}{_output_suffix(preset)}"
-            if output_path.exists() and not ns.force:
-                print(f"[SKIP] Output exists: {output_path}")
-                skipped += 1
-                continue
+            preset_label = _preset_label(preset)
+            output_stem = build_output_stem(
+                clip.stem,
+                preset_label,
+                portrait=True,
+                is_final=True,
+                extra_tags=[],
+            )
+            output_path = out_dir / f"{output_stem}.mp4"
+            if output_path.exists() and output_path.stat().st_size > 0:
+                if ns.no_clobber or not ns.force:
+                    print(f"[SKIP] Output exists: {output_path}")
+                    skipped += 1
+                    continue
 
             telemetry_path: Path | None = Path(ns.telemetry) if ns.telemetry else Path(telemetry_path_for_video(clip))
             use_ball_telemetry = ns.use_ball_telemetry or preset.lower() == "segment_smooth"
@@ -710,6 +744,8 @@ def main(argv: list[str] | None = None) -> None:
                 use_ball_telemetry=use_ball_telemetry,
                 debug_ball=debug_ball,
                 telemetry_path=telemetry_path if use_ball_telemetry else None,
+                no_clobber=ns.no_clobber,
+                keep_scratch=ns.keep_scratch,
                 follow_override=ns.follow_override,
                 follow_exact=ns.follow_exact,
             )
