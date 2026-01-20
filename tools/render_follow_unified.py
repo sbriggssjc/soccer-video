@@ -914,6 +914,8 @@ def render_segment_smooth_follow(
     num_frames: int,
     ball_samples: list,
     draw_ball: bool,
+    *,
+    keep_scratch: bool = False,
 ):
     """
     Segment-smooth follow:
@@ -966,7 +968,7 @@ def render_segment_smooth_follow(
         overlay_samples_x, overlay_samples_y = _ball_overlay_samples(ball_samples, fps_in)
         overlay_times = [row[0] for row in overlay_samples_x]
 
-    temp_root = Path("out/autoframe_work")
+    temp_root = _scratch_root() / "autoframe_work"
     temp_dir = temp_root / "segment_smooth" / input_path.stem
     _prepare_temp_dir(temp_dir, clean=True)
     frames_dir = temp_dir / "frames"
@@ -1008,6 +1010,9 @@ def render_segment_smooth_follow(
     cap.release()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_output_path = _temp_output_path(output_path)
+    if temp_output_path.exists():
+        temp_output_path.unlink(missing_ok=True)
     keyint = max(1, int(round(float(fps_in) * 4)))
     ffmpeg_cmd = [
         "ffmpeg",
@@ -1044,10 +1049,13 @@ def render_segment_smooth_follow(
         "aac",
         "-b:a",
         "128k",
-        str(output_path),
+        str(temp_output_path),
     ]
     subprocess.run(ffmpeg_cmd, check=True)
+    temp_output_path.replace(output_path)
     print("[DONE] Video stitched successfully.")
+    if not keep_scratch and temp_dir.exists():
+        shutil.rmtree(temp_dir, ignore_errors=True)
     return 0
 
 
@@ -2514,6 +2522,7 @@ def build_ball_cam_plan(
     out_path: Path | None = None,
     min_sanity: float | None = None,
     use_red_fallback: bool = False,
+    scratch_root: Path | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]] | tuple[None, dict[str, float]]:
     cfg = dict(BALL_CAM_CONFIG)
     if config:
@@ -2826,10 +2835,14 @@ def build_ball_cam_plan(
 
     debug_overlay = bool(cfg.get("ball_debug_overlay", False))
     if debug_overlay and in_path is not None and out_path is not None:
-        debug_out = str(out_path).replace(".mp4", "__BALL_DEBUG_WIDE.mp4")
+        scratch_root = scratch_root or _scratch_root()
+        debug_dir = scratch_root / "ball_debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        debug_out = debug_dir / f"{Path(out_path).stem}__BALL_DEBUG_WIDE.mp4"
+        stats["debug_overlay_path"] = str(debug_out)
         write_ball_crop_debug_clip(
             in_path=str(in_path),
-            out_path=debug_out,
+            out_path=str(debug_out),
             ball_cx=ball_cx_list,
             ball_cy=ball_cy_list,
             crop_x=x0.tolist(),
@@ -5990,6 +6003,9 @@ def ffmpeg_stitch(
         frames_dir = self.temp_dir / "frames"
         pattern = str(frames_dir / "frame_%06d.png")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_output_path = _temp_output_path(self.output_path)
+        if temp_output_path.exists():
+            temp_output_path.unlink(missing_ok=True)
 
         command = [
             "ffmpeg",
@@ -6034,7 +6050,7 @@ def ffmpeg_stitch(
                 "aac",
                 "-b:a",
                 "128k",
-                str(self.output_path),
+                str(temp_output_path),
             ]
         )
 
@@ -6043,6 +6059,7 @@ def ffmpeg_stitch(
 
         print("[DEBUG] launching ffmpeg...")
         subprocess.run(command, check=True)
+        temp_output_path.replace(self.output_path)
         print("[INFO] render complete")
         print("[DEBUG] ffmpeg finished successfully")
 
@@ -6054,6 +6071,14 @@ def _prepare_temp_dir(temp_dir: Path, clean: bool) -> None:
     if not temp_dir.exists():
         temp_dir.mkdir(parents=True, exist_ok=True)
         return
+
+
+def _scratch_root() -> Path:
+    return Path("out") / "_scratch"
+
+
+def _temp_output_path(output_path: Path) -> Path:
+    return output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
 
 def _default_output_path(input_path: Path, preset: str) -> Path:
     suffix = f".__{preset.upper()}.mp4"
@@ -6450,6 +6475,13 @@ def run(
 
     output_path = Path(args.out) if args.out else _default_output_path(original_source_path, preset_key)
     output_path = output_path.expanduser().resolve()
+    if getattr(args, "no_clobber", False):
+        if output_path.exists() and output_path.stat().st_size > 0:
+            logging.info("[SKIP] Output exists: %s", output_path)
+            return
+
+    scratch_root = _scratch_root()
+    scratch_cleanup_paths: list[Path] = []
 
     labels_root = args.labels_root or "out/yolo"
     label_files = find_label_files(original_source_path.stem, labels_root)
@@ -6615,7 +6647,11 @@ def run(
                 out_path=output_path,
                 min_sanity=float(getattr(args, "ball_min_sanity", 0.50)),
                 use_red_fallback=use_red_fallback,
+                scratch_root=scratch_root,
             )
+            debug_overlay_path = ball_cam_stats.get("debug_overlay_path")
+            if debug_overlay_path:
+                scratch_cleanup_paths.append(Path(debug_overlay_path))
             if plan_data is None and use_red_fallback and ball_cam_stats.get("sanity_low"):
                 fallback_path = telemetry_path.with_suffix(".ball.red.jsonl")
                 if not fallback_path.is_file():
@@ -6640,7 +6676,11 @@ def run(
                         out_path=output_path,
                         min_sanity=0.0,
                         use_red_fallback=False,
+                        scratch_root=scratch_root,
                     )
+                    debug_overlay_path = fallback_stats.get("debug_overlay_path")
+                    if debug_overlay_path:
+                        scratch_cleanup_paths.append(Path(debug_overlay_path))
                     if fallback_plan is not None:
                         logger.info("[BALL-FALLBACK-RED] Using HSV red-ball fallback telemetry for planning")
                         plan_data = fallback_plan
@@ -6779,12 +6819,13 @@ def run(
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask)
 
-    temp_root = Path("out/autoframe_work")
+    temp_root = scratch_root / "autoframe_work"
     temp_dir = temp_root / preset_key / original_source_path.stem
     _prepare_temp_dir(temp_dir, args.clean_temp)
     frames_dir = temp_dir / "frames"
     if frames_dir.is_dir() and not getattr(args, "resume", False):
         shutil.rmtree(frames_dir, ignore_errors=True)
+    scratch_cleanup_paths.append(temp_dir)
 
     brand_overlay_path = Path(args.brand_overlay).expanduser() if args.brand_overlay else None
     endcard_path = Path(args.endcard).expanduser() if args.endcard else None
@@ -7099,6 +7140,10 @@ def run(
     # Frame pattern used by Renderer.write_frames()
     frame_pattern = str(frames_dir / "frame_%06d.png")
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_output_path = _temp_output_path(output_path)
+    if temp_output_path.exists():
+        temp_output_path.unlink(missing_ok=True)
     ffmpeg_cmd = [
         "ffmpeg",
         "-y",
@@ -7108,13 +7153,14 @@ def run(
         "-crf", str(crf),
         "-pix_fmt", "yuv420p",
         "-g", str(keyint),
-        os.fspath(output_path),
+        os.fspath(temp_output_path),
     ]
 
     renderer.last_ffmpeg_command = list(ffmpeg_cmd)
 
     print(f"[FFMPEG] Stitching frames from {frames_dir} -> {output_path}")
     subprocess.run(ffmpeg_cmd, check=True)
+    temp_output_path.replace(output_path)
 
     print("[DONE] Video stitched successfully.")
 
@@ -7137,6 +7183,13 @@ def run(
             json.dump(to_jsonable(log_dict), handle, ensure_ascii=False, indent=2)
             handle.write("\n")
 
+    if not getattr(args, "keep_scratch", False):
+        for scratch_path in scratch_cleanup_paths:
+            if scratch_path.is_dir():
+                shutil.rmtree(scratch_path, ignore_errors=True)
+            elif scratch_path.is_file():
+                scratch_path.unlink(missing_ok=True)
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Unified cinematic ball-follow renderer")
@@ -7150,6 +7203,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--in", dest="in_path", required=True, help="Input MP4 path")
     parser.add_argument("--src", dest="src", help="Legacy compatibility input path (ignored)")
     parser.add_argument("--out", dest="out", help="Output MP4 path")
+    parser.add_argument(
+        "--no-clobber",
+        action="store_true",
+        help="Skip rendering if output exists and is non-empty.",
+    )
+    parser.add_argument(
+        "--keep-scratch",
+        action="store_true",
+        help="Keep scratch artifacts under out/_scratch after rendering.",
+    )
     parser.add_argument("--preset", dest="preset", default="cinematic", help="Preset name to load from render_presets.yaml")
     parser.add_argument("--portrait", dest="portrait", help="Portrait canvas WxH")
     parser.add_argument(

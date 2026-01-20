@@ -3,6 +3,8 @@ import subprocess
 from pathlib import Path
 import sys
 
+from tools.path_utils import build_output_stem
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -20,11 +22,21 @@ def parse_args():
     p.add_argument(
         "--skip-existing", action="store_true", help="Skip if output already exists"
     )
+    p.add_argument(
+        "--no-clobber",
+        action="store_true",
+        help="Skip rendering if output exists and is non-empty.",
+    )
     p.add_argument("--portrait", default="1080x1920", help="Portrait output size")
     p.add_argument(
         "--debug-ball",
         action="store_true",
         help="Enable ball debug overlays for render_follow_unified.",
+    )
+    p.add_argument(
+        "--keep-scratch",
+        action="store_true",
+        help="Keep scratch artifacts under out/_scratch after rendering.",
     )
     return p.parse_args()
 
@@ -49,9 +61,18 @@ def main():
 
     for i, clip in enumerate(clips, 1):
         stem = clip.stem
-        out_path = out_dir / f"{stem}__{args.preset.upper()}_portrait_FINAL.mp4"
+        preset_label = args.preset.upper()
+        output_stem = build_output_stem(
+            stem,
+            preset_label,
+            portrait=True,
+            is_final=True,
+            extra_tags=[],
+        )
+        out_path = out_dir / f"{output_stem}.mp4"
 
-        if args.skip_existing and out_path.exists():
+        skip_existing = args.skip_existing or args.no_clobber
+        if skip_existing and out_path.exists() and out_path.stat().st_size > 0:
             print(f"[SKIP] {i}/{len(clips)} exists: {out_path.name}")
             skipped += 1
             continue
@@ -68,6 +89,10 @@ def main():
             "--portrait",
             args.portrait,
         ]
+        if args.no_clobber:
+            cmd.append("--no-clobber")
+        if args.keep_scratch:
+            cmd.append("--keep-scratch")
         if args.debug_ball:
             cmd.extend(["--draw-ball", "--debug-ball-overlay", "--use-ball-telemetry"])
         else:
