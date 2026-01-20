@@ -15,10 +15,12 @@ from __future__ import annotations
 import argparse
 from bisect import bisect_left
 import glob
+import hashlib
 import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +37,8 @@ from statistics import median
 
 import cv2
 import numpy as np
+
+from tools.path_naming import build_output_name, normalize_tags_in_stem
 
 logger = logging.getLogger(__name__)
 
@@ -916,6 +920,7 @@ def render_segment_smooth_follow(
     draw_ball: bool,
     *,
     keep_scratch: bool = False,
+    scratch_root: Path | None = None,
 ):
     """
     Segment-smooth follow:
@@ -968,7 +973,7 @@ def render_segment_smooth_follow(
         overlay_samples_x, overlay_samples_y = _ball_overlay_samples(ball_samples, fps_in)
         overlay_times = [row[0] for row in overlay_samples_x]
 
-    temp_root = _scratch_root() / "autoframe_work"
+    temp_root = (scratch_root or _scratch_root()) / "autoframe_work"
     temp_dir = temp_root / "segment_smooth" / input_path.stem
     _prepare_temp_dir(temp_dir, clean=True)
     frames_dir = temp_dir / "frames"
@@ -6073,16 +6078,34 @@ def _prepare_temp_dir(temp_dir: Path, clean: bool) -> None:
         return
 
 
-def _scratch_root() -> Path:
-    return Path("out") / "_scratch"
+def _scratch_root(custom_root: Path | str | None = None) -> Path:
+    return Path(custom_root) if custom_root else Path("out") / "_scratch"
 
 
 def _temp_output_path(output_path: Path) -> Path:
-    return output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
+    return output_path.with_name(f".tmp.{output_path.name}")
 
 def _default_output_path(input_path: Path, preset: str) -> Path:
-    suffix = f".__{preset.upper()}.mp4"
-    return input_path.with_name(input_path.stem + suffix)
+    name = build_output_name(
+        input_path=str(input_path),
+        preset=preset,
+        portrait=None,
+        follow=None,
+        is_final=False,
+        extra_tags=[],
+    )
+    return input_path.with_name(name)
+
+
+def _derive_run_key(input_path: Path) -> str:
+    stem = input_path.stem
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", stem).strip("_")
+    if not cleaned:
+        return "run"
+    if len(cleaned) <= 40:
+        return cleaned
+    digest = hashlib.sha1(stem.encode("utf-8")).hexdigest()[:8]
+    return f"{cleaned[:32]}_{digest}"
 
 
 def load_ball_path(
@@ -6473,15 +6496,25 @@ def run(
     if not getattr(args, "ball_key_y", None):
         setattr(args, "ball_key_y", default_ball_key_y)
 
-    output_path = Path(args.out) if args.out else _default_output_path(original_source_path, preset_key)
+    # Deterministic naming: reruns overwrite.
+    if args.out:
+        requested_output = Path(args.out)
+        normalized_name = normalize_tags_in_stem(requested_output.stem)
+        output_path = requested_output.with_name(f"{normalized_name}{requested_output.suffix}")
+    else:
+        output_path = _default_output_path(original_source_path, preset_key)
     output_path = output_path.expanduser().resolve()
     if getattr(args, "no_clobber", False):
         if output_path.exists() and output_path.stat().st_size > 0:
             logging.info("[SKIP] Output exists: %s", output_path)
             return
 
-    scratch_root = _scratch_root()
-    scratch_cleanup_paths: list[Path] = []
+    base_scratch_root = _scratch_root(getattr(args, "scratch_root", None))
+    base_scratch_root.mkdir(parents=True, exist_ok=True)
+    run_key = _derive_run_key(original_source_path)
+    scratch_root = base_scratch_root / run_key
+    scratch_root.mkdir(parents=True, exist_ok=True)
+    scratch_cleanup_paths: list[Path] = [scratch_root]
 
     labels_root = args.labels_root or "out/yolo"
     label_files = find_label_files(original_source_path.stem, labels_root)
@@ -7207,6 +7240,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-clobber",
         action="store_true",
         help="Skip rendering if output exists and is non-empty.",
+    )
+    parser.add_argument(
+        "--scratch-root",
+        help="Root directory for scratch artifacts (default: out/_scratch).",
     )
     parser.add_argument(
         "--keep-scratch",

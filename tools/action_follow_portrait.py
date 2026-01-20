@@ -2,8 +2,12 @@
 import argparse
 import json
 import os
+from pathlib import Path
+
 import cv2
 import numpy as np
+
+from tools.path_naming import build_output_name, normalize_tags_in_stem
 
 
 def load_rows(path):
@@ -110,11 +114,46 @@ def main():
     ap.add_argument("--height", type=int, default=1920)
     ap.add_argument("--debug-overlay", action="store_true")
     ap.add_argument("--use-planner", action="store_true")
+    ap.add_argument(
+        "--no-clobber",
+        action="store_true",
+        help="Skip rendering if output exists and is non-empty.",
+    )
+    ap.add_argument(
+        "--scratch-root",
+        help="Root directory for scratch artifacts (default: out/_scratch).",
+    )
+    ap.add_argument(
+        "--keep-scratch",
+        action="store_true",
+        help="Keep scratch artifacts under out/_scratch after rendering.",
+    )
     args = ap.parse_args()
 
     print(f"[DEBUG] RUNNING FILE: {args.clip}")
 
     rows = load_rows(args.telemetry)
+
+    out_path = Path(args.out)
+    if out_path.is_dir() or str(args.out).endswith(os.sep):
+        # Deterministic naming: reruns overwrite.
+        output_name = build_output_name(
+            input_path=args.clip,
+            preset="",
+            portrait=f"{args.width}x{args.height}",
+            follow=None,
+            is_final=True,
+            extra_tags=[],
+        )
+        out_path = out_path / output_name
+    else:
+        suffix = out_path.suffix or ".mp4"
+        out_path = out_path.with_name(f"{normalize_tags_in_stem(out_path.stem)}{suffix}")
+    out_path = out_path.expanduser().resolve()
+
+    if args.no_clobber and out_path.exists() and out_path.stat().st_size > 0:
+        print(f"[SKIP] Output exists: {out_path}")
+        return
 
     cap = cv2.VideoCapture(args.clip)
     if not cap.isOpened():
@@ -132,11 +171,14 @@ def main():
     planner = args.use_planner
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    writer = cv2.VideoWriter(args.out, fourcc, fps, (args.width, args.height))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_output = out_path.with_name(f".tmp.{out_path.name}")
+    if temp_output.exists():
+        temp_output.unlink(missing_ok=True)
+    writer = cv2.VideoWriter(str(temp_output), fourcc, fps, (args.width, args.height))
 
     if not writer.isOpened():
-        raise SystemExit(f"[ERROR] Cannot open writer for {args.out}")
+        raise SystemExit(f"[ERROR] Cannot open writer for {temp_output}")
 
     frame_idx = 0
 
@@ -211,7 +253,8 @@ def main():
 
     cap.release()
     writer.release()
-    print(f"[DONE] Wrote portrait clip to: {args.out}")
+    temp_output.replace(out_path)
+    print(f"[DONE] Wrote portrait clip to: {out_path}")
 
 
 if __name__ == "__main__":
