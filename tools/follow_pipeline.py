@@ -30,7 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.path_utils import build_output_stem
+from tools.path_naming import build_output_name
 
 # Ensure ``tools`` can be imported when running the script directly (``python tools/follow_pipeline.py``)
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -107,6 +107,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--keep-scratch",
         action="store_true",
         help="Keep scratch artifacts under out/_scratch after rendering.",
+    )
+    parser.add_argument(
+        "--scratch-root",
+        help="Root directory for scratch artifacts (default: out/_scratch).",
     )
     parser.add_argument(
         "--use-ball-telemetry",
@@ -454,6 +458,7 @@ def run_render(
     telemetry_path: Path | None,
     no_clobber: bool = False,
     keep_scratch: bool = False,
+    scratch_root: str | None = None,
     follow_override: str | None = None,
     follow_exact: bool = False,
 ) -> Path:
@@ -467,14 +472,16 @@ def run_render(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     preset_label = _preset_label(preset)
-    output_stem = build_output_stem(
-        clip_id,
-        preset_label,
-        portrait=True,
+    # Deterministic naming: reruns overwrite.
+    output_name = build_output_name(
+        input_path=str(clip),
+        preset=preset_label,
+        portrait=portrait,
+        follow=None,
         is_final=True,
         extra_tags=[],
     )
-    out_path = out_dir / f"{output_stem}.mp4"
+    out_path = out_dir / output_name
 
     cmd = [
         sys.executable,
@@ -492,6 +499,8 @@ def run_render(
         cmd.append("--no-clobber")
     if keep_scratch:
         cmd.append("--keep-scratch")
+    if scratch_root:
+        cmd.extend(["--scratch-root", scratch_root])
 
     if preset == "segment_smooth":
         cmd.extend(
@@ -669,14 +678,15 @@ def main(argv: list[str] | None = None) -> None:
             if not clip_path_value:
                 raise ValueError("Missing clip path in plan CSV row.")
             preset_label = _preset_label(preset)
-            output_stem = build_output_stem(
-                clip.stem,
-                preset_label,
-                portrait=True,
+            output_name = build_output_name(
+                input_path=str(clip),
+                preset=preset_label,
+                portrait=ns.portrait,
+                follow=None,
                 is_final=True,
                 extra_tags=[],
             )
-            output_path = out_dir / f"{output_stem}.mp4"
+            output_path = out_dir / output_name
             if output_path.exists() and output_path.stat().st_size > 0:
                 if ns.no_clobber or not ns.force:
                     print(f"[SKIP] Output exists: {output_path}")
@@ -746,6 +756,7 @@ def main(argv: list[str] | None = None) -> None:
                 telemetry_path=telemetry_path if use_ball_telemetry else None,
                 no_clobber=ns.no_clobber,
                 keep_scratch=ns.keep_scratch,
+                scratch_root=ns.scratch_root,
                 follow_override=ns.follow_override,
                 follow_exact=ns.follow_exact,
             )

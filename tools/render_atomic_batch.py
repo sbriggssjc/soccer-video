@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 import sys
 
-from tools.path_utils import build_output_stem
+from tools.path_naming import build_output_name
 
 
 def parse_args():
@@ -38,6 +38,10 @@ def parse_args():
         action="store_true",
         help="Keep scratch artifacts under out/_scratch after rendering.",
     )
+    p.add_argument(
+        "--scratch-root",
+        help="Root directory for scratch artifacts (default: out/_scratch).",
+    )
     return p.parse_args()
 
 
@@ -62,14 +66,16 @@ def main():
     for i, clip in enumerate(clips, 1):
         stem = clip.stem
         preset_label = args.preset.upper()
-        output_stem = build_output_stem(
-            stem,
-            preset_label,
-            portrait=True,
+        # Deterministic naming: reruns overwrite.
+        output_name = build_output_name(
+            input_path=str(clip),
+            preset=preset_label,
+            portrait=args.portrait,
+            follow=None,
             is_final=True,
             extra_tags=[],
         )
-        out_path = out_dir / f"{output_stem}.mp4"
+        out_path = out_dir / output_name
 
         skip_existing = args.skip_existing or args.no_clobber
         if skip_existing and out_path.exists() and out_path.stat().st_size > 0:
@@ -93,6 +99,8 @@ def main():
             cmd.append("--no-clobber")
         if args.keep_scratch:
             cmd.append("--keep-scratch")
+        if args.scratch_root:
+            cmd.extend(["--scratch-root", args.scratch_root])
         if args.debug_ball:
             cmd.extend(["--draw-ball", "--debug-ball-overlay", "--use-ball-telemetry"])
         else:
