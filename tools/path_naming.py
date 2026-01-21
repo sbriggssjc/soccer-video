@@ -13,6 +13,11 @@ _DOT_TAG_RE = re.compile(
 _DOTS_RE = re.compile(r"\.{2,}")
 _DOUBLE_UNDERSCORE_RE = re.compile(r"__{2,}")
 _TRAILING_PORTRAIT_FINAL_RE = re.compile(r"(?:_portrait_FINAL)+$", flags=re.IGNORECASE)
+_TIME_TOKEN_RE = re.compile(r"__t\d+(?:\.\d+)?-t\d+(?:\.\d+)?", flags=re.IGNORECASE)
+_PRESET_TOKEN_RE = re.compile(
+    r"__(?:SEGMENT|FOLLOW|OVERLAY|PRESET)(?:_[A-Z0-9]+)*",
+    flags=re.IGNORECASE,
+)
 
 
 def _clean_tag(tag: str) -> str:
@@ -43,19 +48,17 @@ def normalize_tags_in_stem(stem: str) -> str:
             tags.append(cleaned)
             seen.add(cleaned)
 
-    first_tag = _DOT_TAG_RE.search(normalized)
-    first_tag_index = first_tag.start() if first_tag else None
-    first_double_index = normalized.find("__")
+    cleaned = _DOT_TAG_RE.sub("", normalized)
 
-    base_end = len(normalized)
-    if first_tag_index is not None:
-        base_end = min(base_end, first_tag_index)
-    if first_double_index != -1:
-        base_end = min(base_end, first_double_index)
+    time_match = _TIME_TOKEN_RE.search(cleaned)
+    if time_match:
+        insert_at = time_match.end()
+    else:
+        preset_match = _PRESET_TOKEN_RE.search(cleaned)
+        insert_at = preset_match.start() if preset_match else len(cleaned)
 
-    base = normalized[:base_end]
-    suffix = normalized[base_end:]
-    suffix = _DOT_TAG_RE.sub("", suffix)
+    base = cleaned[:insert_at]
+    suffix = cleaned[insert_at:]
 
     rebuilt = f"{base}{''.join(f'.__{tag}' for tag in tags)}{suffix}{portrait_suffix}"
     rebuilt = _DOTS_RE.sub(".", rebuilt)
