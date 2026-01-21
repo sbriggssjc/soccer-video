@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+# Ensure repo root is importable even when running `python tools/...`
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
 from tools.path_naming import build_output_name, normalize_tags_in_stem
 
 
