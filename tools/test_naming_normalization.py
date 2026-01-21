@@ -17,6 +17,9 @@ def main() -> None:
     stem = "001__2025-01-01__SHOT__t000-001.__CINEMATIC.__CINEMATIC__SEGMENT_SMOOTH"
     normalized = normalize_tags_in_stem(stem)
     assert normalized.count(".__CINEMATIC") == 1, normalized
+    assert (
+        normalized == "001__2025-01-01__SHOT__t000-001.__CINEMATIC__SEGMENT_SMOOTH"
+    ), normalized
 
     name_a = build_output_name(
         input_path="/clips/001__SHOT.mp4",
