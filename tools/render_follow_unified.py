@@ -20,7 +20,7 @@ if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
 
 
-import argparse
+from tools.path_naming import build_output_name
 from bisect import bisect_left
 import glob
 import hashlib
@@ -6064,8 +6064,33 @@ def ffmpeg_stitch(
                 "-b:a",
                 "128k",
                 str(temp_output_path),
-            ]
-        )
+def _temp_output_path(output_path: Path) -> Path:
+    return output_path.with_name(f".tmp.{output_path.stem}.mp4")
+
+
+def _resolve_output_path(
+    args_out: str | None,
+    input_path: Path,
+    preset: str,
+) -> tuple[Path, bool]:
+    if not args_out:
+        return _default_output_path(input_path, preset), False
+
+    requested = Path(args_out).expanduser()
+    if requested.suffix:
+        return requested, True
+
+    out_dir = requested
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = build_output_name(
+        input_path=str(input_path),
+        preset=preset,
+        portrait=None,
+        follow=None,
+        is_final=False,
+        extra_tags=[],
+    )
+    return out_dir / name, False
 
 
         self.last_ffmpeg_command = list(command)
@@ -6478,14 +6503,18 @@ def run(
     follow_zoom_edge_frac = 0.80
     if getattr(args, "zoom_edge_frac", None) is not None:
         follow_zoom_edge_frac = float(args.zoom_edge_frac)
-    if not math.isfinite(follow_zoom_edge_frac) or follow_zoom_edge_frac <= 0.0:
-        follow_zoom_edge_frac = 1.0
-
-    lost_hold_ms = getattr(args, "lost_hold_ms", 500)
-    lost_pan_ms = getattr(args, "lost_pan_ms", 1200)
-    lost_lookahead_s = getattr(args, "lost_lookahead_s", 6.0)
-    lost_chase_motion_ms = getattr(args, "lost_chase_motion_ms", 900)
-    lost_motion_thresh = getattr(args, "lost_motion_thresh", 1.6)
+    # Deterministic naming: reruns overwrite.
+    output_path, output_is_file = _resolve_output_path(
+        args.out,
+        original_source_path,
+        preset_key,
+    )
+    output_path = output_path.expanduser().resolve()
+    if args.out:
+        if output_is_file:
+            logger.info("[OUT] Using explicit output file: %s", output_path)
+        else:
+            logger.info("[OUT] Using output directory: %s", output_path.parent)
     lost_use_motion = bool(getattr(args, "lost_use_motion", False))
 
     lead_time_s = 0.0
