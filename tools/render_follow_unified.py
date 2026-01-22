@@ -1,10 +1,4 @@
-﻿import os, sys
-
-# Ensure repo root is importable even when running `python tools\...`
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if repo_root not in sys.path:
-    sys.path.insert(0, repo_root)
-"""Unified ball-lock renderer.
+﻿"""Unified ball-lock renderer.
 
 This script consolidates the historical ``render_follow_*`` variants into a single
 implementation that reproduces the behaviour of the "good tester clip" while
@@ -16,7 +10,15 @@ planning, etc.).  The implementation is optimised for clarity and predictable
 Windows behaviour rather than raw performance.
 """
 
-from __future__ import annotations
+from __future__ import annotations
+
+import os, sys
+
+# Ensure repo root is importable even when running python tools\...`r
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
 
 import argparse
 from bisect import bisect_left
@@ -7660,4 +7662,5 @@ if __name__ == "__main__":
         traceback.print_exc()
         # re-raise so the process has a non-zero exit code
         raise
+
 
