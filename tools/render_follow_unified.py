@@ -10,7 +10,8 @@ planning, etc.).  The implementation is optimised for clarity and predictable
 Windows behaviour rather than raw performance.
 """
 
-from __future__ import annotations
+from __future__ import annotations
+
 
 import os, sys
 
@@ -6018,31 +6019,31 @@ def ffmpeg_stitch(
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         temp_output_path = _temp_output_path(self.output_path)
         if temp_output_path.exists():
-            temp_output_path.unlink(missing_ok=True)
+                temp_output_path.unlink(missing_ok=True)
 
         command = [
-            "ffmpeg",
-            "-y",
-            "-loglevel",
-            "error",
-            "-framerate",
-            str(self.fps_out),
-            "-i",
-            pattern,
-            "-i",
-            str(self.input_path),
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0?",
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-framerate",
+                str(self.fps_out),
+                "-i",
+                pattern,
+                "-i",
+                str(self.input_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0?",
         ]
 
+        # Optional scale to portrait output
         if self.portrait and self.portrait[0] > 0 and self.portrait[1] > 0:
-            out_w, out_h = self.portrait
-            command.extend(["-vf", f"scale={int(out_w)}:{int(out_h)}"])
+                out_w, out_h = self.portrait
+                command.extend(["-vf", f"scale={int(out_w)}:{int(out_h)}"])
 
-        command.extend(
-            [
+        command.extend([
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -6062,58 +6063,17 @@ def ffmpeg_stitch(
                 "-c:a",
                 "aac",
                 "-b:a",
-                "128k",
-                str(temp_output_path),
-def _temp_output_path(output_path: Path) -> Path:
-    return output_path.with_name(f".tmp.{output_path.stem}.mp4")
+                "192k",
+        ])
 
-
-def _resolve_output_path(
-    args_out: str | None,
-    input_path: Path,
-    preset: str,
-) -> tuple[Path, bool]:
-    if not args_out:
-        return _default_output_path(input_path, preset), False
-
-    requested = Path(args_out).expanduser()
-    if requested.suffix:
-        return requested, True
-
-    out_dir = requested
-    out_dir.mkdir(parents=True, exist_ok=True)
-    name = build_output_name(
-        input_path=str(input_path),
-        preset=preset,
-        portrait=None,
-        follow=None,
-        is_final=False,
-        extra_tags=[],
-    )
-    return out_dir / name, False
-
+        command.append(str(temp_output_path))
 
         self.last_ffmpeg_command = list(command)
-
         print("[DEBUG] launching ffmpeg...")
         subprocess.run(command, check=True)
         temp_output_path.replace(self.output_path)
         print("[INFO] render complete")
         print("[DEBUG] ffmpeg finished successfully")
-
-
-
-def _prepare_temp_dir(temp_dir: Path, clean: bool) -> None:
-    if clean and temp_dir.exists():
-        shutil.rmtree(temp_dir)
-    if not temp_dir.exists():
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        return
-
-
-def _scratch_root(custom_root: Path | str | None = None) -> Path:
-    return Path(custom_root) if custom_root else Path("out") / "_scratch"
-
 
 def _temp_output_path(output_path: Path) -> Path:
     return output_path.with_name(f".tmp.{output_path.name}")
