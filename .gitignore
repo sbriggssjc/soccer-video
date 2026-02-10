@@ -5,6 +5,7 @@ out/*
 !out/games/
 !out/games/*/
 !out/games/*/clip_index.txt
+!out/games/*/clip_index.csv
 runs/**
 *.mp4
 *.mov

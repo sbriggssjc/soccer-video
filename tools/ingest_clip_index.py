@@ -1,29 +1,29 @@
-"""Ingest clip_index.txt files into the atomic clips catalog.
+"""Ingest clip_index files (CSV or TXT) into the atomic clips catalog.
 
-Some game folders contain a clip_index.txt that lists manually-identified
-highlight clips with timestamps and event labels. This tool parses those
-files and adds entries to atomic_index.csv so they can flow through the
-normal pipeline (extract -> upscale -> portrait render -> brand).
+Some game folders contain a clip_index.csv (or clip_index.txt) that lists
+manually-identified highlight clips with timestamps and event labels. This
+tool parses those files and adds entries to atomic_index.csv so they can
+flow through the normal pipeline (extract -> upscale -> portrait render -> brand).
 
-Expected clip_index.txt format (one clip per line):
+Preferred format: clip_index.csv
+    Columns: clip_num, description, start, end
+    Timestamps: H:MM:SS, MM:SS, or seconds (e.g. 750.5)
+
+Legacy format: clip_index.txt (one clip per line)
     TIMESTAMP_RANGE  EVENT_TYPE  [optional description]
 
-Examples:
-    t155.50-t166.40  GOAL  Left-foot finish from 18 yards
-    t320.00-t330.50  SHOT
-    12:30-13:10      SAVE  Diving save top corner
-    0:45:20-0:46:00  BUILD_UP
-
-Supported timestamp formats:
-    tSS.ss-tSS.ss        (seconds with optional decimal)
-    MM:SS-MM:SS           (minutes:seconds)
-    H:MM:SS-H:MM:SS       (hours:minutes:seconds)
+Supported timestamp formats (both CSV and TXT):
+    H:MM:SS           (hours:minutes:seconds)
+    MM:SS             (minutes:seconds)
+    SS or SS.ss       (plain seconds)
+    H_MM_SS           (underscore-separated, from filenames)
+    tSS.ss            (t-prefixed seconds, TXT only)
 
 Usage:
-    python tools/ingest_clip_index.py --scan                     # find all clip_index.txt files
+    python tools/ingest_clip_index.py --scan                     # find all clip_index files
     python tools/ingest_clip_index.py --all                      # ingest all found indexes
     python tools/ingest_clip_index.py --game 2025-11-05__TSC_vs_TSC_Navy
-    python tools/ingest_clip_index.py --file out/games/GAME/clip_index.txt --game GAME
+    python tools/ingest_clip_index.py --file out/games/GAME/clip_index.csv --game GAME
 """
 from __future__ import annotations
 
@@ -162,6 +162,71 @@ def parse_clip_index(path: Path) -> List[dict]:
     return clips
 
 
+def _ts_to_seconds(value: str) -> Optional[float]:
+    """Convert a timestamp string to seconds.
+
+    Accepts H:MM:SS, MM:SS, H_MM_SS, MM_SS, or plain seconds.
+    """
+    value = value.strip()
+    if not value:
+        return None
+    # Colon format: H:MM:SS or MM:SS
+    if ":" in value:
+        return _colon_to_seconds(value)
+    # Underscore format: H_MM_SS or MM_SS
+    if "_" in value:
+        return _underscore_to_seconds(value)
+    # Plain seconds
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def parse_clip_csv(path: Path) -> List[dict]:
+    """Parse a clip_index.csv file and return list of clip dicts.
+
+    Expected columns: clip_num, description, start, end
+    """
+    clips = []
+    with path.open("r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            start_raw = row.get("start", "").strip()
+            end_raw = row.get("end", "").strip()
+            if not start_raw or not end_raw:
+                continue
+            t_start = _ts_to_seconds(start_raw)
+            t_end = _ts_to_seconds(end_raw)
+            if t_start is None or t_end is None:
+                continue
+
+            description = row.get("description", "").strip()
+
+            # Detect event type from description
+            events = [
+                "GOAL", "PENALTY", "SAVE", "SHOT", "DRIBBLING", "DRIBBLE",
+                "BUILD_UP_PLAY", "BUILD_UP", "BUILD UP", "FREE_KICK", "FREE KICK",
+                "CORNER", "CROSS", "HEADER", "TACKLE", "PRESSURE",
+                "THROUGH_BALL", "THROUGH BALL", "INTERCEPTION", "CLEARANCE",
+                "ASSIST", "PASS", "CELEBRATION",
+            ]
+            event_type = "HIGHLIGHT"
+            desc_upper = description.upper()
+            for ev in events:
+                if ev in desc_upper:
+                    event_type = ev.replace(" ", "_")
+                    break
+
+            clips.append({
+                "t_start_s": round(t_start, 2),
+                "t_end_s": round(t_end, 2),
+                "event_type": event_type,
+                "description": description,
+            })
+    return clips
+
+
 def _load_existing_index() -> List[dict]:
     """Load existing atomic_index.csv rows."""
     if not ATOMIC_INDEX.exists():
@@ -209,15 +274,26 @@ def ingest_game(
 
     Returns dict with counts: added, skipped (already exist), failed.
     """
-    # Find clip_index.txt
+    # Find clip_index file (CSV preferred, TXT fallback)
     if clip_index_path is None:
-        clip_index_path = GAMES_DIR / game_name / "clip_index.txt"
+        ci_csv = GAMES_DIR / game_name / "clip_index.csv"
+        ci_txt = GAMES_DIR / game_name / "clip_index.txt"
+        if ci_csv.exists():
+            clip_index_path = ci_csv
+        elif ci_txt.exists():
+            clip_index_path = ci_txt
+        else:
+            print(f"  No clip_index.csv or clip_index.txt found for {game_name}")
+            return {"added": 0, "skipped": 0, "failed": 0}
 
     if not clip_index_path.exists():
-        print(f"  No clip_index.txt found for {game_name}")
+        print(f"  File not found: {clip_index_path}")
         return {"added": 0, "skipped": 0, "failed": 0}
 
-    clips = parse_clip_index(clip_index_path)
+    if clip_index_path.suffix == ".csv":
+        clips = parse_clip_csv(clip_index_path)
+    else:
+        clips = parse_clip_index(clip_index_path)
     if not clips:
         print(f"  No valid clips parsed from {clip_index_path}")
         return {"added": 0, "skipped": 0, "failed": 0}
@@ -303,15 +379,18 @@ def ingest_game(
 
 
 def scan_for_clip_indexes() -> List[Tuple[str, Path]]:
-    """Find all clip_index.txt files in game folders."""
+    """Find all clip_index files (CSV preferred, TXT fallback) in game folders."""
     found = []
     if not GAMES_DIR.is_dir():
         return found
     for d in sorted(GAMES_DIR.iterdir()):
         if d.is_dir():
-            ci = d / "clip_index.txt"
-            if ci.exists():
-                found.append((d.name, ci))
+            ci_csv = d / "clip_index.csv"
+            ci_txt = d / "clip_index.txt"
+            if ci_csv.exists():
+                found.append((d.name, ci_csv))
+            elif ci_txt.exists():
+                found.append((d.name, ci_txt))
     return found
 
 
@@ -321,11 +400,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--scan", action="store_true", help="Find all clip_index.txt files")
+    group.add_argument("--scan", action="store_true", help="Find all clip_index files (CSV or TXT)")
     group.add_argument("--all", action="store_true", help="Ingest all found clip indexes")
     group.add_argument("--game", help="Ingest clip index for a specific game")
 
-    parser.add_argument("--file", type=Path, help="Path to a specific clip_index.txt")
+    parser.add_argument("--file", type=Path, help="Path to a specific clip_index.csv or .txt")
     parser.add_argument("--dry-run", action="store_true", help="Preview without modifying catalog")
 
     return parser
