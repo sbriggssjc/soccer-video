@@ -88,7 +88,10 @@ MASTERS_HEADERS = [
 ]
 
 
-TIMESTAMP_RE = re.compile(r"__t(-?\d+(?:\.\d+)?)-t?(-?\d+(?:\.\d+)?)$", re.IGNORECASE)
+TIMESTAMP_RE = re.compile(
+    r"__t(-?\d+(?:\.\d+)?)-t?(-?\d+(?:\.\d+)?)(?:\.[_A-Za-z0-9]+)*$",
+    re.IGNORECASE,
+)
 
 
 class CatalogError(RuntimeError):
