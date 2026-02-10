@@ -1409,6 +1409,115 @@ def write_duplicates_from_index() -> tuple[int, int]:
     return hard_count, soft_count
 
 
+def audit_clips() -> dict:
+    """Audit atomic clips: per-master breakdown, overlaps, and masterless clips."""
+    rows = read_catalog(ATOMIC_INDEX_PATH, "clip_rel")
+    masters = read_catalog(MASTERS_INDEX_PATH, "master_rel")
+
+    # Group clips by master_rel
+    by_master: Dict[str, list] = {}
+    no_master: list = []
+    for rel, row in rows.items():
+        mrel = row.get("master_rel", "")
+        if not mrel:
+            no_master.append(rel)
+        else:
+            by_master.setdefault(mrel, []).append(row)
+
+    # Masters with no clips
+    empty_masters = [m for m in masters if m not in by_master]
+
+    # Per-master analysis
+    master_reports = []
+    total_overlaps = 0
+    for mrel in sorted(by_master):
+        clips = by_master[mrel]
+        # Sort by start time
+        timed = []
+        for c in clips:
+            try:
+                t0 = float(c.get("t_start_s") or "nan")
+                t1 = float(c.get("t_end_s") or "nan")
+            except (ValueError, TypeError):
+                t0 = t1 = float("nan")
+            timed.append((t0, t1, c["clip_rel"]))
+        timed.sort()
+
+        # Check for time overlaps (>50% overlap = suspicious)
+        overlaps = []
+        for i in range(len(timed) - 1):
+            s1, e1, r1 = timed[i]
+            for j in range(i + 1, len(timed)):
+                s2, e2, r2 = timed[j]
+                if s2 >= e1:
+                    break  # sorted, no more overlaps
+                # Compute overlap
+                ov_start = max(s1, s2)
+                ov_end = min(e1, e2)
+                if ov_end > ov_start:
+                    shorter = min(e1 - s1, e2 - s2)
+                    if shorter > 0 and (ov_end - ov_start) / shorter > 0.5:
+                        overlaps.append((r1, r2, round(ov_end - ov_start, 1)))
+
+        total_overlaps += len(overlaps)
+        minfo = masters.get(mrel, {})
+        dur = minfo.get("duration_s", "")
+        master_reports.append({
+            "master_rel": mrel,
+            "duration_s": dur,
+            "clip_count": len(clips),
+            "overlaps": overlaps,
+        })
+
+    # Print report
+    print("=" * 72)
+    print("CLIP AUDIT REPORT")
+    print("=" * 72)
+    print(f"Total clips: {len(rows)} | Masters with clips: {len(by_master)} | "
+          f"Masters without clips: {len(empty_masters)}")
+    print()
+
+    for mr in master_reports:
+        dur_str = ""
+        if mr["duration_s"]:
+            try:
+                secs = float(mr["duration_s"])
+                dur_str = f" ({int(secs // 60)}m{int(secs % 60):02d}s)"
+            except (ValueError, TypeError):
+                pass
+        print(f"  {mr['master_rel']}{dur_str}")
+        print(f"    Clips: {mr['clip_count']}")
+        if mr["overlaps"]:
+            print(f"    WARNING: {len(mr['overlaps'])} overlapping clip pair(s):")
+            for r1, r2, ov in mr["overlaps"]:
+                print(f"      {Path(r1).name}  <->  {Path(r2).name}  ({ov}s overlap)")
+        print()
+
+    if empty_masters:
+        print("MASTERS WITH NO CLIPS:")
+        for m in sorted(empty_masters):
+            print(f"  {m}")
+        print()
+
+    if no_master:
+        print(f"CLIPS WITH NO MASTER ({len(no_master)}):")
+        for rel in sorted(no_master):
+            print(f"  {rel}")
+        print()
+
+    if total_overlaps == 0 and not empty_masters and not no_master:
+        print("All clips are unique moments with no overlaps. All masters have clips.")
+
+    return {
+        "total_clips": len(rows),
+        "masters_with_clips": len(by_master),
+        "empty_masters": empty_masters,
+        "no_master_clips": no_master,
+        "total_overlaps": total_overlaps,
+        "master_reports": master_reports,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
@@ -1416,6 +1525,7 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--write-duplicates", action="store_true")
     group.add_argument("--normalize-tree", action="store_true")
     group.add_argument("--report", action="store_true")
+    group.add_argument("--audit-clips", action="store_true")
     group.add_argument("--mark-upscaled", action="store_true")
     group.add_argument("--mark-branded", action="store_true")
     group.add_argument("--scan-atomic", action="store_true")
@@ -1496,6 +1606,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 errors=report["sidecars_with_errors"],
             )
         )
+        return 0
+
+    if args.audit_clips:
+        audit_clips()
         return 0
 
     if args.mark_upscaled:
