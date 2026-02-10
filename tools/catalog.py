@@ -1186,7 +1186,10 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
             try:
                 next(parent.iterdir())
             except StopIteration:
-                parent.rmdir()
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break  # OneDrive / locked folders — skip cleanup
                 removed_dirs += 1
                 parent = parent.parent
                 continue
