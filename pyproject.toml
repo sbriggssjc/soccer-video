@@ -29,3 +29,18 @@ soccerhl = "soccer_highlights.cli:main"
 [tool.pytest.ini_options]
 addopts = "-m 'not slow'"
 markers = ["slow: marks tests that take longer to run"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "B028",   # no stacklevel in warnings
+    "UP007",  # X | Y union syntax — need 3.9 compat
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tools/*" = ["E", "F", "W", "I", "B", "UP"]  # legacy tool scripts

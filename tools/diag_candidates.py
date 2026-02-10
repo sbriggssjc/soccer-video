@@ -31,7 +31,7 @@ if os.path.exists(args.planner):
         try:
             d = json.loads(line)
             path[i] = (d.get("bx"), d.get("by"))
-        except:
+        except (TypeError, ValueError):
             pass
 
 # load anchors

@@ -44,6 +44,7 @@ def _parse_concat(list_path: Path) -> List[ReelEntry]:
 
 
 def render_reel(config: AppConfig, list_path: Path, output_path: Path, title: str, profile_name: str | None = None) -> float:
+    """Render a highlight reel with crossfade transitions and title slate."""
     entries = _parse_concat(list_path)
     if not entries:
         logger.warning("No entries in concat list %s", list_path)

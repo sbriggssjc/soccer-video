@@ -16,7 +16,7 @@ if str(_ROOT) not in sys.path:
 from soccer_highlights.ball_tracker import BallTrack
 
 
-_AUTOFRAME_SPEC = importlib.util.spec_from_file_location("autoframe", _ROOT / "autoframe.py")
+_AUTOFRAME_SPEC = importlib.util.spec_from_file_location("autoframe", _ROOT / "legacy" / "autoframe.py")
 if _AUTOFRAME_SPEC is None or _AUTOFRAME_SPEC.loader is None:
     raise ImportError("Unable to load autoframe module for tests")
 autoframe_module = importlib.util.module_from_spec(_AUTOFRAME_SPEC)
@@ -96,7 +96,7 @@ def test_fit_expr_and_ffmpeg_pipeline(tmp_path: Path) -> None:
     subprocess.run(
         [
             sys.executable,
-            "autoframe.py",
+            str(_ROOT / "legacy" / "autoframe.py"),
             "--in",
             str(video_path),
             "--csv",
@@ -116,7 +116,7 @@ def test_fit_expr_and_ffmpeg_pipeline(tmp_path: Path) -> None:
     subprocess.run(
         [
             sys.executable,
-            "fit_expr.py",
+            str(_ROOT / "legacy" / "fit_expr.py"),
             "--csv",
             str(csv_path),
             "--out",

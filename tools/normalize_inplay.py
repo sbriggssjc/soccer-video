@@ -12,10 +12,10 @@ for delim in [",",";","\t","|"]:
     try:
         dialect = csv.get_dialect("sniffed")
         break
-    except: pass
+    except Exception: pass
 try:
     dialect = sniffer.sniff(text.splitlines()[0] if "\n" in text else text, delimiters=";,|\t,")
-except: 
+except Exception:
     class D: delimiter=","
     dialect = D()
 
@@ -78,7 +78,7 @@ def to_seconds(x):
     # plain number
     try:
         return float(s.replace(",", "."))
-    except:
+    except (TypeError, ValueError):
         return float("nan")
 
 out = pd.DataFrame({

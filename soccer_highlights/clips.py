@@ -71,6 +71,7 @@ def _export_one(video_path: Path, info: VideoStreamInfo, task: HighlightWindow, 
 
 
 def export_clips(config: AppConfig, video_path: Path, csv_path: Path, out_dir: Path) -> List[Path]:
+    """Export highlight windows as individual mp4 clips using ffmpeg."""
     info = video_stream_info(video_path)
     windows = [w for w in read_highlights(csv_path) if w.end - w.start >= config.clips.min_duration]
     if not windows:
@@ -104,6 +105,7 @@ def export_clips(config: AppConfig, video_path: Path, csv_path: Path, out_dir: P
 
 
 def run_clips(config: AppConfig, video_path: Path, csv_path: Path, out_dir: Path) -> List[Path]:
+    """Entry point for the clip export pipeline stage."""
     return export_clips(config, video_path, csv_path, out_dir)
 
 

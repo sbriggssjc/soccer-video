@@ -108,6 +108,7 @@ def _expand_window(idx_start: int, idx_end: int, pre: float, post: float, total_
 
 
 def detect_highlights(config: AppConfig, video_path: Path, output_csv: Path) -> DetectionOutput:
+    """Detect highlight windows by combining motion and audio analysis."""
     info = video_stream_info(video_path)
     logger.info("Detecting highlights from %s (fps=%.2f, duration=%.2fs)", video_path, info.fps, info.duration)
 
@@ -187,6 +188,7 @@ def detect_highlights(config: AppConfig, video_path: Path, output_csv: Path) -> 
 
 
 def run_detect(config: AppConfig, video_path: Path, output_csv: Path) -> DetectionOutput:
+    """Run highlight detection and write results to *output_csv*."""
     result = detect_highlights(config, video_path, output_csv)
     write_highlights(output_csv, result.windows)
     return result

@@ -29,7 +29,7 @@ def get_planner_center(row):
     if "cx" in row and "cy" in row:
         try:
             return float(row["cx"]), float(row["cy"])
-        except:
+        except (TypeError, ValueError):
             pass
     return None
 

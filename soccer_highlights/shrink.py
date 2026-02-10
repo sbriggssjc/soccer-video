@@ -203,6 +203,7 @@ def _tracked_writer(out_path: Path, frames: Iterable[np.ndarray], width: int, he
 
 
 def smart_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWindow]) -> List[HighlightWindow]:
+    """Refine highlight windows using motion/audio peak analysis."""
     if cv2 is None:
         raise RuntimeError("OpenCV is required for smart shrink mode but is not installed")
     cap = cv2.VideoCapture(str(video_path))
@@ -250,6 +251,7 @@ def smart_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWin
 
 
 def simple_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWindow]) -> List[HighlightWindow]:
+    """Trim highlight windows using fixed pre/post offsets without video analysis."""
     info = video_stream_info(Path(video_path))
     refined: List[HighlightWindow] = []
     for win in windows:
@@ -259,6 +261,7 @@ def simple_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWi
 
 
 def run_shrink(config: AppConfig, video_path: Path, csv_in: Path, csv_out: Path) -> List[HighlightWindow]:
+    """Run the configured shrink mode and write refined windows to *csv_out*."""
     windows = read_highlights(csv_in)
     if not windows:
         logger.warning("No input windows found in %s", csv_in)
