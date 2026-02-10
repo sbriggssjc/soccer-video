@@ -5,8 +5,11 @@ from pathlib import Path
 import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[1]
+_LEGACY = _ROOT / "legacy"
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_LEGACY) not in sys.path:
+    sys.path.insert(0, str(_LEGACY))
 
 import fit_expr
 

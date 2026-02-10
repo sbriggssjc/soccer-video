@@ -270,6 +270,7 @@ def _estimate_step(times: np.ndarray, index: int) -> float:
 
 
 def score_clip(path: Path, sustain_sec: float, meta: Optional[ClipMetadata]) -> RankedClip:
+    """Compute motion/audio scores for a clip and determine optimal trim bounds."""
     times_list, cover_arr, mag_arr = _activity_profile(path)
     times = np.asarray(times_list, dtype=np.float32)
     cover = np.asarray(cover_arr, dtype=np.float32)
@@ -344,6 +345,7 @@ def _candidate_files(paths: Iterable[Path]) -> List[Path]:
 
 
 def write_rankings(csv_path: Path, clips: List[RankedClip]) -> None:
+    """Write ranked clips to a CSV file."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open("w", newline="") as f:
         writer = csv.writer(f)
@@ -365,6 +367,7 @@ def write_rankings(csv_path: Path, clips: List[RankedClip]) -> None:
 
 def write_concat(list_path: Path, clips: List[RankedClip], max_len: float) -> None:
     list_path.parent.mkdir(parents=True, exist_ok=True)
+    """Write an ffmpeg concat demuxer list for the ranked clips."""
     top_lines: List[str] = []
     with list_path.open("w", newline="\n", encoding="utf-8") as f:
         for clip in clips:
@@ -391,6 +394,7 @@ def write_concat(list_path: Path, clips: List[RankedClip], max_len: float) -> No
 
 def run_topk(config: AppConfig, candidate_dirs: List[Path], csv_out: Path, concat_out: Path, k: int | None = None, max_len: float | None = None) -> List[RankedClip]:
     k = k if k is not None else config.rank.k
+    """Score all candidate clips, rank them, and write the top-K results."""
     max_len = max_len if max_len is not None else config.rank.max_len
     files = _candidate_files(candidate_dirs)
     if not files:

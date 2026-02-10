@@ -1,10 +1,19 @@
+import argparse
 import json
 from pathlib import Path
 import cv2
 
-# EDIT THESE TWO PATHS
-VIDEO = Path(r"C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\001__SHOT__t155.50-t166.40.mp4")
-TEL   = Path(r"C:\Users\scott\soccer-video\out\telemetry\001__SHOT__t155.50-t166.40.ball.jsonl")
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+parser = argparse.ArgumentParser(description="Debug ball point overlay on source frame")
+parser.add_argument("--video", type=Path, default=_REPO_ROOT / "out" / "atomic_clips" / "_quarantine" / "001__SHOT__t155.50-t166.40.mp4",
+                    help="Path to the source video clip")
+parser.add_argument("--telemetry", type=Path, default=_REPO_ROOT / "out" / "telemetry" / "001__SHOT__t155.50-t166.40.ball.jsonl",
+                    help="Path to the ball telemetry JSONL file")
+_args = parser.parse_args()
+
+VIDEO = _args.video
+TEL   = _args.telemetry
 
 cap = cv2.VideoCapture(str(VIDEO))
 ok, frame = cap.read()
