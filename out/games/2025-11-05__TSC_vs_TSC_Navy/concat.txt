@@ -1,0 +1,3 @@
+file 'C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/20251105_011404000_iOS.MP4'
+file 'C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/20251105_014501000_iOS.MP4'
+file 'C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/20251105_021501000_iOS.MP4'

@@ -1,0 +1,2 @@
+file 'C:/Users/scott/soccer-video/out/games/2025-09-13__TSC_vs_NEOFC/raw/20250913_214118000_iOS.MP4'
+file 'C:/Users/scott/soccer-video/out/games/2025-09-13__TSC_vs_NEOFC/raw/20250913_221300000_iOS.MP4'
