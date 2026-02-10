@@ -95,9 +95,23 @@ class TestParseTimestamps:
         assert start is None
         assert end is None
 
-    def test_suffix_breaks_match(self):
+    def test_underscore_suffix_breaks_match(self):
         start, end = parse_timestamps("001__SHOT__t100-t200_portrait_POST")
-        assert start is None  # _portrait_POST prevents $ anchor match
+        assert start is None  # _portrait_POST prevents match (underscore suffix)
+
+    def test_dot_debug_suffix_matches(self):
+        start, end = parse_timestamps(
+            "006__2025-10-04__TSC_vs_FC__BUILD_UP_GOAL__t40440.00-t43020.00.__DEBUG"
+        )
+        assert start == pytest.approx(674.0)   # 40440/60
+        assert end == pytest.approx(717.0)     # 43020/60
+
+    def test_dot_debug_final_portrait_suffix(self):
+        start, end = parse_timestamps(
+            "002__2025-09-13__TSC_vs_NEOFC__GOAL__t180.80-t191.20.__DEBUG_FINAL_portrait_FINAL"
+        )
+        assert start == pytest.approx(180.80)
+        assert end == pytest.approx(191.20)
 
     def test_game_prefix(self):
         start, end = parse_timestamps("003__2025-11-01__Team_A_vs_B__SHOT__t580.10-t592.30")
