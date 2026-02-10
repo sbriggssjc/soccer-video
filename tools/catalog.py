@@ -203,8 +203,13 @@ def ensure_catalog_dirs() -> None:
 
 
 def to_repo_relative(path: Path) -> str:
+    # Try without resolving first — preserves paths through symlinks/junctions
     try:
-        return path.resolve().relative_to(ROOT).as_posix()
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        pass
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
     except ValueError:
         return path.resolve().as_posix()
 
@@ -1105,7 +1110,11 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
     trash_day_root = TRASH_ROOT / today
 
     def plan_trash_path(rel: str) -> Path:
-        return trash_day_root / Path(rel.replace("\\", "/"))
+        p = Path(rel.replace("\\", "/"))
+        if p.is_absolute():
+            # Strip root/drive so joining doesn't replace the base path
+            p = Path(*p.parts[1:]) if len(p.parts) > 1 else Path(p.name)
+        return trash_day_root / p
 
     for record in duplicates:
         if not record.canonical_rel or not record.duplicate_rel:
@@ -1116,9 +1125,13 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
             continue
         duplicate_key = str(duplicate.resolve())
         canonical_key = str(canonical.resolve())
+        if duplicate_key == canonical_key:
+            continue
         dup_stem = Path(record.duplicate_rel.replace("\\", "/")).stem
         canon_stem = Path(record.canonical_rel.replace("\\", "/")).stem
         trash_target = plan_trash_path(record.duplicate_rel)
+        if trash_target.resolve() == duplicate.resolve():
+            continue
         dup_row = table.get(duplicate_key)
         canon_row = table.get(canonical_key)
 
