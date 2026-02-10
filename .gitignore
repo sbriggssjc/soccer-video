@@ -2,6 +2,9 @@
 out/*
 !out/catalog/
 !out/catalog/**
+!out/games/
+!out/games/*/
+!out/games/*/clip_index.txt
 runs/**
 *.mp4
 *.mov
