@@ -28,11 +28,9 @@ import hashlib
 import json
 import logging
 import math
-import os
 import re
 import shutil
 import subprocess
-import sys
 
 # --- REQUIRED IMPORTS RESTORED AFTER TRY/EXCEPT CLEANUP ---
 from pathlib import Path
@@ -1108,7 +1106,7 @@ def build_exact_follow_center_path(
 
 
 def _load_ball_telemetry(path):
-    from render_follow_unified import load_any_telemetry
+    from tools.render_follow_unified import load_any_telemetry
 
     telemetry_rows = load_any_telemetry(path)
     if not telemetry_rows:
@@ -1211,7 +1209,7 @@ def load_ball_path_from_jsonl(
     legacy ``ball_src`` or ``ball`` tuples.
     """
 
-    from render_follow_unified import load_any_telemetry
+    from tools.render_follow_unified import load_any_telemetry
 
     telemetry_rows = load_any_telemetry(path)
     if not telemetry_rows:
@@ -1473,6 +1471,9 @@ def _motion_centroid(
 ) -> Optional[Tuple[float, float]]:
     if prev_gray is None or cur_gray is None:
         return None
+    flow = cv2.calcOpticalFlowFarneback(
+        prev_gray, cur_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0
+    )
     mag = cv2.magnitude(flow[..., 0], flow[..., 1])
     mot = (mag >= float(flow_thresh_px)).astype(np.uint8) * 255
     if field_mask is not None and field_mask.size == mag.size:
@@ -3085,10 +3086,12 @@ def _get_ball_xy_src(
             return None
         val_x = mapping.get(key_x)
         val_y = mapping.get(key_y)
+        return (float(val_x), float(val_y))
 
     def _pair_from_sequence(seq: Sequence[object]) -> Optional[tuple[float, float]]:
         if len(seq) < 2:
             return None
+        return (float(seq[0]), float(seq[1]))
 
     def _to_src(pair: tuple[float, float]) -> tuple[float, float]:
         x, y = pair
@@ -3667,6 +3670,7 @@ def plan_crop_from_ball(
         aspect = float(src_w) / float(src_h) if src_h else 1.0
 
 
+    zoom_value = state.get("zoom", 1.0)
     candidates = [zoom_value]
     zoom_value = next((c for c in reversed(candidates) if c and abs(c) > 1e-6), 1.0)
 
@@ -3720,11 +3724,15 @@ def plan_crop_from_ball(
             target_crop_w = max_crop_w
             target_crop_h = target_crop_w / max(aspect, 1e-6)
 
+    prev_x = state.get("x", 0.0)
+    prev_y = state.get("y", 0.0)
+    prev_w = state.get("w", 0.0)
+    prev_h = state.get("h", 0.0)
+
     if prev_w <= 0:
         prev_w = float(target_crop_w)
     if prev_h <= 0:
         prev_h = float(target_crop_h)
-
 
     prev_cx = prev_x + prev_w / 2.0
     prev_cy = prev_y + prev_h / 2.0
@@ -4096,13 +4104,14 @@ def portrait_config_from_preset(
             height = size_value.get("height")
             if width is None or height is None:
                 return None
-            if w > 0 and h > 0:
-                return w, h
+            if int(width) > 0 and int(height) > 0:
+                return int(width), int(height)
             return None
         if isinstance(size_value, Sequence):
             seq = list(size_value)
             if len(seq) < 2:
                 return None
+            w, h = int(seq[0]), int(seq[1])
             if w > 0 and h > 0:
                 return w, h
         return None
@@ -4122,8 +4131,8 @@ def portrait_config_from_preset(
         if isinstance(min_box_value, Mapping):
             mbw = min_box_value.get("width")
             mbh = min_box_value.get("height")
-            if mbw_f is not None and mbh_f is not None and mbw_f > 0 and mbh_f > 0:
-                min_box = (mbw_f, mbh_f)
+            if mbw is not None and mbh is not None and float(mbw) > 0 and float(mbh) > 0:
+                min_box = (float(mbw), float(mbh))
         elif isinstance(min_box_value, Sequence):
             seq = list(min_box_value)
     
@@ -6013,7 +6022,6 @@ def ffmpeg_stitch(
         keyint: int,
         log_path: Optional[Path] = None,
     ) -> None:
-        print("[DEBUG] building ffmpeg command")
         frames_dir = self.temp_dir / "frames"
         pattern = str(frames_dir / "frame_%06d.png")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -6069,11 +6077,8 @@ def ffmpeg_stitch(
         command.append(str(temp_output_path))
 
         self.last_ffmpeg_command = list(command)
-        print("[DEBUG] launching ffmpeg...")
         subprocess.run(command, check=True)
         temp_output_path.replace(self.output_path)
-        print("[INFO] render complete")
-        print("[DEBUG] ffmpeg finished successfully")
 
 def _temp_output_path(output_path: Path) -> Path:
     return output_path.with_name(f".tmp.{output_path.name}")
@@ -7590,14 +7595,10 @@ def _load_override_samples(path: Optional[str]) -> Optional[list[dict]]:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    print("[DEBUG] main() entered")
     parser = build_parser()
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     args = parser.parse_args(argv)
-    print("[DEBUG] args parsed OK")
     override_samples = _load_override_samples(args.follow_override)
-    if args.follow_override:
-        print("[DEBUG] follow_override =", args.follow_override)
     follow_lookahead_cli = any(
         arg == "--lookahead" or arg.startswith("--lookahead=") for arg in raw_argv
     )
@@ -7634,7 +7635,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     setattr(args, "follow_override_samples", override_samples)
     run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
-    print("[DEBUG] main() reached end")
 
 
 if __name__ == "__main__":

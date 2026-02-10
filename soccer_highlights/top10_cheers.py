@@ -447,8 +447,8 @@ def render_clips(
     """Render individual highlight clips using ffmpeg."""
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Remove old clips but keep directory.
-    for old_file in output_dir.glob("*"):
+    # Remove old clip files but keep directory.
+    for old_file in output_dir.glob("*.mp4"):
         if old_file.is_file():
             old_file.unlink()
 
@@ -495,9 +495,10 @@ def write_concat_file(clips: Sequence[Path], concat_path: Path) -> None:
     for clip in sorted(clips):
         full = clip.resolve()
         # Use forward slashes for ffmpeg compatibility and escape single quotes.
-        normalized = full.as_posix().replace("'", "\'")
+        normalized = full.as_posix().replace("'", "'\\''")
+
         lines.append(f"file '{normalized}'")
-    concat_path.write_text("\n".join(lines), encoding="ascii")
+    concat_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def concat_clips(concat_path: Path, output_path: Path, ffmpeg: str = "ffmpeg") -> None:

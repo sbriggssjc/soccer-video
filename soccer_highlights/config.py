@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Optional
 
-from ._pydantic_compat import BaseModel, Field, validator
+from ._pydantic_compat import BaseModel, Field, field_validator
 
 try:  # pragma: no cover - exercised through fallbacks in tests
     import yaml  # type: ignore
@@ -42,7 +42,22 @@ def _parse_scalar(value: str):
 def _simple_yaml_load(text: str):
     tokens = []
     for raw_line in text.splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
+        # Strip comments but respect quoted strings containing '#'
+        stripped = raw_line
+        in_quote = None
+        comment_idx = -1
+        for ci, ch in enumerate(raw_line):
+            if ch in ('"', "'"):
+                if in_quote is None:
+                    in_quote = ch
+                elif ch == in_quote:
+                    in_quote = None
+            elif ch == '#' and in_quote is None:
+                comment_idx = ci
+                break
+        if comment_idx >= 0:
+            stripped = raw_line[:comment_idx]
+        line = stripped.rstrip()
         if not line.strip():
             continue
         indent = len(raw_line) - len(raw_line.lstrip(" "))
@@ -148,13 +163,15 @@ class ShrinkConfig(BaseModel):
     bias_blue: bool = Field(False, description="Bias motion scoring toward blue jerseys.")
     write_clips: Optional[Path] = Field(None, description="When set, tracked clips are written here.")
 
-    @validator("mode")
+    @field_validator("mode")
+    @classmethod
     def validate_mode(cls, value: str) -> str:
         if value not in {"simple", "smart"}:
             raise ValueError("mode must be 'simple' or 'smart'")
         return value
 
-    @validator("aspect")
+    @field_validator("aspect")
+    @classmethod
     def validate_aspect(cls, value: str) -> str:
         if value not in {"horizontal", "vertical"}:
             raise ValueError("aspect must be 'horizontal' or 'vertical'")
@@ -218,7 +235,8 @@ class BallConfig(BaseModel):
     )
     max_gap: int = Field(12, ge=0, description="Reset smoothing after this many missed frames.")
 
-    @validator("detector")
+    @field_validator("detector")
+    @classmethod
     def validate_detector(cls, value: str) -> str:
         lowered = value.lower()
         if lowered not in {"none", "yolo"}:
@@ -284,4 +302,4 @@ def load_config(path: Path | str) -> AppConfig:
             data = _simple_yaml_load(text) or {}
         except Exception as exc:  # pragma: no cover - defensive guard
             raise RuntimeError("Failed to parse configuration without PyYAML installed") from exc
-    return AppConfig.parse_obj(data)
+    return AppConfig.model_validate(data)

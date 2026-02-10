@@ -1,8 +1,11 @@
-import subprocess, shlex, tempfile
+import subprocess, tempfile
 from pathlib import Path
 
-REALESRGAN_EXE = r"C:\Users\scott\soccer-video\tools\realesrgan\realesrgan-ncnn-vulkan.exe"
-UPSCALE_OUT_ROOT = Path(r"C:\Users\scott\soccer-video\out\upscaled")
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _SCRIPT_DIR.parent
+
+REALESRGAN_EXE = _SCRIPT_DIR / "realesrgan" / "realesrgan-ncnn-vulkan.exe"
+UPSCALE_OUT_ROOT = _REPO_ROOT / "out" / "upscaled"
 UPSCALE_OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 def _out_path(src: Path, scale: int) -> Path:
@@ -26,9 +29,9 @@ def upscale_video(inp: str, scale: int = 2, model: str = "realesrgan-x4plus") ->
 
     exe = Path(REALESRGAN_EXE)
     if exe.exists():
-        # Try direct video path
-        cmd = f'"{exe}" -i "{src}" -o "{out}" -n {model} -s {scale}'
-        proc = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
+        # Try direct video path (pass as list to avoid shlex issues on Windows)
+        cmd = [str(exe), "-i", str(src), "-o", str(out), "-n", model, "-s", str(scale)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode == 0 and out.exists():
             return str(out)
 

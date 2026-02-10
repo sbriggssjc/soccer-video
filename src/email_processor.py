@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from src.correction_logger import configure_default_learning_client, safe_log_learning
+from .correction_logger import configure_default_learning_client, safe_log_learning
 
 
 class EmailRecord(dict):

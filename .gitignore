@@ -17,7 +17,8 @@ runs/**
 *.ffconcat
 
 # python caches / venv
-__pycache__/**
+__pycache__/
+*.egg-info/
 .venv/**
 
 # notebooks & temp

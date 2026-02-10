@@ -64,32 +64,33 @@ def calibrate_colors(video_path: str, config: ColorsConfig, sample_frames: int =
     samples_pitch = []
     samples_team = []
 
-    for idx in indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, frame = cap.read()
-        if not ok:
-            continue
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        h, w = hsv.shape[:2]
-        center_region = hsv[h // 3 : 2 * h // 3, w // 4 : 3 * w // 4]
-        flat = center_region.reshape(-1, 3).astype(np.float32)
-        if flat.size == 0:
-            continue
-        k = min(3, len(flat))
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
-        compactness, labels, centers = cv2.kmeans(flat, k, None, criteria, 3, cv2.KMEANS_RANDOM_CENTERS)
-        centers = centers.astype(np.float32)
-        samples_pitch.append(np.median(centers, axis=0))
+    try:
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            h, w = hsv.shape[:2]
+            center_region = hsv[h // 3 : 2 * h // 3, w // 4 : 3 * w // 4]
+            flat = center_region.reshape(-1, 3).astype(np.float32)
+            if flat.size == 0:
+                continue
+            k = min(3, len(flat))
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
+            compactness, labels, centers = cv2.kmeans(flat, k, None, criteria, 3, cv2.KMEANS_RANDOM_CENTERS)
+            centers = centers.astype(np.float32)
+            samples_pitch.append(np.median(centers, axis=0))
 
-        # assume jerseys in top half of frame
-        jersey_region = hsv[: h // 2, :]
-        jr = jersey_region.reshape(-1, 3).astype(np.float32)
-        if jr.size:
-            k_j = min(3, len(jr))
-            _, _, centers_j = cv2.kmeans(jr, k_j, None, criteria, 3, cv2.KMEANS_RANDOM_CENTERS)
-            samples_team.append(np.median(centers_j, axis=0))
-
-    cap.release()
+            # assume jerseys in top half of frame
+            jersey_region = hsv[: h // 2, :]
+            jr = jersey_region.reshape(-1, 3).astype(np.float32)
+            if jr.size:
+                k_j = min(3, len(jr))
+                _, _, centers_j = cv2.kmeans(jr, k_j, None, criteria, 3, cv2.KMEANS_RANDOM_CENTERS)
+                samples_team.append(np.median(centers_j, axis=0))
+    finally:
+        cap.release()
 
     if samples_pitch:
         pitch_center = np.mean(samples_pitch, axis=0)

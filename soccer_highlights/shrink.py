@@ -203,6 +203,8 @@ def _tracked_writer(out_path: Path, frames: Iterable[np.ndarray], width: int, he
 
 
 def smart_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWindow]) -> List[HighlightWindow]:
+    if cv2 is None:
+        raise RuntimeError("OpenCV is required for smart shrink mode but is not installed")
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Could not open {video_path}")
@@ -215,33 +217,35 @@ def smart_shrink(config: AppConfig, video_path: Path, windows: List[HighlightWin
         colors = calibrate_colors(str(video_path), colors)
         config.colors = colors
     mask = None
-    if config.shrink.bias_blue:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ok, frame = cap.read()
-        if ok:
-            mask = hsv_mask(frame, colors.team_primary)
     refined: List[HighlightWindow] = []
-    tracker_out = config.shrink.write_clips
-    if tracker_out:
-        Path(tracker_out).mkdir(parents=True, exist_ok=True)
-    for idx, win in enumerate(tqdm(windows, desc="shrink", unit="clip", leave=False), start=1):
-        peak, motion_series, motion_times = _find_peak(cap, win, audio_t, audio_env, mask, total_frames)
-        rs = clamp(peak - config.shrink.pre, 0.0, total_dur)
-        re = clamp(peak + config.shrink.post, 0.0, total_dur)
-        if win.event == "goal":
-            rs, re = _ball_in_play_gate(motion_times, motion_series, peak, rs, re, total_dur)
-        if re <= rs + 0.1:
-            re = clamp(rs + 0.1, 0.0, total_dur)
-        refined.append(HighlightWindow(start=rs, end=re, score=win.score, event=win.event))
+    try:
+        if config.shrink.bias_blue:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = cap.read()
+            if ok:
+                mask = hsv_mask(frame, colors.team_primary)
+        tracker_out = config.shrink.write_clips
         if tracker_out:
-            start_frame = int(rs * fps)
-            end_frame = min(total_frames - 1, int(re * fps))
-            frames = list(_tracked_frames(cap, start_frame, end_frame))
-            if frames:
-                out_path = Path(tracker_out) / f"clip_{idx:04d}.mp4"
-                _tracked_writer(out_path, frames, int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), config.shrink.aspect, config.shrink.zoom, fps)
-                logger.info("Tracked clip %s", out_path)
-    cap.release()
+            Path(tracker_out).mkdir(parents=True, exist_ok=True)
+        for idx, win in enumerate(tqdm(windows, desc="shrink", unit="clip", leave=False), start=1):
+            peak, motion_series, motion_times = _find_peak(cap, win, audio_t, audio_env, mask, total_frames)
+            rs = clamp(peak - config.shrink.pre, 0.0, total_dur)
+            re = clamp(peak + config.shrink.post, 0.0, total_dur)
+            if win.event == "goal":
+                rs, re = _ball_in_play_gate(motion_times, motion_series, peak, rs, re, total_dur)
+            if re <= rs + 0.1:
+                re = clamp(rs + 0.1, 0.0, total_dur)
+            refined.append(HighlightWindow(start=rs, end=re, score=win.score, event=win.event))
+            if tracker_out:
+                start_frame = int(rs * fps)
+                end_frame = min(total_frames - 1, int(re * fps))
+                if end_frame > start_frame:
+                    out_path = Path(tracker_out) / f"clip_{idx:04d}.mp4"
+                    frame_gen = _tracked_frames(cap, start_frame, end_frame)
+                    _tracked_writer(out_path, frame_gen, int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), config.shrink.aspect, config.shrink.zoom, fps)
+                    logger.info("Tracked clip %s", out_path)
+    finally:
+        cap.release()
     return refined
 
 

@@ -9,7 +9,7 @@ path = sys.argv[1]
 cap = cv.VideoCapture(path)
 if not cap.isOpened():
     print(json.dumps({"err": f"Cannot open {path}"}))
-    sys.exit(0)
+    sys.exit(1)
 
 fps   = cap.get(cv.CAP_PROP_FPS) or 24.0
 w     = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))

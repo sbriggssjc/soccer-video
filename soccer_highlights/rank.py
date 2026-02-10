@@ -162,7 +162,7 @@ def _peak_time(times: np.ndarray, cover: np.ndarray, mag: np.ndarray, duration: 
     if times.size == 0:
         return duration / 2.0 if duration > 0 else 0.0
     if mag.size == 0:
-        return float(times[min(0, times.size - 1)])
+        return float(times[max(0, times.size - 1)])
     combined = mag
     if cover.size:
         combined = 0.7 * mag + 0.3 * cover
@@ -205,24 +205,26 @@ def _activity_profile(path: Path, sample_fps: int = _SAMPLE_FPS) -> tuple[List[f
     times: List[float] = []
     cover: List[float] = []
     mag: List[float] = []
-    while True:
-        for _ in range(stride - 1):
-            if not cap.grab():
+    try:
+        while True:
+            for _ in range(stride - 1):
+                if not cap.grab():
+                    break
+            ok, frame = cap.read()
+            if not ok:
                 break
-        ok, frame = cap.read()
-        if not ok:
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        diff = cv2.absdiff(gray, prev)
-        prev = gray
-        m = float(diff.mean()) / 255.0
-        mask = (diff > 10).astype(np.uint8)
-        c = float(mask.mean())
-        t = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
-        times.append(t)
-        cover.append(c)
-        mag.append(m)
-    cap.release()
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            diff = cv2.absdiff(gray, prev)
+            prev = gray
+            m = float(diff.mean()) / 255.0
+            mask = (diff > 10).astype(np.uint8)
+            c = float(mask.mean())
+            t = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            times.append(t)
+            cover.append(c)
+            mag.append(m)
+    finally:
+        cap.release()
     return times, np.array(cover), np.array(mag)
 
 
@@ -388,8 +390,8 @@ def write_concat(list_path: Path, clips: List[RankedClip], max_len: float) -> No
 
 
 def run_topk(config: AppConfig, candidate_dirs: List[Path], csv_out: Path, concat_out: Path, k: int | None = None, max_len: float | None = None) -> List[RankedClip]:
-    k = k or config.rank.k
-    max_len = max_len or config.rank.max_len
+    k = k if k is not None else config.rank.k
+    max_len = max_len if max_len is not None else config.rank.max_len
     files = _candidate_files(candidate_dirs)
     if not files:
         logger.warning("No candidate clips found in %s", candidate_dirs)

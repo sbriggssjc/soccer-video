@@ -20,7 +20,7 @@ def _normalize_row(row: Any, columns: Sequence[str] | None) -> MutableMapping[st
 
     try:
         return dict(row)
-    except Exception:
+    except (TypeError, ValueError):
         pass
 
     if columns is None:

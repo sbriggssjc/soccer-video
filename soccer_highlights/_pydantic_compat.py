@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Type
 
 try:  # pragma: no cover - use real pydantic when available
-    from pydantic import BaseModel, Field, validator  # type: ignore
+    from pydantic import BaseModel, Field, field_validator  # type: ignore
 except Exception:  # pragma: no cover
     class FieldInfo:
         def __init__(self, default: Any = ..., default_factory: Any | None = None, **kwargs: Any) -> None:
@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover
     def Field(default: Any = ..., default_factory: Any | None = None, **kwargs: Any) -> FieldInfo:
         return FieldInfo(default=default, default_factory=default_factory, **kwargs)
 
-    def validator(field_name: str):
+    def field_validator(field_name: str, *, mode: str = "after"):
         def decorator(func):
             func._validator_field = field_name
             return func
@@ -65,7 +65,7 @@ except Exception:  # pragma: no cover
                     elif info.default_factory is not None:
                         value = info.default_factory()
                     else:
-                        value = None
+                        raise ValueError(f"Field '{name}' is required")
                 value = self._coerce(name, value)
                 info = self.__field_definitions__[name]
                 if info.ge is not None and value is not None and value < info.ge:
@@ -102,6 +102,10 @@ except Exception:  # pragma: no cover
 
         @classmethod
         def parse_obj(cls: Type["BaseModel"], obj: Dict[str, Any]) -> "BaseModel":
+            return cls(**obj)
+
+        @classmethod
+        def model_validate(cls: Type["BaseModel"], obj: Dict[str, Any]) -> "BaseModel":
             return cls(**obj)
 
         def dict(self) -> Dict[str, Any]:
