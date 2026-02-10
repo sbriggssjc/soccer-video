@@ -60,25 +60,27 @@ def _compute_motion_scores(video_path: Path, fps: float) -> np.ndarray:
     accum = 0.0
     count = 0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    with tqdm(total=max(total_frames - 1, 0), desc="motion", unit="frame", leave=False) as bar:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            flow = cv2.calcOpticalFlowFarneback(prev, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-            mag = np.linalg.norm(flow, axis=2).sum()
-            accum += float(mag)
-            count += 1
-            bar.update(1)
-            if count == frames_per_bin:
-                flow_acc.append(accum)
-                accum = 0.0
-                count = 0
-            prev = gray
-    if count:
-        flow_acc.append(accum)
-    cap.release()
+    try:
+        with tqdm(total=max(total_frames - 1, 0), desc="motion", unit="frame", leave=False) as bar:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                flow = cv2.calcOpticalFlowFarneback(prev, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+                mag = np.linalg.norm(flow, axis=2).sum()
+                accum += float(mag)
+                count += 1
+                bar.update(1)
+                if count == frames_per_bin:
+                    flow_acc.append(accum)
+                    accum = 0.0
+                    count = 0
+                prev = gray
+        if count:
+            flow_acc.append(accum)
+    finally:
+        cap.release()
     if not flow_acc:
         return np.zeros(0, dtype=np.float32)
     arr = np.array(flow_acc, dtype=np.float32)
@@ -97,8 +99,10 @@ def _normalize(arr: np.ndarray) -> np.ndarray:
 
 
 def _expand_window(idx_start: int, idx_end: int, pre: float, post: float, total_duration: float) -> tuple[float, float]:
-    start_time = max(0.0, idx_start - pre)
-    end_time = (idx_end + 1) + post
+    # Each bin index corresponds to ~1 second of video (bin size = round(fps) frames).
+    # Convert indices to seconds explicitly for clarity.
+    start_time = max(0.0, float(idx_start) - pre)
+    end_time = float(idx_end + 1) + post
     end_time = min(total_duration, end_time)
     return start_time, end_time
 

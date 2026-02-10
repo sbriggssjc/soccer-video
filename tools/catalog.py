@@ -722,7 +722,7 @@ def compute_duplicate_groups(records: Sequence[ClipRecord]) -> tuple[list[Duplic
                     and b.t_end_s is not None
                     and abs(a.t_end_s - b.t_end_s) <= 0.25
                 )
-                if ratio is not None and ratio >= 0.9 or (start_close and end_close):
+                if (ratio is not None and ratio >= 0.9) or (start_close and end_close):
                     adjacency[i].add(j)
                     adjacency[j].add(i)
 

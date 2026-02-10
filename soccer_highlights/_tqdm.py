@@ -24,4 +24,4 @@ except Exception:  # pragma: no cover
     def tqdm(iterable=None, **kwargs):  # type: ignore
         if iterable is None:
             return _Dummy()
-        return iterable
+        return _Dummy(iterable)

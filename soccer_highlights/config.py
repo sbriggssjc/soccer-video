@@ -42,7 +42,22 @@ def _parse_scalar(value: str):
 def _simple_yaml_load(text: str):
     tokens = []
     for raw_line in text.splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
+        # Strip comments but respect quoted strings containing '#'
+        stripped = raw_line
+        in_quote = None
+        comment_idx = -1
+        for ci, ch in enumerate(raw_line):
+            if ch in ('"', "'"):
+                if in_quote is None:
+                    in_quote = ch
+                elif ch == in_quote:
+                    in_quote = None
+            elif ch == '#' and in_quote is None:
+                comment_idx = ci
+                break
+        if comment_idx >= 0:
+            stripped = raw_line[:comment_idx]
+        line = stripped.rstrip()
         if not line.strip():
             continue
         indent = len(raw_line) - len(raw_line.lstrip(" "))

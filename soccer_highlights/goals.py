@@ -148,46 +148,48 @@ def detect_scoreboard_deltas(video_path: Path, sample_rate: float = 1.5) -> List
     pending_count = 0
     last_event = -10.0
     events: List[float] = []
-    for idx in range(0, total_frames, step):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, frame = cap.read()
-        if not ok:
-            break
-        rois = _scoreboard_rois(frame)
-        readings = [val for roi in rois if (val := _ocr_score(roi)) is not None]
-        if not readings:
-            continue
-        if committed is not None:
-            readings.sort(key=lambda s: abs(s[0] - committed[0]) + abs(s[1] - committed[1]))
-        current = readings[0]
-        if committed is None:
-            committed = current
-            continue
-        if current == committed:
+    try:
+        for idx in range(0, total_frames, step):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, frame = cap.read()
+            if not ok:
+                break
+            rois = _scoreboard_rois(frame)
+            readings = [val for roi in rois if (val := _ocr_score(roi)) is not None]
+            if not readings:
+                continue
+            if committed is not None:
+                readings.sort(key=lambda s: abs(s[0] - committed[0]) + abs(s[1] - committed[1]))
+            current = readings[0]
+            if committed is None:
+                committed = current
+                continue
+            if current == committed:
+                pending = None
+                pending_count = 0
+                continue
+            if pending == current:
+                pending_count += 1
+            else:
+                pending = current
+                pending_count = 1
+            if pending_count < 2:
+                continue
+            diff0 = pending[0] - committed[0]
+            diff1 = pending[1] - committed[1]
+            if diff0 < 0 or diff1 < 0 or diff0 + diff1 == 0 or diff0 + diff1 > 2:
+                pending = None
+                pending_count = 0
+                continue
+            t = idx / fps
+            if t - last_event >= 6.0:
+                events.append(t)
+                last_event = t
+            committed = pending
             pending = None
             pending_count = 0
-            continue
-        if pending == current:
-            pending_count += 1
-        else:
-            pending = current
-            pending_count = 1
-        if pending_count < 2:
-            continue
-        diff0 = pending[0] - committed[0]
-        diff1 = pending[1] - committed[1]
-        if diff0 < 0 or diff1 < 0 or diff0 + diff1 == 0 or diff0 + diff1 > 2:
-            pending = None
-            pending_count = 0
-            continue
-        t = idx / fps
-        if t - last_event >= 6.0:
-            events.append(t)
-            last_event = t
-        committed = pending
-        pending = None
-        pending_count = 0
-    cap.release()
+    finally:
+        cap.release()
     return events
 
 
@@ -239,30 +241,32 @@ def detect_net_events(video_path: Path, fps: float, sample_fps: float = 15.0) ->
     times: List[float] = []
     left_energy: List[float] = []
     right_energy: List[float] = []
-    while True:
-        grabbed = True
-        for _ in range(step - 1):
-            grabbed = cap.grab()
+    try:
+        while True:
+            grabbed = True
+            for _ in range(step - 1):
+                grabbed = cap.grab()
+                if not grabbed:
+                    break
             if not grabbed:
                 break
-        if not grabbed:
-            break
-        ok, frame = cap.read()
-        if not ok:
-            break
-        small = cv2.resize(frame, (prev_gray.shape[1], prev_gray.shape[0]))
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-        diff = cv2.absdiff(gray, prev_gray).astype(np.float32)
-        prev_gray = gray
-        h, w = diff.shape
-        border = max(8, int(round(w * 0.18)))
-        left = diff[:, :border]
-        right = diff[:, w - border :]
-        left_energy.append(float(left.mean()) / 255.0)
-        right_energy.append(float(right.mean()) / 255.0)
-        times.append(frame_idx / fps)
-        frame_idx += step
-    cap.release()
+            ok, frame = cap.read()
+            if not ok:
+                break
+            small = cv2.resize(frame, (prev_gray.shape[1], prev_gray.shape[0]))
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            diff = cv2.absdiff(gray, prev_gray).astype(np.float32)
+            prev_gray = gray
+            h, w = diff.shape
+            border = max(8, int(round(w * 0.18)))
+            left = diff[:, :border]
+            right = diff[:, w - border :]
+            left_energy.append(float(left.mean()) / 255.0)
+            right_energy.append(float(right.mean()) / 255.0)
+            times.append(frame_idx / fps)
+            frame_idx += step
+    finally:
+        cap.release()
     spikes = _find_motion_spikes(times, left_energy) + _find_motion_spikes(times, right_energy)
     spikes.sort()
     merged: List[float] = []
@@ -333,8 +337,15 @@ def detect_goal_windows(
                 matched = win
                 break
         if matched is not None:
-            matched.event = "goal"
-            matched.score = max(matched.score, 1.0)
+            # Create a replacement window instead of mutating the caller's data.
+            idx = list(windows).index(matched)
+            replacement = HighlightWindow(
+                start=matched.start,
+                end=matched.end,
+                score=max(matched.score, 1.0),
+                event="goal",
+            )
+            forced.append(replacement)
         else:
             start = clamp(anchor - config.detect.pre, 0.0, info.duration)
             end = clamp(anchor + config.detect.post, 0.0, info.duration)

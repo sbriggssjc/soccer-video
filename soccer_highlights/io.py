@@ -36,7 +36,7 @@ class FFmpegError(RuntimeError):
 def run_command(cmd: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess:
     """Run a subprocess command logging the invocation."""
 
-    logger.debug("Running command: {}", " ".join(cmd))
+    logger.debug("Running command: %s", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
     if check and result.returncode != 0:
         raise FFmpegError(f"Command failed with code {result.returncode}: {' '.join(cmd)}\n{result.stderr}")
@@ -75,11 +75,15 @@ def video_stream_info(path: Path) -> VideoStreamInfo:
     if not streams:
         raise FFmpegError(f"No video streams found in {path}")
     stream = streams[0]
-    duration = float(stream.get("duration") or data["format"].get("duration") or 0.0)
-    width = int(stream.get("width"))
-    height = int(stream.get("height"))
+    duration = float(stream.get("duration") or data.get("format", {}).get("duration") or 0.0)
+    width = int(stream.get("width", 0))
+    height = int(stream.get("height", 0))
     r_frame_rate = stream.get("r_frame_rate", "0/0")
-    fps = float(Fraction(r_frame_rate)) if "0/0" not in r_frame_rate else float(stream.get("avg_frame_rate", 0.0))
+    if "0/0" not in r_frame_rate:
+        fps = float(Fraction(r_frame_rate))
+    else:
+        avg = stream.get("avg_frame_rate", "0/0")
+        fps = float(Fraction(avg)) if isinstance(avg, str) and "/" in avg else float(avg or 0.0)
     time_base = _parse_fraction(stream.get("time_base", "1/1"))
     return VideoStreamInfo(path=path, duration=duration, fps=fps, width=width, height=height, time_base=time_base)
 
@@ -90,7 +94,7 @@ def audio_stream_info(path: Path) -> AudioStreamInfo:
     if not streams:
         raise FFmpegError(f"No audio streams found in {path}")
     stream = streams[0]
-    duration = float(stream.get("duration") or data["format"].get("duration") or 0.0)
+    duration = float(stream.get("duration") or data.get("format", {}).get("duration") or 0.0)
     sample_rate = int(stream.get("sample_rate", 48000))
     channels = int(stream.get("channels", 2))
     return AudioStreamInfo(path=path, duration=duration, sample_rate=sample_rate, channels=channels)

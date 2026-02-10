@@ -65,7 +65,7 @@ except Exception:  # pragma: no cover
                     elif info.default_factory is not None:
                         value = info.default_factory()
                     else:
-                        value = None
+                        raise ValueError(f"Field '{name}' is required")
                 value = self._coerce(name, value)
                 info = self.__field_definitions__[name]
                 if info.ge is not None and value is not None and value < info.ge:

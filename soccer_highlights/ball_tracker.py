@@ -10,7 +10,11 @@ from typing import Iterator, List, Optional, Tuple
 import importlib
 import importlib.util
 
-import cv2
+try:  # pragma: no cover - optional dependency
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover
+    cv2 = None  # type: ignore
+
 import numpy as np
 
 
@@ -300,18 +304,16 @@ class BallTracker:
         if not cap.isOpened():
             raise RuntimeError(f"Unable to open video for ball tracking: {video_path}")
 
+        csv_file = None
         writer = None
-        if out_csv is not None:
-            out_csv = Path(out_csv)
-            out_csv.parent.mkdir(parents=True, exist_ok=True)
-            csv_file = out_csv.open("w", newline="", encoding="utf-8")
-            writer = csv.writer(csv_file)
-            writer.writerow(["frame", "cx", "cy", "w", "h", "conf", "raw_cx", "raw_cy", "raw_w", "raw_h", "raw_conf"])
-        else:
-            csv_file = None
-
         frame_idx = 0
         try:
+            if out_csv is not None:
+                out_csv = Path(out_csv)
+                out_csv.parent.mkdir(parents=True, exist_ok=True)
+                csv_file = out_csv.open("w", newline="", encoding="utf-8")
+                writer = csv.writer(csv_file)
+                writer.writerow(["frame", "cx", "cy", "w", "h", "conf", "raw_cx", "raw_cy", "raw_w", "raw_h", "raw_conf"])
             while True:
                 ok, frame = cap.read()
                 if not ok:
