@@ -139,6 +139,28 @@ class TestParseTimestamps:
         assert start == pytest.approx(3500.0)
         assert end == pytest.approx(3520.0)
 
+    def test_dot_thousands_separator(self):
+        # t1.855.00 = 1855.00 seconds (dot as thousands separator)
+        start, end = parse_timestamps(
+            "005__GOAL__t1.855.00-t1.870.00.__CINEMATIC"
+        )
+        assert start == pytest.approx(1855.0)
+        assert end == pytest.approx(1870.0)
+
+    def test_dot_thousands_separator_larger(self):
+        # t2.694.00 = 2694.00 seconds
+        start, end = parse_timestamps(
+            "010__PRESSURE__t2.694.00-t2.706.00.__CINEMATIC"
+        )
+        assert start == pytest.approx(2694.0)
+        assert end == pytest.approx(2706.0)
+
+    def test_dot_thousands_no_false_positive(self):
+        # Normal decimal t640.00 should NOT be affected
+        start, end = parse_timestamps("004__PRESSURE__t640.00-t663.00")
+        assert start == pytest.approx(640.0)
+        assert end == pytest.approx(663.0)
+
 
 # --- format_float -------------------------------------------------------------
 
@@ -171,6 +193,39 @@ class TestOverlapRatio:
 
     def test_none_values(self):
         assert compute_overlap_ratio(None, 10, 0, 10) is None
+
+    def test_containment_low_iou(self):
+        """A short clip entirely within a longer one has low IoU but high containment."""
+        # Clip A: 2040-2058 (18s), Clip B: 2040-2085 (45s)
+        # IoU = 18/45 = 0.4, Containment = 18/18 = 1.0
+        ratio = compute_overlap_ratio(2040, 2058, 2040, 2085)
+        assert ratio == pytest.approx(18 / 45)  # IoU only
+        # But the soft dupe detection should still catch this via containment
+
+
+class TestContainmentDupe:
+    """Verify that soft dupe detection catches containment cases."""
+
+    def test_contained_clip_is_soft_dupe(self):
+        """A clip fully contained in another should be flagged as soft dupe."""
+        records = [
+            ClipRecord(
+                clip_path=Path("a.mp4"), clip_rel="out/atomic_clips/g/a.mp4",
+                clip_name="a.mp4", clip_stem="a",
+                t_start_s=2040, t_end_s=2058, master_rel="m",
+                sha1_64="aaa", duration_s=18, width=1920, height=1080,
+                fps="30", created_at_utc="2025-01-01", created_ts=0,
+            ),
+            ClipRecord(
+                clip_path=Path("b.mp4"), clip_rel="out/atomic_clips/g/b.mp4",
+                clip_name="b.mp4", clip_stem="b",
+                t_start_s=2040, t_end_s=2085, master_rel="m",
+                sha1_64="bbb", duration_s=45, width=1920, height=1080,
+                fps="30", created_at_utc="2025-01-01", created_ts=0,
+            ),
+        ]
+        _, _, soft = compute_duplicate_groups(records)
+        assert soft >= 1
 
 
 # --- to_repo_relative ---------------------------------------------------------
