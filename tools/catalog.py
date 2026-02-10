@@ -1512,6 +1512,25 @@ def audit_clips() -> dict:
         total_overlaps += len(overlaps)
         minfo = masters.get(mrel, {})
         dur = minfo.get("duration_s", "")
+
+        # Clip duration stats
+        clip_durations = [e - s for s, e, _ in timed if e > s]
+        dur_min = min(clip_durations) if clip_durations else 0
+        dur_max = max(clip_durations) if clip_durations else 0
+        dur_avg = sum(clip_durations) / len(clip_durations) if clip_durations else 0
+
+        # Clips whose timestamps exceed master duration
+        master_dur = None
+        try:
+            master_dur = float(dur) if dur else None
+        except (ValueError, TypeError):
+            pass
+        out_of_bounds = []
+        if master_dur is not None:
+            for s, e, rel in timed:
+                if e > master_dur + 1:  # 1s tolerance
+                    out_of_bounds.append((rel, s, e))
+
         master_reports.append({
             "master_rel": mrel,
             "duration_s": dur,
@@ -1519,6 +1538,10 @@ def audit_clips() -> dict:
             "timed_count": len(timed),
             "overlaps": overlaps,
             "unparseable": unparseable,
+            "dur_min": dur_min,
+            "dur_max": dur_max,
+            "dur_avg": dur_avg,
+            "out_of_bounds": out_of_bounds,
         })
 
     # Print report
@@ -1540,6 +1563,15 @@ def audit_clips() -> dict:
                 pass
         print(f"  {mr['master_rel']}{dur_str}")
         print(f"    Clips: {mr['clip_count']} ({mr['timed_count']} with timestamps)")
+        if mr["timed_count"]:
+            print(f"    Clip durations: min={mr['dur_min']:.1f}s, "
+                  f"max={mr['dur_max']:.1f}s, avg={mr['dur_avg']:.1f}s")
+        if mr["out_of_bounds"]:
+            print(f"    OUT OF BOUNDS ({len(mr['out_of_bounds'])} clips exceed master duration):")
+            for rel, s, e in mr["out_of_bounds"][:5]:
+                print(f"      {Path(rel).name}  (t={s:.0f}-{e:.0f}s, master={dur_str.strip(' ()')})")
+            if len(mr["out_of_bounds"]) > 5:
+                print(f"      ... and {len(mr['out_of_bounds']) - 5} more")
         if mr["overlaps"]:
             print(f"    OVERLAPS: {len(mr['overlaps'])} pair(s):")
             for r1, r2, ov in mr["overlaps"]:
