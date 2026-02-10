@@ -16,5 +16,7 @@
     }
   ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
-  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4"
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "t_start_s": 674.0,
+  "t_end_s": 717.0
 }
