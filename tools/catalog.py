@@ -1150,7 +1150,17 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
             p = Path(parts[-2]) / parts[-1]
         else:
             p = Path(p.name)
-        return trash_day_root / p
+        target = trash_day_root / p
+        # Truncate filename if total path exceeds Windows MAX_PATH (260).
+        if len(str(target)) > 250:
+            stem = p.stem
+            suffix = p.suffix
+            max_stem = 250 - len(str(trash_day_root / parts[-2] / "")) - len(suffix)
+            if max_stem < 20:
+                max_stem = 20
+            p = Path(parts[-2]) / (stem[:max_stem] + suffix)
+            target = trash_day_root / p
+        return target
 
     for record in duplicates:
         if not record.canonical_rel or not record.duplicate_rel:
