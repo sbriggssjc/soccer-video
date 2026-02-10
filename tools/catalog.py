@@ -1288,7 +1288,10 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
 
     trash_purged = False
     if purge and not dry_run and TRASH_ROOT.exists():
-        shutil.rmtree(TRASH_ROOT)
+        def _onerror(func, path, exc_info):
+            """Best-effort removal — skip OneDrive / locked items."""
+            pass
+        shutil.rmtree(TRASH_ROOT, onerror=_onerror)
         trash_purged = True
 
     return {
