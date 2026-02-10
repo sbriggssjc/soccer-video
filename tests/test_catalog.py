@@ -30,9 +30,11 @@ from tools.catalog import (
     format_float,
     gather_clip_record,
     is_canonical_rel,
+    load_duplicates,
     load_sidecar,
     mark_branded,
     mark_upscaled,
+    normalize_tree,
     parse_timestamps,
     probe_video,
     rebuild_atomic_index,
@@ -43,6 +45,7 @@ from tools.catalog import (
     update_pipeline_status,
     write_atomic_index,
     write_catalog,
+    write_duplicates_from_index,
 )
 
 
@@ -348,3 +351,99 @@ class TestCatalogPipeline:
         assert report["total_clips"] == 1
         assert report["upscaled"] == 0
         assert report["branded"] == 0
+
+    def test_write_duplicates_from_index(self, catalog_env):
+        """write_duplicates_from_index should detect hard dupes from the index."""
+        import shutil
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip1 = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        dup_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game_copy"
+        dup_dir.mkdir(parents=True)
+        shutil.copy2(clip1, dup_dir / "001__GOAL__t10-t20.mp4")
+
+        # First rebuild to populate atomic_index.csv
+        rebuild_atomic_index()
+
+        hard, soft = write_duplicates_from_index()
+        assert hard >= 1
+        dupes_csv = catalog_env["catalog_dir"] / "duplicates.csv"
+        assert dupes_csv.exists()
+
+    def test_normalize_tree_dry_run(self, catalog_env):
+        """Dry-run should preview moves without modifying files."""
+        import shutil
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip1 = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        dup_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game_copy"
+        dup_dir.mkdir(parents=True)
+        dup_path = dup_dir / "001__GOAL__t10-t20.mp4"
+        shutil.copy2(clip1, dup_path)
+
+        rebuild_atomic_index()
+
+        result = normalize_tree(dry_run=True, force=False, purge=False)
+        # Dry run should not move anything
+        assert result["moved"] == 0
+        # But duplicate file should still exist
+        assert dup_path.exists()
+
+    def test_normalize_tree_force(self, catalog_env):
+        """Force mode should move duplicate files to trash."""
+        import shutil
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip1 = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        dup_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game_copy"
+        dup_dir.mkdir(parents=True)
+        dup_path = dup_dir / "001__GOAL__t10-t20.mp4"
+        shutil.copy2(clip1, dup_path)
+
+        rebuild_atomic_index()
+
+        result = normalize_tree(dry_run=False, force=True, purge=False)
+        assert result["moved"] >= 1
+        # Duplicate should no longer exist at original location
+        assert not dup_path.exists()
+        # Canonical should still exist
+        assert clip1.exists()
+
+    def test_normalize_tree_requires_force(self, catalog_env):
+        """Without --force (and not --dry-run), should raise CatalogError."""
+        import shutil
+        from tools.catalog import CatalogError
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip1 = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        dup_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game_copy"
+        dup_dir.mkdir(parents=True)
+        shutil.copy2(clip1, dup_dir / "001__GOAL__t10-t20.mp4")
+
+        rebuild_atomic_index()
+
+        with pytest.raises(CatalogError, match="--force"):
+            normalize_tree(dry_run=False, force=False, purge=False)
+
+    def test_normalize_tree_no_dupes(self, catalog_env):
+        """When no duplicates exist, normalize_tree returns zeros."""
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        _make_clip(game_dir / "002__SHOT__t30-t40.mp4")
+
+        rebuild_atomic_index()
+
+        result = normalize_tree(dry_run=True, force=False, purge=False)
+        assert result["moved"] == 0
+
+    def test_load_duplicates(self, catalog_env):
+        """load_duplicates should return records from duplicates.csv."""
+        import shutil
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip1 = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        dup_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game_copy"
+        dup_dir.mkdir(parents=True)
+        shutil.copy2(clip1, dup_dir / "001__GOAL__t10-t20.mp4")
+
+        rebuild_atomic_index()
+
+        dupes = load_duplicates()
+        assert len(dupes) >= 1
+        assert dupes[0].reason == "hard"
+        assert dupes[0].overlap_ratio == 1.0
