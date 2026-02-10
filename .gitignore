@@ -37,21 +37,8 @@ models/**/weights/**
 *._bak
 *.old
 *.tmp
-
-
-# Local backups & temp artifacts
-Scan-AtomicClips.ps1.bak_*
-*.bak
-*.bak_*
-*._bak
-*.old
-*.tmp
-
-
-# root backup litter
-Scan-AtomicClips.ps1.bak*
 *.bad
-*.bak
+*.backup_pre_test
 
 # Caches / diagnostics / quarantines
 out/_trash/
