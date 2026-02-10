@@ -1111,9 +1111,13 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
 
     def plan_trash_path(rel: str) -> Path:
         p = Path(rel.replace("\\", "/"))
-        if p.is_absolute():
-            # Strip root/drive so joining doesn't replace the base path
-            p = Path(*p.parts[1:]) if len(p.parts) > 1 else Path(p.name)
+        # Use only the last 2 components (game_folder/clip.mp4) to keep
+        # trash paths short and avoid Windows MAX_PATH (260 char) limit.
+        parts = p.parts
+        if len(parts) >= 2:
+            p = Path(parts[-2]) / parts[-1]
+        else:
+            p = Path(p.name)
         return trash_day_root / p
 
     for record in duplicates:
@@ -1156,12 +1160,18 @@ def normalize_tree(*, dry_run: bool, force: bool, purge: bool) -> dict:
                     print(msg)
             continue
 
-        trash_target.parent.mkdir(parents=True, exist_ok=True)
-        if trash_target.exists() and not force:
-            raise CatalogError(f"Refusing to overwrite {trash_target}")
-        if trash_target.exists() and force:
-            trash_target.unlink()
-        shutil.move(str(duplicate), str(trash_target))
+        try:
+            trash_target.parent.mkdir(parents=True, exist_ok=True)
+            if trash_target.exists() and not force:
+                raise CatalogError(f"Refusing to overwrite {trash_target}")
+            if trash_target.exists() and force:
+                trash_target.unlink()
+            shutil.move(str(duplicate), str(trash_target))
+        except (OSError, CatalogError) as exc:
+            err_msg = f"FAILED to move {duplicate}: {exc}"
+            log_entries.append(err_msg)
+            print(err_msg)
+            continue
         moved += 1
         move_done_msg = f"Moved {duplicate} -> {trash_target} [{record.reason}]"
         log_entries.append(move_done_msg)
