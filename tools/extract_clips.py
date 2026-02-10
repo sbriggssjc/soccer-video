@@ -206,12 +206,12 @@ def extract(
     no_master = 0
 
     for row in rows:
-        game = _game_from_rel(row.get("clip_rel", ""))
-        if game_filter and game != game_filter:
-            continue
-
         clip_rel = row.get("clip_rel", "")
-        if not clip_rel:
+        if not clip_rel or clip_rel == "clip_rel":
+            continue  # skip empty or header-echo rows
+
+        game = _game_from_rel(clip_rel)
+        if game_filter and game != game_filter:
             continue
         out_path = ROOT / clip_rel
 

@@ -23,6 +23,7 @@ from tools.catalog import (
     ClipRecord,
     DuplicateRecord,
     MasterRecord,
+    _normalize_timestamps,
     choose_canonical,
     compute_duplicate_groups,
     compute_overlap_ratio,
@@ -102,6 +103,24 @@ class TestParseTimestamps:
         start, end = parse_timestamps("003__2025-11-01__Team_A_vs_B__SHOT__t580.10-t592.30")
         assert start == pytest.approx(580.10)
         assert end == pytest.approx(592.30)
+
+    def test_normalize_60x(self):
+        # 18900/60 = 315, 20340/60 = 339
+        start, end = parse_timestamps("001__GAME__SHOT__t18900.00-t20340.00")
+        assert start == pytest.approx(315.0)
+        assert end == pytest.approx(339.0)
+
+    def test_normalize_1440x(self):
+        # 2937600/1440 = 2040, 3002400/1440 = 2085
+        start, end = parse_timestamps("027__GAME__SHOT__t2937600.00-t3002400.00")
+        assert start == pytest.approx(2040.0)
+        assert end == pytest.approx(2085.0, rel=0.01)
+
+    def test_plausible_values_untouched(self):
+        # Values under 10800 should be returned as-is
+        start, end = parse_timestamps("001__GAME__SHOT__t3500.00-t3520.00")
+        assert start == pytest.approx(3500.0)
+        assert end == pytest.approx(3520.0)
 
 
 # --- format_float -------------------------------------------------------------
