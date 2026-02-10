@@ -1,0 +1,317 @@
+"""Integration test for the atomic clips catalog pipeline.
+
+Creates synthetic video clips, runs catalog.py operations, and verifies
+that indexing, dedup, and pipeline status tracking all work correctly.
+"""
+from __future__ import annotations
+
+import csv
+import json
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from tools.catalog import (
+    ATOMIC_HEADERS,
+    ClipRecord,
+    DuplicateRecord,
+    MasterRecord,
+    choose_canonical,
+    compute_duplicate_groups,
+    compute_overlap_ratio,
+    format_float,
+    gather_clip_record,
+    is_canonical_rel,
+    load_sidecar,
+    mark_branded,
+    mark_upscaled,
+    parse_timestamps,
+    probe_video,
+    rebuild_atomic_index,
+    save_sidecar,
+    scan_atomic_clips,
+    sha1_64,
+    to_repo_relative,
+    update_pipeline_status,
+    write_atomic_index,
+    write_catalog,
+)
+
+
+# --- Helpers ------------------------------------------------------------------
+
+_clip_counter = 0
+
+def _make_clip(path: Path, width: int = 640, height: int = 360, fps: float = 30.0, duration: float = 2.0) -> Path:
+    """Generate a minimal synthetic MP4 clip with unique content per call."""
+    global _clip_counter
+    _clip_counter += 1
+    seed = _clip_counter
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+    if not writer.isOpened():
+        pytest.skip("OpenCV cannot open MP4 writer")
+    n_frames = int(fps * duration)
+    for i in range(n_frames):
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frame[:, :] = (34, 139, 34)  # green pitch
+        cx = int(50 + (width - 100) * (i / max(n_frames - 1, 1)))
+        cy = height // 2 + seed * 10  # vary per clip to produce unique hashes
+        cv2.circle(frame, (cx, cy), 8, (255, 255, 255), -1)
+        writer.write(frame)
+    writer.release()
+    return path
+
+
+# --- parse_timestamps ---------------------------------------------------------
+
+class TestParseTimestamps:
+    def test_with_second_t(self):
+        start, end = parse_timestamps("001__GOAL__t155.50-t166.40")
+        assert start == pytest.approx(155.50)
+        assert end == pytest.approx(166.40)
+
+    def test_without_second_t(self):
+        start, end = parse_timestamps("001__SHOT__t100.0-200.0")
+        assert start == pytest.approx(100.0)
+        assert end == pytest.approx(200.0)
+
+    def test_integer_timestamps(self):
+        start, end = parse_timestamps("005__SHOT__t7320-t7860")
+        assert start == pytest.approx(7320.0)
+        assert end == pytest.approx(7860.0)
+
+    def test_no_match(self):
+        start, end = parse_timestamps("random_filename")
+        assert start is None
+        assert end is None
+
+    def test_suffix_breaks_match(self):
+        start, end = parse_timestamps("001__SHOT__t100-t200_portrait_POST")
+        assert start is None  # _portrait_POST prevents $ anchor match
+
+    def test_game_prefix(self):
+        start, end = parse_timestamps("003__2025-11-01__Team_A_vs_B__SHOT__t580.10-t592.30")
+        assert start == pytest.approx(580.10)
+        assert end == pytest.approx(592.30)
+
+
+# --- format_float -------------------------------------------------------------
+
+class TestFormatFloat:
+    def test_none(self):
+        assert format_float(None) == ""
+
+    def test_number(self):
+        assert format_float(10.5) == "10.500"
+
+    def test_string_passthrough(self):
+        assert format_float("already") == "already"
+
+    def test_nan(self):
+        assert format_float(float("nan")) == ""
+
+
+# --- compute_overlap_ratio ---------------------------------------------------
+
+class TestOverlapRatio:
+    def test_full_overlap(self):
+        assert compute_overlap_ratio(0, 10, 0, 10) == pytest.approx(1.0)
+
+    def test_no_overlap(self):
+        assert compute_overlap_ratio(0, 5, 10, 15) == pytest.approx(0.0)
+
+    def test_partial(self):
+        ratio = compute_overlap_ratio(0, 10, 5, 15)
+        assert ratio == pytest.approx(5.0 / 15.0)
+
+    def test_none_values(self):
+        assert compute_overlap_ratio(None, 10, 0, 10) is None
+
+
+# --- is_canonical_rel ---------------------------------------------------------
+
+class TestIsCanonicalRel:
+    def test_canonical(self):
+        assert is_canonical_rel("out/atomic_clips/2025-09-13__TSC/clip.mp4")
+
+    def test_not_canonical(self):
+        assert not is_canonical_rel("out/atomic_clips/clip.mp4")
+        assert not is_canonical_rel("other/clip.mp4")
+
+
+# --- sha1_64 ------------------------------------------------------------------
+
+class TestSha1_64:
+    def test_deterministic(self, tmp_path):
+        f = tmp_path / "test.bin"
+        f.write_bytes(b"hello world")
+        h1 = sha1_64(f)
+        h2 = sha1_64(f)
+        assert h1 == h2
+        assert len(h1) == 16  # 64-bit = 16 hex chars
+
+
+# --- probe_video (OpenCV fallback) --------------------------------------------
+
+class TestProbeVideo:
+    def test_valid_clip(self, tmp_path):
+        clip = _make_clip(tmp_path / "test.mp4", 320, 240, 25.0, 1.0)
+        meta = probe_video(clip)
+        assert meta["width"] == 320
+        assert meta["height"] == 240
+        assert meta["stream_exists"] is True
+        assert meta["duration_s"] is not None
+        assert meta["duration_s"] > 0.5
+
+    def test_nonexistent(self, tmp_path):
+        meta = probe_video(tmp_path / "nope.mp4")
+        assert meta["stream_exists"] is False
+
+
+# --- Full pipeline integration (uses tmp directories) -------------------------
+
+@pytest.fixture
+def catalog_env(tmp_path, monkeypatch):
+    """Set up isolated catalog directories for testing."""
+    import tools.catalog as cat
+
+    atomic_dir = tmp_path / "out" / "atomic_clips"
+    catalog_dir = tmp_path / "out" / "catalog"
+    sidecar_dir = catalog_dir / "sidecar"
+
+    monkeypatch.setattr(cat, "ROOT", tmp_path)
+    monkeypatch.setattr(cat, "OUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(cat, "ATOMIC_DIR", atomic_dir)
+    monkeypatch.setattr(cat, "GAMES_DIR", tmp_path / "out" / "games")
+    monkeypatch.setattr(cat, "CATALOG_DIR", catalog_dir)
+    monkeypatch.setattr(cat, "SIDE_CAR_DIR", sidecar_dir)
+    monkeypatch.setattr(cat, "ATOMIC_INDEX_PATH", catalog_dir / "atomic_index.csv")
+    monkeypatch.setattr(cat, "PIPELINE_STATUS_PATH", catalog_dir / "pipeline_status.csv")
+    monkeypatch.setattr(cat, "DUPLICATES_PATH", catalog_dir / "duplicates.csv")
+    monkeypatch.setattr(cat, "MASTERS_INDEX_PATH", catalog_dir / "masters_index.csv")
+    monkeypatch.setattr(cat, "TRASH_ROOT", tmp_path / "out" / "_trash" / "atomic_dupes")
+
+    return {
+        "root": tmp_path,
+        "atomic_dir": atomic_dir,
+        "catalog_dir": catalog_dir,
+        "sidecar_dir": sidecar_dir,
+    }
+
+
+class TestCatalogPipeline:
+    def test_scan_empty(self, catalog_env):
+        records, masters, failures = scan_atomic_clips()
+        assert records == []
+        assert masters == {}
+        assert failures == 0
+
+    def test_scan_with_clips(self, catalog_env):
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t10.0-t20.0.mp4", duration=2.0)
+        _make_clip(game_dir / "002__SHOT__t50.0-t60.0.mp4", duration=1.5)
+
+        records, masters, failures = scan_atomic_clips()
+        assert len(records) == 2
+        assert all(r.width == 640 for r in records)
+        assert all(r.height == 360 for r in records)
+        assert all(r.sha1_64 for r in records)
+
+    def test_timestamps_extracted(self, catalog_env):
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t155.50-t166.40.mp4")
+
+        records, _, _ = scan_atomic_clips()
+        assert len(records) == 1
+        assert records[0].t_start_s == pytest.approx(155.50)
+        assert records[0].t_end_s == pytest.approx(166.40)
+
+    def test_write_and_read_index(self, catalog_env):
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        _make_clip(game_dir / "002__SHOT__t30-t40.mp4")
+
+        records, _, _ = scan_atomic_clips()
+        changed = write_atomic_index(records)
+        assert changed == 2
+
+        index_path = catalog_env["catalog_dir"] / "atomic_index.csv"
+        assert index_path.exists()
+        with index_path.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) == 2
+        assert all(h in rows[0] for h in ATOMIC_HEADERS)
+
+    def test_rebuild_full(self, catalog_env):
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        _make_clip(game_dir / "002__SHOT__t30-t40.mp4")
+        _make_clip(game_dir / "003__SHOT__t50-t60.mp4")
+
+        result = rebuild_atomic_index()
+        assert result.scanned == 3
+        assert result.indexed == 3
+        assert result.changed == 3
+        assert result.hard_dupes == 0
+
+    def test_sidecars_created(self, catalog_env):
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+
+        rebuild_atomic_index()
+
+        sidecar_files = list(catalog_env["sidecar_dir"].glob("*.json"))
+        assert len(sidecar_files) >= 1
+        data = json.loads(sidecar_files[0].read_text())
+        assert "meta" in data
+        assert data["meta"]["width"] == 640
+        assert data["meta"]["height"] == 360
+
+    def test_duplicate_detection_hard(self, catalog_env):
+        """Two identical clips should be detected as hard duplicates."""
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip1 = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        # Copy to create exact duplicate
+        import shutil
+        dup_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game_copy"
+        dup_dir.mkdir(parents=True)
+        shutil.copy2(clip1, dup_dir / "001__GOAL__t10-t20.mp4")
+
+        records, _, _ = scan_atomic_clips()
+        dupes, hard, soft = compute_duplicate_groups(records)
+        assert hard >= 1
+
+    def test_pipeline_status_tracking(self, catalog_env):
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+
+        mark_upscaled(clip, clip.parent / "001__x2.mp4", scale=2, model="RealESRGAN_x2plus")
+        data = load_sidecar(clip)
+        assert data["steps"]["upscale"]["done"] is True
+        assert data["steps"]["upscale"]["scale"] == 2
+
+        mark_branded(clip, clip.parent / "001__FINAL.mp4", brand="TSC")
+        data = load_sidecar(clip)
+        assert data["steps"]["follow_crop_brand"]["done"] is True
+        assert data["steps"]["follow_crop_brand"]["brand"] == "TSC"
+
+    def test_report(self, catalog_env):
+        from tools.catalog import generate_report
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        rebuild_atomic_index()
+
+        report = generate_report()
+        assert report["total_clips"] == 1
+        assert report["upscaled"] == 0
+        assert report["branded"] == 0

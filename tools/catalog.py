@@ -88,7 +88,7 @@ MASTERS_HEADERS = [
 ]
 
 
-TIMESTAMP_RE = re.compile(r"__t(-?\d+(?:\.\d+)?)\-(-?\d+(?:\.\d+)?)$", re.IGNORECASE)
+TIMESTAMP_RE = re.compile(r"__t(-?\d+(?:\.\d+)?)-t?(-?\d+(?:\.\d+)?)$", re.IGNORECASE)
 
 
 class CatalogError(RuntimeError):
@@ -251,10 +251,40 @@ def _run_ffprobe(path: Path) -> dict:
         raise CatalogError(f"Unable to parse ffprobe output for {path!s}") from exc
 
 
-def probe_video(path: Path) -> dict:
-    """Return basic metadata for *path* using ffprobe."""
+def _probe_video_cv2(path: Path) -> dict:
+    """Fallback video probe using OpenCV when ffprobe is unavailable."""
+    try:
+        import cv2
+    except ImportError:
+        raise CatalogError("Neither ffprobe nor OpenCV available for probing")
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return {"duration_s": None, "width": None, "height": None, "fps": "", "stream_exists": False}
+    try:
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or None
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or None
+        fps_val = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = f"{fps_val:.0f}/1" if fps_val and fps_val > 0 else ""
+        duration = round(frame_count / fps_val, 3) if fps_val and fps_val > 0 and frame_count > 0 else None
+        return {
+            "duration_s": duration,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "stream_exists": width is not None and height is not None,
+        }
+    finally:
+        cap.release()
 
-    info = _run_ffprobe(path)
+
+def probe_video(path: Path) -> dict:
+    """Return basic metadata for *path* using ffprobe, falling back to OpenCV."""
+
+    try:
+        info = _run_ffprobe(path)
+    except CatalogError:
+        return _probe_video_cv2(path)
     streams = info.get("streams") or []
     stream = streams[0] if streams else {}
 
