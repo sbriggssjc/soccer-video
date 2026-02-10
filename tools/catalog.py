@@ -412,6 +412,8 @@ def parse_timestamps(stem: str) -> tuple[Optional[float], Optional[float]]:
     Detects and corrects non-standard encodings where timestamps are stored
     in units other than seconds (60x from older pipeline, 1440x from legacy).
     """
+    # Strip thousands-separator dots: t1.855.00 → t1855.00
+    stem = re.sub(r"(?<=\d)\.(?=\d{3}\.)", "", stem)
     match = TIMESTAMP_RE.search(stem)
     if not match:
         return None, None
@@ -820,6 +822,13 @@ def compute_duplicate_groups(records: Sequence[ClipRecord]) -> tuple[list[Duplic
                 ratio = compute_overlap_ratio(
                     a.t_start_s, a.t_end_s, b.t_start_s, b.t_end_s
                 )
+                # Containment check: overlap / shorter clip duration
+                containment = None
+                if None not in (a.t_start_s, a.t_end_s, b.t_start_s, b.t_end_s):
+                    overlap = max(0.0, min(a.t_end_s, b.t_end_s) - max(a.t_start_s, b.t_start_s))
+                    shorter = min(a.t_end_s - a.t_start_s, b.t_end_s - b.t_start_s)
+                    if shorter > 0:
+                        containment = overlap / shorter
                 start_close = (
                     a.t_start_s is not None
                     and b.t_start_s is not None
@@ -830,7 +839,12 @@ def compute_duplicate_groups(records: Sequence[ClipRecord]) -> tuple[list[Duplic
                     and b.t_end_s is not None
                     and abs(a.t_end_s - b.t_end_s) <= 0.25
                 )
-                if (ratio is not None and ratio >= 0.9) or (start_close and end_close):
+                is_dup = (
+                    (ratio is not None and ratio >= 0.9)
+                    or (containment is not None and containment >= 0.9)
+                    or (start_close and end_close)
+                )
+                if is_dup:
                     adjacency[i].add(j)
                     adjacency[j].add(i)
 
@@ -1430,18 +1444,30 @@ def audit_clips() -> dict:
     # Per-master analysis
     master_reports = []
     total_overlaps = 0
+    total_unparseable = 0
     for mrel in sorted(by_master):
         clips = by_master[mrel]
-        # Sort by start time
+        # Separate clips with valid timestamps from unparseable ones
         timed = []
+        unparseable = []
         for c in clips:
+            t0_raw = c.get("t_start_s", "")
+            t1_raw = c.get("t_end_s", "")
+            if not t0_raw or not t1_raw:
+                unparseable.append(c["clip_rel"])
+                continue
             try:
-                t0 = float(c.get("t_start_s") or "nan")
-                t1 = float(c.get("t_end_s") or "nan")
+                t0 = float(t0_raw)
+                t1 = float(t1_raw)
             except (ValueError, TypeError):
-                t0 = t1 = float("nan")
+                unparseable.append(c["clip_rel"])
+                continue
+            if t0 != t0 or t1 != t1:  # NaN check
+                unparseable.append(c["clip_rel"])
+                continue
             timed.append((t0, t1, c["clip_rel"]))
         timed.sort()
+        total_unparseable += len(unparseable)
 
         # Check for time overlaps (>50% overlap = suspicious)
         overlaps = []
@@ -1466,7 +1492,9 @@ def audit_clips() -> dict:
             "master_rel": mrel,
             "duration_s": dur,
             "clip_count": len(clips),
+            "timed_count": len(timed),
             "overlaps": overlaps,
+            "unparseable": unparseable,
         })
 
     # Print report
@@ -1474,7 +1502,8 @@ def audit_clips() -> dict:
     print("CLIP AUDIT REPORT")
     print("=" * 72)
     print(f"Total clips: {len(rows)} | Masters with clips: {len(by_master)} | "
-          f"Masters without clips: {len(empty_masters)}")
+          f"Masters without clips: {len(empty_masters)} | "
+          f"Unparseable timestamps: {total_unparseable}")
     print()
 
     for mr in master_reports:
@@ -1486,11 +1515,16 @@ def audit_clips() -> dict:
             except (ValueError, TypeError):
                 pass
         print(f"  {mr['master_rel']}{dur_str}")
-        print(f"    Clips: {mr['clip_count']}")
+        print(f"    Clips: {mr['clip_count']} ({mr['timed_count']} with timestamps)")
         if mr["overlaps"]:
-            print(f"    WARNING: {len(mr['overlaps'])} overlapping clip pair(s):")
+            print(f"    OVERLAPS: {len(mr['overlaps'])} pair(s):")
             for r1, r2, ov in mr["overlaps"]:
-                print(f"      {Path(r1).name}  <->  {Path(r2).name}  ({ov}s overlap)")
+                print(f"      {Path(r1).name}")
+                print(f"        <-> {Path(r2).name}  ({ov}s)")
+        if mr["unparseable"]:
+            print(f"    UNPARSEABLE ({len(mr['unparseable'])}):")
+            for rel in sorted(mr["unparseable"]):
+                print(f"      {Path(rel).name}")
         print()
 
     if empty_masters:
@@ -1505,8 +1539,9 @@ def audit_clips() -> dict:
             print(f"  {rel}")
         print()
 
-    if total_overlaps == 0 and not empty_masters and not no_master:
-        print("All clips are unique moments with no overlaps. All masters have clips.")
+    issues = total_overlaps + len(empty_masters) + len(no_master) + total_unparseable
+    if issues == 0:
+        print("All clips are unique moments with valid timestamps. All masters have clips.")
 
     return {
         "total_clips": len(rows),
@@ -1514,6 +1549,7 @@ def audit_clips() -> dict:
         "empty_masters": empty_masters,
         "no_master_clips": no_master,
         "total_overlaps": total_overlaps,
+        "total_unparseable": total_unparseable,
         "master_reports": master_reports,
     }
 
