@@ -479,9 +479,13 @@ def find_master_for_clip(
         if parent == ROOT:
             break
 
-    clip_rel = clip_path.relative_to(ROOT)
-    parts = clip_rel.parts
-    clip_group = parts[2] if len(parts) >= 3 else clip_path.parent.name
+    try:
+        clip_rel = clip_path.relative_to(ROOT)
+        parts = clip_rel.parts
+        clip_group = parts[2] if len(parts) >= 3 else clip_path.parent.name
+    except ValueError:
+        # Clip is outside the repo (e.g. OneDrive symlink) — use parent name
+        clip_group = clip_path.parent.name
     target_tokens = set(_normalize_tokenize(clip_group))
 
     if not GAMES_DIR.exists():
