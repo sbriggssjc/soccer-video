@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\013__2025-09-20__TSC_vs_Greenwood__PRESSURE_SHOT__t59280.00-t60060.00.mp4",
-  "source_sha1_64": "362613d09a4631ee",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\013__2025-09-20__TSC_vs_Greenwood__PRESSURE_SHOT__t59280.00-t60060.00.mp4",
+  "source_sha1_64": "6ed7a9da3a714bc9",
   "meta": {
-    "duration_s": 1.2,
+    "duration_s": 13.795,
     "width": 1920,
     "height": 1080,
-    "fps": "30/1"
+    "fps": "24000/1001"
   },
   "steps": {},
   "errors": [
@@ -15,8 +15,8 @@
       "at": "2025-10-24T16:22:15+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
-  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "t_start_s": 988.0,
   "t_end_s": 1001.0
 }

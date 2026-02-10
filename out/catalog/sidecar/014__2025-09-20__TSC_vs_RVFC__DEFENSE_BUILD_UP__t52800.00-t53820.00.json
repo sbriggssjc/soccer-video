@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\014__2025-09-20__TSC_vs_RVFC__DEFENSE_BUILD_UP__t52800.00-t53820.00.mp4",
-  "source_sha1_64": "53d99f714c67562e",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-09-20__TSC_vs_RVFC\\014__2025-09-20__TSC_vs_RVFC__DEFENSE_BUILD_UP__t52800.00-t53820.00.mp4",
+  "source_sha1_64": "e95d4599f89e7b93",
   "meta": {
-    "duration_s": 0.667,
+    "duration_s": 17.837,
     "width": 1920,
     "height": 1080,
-    "fps": "30/1"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [
@@ -15,8 +15,8 @@
       "at": "2025-10-24T16:22:17+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
-  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
   "t_start_s": 880.0,
   "t_end_s": 897.0
 }

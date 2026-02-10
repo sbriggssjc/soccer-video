@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\007__2025-09-20__TSC_vs_Greenwood__DRIBBLING_SHOT__t44340.00-t45120.00.mp4",
-  "source_sha1_64": "cec5d67697cb7a17",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\007__2025-09-20__TSC_vs_Greenwood__DRIBBLING_SHOT__t44340.00-t45120.00.mp4",
+  "source_sha1_64": "2bc580d6023c9e02",
   "meta": {
-    "duration_s": 1.2,
+    "duration_s": 13.837,
     "width": 1920,
     "height": 1080,
-    "fps": "30/1"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [
@@ -15,8 +15,8 @@
       "at": "2025-10-24T16:22:15+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
-  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "t_start_s": 739.0,
   "t_end_s": 752.0
 }

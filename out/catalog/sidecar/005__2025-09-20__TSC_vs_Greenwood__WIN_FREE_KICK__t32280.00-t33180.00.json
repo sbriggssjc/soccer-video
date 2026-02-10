@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\005__2025-09-20__TSC_vs_Greenwood__WIN_FREE_KICK__t32280.00-t33180.00.mp4",
-  "source_sha1_64": "b7a5b06a70f2571f",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\005__2025-09-20__TSC_vs_Greenwood__WIN_FREE_KICK__t32280.00-t33180.00.mp4",
+  "source_sha1_64": "8edd8bdf5d91a2b9",
   "meta": {
-    "duration_s": 1.2,
+    "duration_s": 15.877,
     "width": 1920,
     "height": 1080,
-    "fps": "30/1"
+    "fps": "24/1"
   },
   "steps": {},
   "errors": [
@@ -15,8 +15,8 @@
       "at": "2025-10-24T16:22:15+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
-  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "t_start_s": 538.0,
   "t_end_s": 553.0
 }
