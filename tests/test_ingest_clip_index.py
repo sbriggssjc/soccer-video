@@ -84,6 +84,32 @@ class TestParseClipLine:
     def test_garbage_line(self):
         assert ici.parse_clip_line("no timestamps here at all") is None
 
+    def test_underscore_h_mm_ss(self):
+        result = ici.parse_clip_line("001__Pressure & Cross__0_06_37-0_07_10")
+        assert result is not None
+        assert result["t_start_s"] == 397.0
+        assert result["t_end_s"] == 430.0
+        assert result["event_type"] == "CROSS"
+        assert "Pressure & Cross" in result["description"]
+
+    def test_underscore_over_one_hour(self):
+        result = ici.parse_clip_line("013__Dribbling & Shot__1_02_55-1_03_10")
+        assert result is not None
+        assert result["t_start_s"] == 3775.0
+        assert result["t_end_s"] == 3790.0
+        assert result["event_type"] == "SHOT"
+
+    def test_event_priority_goal_over_cross(self):
+        result = ici.parse_clip_line("003__Pressure, Cross and Goal__0_16_09-0_16_33")
+        assert result is not None
+        assert result["event_type"] == "GOAL"  # GOAL outranks CROSS
+
+    def test_clip_number_stripped_from_description(self):
+        result = ici.parse_clip_line("001__Build Up__0_28_28-0_28_42")
+        assert result is not None
+        assert "001__" not in result["description"]
+        assert "Build Up" in result["description"]
+
 
 class TestColonToSeconds:
     def test_mm_ss(self):
