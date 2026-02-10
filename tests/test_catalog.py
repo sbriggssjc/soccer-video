@@ -173,6 +173,32 @@ class TestOverlapRatio:
         assert compute_overlap_ratio(None, 10, 0, 10) is None
 
 
+# --- to_repo_relative ---------------------------------------------------------
+
+class TestToRepoRelative:
+    def test_path_under_root(self, tmp_path, monkeypatch):
+        import tools.catalog as cat
+        monkeypatch.setattr(cat, "ROOT", tmp_path)
+        p = tmp_path / "out" / "clips" / "file.mp4"
+        p.parent.mkdir(parents=True)
+        p.touch()
+        assert to_repo_relative(p) == "out/clips/file.mp4"
+
+    def test_symlink_stays_relative(self, tmp_path, monkeypatch):
+        """Symlinked directories should still produce repo-relative paths."""
+        import tools.catalog as cat
+        monkeypatch.setattr(cat, "ROOT", tmp_path)
+        real_dir = tmp_path / "real_data"
+        real_dir.mkdir()
+        (real_dir / "clip.mp4").touch()
+        link_dir = tmp_path / "out" / "clips"
+        link_dir.parent.mkdir(parents=True)
+        link_dir.symlink_to(real_dir)
+        clip = link_dir / "clip.mp4"
+        rel = to_repo_relative(clip)
+        assert rel == "out/clips/clip.mp4"
+
+
 # --- is_canonical_rel ---------------------------------------------------------
 
 class TestIsCanonicalRel:
