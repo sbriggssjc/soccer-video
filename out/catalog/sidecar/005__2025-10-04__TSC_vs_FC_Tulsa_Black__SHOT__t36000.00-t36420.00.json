@@ -1,11 +1,11 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\005__2025-10-04__TSC_vs_FC_Tulsa_Black__SHOT__t36000.00-t36420.00.mp4",
-  "source_sha1_64": "48232a37e46a196b",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-04__TSC_vs_FC\\005__2025-10-04__TSC_vs_FC_Tulsa_Black__SHOT__t36000.00-t36420.00.mp4",
+  "source_sha1_64": "761fef8b67d597aa",
   "meta": {
-    "duration_s": 1.133,
+    "duration_s": 7.877,
     "width": 1920,
     "height": 1080,
-    "fps": "30/1"
+    "fps": "24000/1001"
   },
   "steps": {},
   "errors": [
@@ -15,8 +15,8 @@
       "at": "2025-10-24T16:22:19+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
-  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4",
+  "master_rel": "out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4",
   "t_start_s": 600.0,
   "t_end_s": 607.0
 }
