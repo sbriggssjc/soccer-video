@@ -542,6 +542,10 @@ def find_master_for_clip(
     best_score = -1
     best_candidate: Optional[Path] = None
     for candidate in GAMES_DIR.rglob("*.mp4"):
+        # Only consider actual master files, not raw footage or rendered reels
+        cname = candidate.name.lower()
+        if cname != "master.mp4" and not cname.startswith("full_game"):
+            continue
         try:
             candidate_rel = candidate.relative_to(ROOT)
         except ValueError:
