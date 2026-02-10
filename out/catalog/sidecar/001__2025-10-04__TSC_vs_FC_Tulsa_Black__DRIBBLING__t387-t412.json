@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-10-04__TSC_vs_FC_Tulsa_Black\\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t387-t412.mp4",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-04__TSC_vs_FC_Tulsa_Black\\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t387-t412.mp4",
   "source_sha1_64": "cdfa981b61bcf705",
   "meta": {
     "duration_s": 25.0,
@@ -10,5 +10,7 @@
   "steps": {},
   "errors": [],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4",
-  "master_rel": "out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4"
+  "master_rel": "out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4",
+  "t_start_s": 387.0,
+  "t_end_s": 412.0
 }

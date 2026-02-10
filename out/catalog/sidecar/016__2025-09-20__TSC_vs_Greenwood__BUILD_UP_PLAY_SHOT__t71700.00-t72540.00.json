@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\_quarantine\\016__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t71700.00-t72540.00.mp4",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\016__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t71700.00-t72540.00.mp4",
   "source_sha1_64": "7576bd24595b07d1",
   "meta": {
     "duration_s": 1.2,
@@ -15,6 +15,8 @@
       "at": "2025-10-24T16:22:16+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
-  "master_rel": "out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4"
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "t_start_s": 71700.0,
+  "t_end_s": 72540.0
 }

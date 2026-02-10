@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\021__SHOT__t2860.70-t2873.00.mp4",
+  "source_sha1_64": "6e2b93ff8e35cd2c",
+  "meta": {
+    "duration_s": 15.211,
+    "width": 1920,
+    "height": 1080,
+    "fps": "183832/7661"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "t_start_s": 2860.7,
+  "t_end_s": 2873.0
+}

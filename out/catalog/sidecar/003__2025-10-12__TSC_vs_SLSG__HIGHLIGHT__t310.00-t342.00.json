@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-12__TSC_vs_SLSG\\003__2025-10-12__TSC_vs_SLSG__HIGHLIGHT__t310.00-t342.00.mp4",
+  "source_sha1_64": "9ca465d0c49eecae",
+  "meta": {
+    "duration_s": 32.922,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
+  "master_rel": "out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
+  "t_start_s": 310.0,
+  "t_end_s": 342.0
+}

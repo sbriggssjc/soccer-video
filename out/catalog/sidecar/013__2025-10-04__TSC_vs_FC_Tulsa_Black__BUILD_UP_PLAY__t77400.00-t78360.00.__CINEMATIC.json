@@ -1,0 +1,14 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\_quarantine\\013__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP_PLAY__t77400.00-t78360.00.__CINEMATIC.mp4",
+  "source_sha1_64": "dc69b3a9fc266bd6",
+  "meta": {
+    "duration_s": 16.0,
+    "width": 1080,
+    "height": 1920,
+    "fps": "24/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4"
+}

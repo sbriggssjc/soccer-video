@@ -1,6 +1,6 @@
 {
-  "clip_path": "C:\\Users\\scott\\soccer-video\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\030__2025-09-13__TSC_vs_NEOFC__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP_SHOT__t1705-t1721.mp4",
-  "source_sha1_64": "59d193323e870613",
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\030__2025-09-13__TSC_vs_NEOFC__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP_SHOT__t1705-t1721.mp4",
+  "source_sha1_64": "a024deee76986416",
   "meta": {
     "duration_s": 16.0,
     "width": 1920,
@@ -16,5 +16,7 @@
     }
   ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
-  "master_rel": "out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4"
+  "master_rel": "out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "t_start_s": 1705.0,
+  "t_end_s": 1721.0
 }
