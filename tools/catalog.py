@@ -399,6 +399,11 @@ def format_float(value: Optional[float]) -> str:
 
 
 def parse_timestamps(stem: str) -> tuple[Optional[float], Optional[float]]:
+    """Parse start/end timestamps from a clip filename stem.
+
+    Detects and corrects non-standard encodings where timestamps are stored
+    in units other than seconds (60x from older pipeline, 1440x from legacy).
+    """
     match = TIMESTAMP_RE.search(stem)
     if not match:
         return None, None
@@ -407,6 +412,41 @@ def parse_timestamps(stem: str) -> tuple[Optional[float], Optional[float]]:
         end = float(match.group(2))
     except ValueError:
         return None, None
+    return _normalize_timestamps(start, end)
+
+
+# Maximum plausible timestamp in seconds for a game (~3 hours).
+_MAX_PLAUSIBLE_TS = 10800.0
+
+
+def _normalize_timestamps(
+    start: float, end: float,
+) -> tuple[Optional[float], Optional[float]]:
+    """Correct timestamps encoded in non-standard units.
+
+    Some clips have filename timestamps stored as:
+      - 60x seconds (from older pipeline)  e.g. t18900 = 315s
+      - 1440x seconds (legacy encoding)    e.g. t2937600 = 2040s
+    Detects these by checking if values exceed a plausible game duration
+    and divides by the appropriate factor.
+    """
+    if start < 0 and end < 0:
+        return start, end  # negative offsets are intentional
+
+    if max(abs(start), abs(end)) <= _MAX_PLAUSIBLE_TS:
+        return start, end  # already in seconds
+
+    # Try /60 first (most common pipeline encoding)
+    s60, e60 = start / 60, end / 60
+    if max(abs(s60), abs(e60)) <= _MAX_PLAUSIBLE_TS and e60 > s60:
+        return s60, e60
+
+    # Try /1440 for very large values (legacy encoding)
+    s1440, e1440 = start / 1440, end / 1440
+    if max(abs(s1440), abs(e1440)) <= _MAX_PLAUSIBLE_TS and e1440 > s1440:
+        return s1440, e1440
+
+    # Cannot normalize — return raw values
     return start, end
 
 
@@ -608,6 +648,28 @@ def gather_clip_record(
         digest = ""
 
     t_start, t_end = parse_timestamps(clip_stem)
+
+    # Prefer existing (possibly manually corrected) timestamps when they
+    # are valid and the file hash hasn't changed.
+    if existing_row:
+        ex_start = existing_row.get("t_start_s", "").strip()
+        ex_end = existing_row.get("t_end_s", "").strip()
+        ex_sha = existing_row.get("sha1_64", "").strip()
+        if ex_start and ex_end:
+            try:
+                es, ee = float(ex_start), float(ex_end)
+                if ee > es > 0:
+                    # Existing timestamps are valid; keep them if the clip
+                    # is the same file (matching hash) or if filename-parsed
+                    # timestamps are unreasonable.
+                    same_file = ex_sha and ex_sha == digest
+                    parsed_bad = (t_start is None or t_end is None
+                                  or t_end <= t_start
+                                  or max(abs(t_start), abs(t_end)) > _MAX_PLAUSIBLE_TS)
+                    if same_file or parsed_bad:
+                        t_start, t_end = es, ee
+            except ValueError:
+                pass
 
     master_record = None
     try:
