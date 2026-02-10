@@ -235,6 +235,7 @@ def catalog_env(tmp_path, monkeypatch):
     monkeypatch.setattr(cat, "DUPLICATES_PATH", catalog_dir / "duplicates.csv")
     monkeypatch.setattr(cat, "MASTERS_INDEX_PATH", catalog_dir / "masters_index.csv")
     monkeypatch.setattr(cat, "TRASH_ROOT", tmp_path / "out" / "_trash" / "atomic_dupes")
+    monkeypatch.setattr(cat, "CLEANUP_LOG_PATH", catalog_dir / "cleanup_log.txt")
 
     return {
         "root": tmp_path,
