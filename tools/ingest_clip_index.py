@@ -51,15 +51,30 @@ TS_SECONDS_RE = re.compile(
     r"t(-?\d+(?:\.\d+)?)\s*[-–]\s*t?(-?\d+(?:\.\d+)?)"
 )
 
-# Regex for MM:SS or H:MM:SS format
+# Regex for MM:SS or H:MM:SS format (colon-separated)
 TS_COLON_RE = re.compile(
     r"(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*[-–]\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)"
+)
+
+# Regex for H_MM_SS or MM_SS format (underscore-separated, from filenames)
+TS_UNDERSCORE_RE = re.compile(
+    r"(\d{1,2}_\d{2}_\d{2})\s*[-–]\s*(\d{1,2}_\d{2}_\d{2})"
 )
 
 
 def _colon_to_seconds(ts: str) -> float:
     """Convert H:MM:SS, MM:SS, or SS to seconds."""
     parts = ts.split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    elif len(parts) == 2:
+        return int(parts[0]) * 60 + float(parts[1])
+    return float(parts[0])
+
+
+def _underscore_to_seconds(ts: str) -> float:
+    """Convert H_MM_SS format to seconds."""
+    parts = ts.split("_")
     if len(parts) == 3:
         return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
     elif len(parts) == 2:
@@ -86,39 +101,47 @@ def parse_clip_line(line: str) -> Optional[dict]:
         t_end = float(m.group(2))
         remainder = line[:m.start()] + line[m.end():]
     else:
-        # Try colon format
+        # Try colon format (H:MM:SS)
         m = TS_COLON_RE.search(line)
         if m:
             t_start = _colon_to_seconds(m.group(1))
             t_end = _colon_to_seconds(m.group(2))
             remainder = line[:m.start()] + line[m.end():]
         else:
-            return None
+            # Try underscore format (H_MM_SS from filenames)
+            m = TS_UNDERSCORE_RE.search(line)
+            if m:
+                t_start = _underscore_to_seconds(m.group(1))
+                t_end = _underscore_to_seconds(m.group(2))
+                remainder = line[:m.start()] + line[m.end():]
+            else:
+                return None
 
     # Parse event type and description from remainder
     remainder = remainder.strip()
-    # Known event types
+    # Strip leading clip number prefix (e.g. "001__" or "013__")
+    remainder = re.sub(r"^\d{1,4}__", "", remainder).strip()
+    # Known event types, ordered by priority (most important first).
+    # When multiple keywords appear in a description, the highest-priority
+    # match becomes the event_type.
     events = [
-        "GOAL", "SHOT", "SAVE", "DRIBBLING", "DRIBBLE", "BUILD_UP",
-        "BUILD_UP_PLAY", "CORNER", "FREE_KICK", "PENALTY", "TACKLE",
-        "CROSS", "HEADER", "PRESSURE", "PASS", "ASSIST", "CLEARANCE",
-        "INTERCEPTION", "THROUGH_BALL", "CELEBRATION",
+        "GOAL", "PENALTY", "SAVE", "SHOT", "DRIBBLING", "DRIBBLE",
+        "BUILD_UP_PLAY", "BUILD_UP", "BUILD UP", "FREE_KICK", "FREE KICK",
+        "CORNER", "CROSS", "HEADER", "TACKLE", "PRESSURE",
+        "THROUGH_BALL", "THROUGH BALL", "INTERCEPTION", "CLEARANCE",
+        "ASSIST", "PASS", "CELEBRATION",
     ]
 
     event_type = "HIGHLIGHT"
-    description = ""
+    description = remainder
     remainder_upper = remainder.upper()
 
     for ev in events:
         if ev in remainder_upper:
-            event_type = ev
-            # Remove the event from remainder for description
-            idx = remainder_upper.find(ev)
-            description = (remainder[:idx] + remainder[idx + len(ev):]).strip(" \t-–,:")
+            event_type = ev.replace(" ", "_")
             break
-    else:
-        # No known event found — use remainder as description
-        description = remainder.strip(" \t-–,:")
+    # Use full remainder as description (human-readable context)
+    description = remainder.strip(" \t-–,:__")
 
     return {
         "t_start_s": round(t_start, 2),
