@@ -89,8 +89,13 @@ MASTERS_HEADERS = [
 
 
 TIMESTAMP_RE = re.compile(
-    r"__t(-?\d+(?:\.\d+)?)-t?(-?\d+(?:\.\d+)?)(?:\.[_A-Za-z0-9]+)*$",
+    r"__t(-?\d+(?:\.\d+)?)-t?(-?\d+(?:\.\d+)?)(?:\.[_A-Za-z0-9-]+)*$",
     re.IGNORECASE,
+)
+
+# Navy-style H_MM_SS timestamps: 0_06_37-0_07_10
+TIMESTAMP_HMS_RE = re.compile(
+    r"__(\d{1,2})_(\d{2})_(\d{2})-(\d{1,2})_(\d{2})_(\d{2})(?:\.[_A-Za-z0-9-]+)*$",
 )
 
 
@@ -415,14 +420,23 @@ def parse_timestamps(stem: str) -> tuple[Optional[float], Optional[float]]:
     # Strip thousands-separator dots: t1.855.00 → t1855.00
     stem = re.sub(r"(?<=\d)\.(?=\d{3}\.)", "", stem)
     match = TIMESTAMP_RE.search(stem)
-    if not match:
-        return None, None
-    try:
-        start = float(match.group(1))
-        end = float(match.group(2))
-    except ValueError:
-        return None, None
-    return _normalize_timestamps(start, end)
+    if match:
+        try:
+            start = float(match.group(1))
+            end = float(match.group(2))
+        except ValueError:
+            return None, None
+        return _normalize_timestamps(start, end)
+
+    # Fallback: Navy-style H_MM_SS-H_MM_SS timestamps
+    hms = TIMESTAMP_HMS_RE.search(stem)
+    if hms:
+        h1, m1, s1, h2, m2, s2 = (int(g) for g in hms.groups())
+        start = h1 * 3600 + m1 * 60 + s1
+        end = h2 * 3600 + m2 * 60 + s2
+        return float(start), float(end)
+
+    return None, None
 
 
 # Maximum plausible timestamp in seconds for a game (~3 hours).
