@@ -161,6 +161,49 @@ class TestParseTimestamps:
         assert start == pytest.approx(640.0)
         assert end == pytest.approx(663.0)
 
+    def test_overlay_suffix_with_hyphens(self):
+        # Hyphens in OVERLAY parameters (sh-1, dx-64) should not break parsing
+        start, end = parse_timestamps(
+            "004__PRESSURE__t640.00-t663.00"
+            ".__OVERLAY_plan_sh-1_dx-64_dy-128"
+            "__localTW_dt-0.02_dx-6_dy-2"
+        )
+        assert start == pytest.approx(640.0)
+        assert end == pytest.approx(663.0)
+
+    def test_overlay_suffix_with_cinematic_chain(self):
+        start, end = parse_timestamps(
+            "004__PRESSURE__t640.00-t663.00"
+            ".__OVERLAY_plan_sh-1_dx-64_dy-128"
+            "__localTW_dt-0.02_dx-6_dy-2"
+            ".__CINEMATIC.__CINEMATIC"
+        )
+        assert start == pytest.approx(640.0)
+        assert end == pytest.approx(663.0)
+
+    def test_navy_hms_format(self):
+        # 0_06_37 = 397s, 0_07_10 = 430s
+        start, end = parse_timestamps(
+            "001__Pressure & Build Up with a Great Cross__0_06_37-0_07_10"
+        )
+        assert start == pytest.approx(397.0)
+        assert end == pytest.approx(430.0)
+
+    def test_navy_hms_with_cinematic(self):
+        start, end = parse_timestamps(
+            "010__Build Up, Cross, Shot & Goal__0_55_26-0_56_02.__CINEMATIC"
+        )
+        assert start == pytest.approx(3326.0)
+        assert end == pytest.approx(3362.0)
+
+    def test_navy_hms_hour_plus(self):
+        # 1_00_43 = 3643s, 1_01_22 = 3682s
+        start, end = parse_timestamps(
+            "011__Build Up__1_00_43-1_01_22"
+        )
+        assert start == pytest.approx(3643.0)
+        assert end == pytest.approx(3682.0)
+
 
 # --- format_float -------------------------------------------------------------
 
