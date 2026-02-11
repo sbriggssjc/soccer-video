@@ -4207,13 +4207,13 @@ DEFAULT_PRESETS = {
     "cinematic": {
         "fps": 24,
         "portrait": "1080x1920",
-        "lookahead": 8,
+        "lookahead": 0,
         "smoothing": 0.40,
         "pad": 0.10,
         "speed_limit": 3000,
         "zoom_min": 1.0,
         "zoom_max": 1.9,
-        "crf": 19,
+        "crf": 17,
         "keyint_factor": 4,
     },
     "wide_follow": {
@@ -4958,10 +4958,19 @@ class CameraPlanner:
     def plan(self, positions: np.ndarray, used_mask: np.ndarray) -> List[CamState]:
         frame_count = len(positions)
         states: List[CamState] = []
-        prev_cx = self.width / 2.0
-        prev_cy = self.height * self.center_frac
+        # Initialize camera at first valid ball position (not frame center)
+        # so the ball is in-frame from frame 0.
+        init_cx = self.width / 2.0
+        init_cy = self.height * self.center_frac
+        for _init_i in range(frame_count):
+            if bool(used_mask[_init_i]) and not np.isnan(positions[_init_i]).any():
+                init_cx = float(positions[_init_i][0])
+                init_cy = float(positions[_init_i][1])
+                break
+        prev_cx = init_cx
+        prev_cy = init_cy
         prev_zoom = self.base_zoom
-        fallback_center = np.array([prev_cx, self.height * self.center_frac], dtype=np.float32)
+        fallback_center = np.array([init_cx, init_cy], dtype=np.float32)
         fallback_alpha = 0.05
         render_fps = self.render_fps
         px_per_sec_x = self.speed_limit * 1.35
