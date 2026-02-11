@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-14__TSC_vs_BASC\\012__2025-10-14__TSC_vs_BASC__GOAL__t1809.00-t1815.60.mp4",
+  "source_sha1_64": "e4214fdff7e244db",
+  "meta": {
+    "duration_s": 6.877,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24000/1001"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
+  "master_rel": "out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
+  "t_start_s": 1809.0,
+  "t_end_s": 1815.6
+}

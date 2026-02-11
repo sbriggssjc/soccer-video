@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-04-12__TSC_vs_Route_66\\003__2025-04-12__TSC_vs_Route_66__GOAL__t48.50-t58.00.mp4",
+  "source_sha1_64": "e474fbb3585d43fe",
+  "meta": {
+    "duration_s": 9.832,
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
+  "master_rel": "out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
+  "t_start_s": 48.5,
+  "t_end_s": 58.0
+}

@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-11-05__TSC_vs_TSC_Navy\\012__2025-11-05__TSC_vs_TSC_Navy__GOAL__t3696.00-t3712.00.mp4",
+  "source_sha1_64": "6081921097de97bd",
+  "meta": {
+    "duration_s": 16.335,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "t_start_s": 3696.0,
+  "t_end_s": 3712.0
+}

@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-11-05__TSC_vs_TSC_Navy\\011__2025-11-05__TSC_vs_TSC_Navy__BUILD_UP__t3643.00-t3682.00.mp4",
+  "source_sha1_64": "772353f43105dd7f",
+  "meta": {
+    "duration_s": 39.338,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "t_start_s": 3643.0,
+  "t_end_s": 3682.0
+}

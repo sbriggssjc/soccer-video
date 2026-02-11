@@ -1,0 +1,16 @@
+{
+  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-04-12__TSC_vs_Route_66\\005__2025-04-12__TSC_vs_Route_66__PENALTY__t110.00-t122.00.mp4",
+  "source_sha1_64": "e4aacc8243d74da4",
+  "meta": {
+    "duration_s": 12.467,
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "C:/Users/scott/soccer-video/out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
+  "master_rel": "out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
+  "t_start_s": 110.0,
+  "t_end_s": 122.0
+}
