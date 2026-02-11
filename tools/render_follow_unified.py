@@ -3509,8 +3509,11 @@ def write_red_ball_telemetry(
             prev_cy_b = cy
 
     # --- Pass 4: stitch forward + backward paths ---
-    # At each frame, measure how close the forward/backward detections are
-    # to the global peak.  Use whichever is closer (= more accurate).
+    # Blend forward and backward sweeps.  Forward is stronger early in
+    # the clip (tracks from start), backward is stronger late (tracks
+    # from end).  Distance to the global peak is used as a quality
+    # signal — closer to the global peak means that sweep is more
+    # accurate for that frame.
     stitched_cx = np.full(n, np.nan, dtype=np.float64)
     stitched_cy = np.full(n, np.nan, dtype=np.float64)
     for i in range(n):
@@ -3518,26 +3521,37 @@ def write_red_ball_telemetry(
         has_bwd = np.isfinite(bwd_cx[i])
         has_glob = np.isfinite(global_cx[i])
 
-        if has_glob:
-            gx, gy = global_cx[i], global_cy[i]
-            dist_fwd = math.hypot(fwd_cx[i] - gx, fwd_cy[i] - gy) if has_fwd else 1e9
-            dist_bwd = math.hypot(bwd_cx[i] - gx, bwd_cy[i] - gy) if has_bwd else 1e9
+        # Position-based preference: forward early, backward late
+        t_frac = i / max(n - 1, 1)  # 0.0 at start, 1.0 at end
+        pos_fwd = 1.0 - t_frac
+        pos_bwd = t_frac
 
-            if dist_fwd <= dist_bwd and has_fwd:
-                stitched_cx[i] = fwd_cx[i]
-                stitched_cy[i] = fwd_cy[i]
-            elif has_bwd:
-                stitched_cx[i] = bwd_cx[i]
-                stitched_cy[i] = bwd_cy[i]
-            else:
-                stitched_cx[i] = gx
-                stitched_cy[i] = gy
+        if has_fwd and has_bwd and has_glob:
+            gx, gy = global_cx[i], global_cy[i]
+            dist_fwd = max(math.hypot(fwd_cx[i] - gx, fwd_cy[i] - gy), 1.0)
+            dist_bwd = max(math.hypot(bwd_cx[i] - gx, bwd_cy[i] - gy), 1.0)
+            # Quality-weighted blend: closer to global peak + positional preference
+            w_fwd = (pos_fwd + 0.3) / dist_fwd
+            w_bwd = (pos_bwd + 0.3) / dist_bwd
+            total_w = w_fwd + w_bwd
+            stitched_cx[i] = (fwd_cx[i] * w_fwd + bwd_cx[i] * w_bwd) / total_w
+            stitched_cy[i] = (fwd_cy[i] * w_fwd + bwd_cy[i] * w_bwd) / total_w
+        elif has_fwd and has_bwd:
+            # No global peak — blend by position only
+            w_fwd = pos_fwd + 0.3
+            w_bwd = pos_bwd + 0.3
+            total_w = w_fwd + w_bwd
+            stitched_cx[i] = (fwd_cx[i] * w_fwd + bwd_cx[i] * w_bwd) / total_w
+            stitched_cy[i] = (fwd_cy[i] * w_fwd + bwd_cy[i] * w_bwd) / total_w
         elif has_fwd:
             stitched_cx[i] = fwd_cx[i]
             stitched_cy[i] = fwd_cy[i]
         elif has_bwd:
             stitched_cx[i] = bwd_cx[i]
             stitched_cy[i] = bwd_cy[i]
+        elif has_glob:
+            stitched_cx[i] = global_cx[i]
+            stitched_cy[i] = global_cy[i]
 
     # Fill frame 0 from first valid detection
     first_valid = -1
@@ -3557,6 +3571,18 @@ def write_red_ball_telemetry(
         if not np.isfinite(stitched_cx[i]):
             stitched_cx[i] = stitched_cx[i - 1]
             stitched_cy[i] = stitched_cy[i - 1]
+
+    # Jump dampening: limit frame-to-frame movement to prevent sudden
+    # position changes during chaotic moments (shots, blocks, etc.).
+    max_jump_px = 0.12 * w  # max 12% of frame width per frame
+    for i in range(1, n):
+        dx = stitched_cx[i] - stitched_cx[i - 1]
+        dy = stitched_cy[i] - stitched_cy[i - 1]
+        dist = math.hypot(dx, dy)
+        if dist > max_jump_px:
+            scale = max_jump_px / dist
+            stitched_cx[i] = stitched_cx[i - 1] + dx * scale
+            stitched_cy[i] = stitched_cy[i - 1] + dy * scale
 
     stitched_count = int(np.sum(np.isfinite(stitched_cx)))
     print(f"[MOTION] Stitched path: {stitched_count}/{n} frames")
