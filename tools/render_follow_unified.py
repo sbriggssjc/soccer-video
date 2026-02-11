@@ -3125,6 +3125,74 @@ def _get_ball_xy_src(
     return None, None
 
 
+def detect_motion_centroid(
+    prev_gray: np.ndarray,
+    curr_gray: np.ndarray,
+    *,
+    ignore_top_frac: float = 0.15,
+    motion_thresh: int = 25,
+    blur_ksize: int = 61,
+    min_area_frac: float = 0.0005,
+) -> tuple:
+    """Find (cx, cy, confidence) of the motion centroid between two frames.
+
+    Uses frame differencing + Gaussian heatmap to locate where the action is.
+    Returns (None, None, 0.0) if insufficient motion is detected.
+    """
+    h, w = curr_gray.shape[:2]
+
+    # Absolute frame difference
+    diff = cv2.absdiff(prev_gray, curr_gray)
+
+    # Pre-blur to suppress compression artifacts
+    diff = cv2.GaussianBlur(diff, (5, 5), 0)
+
+    # Binary motion mask
+    _, motion_mask = cv2.threshold(diff, motion_thresh, 255, cv2.THRESH_BINARY)
+
+    # Ignore top region (stands, sky, banners)
+    y_start = int(h * ignore_top_frac)
+    motion_mask[:y_start, :] = 0
+
+    # Morphological cleanup
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    motion_mask = cv2.morphologyEx(motion_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    motion_mask = cv2.morphologyEx(motion_mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # Require minimum motion area
+    motion_pixels = float(np.count_nonzero(motion_mask))
+    total_pixels = float(h * w)
+    if motion_pixels < total_pixels * min_area_frac:
+        return None, None, 0.0
+
+    # Gaussian heatmap to find densest motion cluster
+    bk = blur_ksize if blur_ksize % 2 == 1 else blur_ksize + 1
+    heat = cv2.GaussianBlur(motion_mask.astype(np.float32), (bk, bk), 0)
+
+    peak_val = heat.max()
+    if peak_val < 1.0:
+        return None, None, 0.0
+
+    # Weighted centroid of the hot region (top 40% of heatmap)
+    thresh = peak_val * 0.4
+    hot_ys, hot_xs = np.where(heat >= thresh)
+    if len(hot_xs) == 0:
+        return None, None, 0.0
+
+    weights = heat[hot_ys, hot_xs].astype(np.float64)
+    total_w = weights.sum()
+    if total_w < 1e-6:
+        return None, None, 0.0
+
+    cx = float(np.dot(hot_xs.astype(np.float64), weights) / total_w)
+    cy = float(np.dot(hot_ys.astype(np.float64), weights) / total_w)
+
+    # Confidence: fraction of frame in motion, capped at 1.0
+    conf = min(1.0, motion_pixels / (total_pixels * 0.02))
+
+    return cx, cy, conf
+
+
 def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     H, S, V = cv2.split(hsv)
@@ -3301,10 +3369,17 @@ def write_red_ball_telemetry(
     fps_hint: float | None,
     logger: logging.Logger,
 ) -> None:
+    """Generate motion-centroid telemetry for action tracking.
+
+    Uses frame differencing to find where the action is happening rather than
+    trying to detect the ball by colour (which produces too many false positives
+    on white field lines, jerseys, etc.).  The centroid is lightly smoothed with
+    an EMA so the downstream camera planner gets a stable signal.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cap = cv2.VideoCapture(str(in_path))
     if not cap.isOpened():
-        logger.warning("[BALL-FALLBACK-RED] Failed to open video for telemetry: %s", in_path)
+        logger.warning("[MOTION] Failed to open video for telemetry: %s", in_path)
         return
 
     fps_value = float(fps_hint or 0.0)
@@ -3312,42 +3387,70 @@ def write_red_ball_telemetry(
         fps_value = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    print(f"[MOTION] Generating motion-centroid telemetry for {in_path.name} ({total_frames} frames)...")
+
+    # Read first frame
+    ok, first_frame = cap.read()
+    if not ok or first_frame is None:
+        cap.release()
+        return
+
+    prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+    h, w = prev_gray.shape[:2]
+
+    # EMA state for temporal smoothing
+    smooth_cx: float = w / 2.0
+    smooth_cy: float = h * 0.55  # slightly below centre (field area)
+    has_initial = False
+    alpha = 0.30  # EMA responsiveness (higher = more responsive)
     detected_count = 0
-    prev_xy: tuple[float, float] | None = None
-    print(f"[BALL] Generating ball telemetry for {in_path.name} ({total_frames} frames)...")
+
     with out_path.open("w", encoding="utf-8") as f:
-        frame_idx = 0
+        # Frame 0: no previous frame to diff against → emit None
+        f.write(json.dumps({
+            "frame": 0, "t": 0.0, "cx": None, "cy": None, "conf": 0.0,
+        }) + "\n")
+
+        frame_idx = 1
         while True:
             ok, frame_bgr = cap.read()
             if not ok or frame_bgr is None:
                 break
 
-            xy = detect_ball_xy(frame_bgr, prev_xy)
-            if xy is not None:
-                prev_xy = xy
-                bx, by = xy
-                conf = 1.0
-                detected_count += 1
-            else:
-                bx, by = None, None
-                conf = 0.0
+            curr_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+            cx, cy, conf = detect_motion_centroid(prev_gray, curr_gray)
 
-            f.write(
-                json.dumps(
-                    {
-                        "frame": frame_idx,
-                        "t": frame_idx / fps_value if fps_value else frame_idx,
-                        "cx": bx,
-                        "cy": by,
-                        "conf": conf,
-                    }
-                )
-                + "\n"
-            )
+            if cx is not None and cy is not None:
+                if not has_initial:
+                    smooth_cx = cx
+                    smooth_cy = cy
+                    has_initial = True
+                else:
+                    smooth_cx = alpha * cx + (1.0 - alpha) * smooth_cx
+                    smooth_cy = alpha * cy + (1.0 - alpha) * smooth_cy
+                detected_count += 1
+                out_cx: float | None = smooth_cx
+                out_cy: float | None = smooth_cy
+            else:
+                # No motion detected — keep previous smoothed position
+                out_cx = smooth_cx if has_initial else None
+                out_cy = smooth_cy if has_initial else None
+                conf = 0.3 if has_initial else 0.0
+
+            f.write(json.dumps({
+                "frame": frame_idx,
+                "t": frame_idx / fps_value if fps_value else frame_idx,
+                "cx": out_cx,
+                "cy": out_cy,
+                "conf": conf,
+            }) + "\n")
+
+            prev_gray = curr_gray
             frame_idx += 1
+
     cap.release()
-    pct = (detected_count / frame_idx * 100) if frame_idx > 0 else 0
-    print(f"[BALL] Telemetry complete: {detected_count}/{frame_idx} frames detected ({pct:.0f}%)")
+    pct = (detected_count / max(1, frame_idx) * 100)
+    print(f"[MOTION] Telemetry complete: {detected_count}/{frame_idx} frames with motion ({pct:.0f}%)")
 
 
 def _circularity(cnt):
@@ -6352,7 +6455,8 @@ def run(
             _pre_cap.release()
 
         scale_value = args.upscale_scale if args.upscale_scale and args.upscale_scale > 0 else 2
-        upscaled_str = upscale_video(str(src_path), scale=scale_value)
+        force_reupscale = bool(getattr(args, "force_reupscale", False))
+        upscaled_str = upscale_video(str(src_path), scale=scale_value, force=force_reupscale)
         src_path = Path(upscaled_str).expanduser().resolve()
 
         # Verify actual upscale ratio from the output file
@@ -6829,8 +6933,12 @@ def run(
     if use_ball_telemetry:
         telemetry_in = getattr(args, "ball_telemetry", None)
         telemetry_path = Path(telemetry_in).expanduser() if telemetry_in else Path(telemetry_path_for_video(input_path))
-        if not telemetry_path.is_file():
-            logger.info("[BALL] Building telemetry at %s", telemetry_path)
+        # Always regenerate auto-telemetry (motion-centroid) unless the user
+        # explicitly supplied a telemetry file via --ball-telemetry.
+        if telemetry_in and telemetry_path.is_file():
+            logger.info("[MOTION] Using user-supplied telemetry: %s", telemetry_path)
+        else:
+            logger.info("[MOTION] Generating motion-centroid telemetry at %s", telemetry_path)
             write_red_ball_telemetry(
                 input_path,
                 telemetry_path,
@@ -7472,6 +7580,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=2,
         help="Scale factor for upscaling (default: 2).",
+    )
+    parser.add_argument(
+        "--force-reupscale",
+        dest="force_reupscale",
+        action="store_true",
+        help="Force regeneration of upscaled video (ignore cache).",
     )
     parser.add_argument("--fps", dest="fps", type=float, help="Output FPS")
     parser.add_argument("--flip180", dest="flip180", action="store_true", help="Rotate frames by 180 degrees before processing")
