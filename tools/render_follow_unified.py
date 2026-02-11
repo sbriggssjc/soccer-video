@@ -3414,15 +3414,18 @@ def write_red_ball_telemetry(
     fps_hint: float | None,
     logger: logging.Logger,
 ) -> None:
-    """Generate motion-centroid telemetry for action tracking.
+    """Generate motion-centroid telemetry with full-clip lookahead.
 
-    Uses frame differencing to find where the action is happening rather than
-    trying to detect the ball by colour (which produces too many false positives
-    on white field lines, jerseys, etc.).
+    Maps the entire action path before planning the camera, so the camera
+    can anticipate where the action is going rather than reacting to it.
 
-    Two-pass approach:
-      1. Collect raw per-frame centroids with local-peak tracking.
-      2. Median filter to remove outlier jumps + light EMA for smoothness.
+    Approach:
+      1. Read all frames and compute raw motion per frame.
+      2. Forward sweep with locality bias  → tracks action from start.
+      3. Backward sweep with locality bias → tracks action from end.
+      4. Stitch: use forward path where confident, backward where forward
+         lost tracking, blend at overlap regions.
+      5. Centered Gaussian smooth with forward bias for anticipation.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cap = cv2.VideoCapture(str(in_path))
@@ -3435,134 +3438,169 @@ def write_red_ball_telemetry(
         fps_value = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    print(f"[MOTION] Generating motion-centroid telemetry for {in_path.name} ({total_frames} frames)...")
+    print(f"[MOTION] Generating full-clip motion telemetry for {in_path.name} "
+          f"({total_frames} frames, {total_frames / fps_value:.1f}s)...")
 
-    # Read first frame
-    ok, first_frame = cap.read()
-    if not ok or first_frame is None:
-        cap.release()
-        return
-
-    prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
-    h, w = prev_gray.shape[:2]
-
-    # --- Pass 1: collect raw centroids per frame ---
-    raw_cx: list[float | None] = [None]  # frame 0 has no diff
-    raw_cy: list[float | None] = [None]
-    raw_conf: list[float] = [0.0]
-    prev_det_cx: float | None = None
-    prev_det_cy: float | None = None
-
-    frame_idx = 1
+    # --- Read all frames into grayscale ---
+    grays: list[np.ndarray] = []
     while True:
         ok, frame_bgr = cap.read()
         if not ok or frame_bgr is None:
             break
-
-        curr_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        cx, cy, conf = detect_motion_centroid(
-            prev_gray, curr_gray,
-            prev_cx=prev_det_cx, prev_cy=prev_det_cy,
-        )
-
-        if cx is not None and cy is not None:
-            prev_det_cx = cx
-            prev_det_cy = cy
-
-        raw_cx.append(cx)
-        raw_cy.append(cy)
-        raw_conf.append(conf)
-
-        prev_gray = curr_gray
-        frame_idx += 1
-
+        grays.append(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY))
     cap.release()
 
-    n = len(raw_cx)
-    detected_count = sum(1 for v in raw_cx if v is not None)
-    pct = (detected_count / max(1, n) * 100)
-    print(f"[MOTION] Raw detection: {detected_count}/{n} frames with motion ({pct:.0f}%)")
+    n = len(grays)
+    if n < 2:
+        logger.warning("[MOTION] Not enough frames (%d) for motion telemetry", n)
+        return
 
-    # --- Pass 2: fill gaps, median filter, then light EMA ---
+    h, w = grays[0].shape[:2]
 
-    # Forward-fill None gaps with last known value
-    filled_cx = np.full(n, np.nan, dtype=np.float64)
-    filled_cy = np.full(n, np.nan, dtype=np.float64)
+    # --- Pass 1: global peak detection per frame (no locality bias) ---
+    # This gives us the "ground truth" of where the most motion is.
+    global_cx = np.full(n, np.nan, dtype=np.float64)
+    global_cy = np.full(n, np.nan, dtype=np.float64)
+    global_conf = np.zeros(n, dtype=np.float64)
+    for i in range(1, n):
+        cx, cy, conf = detect_motion_centroid(grays[i - 1], grays[i])
+        if cx is not None:
+            global_cx[i] = cx
+            global_cy[i] = cy
+            global_conf[i] = conf
+
+    detected_global = int(np.sum(np.isfinite(global_cx)))
+    print(f"[MOTION] Global detections: {detected_global}/{n} frames")
+
+    # --- Pass 2: forward sweep with locality bias ---
+    fwd_cx = np.full(n, np.nan, dtype=np.float64)
+    fwd_cy = np.full(n, np.nan, dtype=np.float64)
+    fwd_conf = np.zeros(n, dtype=np.float64)
+    prev_cx_f: float | None = None
+    prev_cy_f: float | None = None
+    for i in range(1, n):
+        cx, cy, conf = detect_motion_centroid(
+            grays[i - 1], grays[i],
+            prev_cx=prev_cx_f, prev_cy=prev_cy_f,
+        )
+        if cx is not None:
+            fwd_cx[i] = cx
+            fwd_cy[i] = cy
+            fwd_conf[i] = conf
+            prev_cx_f = cx
+            prev_cy_f = cy
+
+    # --- Pass 3: backward sweep with locality bias ---
+    bwd_cx = np.full(n, np.nan, dtype=np.float64)
+    bwd_cy = np.full(n, np.nan, dtype=np.float64)
+    bwd_conf = np.zeros(n, dtype=np.float64)
+    prev_cx_b: float | None = None
+    prev_cy_b: float | None = None
+    for i in range(n - 1, 0, -1):
+        cx, cy, conf = detect_motion_centroid(
+            grays[i], grays[i - 1],
+            prev_cx=prev_cx_b, prev_cy=prev_cy_b,
+        )
+        if cx is not None:
+            bwd_cx[i] = cx
+            bwd_cy[i] = cy
+            bwd_conf[i] = conf
+            prev_cx_b = cx
+            prev_cy_b = cy
+
+    # --- Pass 4: stitch forward + backward paths ---
+    # At each frame, measure how close the forward/backward detections are
+    # to the global peak.  Use whichever is closer (= more accurate).
+    stitched_cx = np.full(n, np.nan, dtype=np.float64)
+    stitched_cy = np.full(n, np.nan, dtype=np.float64)
     for i in range(n):
-        if raw_cx[i] is not None:
-            filled_cx[i] = raw_cx[i]
-            filled_cy[i] = raw_cy[i]
+        has_fwd = np.isfinite(fwd_cx[i])
+        has_bwd = np.isfinite(bwd_cx[i])
+        has_glob = np.isfinite(global_cx[i])
 
-    # If frame 0 is NaN, fill from the first valid frame
+        if has_glob:
+            gx, gy = global_cx[i], global_cy[i]
+            dist_fwd = math.hypot(fwd_cx[i] - gx, fwd_cy[i] - gy) if has_fwd else 1e9
+            dist_bwd = math.hypot(bwd_cx[i] - gx, bwd_cy[i] - gy) if has_bwd else 1e9
+
+            if dist_fwd <= dist_bwd and has_fwd:
+                stitched_cx[i] = fwd_cx[i]
+                stitched_cy[i] = fwd_cy[i]
+            elif has_bwd:
+                stitched_cx[i] = bwd_cx[i]
+                stitched_cy[i] = bwd_cy[i]
+            else:
+                stitched_cx[i] = gx
+                stitched_cy[i] = gy
+        elif has_fwd:
+            stitched_cx[i] = fwd_cx[i]
+            stitched_cy[i] = fwd_cy[i]
+        elif has_bwd:
+            stitched_cx[i] = bwd_cx[i]
+            stitched_cy[i] = bwd_cy[i]
+
+    # Fill frame 0 from first valid detection
     first_valid = -1
     for i in range(n):
-        if np.isfinite(filled_cx[i]):
+        if np.isfinite(stitched_cx[i]):
             first_valid = i
             break
     if first_valid > 0:
-        filled_cx[:first_valid] = filled_cx[first_valid]
-        filled_cy[:first_valid] = filled_cy[first_valid]
+        stitched_cx[:first_valid] = stitched_cx[first_valid]
+        stitched_cy[:first_valid] = stitched_cy[first_valid]
     elif first_valid < 0:
-        # No motion detected at all — use frame center
-        filled_cx[:] = w / 2.0
-        filled_cy[:] = h * 0.55
+        stitched_cx[:] = w / 2.0
+        stitched_cy[:] = h * 0.55
 
-    # Forward-fill remaining NaN gaps
-    last_cx = filled_cx[0]
-    last_cy = filled_cy[0]
-    for i in range(n):
-        if np.isfinite(filled_cx[i]):
-            last_cx = filled_cx[i]
-            last_cy = filled_cy[i]
-        else:
-            filled_cx[i] = last_cx
-            filled_cy[i] = last_cy
-
-    # Median filter to remove outlier jumps (window=7 → 0.23s at 30fps)
-    med_win = 7
-    if n >= med_win:
-        try:
-            from scipy.ndimage import median_filter as _median_filter
-            smooth_cx = _median_filter(filled_cx, size=med_win, mode="nearest")
-            smooth_cy = _median_filter(filled_cy, size=med_win, mode="nearest")
-        except ImportError:
-            # Fallback: simple rolling median without scipy
-            smooth_cx = filled_cx.copy()
-            smooth_cy = filled_cy.copy()
-            half = med_win // 2
-            for i in range(n):
-                lo = max(0, i - half)
-                hi = min(n, i + half + 1)
-                smooth_cx[i] = float(np.median(filled_cx[lo:hi]))
-                smooth_cy[i] = float(np.median(filled_cy[lo:hi]))
-    else:
-        smooth_cx = filled_cx.copy()
-        smooth_cy = filled_cy.copy()
-
-    # Light EMA for final smoothness (alpha=0.5 = responsive)
-    alpha = 0.50
-    ema_cx = np.empty(n, dtype=np.float64)
-    ema_cy = np.empty(n, dtype=np.float64)
-    ema_cx[0] = smooth_cx[0]
-    ema_cy[0] = smooth_cy[0]
+    # Forward-fill remaining gaps
     for i in range(1, n):
-        ema_cx[i] = alpha * smooth_cx[i] + (1.0 - alpha) * ema_cx[i - 1]
-        ema_cy[i] = alpha * smooth_cy[i] + (1.0 - alpha) * ema_cy[i - 1]
+        if not np.isfinite(stitched_cx[i]):
+            stitched_cx[i] = stitched_cx[i - 1]
+            stitched_cy[i] = stitched_cy[i - 1]
+
+    stitched_count = int(np.sum(np.isfinite(stitched_cx)))
+    print(f"[MOTION] Stitched path: {stitched_count}/{n} frames")
+
+    # --- Pass 5: centered Gaussian smooth with forward bias ---
+    # Sigma backward = 0.2s (responsive to recent motion)
+    # Sigma forward  = 0.6s (anticipate where action is going)
+    sigma_back = max(3, int(fps_value * 0.2))
+    sigma_fwd = max(5, int(fps_value * 0.6))
+    window_back = sigma_back * 3
+    window_fwd = sigma_fwd * 3
+
+    planned_cx = np.empty(n, dtype=np.float64)
+    planned_cy = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        lo = max(0, i - window_back)
+        hi = min(n, i + window_fwd + 1)
+        t = np.arange(lo, hi) - i
+        sigma = np.where(t <= 0, float(sigma_back), float(sigma_fwd))
+        weights = np.exp(-0.5 * (t / sigma) ** 2)
+        wsum = weights.sum()
+        if wsum > 1e-12:
+            planned_cx[i] = np.dot(stitched_cx[lo:hi], weights) / wsum
+            planned_cy[i] = np.dot(stitched_cy[lo:hi], weights) / wsum
+        else:
+            planned_cx[i] = stitched_cx[i]
+            planned_cy[i] = stitched_cy[i]
 
     # --- Write JSONL ---
+    raw_conf_arr = np.maximum(fwd_conf, bwd_conf)
     with out_path.open("w", encoding="utf-8") as f:
         for i in range(n):
             f.write(json.dumps({
                 "frame": i,
                 "t": i / fps_value if fps_value else float(i),
-                "cx": float(ema_cx[i]),
-                "cy": float(ema_cy[i]),
-                "conf": raw_conf[i] if raw_cx[i] is not None else 0.3,
+                "cx": float(planned_cx[i]),
+                "cy": float(planned_cy[i]),
+                "conf": float(raw_conf_arr[i]) if raw_conf_arr[i] > 0 else 0.3,
             }) + "\n")
 
-    cx_range = (float(np.nanmin(ema_cx)), float(np.nanmax(ema_cx)))
-    print(f"[MOTION] Telemetry complete: {detected_count}/{n} frames, "
-          f"cx=[{cx_range[0]:.0f}, {cx_range[1]:.0f}]")
+    cx_range = (float(np.nanmin(planned_cx)), float(np.nanmax(planned_cx)))
+    print(f"[MOTION] Telemetry complete: {n} frames, "
+          f"cx=[{cx_range[0]:.0f}, {cx_range[1]:.0f}], "
+          f"lookahead={sigma_fwd / fps_value:.2f}s")
 
 
 def _circularity(cnt):
