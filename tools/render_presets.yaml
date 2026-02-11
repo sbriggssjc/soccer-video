@@ -1,7 +1,7 @@
 cinematic:
   fps: 24                 # fixed social cadence
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
-  smoothing: 0.40         # more responsive camera tracking
+  smoothing: 0.55         # base alpha; adaptive smoothing boosts when target is far
   pad: 0.10
   speed_limit: 3000
   zoom_min: 1.00
@@ -11,7 +11,7 @@ cinematic:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.40
+    smoothing: 0.55
     lead_time: 0.10
     margin_px: 120
     speed_zoom:

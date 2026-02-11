@@ -4234,7 +4234,7 @@ DEFAULT_PRESETS = {
         "fps": 24,
         "portrait": "1080x1920",
         "lookahead": 0,
-        "smoothing": 0.40,
+        "smoothing": 0.55,
         "pad": 0.10,
         "speed_limit": 3000,
         "zoom_min": 1.0,
@@ -4895,7 +4895,7 @@ class CameraPlanner:
         emergency_gain: float = 0.6,
         emergency_zoom_max: float = 1.45,
         keepinview_margin_px: Optional[float] = None,
-        keepinview_nudge_gain: float = 0.5,
+        keepinview_nudge_gain: float = 0.75,
         keepinview_zoom_gain: float = 0.4,
         keepinview_zoom_out_max: float = 1.6,
         center_frac: float = 0.5,
@@ -5182,7 +5182,7 @@ class CameraPlanner:
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
 
-            # --- OPTION C: KEEP-IN-VIEW DOMINANT FOLLOW ---
+            # --- FOLLOW: smooth toward ball with adaptive responsiveness ---
 
             # 1) Predict future ball position (anticipation)
             bx_pred = bx_used + vx * anticipate_dt
@@ -5192,9 +5192,13 @@ class CameraPlanner:
             cx_anticipate = bx_pred
             cy_anticipate = by_pred
 
-            # 3) Apply smoothing toward anticipated center
-            cx_smooth = prev_cx + center_alpha * (cx_anticipate - prev_cx)
-            cy_smooth = prev_cy + center_alpha * (cy_anticipate - prev_cy)
+            # 3) Adaptive smoothing: more responsive when target is far away,
+            #    smoother when target is close.  This prevents lag during fast
+            #    movement while still being smooth during slow panning.
+            dist_to_target = math.hypot(cx_anticipate - prev_cx, cy_anticipate - prev_cy)
+            adaptive_alpha = center_alpha + (1.0 - center_alpha) * min(1.0, dist_to_target / 50.0)
+            cx_smooth = prev_cx + adaptive_alpha * (cx_anticipate - prev_cx)
+            cy_smooth = prev_cy + adaptive_alpha * (cy_anticipate - prev_cy)
 
             # 4) KEEP-IN-VIEW GUARD (DOMINANT)
             kv_zoom, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
