@@ -4593,6 +4593,13 @@ class CameraPlanner:
 
         self.min_box_w = 0.0
         self.min_box_h = 0.0
+        if min_box is not None:
+            if isinstance(min_box, (tuple, list)) and len(min_box) >= 2:
+                self.min_box_w = max(0.0, float(min_box[0]))
+                self.min_box_h = max(0.0, float(min_box[1]))
+            elif isinstance(min_box, Mapping):
+                self.min_box_w = max(0.0, float(min_box.get("width", 0)))
+                self.min_box_h = max(0.0, float(min_box.get("height", 0)))
 
         self.horizon_lock = float(np.clip(horizon_lock, 0.0, 1.0))
 
@@ -4608,6 +4615,21 @@ class CameraPlanner:
         desired_zoom = base_side / max(pre_pad_target, 1.0)
         self.base_zoom = float(np.clip(desired_zoom, self.zoom_min, self.zoom_max))
         self.edge_zoom_min_scale = 0.75
+
+        # Populate speed_zoom_config from the preset's speed_zoom mapping.
+        # The YAML preset provides v_lo, v_hi, zoom_lo, zoom_hi, enabled;
+        # base_zoom is injected here from the computed self.base_zoom.
+        if speed_zoom and isinstance(speed_zoom, Mapping):
+            sz = dict(speed_zoom)
+            if sz.get("enabled", True):
+                sz.setdefault("base_zoom", self.base_zoom)
+                sz.setdefault("v_lo", 2.0)
+                sz.setdefault("v_hi", 10.0)
+                sz.setdefault("zoom_lo", 1.0)
+                sz.setdefault("zoom_hi", 1.0)
+                for k in ("base_zoom", "v_lo", "v_hi", "zoom_lo", "zoom_hi"):
+                    sz[k] = float(sz[k])
+                self.speed_zoom_config = sz
 
     def plan(self, positions: np.ndarray, used_mask: np.ndarray) -> List[CamState]:
         frame_count = len(positions)
