@@ -3129,14 +3129,21 @@ def detect_motion_centroid(
     prev_gray: np.ndarray,
     curr_gray: np.ndarray,
     *,
+    prev_cx: float | None = None,
+    prev_cy: float | None = None,
     ignore_top_frac: float = 0.15,
     motion_thresh: int = 25,
-    blur_ksize: int = 61,
+    blur_ksize: int = 41,
     min_area_frac: float = 0.0005,
+    locality_radius: int = 200,
 ) -> tuple:
     """Find (cx, cy, confidence) of the motion centroid between two frames.
 
-    Uses frame differencing + Gaussian heatmap to locate where the action is.
+    Uses frame differencing + Gaussian heatmap.  When *prev_cx*/*prev_cy* are
+    given, the centroid is biased toward the previous position so that the
+    tracker follows one coherent action region rather than jumping between
+    separate groups of players.
+
     Returns (None, None, 0.0) if insufficient motion is detected.
     """
     h, w = curr_gray.shape[:2]
@@ -3173,24 +3180,62 @@ def detect_motion_centroid(
     if peak_val < 1.0:
         return None, None, 0.0
 
-    # Weighted centroid of the hot region (top 40% of heatmap)
-    thresh = peak_val * 0.4
-    hot_ys, hot_xs = np.where(heat >= thresh)
-    if len(hot_xs) == 0:
-        return None, None, 0.0
+    # Find global peak location
+    _, _, _, max_loc = cv2.minMaxLoc(heat)
+    peak_x, peak_y = float(max_loc[0]), float(max_loc[1])
 
-    weights = heat[hot_ys, hot_xs].astype(np.float64)
-    total_w = weights.sum()
-    if total_w < 1e-6:
-        return None, None, 0.0
+    # If we have a previous position, bias toward it: use a local
+    # neighborhood around prev to find the best centroid near the action
+    # we were already tracking.  Fall back to global peak if prev is far
+    # from any motion.
+    center_x, center_y = peak_x, peak_y
+    if prev_cx is not None and prev_cy is not None:
+        # Check if there's significant motion near previous position
+        r = locality_radius
+        px, py = int(round(prev_cx)), int(round(prev_cy))
+        y0 = max(0, py - r)
+        y1 = min(h, py + r)
+        x0 = max(0, px - r)
+        x1 = min(w, px + r)
+        local_heat = heat[y0:y1, x0:x1]
+        local_peak = float(local_heat.max()) if local_heat.size > 0 else 0.0
 
-    cx = float(np.dot(hot_xs.astype(np.float64), weights) / total_w)
-    cy = float(np.dot(hot_ys.astype(np.float64), weights) / total_w)
+        # If local motion is at least 30% of global peak, track locally
+        if local_peak >= peak_val * 0.30:
+            local_thresh = local_peak * 0.4
+            ly, lx = np.where(local_heat >= local_thresh)
+            if len(lx) > 0:
+                lw = local_heat[ly, lx].astype(np.float64)
+                tw = lw.sum()
+                if tw > 1e-6:
+                    center_x = float(x0 + np.dot(lx.astype(np.float64), lw) / tw)
+                    center_y = float(y0 + np.dot(ly.astype(np.float64), lw) / tw)
+    else:
+        # No previous position: use a small neighborhood around the global
+        # peak instead of the full heatmap, to avoid averaging between
+        # separate motion regions.
+        r = locality_radius
+        px, py = int(round(peak_x)), int(round(peak_y))
+        y0 = max(0, py - r)
+        y1 = min(h, py + r)
+        x0 = max(0, px - r)
+        x1 = min(w, px + r)
+        local_heat = heat[y0:y1, x0:x1]
+        local_peak = float(local_heat.max()) if local_heat.size > 0 else 0.0
+        if local_peak > 1.0:
+            local_thresh = local_peak * 0.4
+            ly, lx = np.where(local_heat >= local_thresh)
+            if len(lx) > 0:
+                lw = local_heat[ly, lx].astype(np.float64)
+                tw = lw.sum()
+                if tw > 1e-6:
+                    center_x = float(x0 + np.dot(lx.astype(np.float64), lw) / tw)
+                    center_y = float(y0 + np.dot(ly.astype(np.float64), lw) / tw)
 
     # Confidence: fraction of frame in motion, capped at 1.0
     conf = min(1.0, motion_pixels / (total_pixels * 0.02))
 
-    return cx, cy, conf
+    return center_x, center_y, conf
 
 
 def build_ball_mask(bgr, grass_h=(35, 95), min_v=170, max_s=120):
@@ -3373,8 +3418,11 @@ def write_red_ball_telemetry(
 
     Uses frame differencing to find where the action is happening rather than
     trying to detect the ball by colour (which produces too many false positives
-    on white field lines, jerseys, etc.).  The centroid is lightly smoothed with
-    an EMA so the downstream camera planner gets a stable signal.
+    on white field lines, jerseys, etc.).
+
+    Two-pass approach:
+      1. Collect raw per-frame centroids with local-peak tracking.
+      2. Median filter to remove outlier jumps + light EMA for smoothness.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cap = cv2.VideoCapture(str(in_path))
@@ -3398,59 +3446,123 @@ def write_red_ball_telemetry(
     prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
     h, w = prev_gray.shape[:2]
 
-    # EMA state for temporal smoothing
-    smooth_cx: float = w / 2.0
-    smooth_cy: float = h * 0.55  # slightly below centre (field area)
-    has_initial = False
-    alpha = 0.30  # EMA responsiveness (higher = more responsive)
-    detected_count = 0
+    # --- Pass 1: collect raw centroids per frame ---
+    raw_cx: list[float | None] = [None]  # frame 0 has no diff
+    raw_cy: list[float | None] = [None]
+    raw_conf: list[float] = [0.0]
+    prev_det_cx: float | None = None
+    prev_det_cy: float | None = None
 
-    with out_path.open("w", encoding="utf-8") as f:
-        # Frame 0: no previous frame to diff against → emit None
-        f.write(json.dumps({
-            "frame": 0, "t": 0.0, "cx": None, "cy": None, "conf": 0.0,
-        }) + "\n")
+    frame_idx = 1
+    while True:
+        ok, frame_bgr = cap.read()
+        if not ok or frame_bgr is None:
+            break
 
-        frame_idx = 1
-        while True:
-            ok, frame_bgr = cap.read()
-            if not ok or frame_bgr is None:
-                break
+        curr_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        cx, cy, conf = detect_motion_centroid(
+            prev_gray, curr_gray,
+            prev_cx=prev_det_cx, prev_cy=prev_det_cy,
+        )
 
-            curr_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-            cx, cy, conf = detect_motion_centroid(prev_gray, curr_gray)
+        if cx is not None and cy is not None:
+            prev_det_cx = cx
+            prev_det_cy = cy
 
-            if cx is not None and cy is not None:
-                if not has_initial:
-                    smooth_cx = cx
-                    smooth_cy = cy
-                    has_initial = True
-                else:
-                    smooth_cx = alpha * cx + (1.0 - alpha) * smooth_cx
-                    smooth_cy = alpha * cy + (1.0 - alpha) * smooth_cy
-                detected_count += 1
-                out_cx: float | None = smooth_cx
-                out_cy: float | None = smooth_cy
-            else:
-                # No motion detected — keep previous smoothed position
-                out_cx = smooth_cx if has_initial else None
-                out_cy = smooth_cy if has_initial else None
-                conf = 0.3 if has_initial else 0.0
+        raw_cx.append(cx)
+        raw_cy.append(cy)
+        raw_conf.append(conf)
 
-            f.write(json.dumps({
-                "frame": frame_idx,
-                "t": frame_idx / fps_value if fps_value else frame_idx,
-                "cx": out_cx,
-                "cy": out_cy,
-                "conf": conf,
-            }) + "\n")
-
-            prev_gray = curr_gray
-            frame_idx += 1
+        prev_gray = curr_gray
+        frame_idx += 1
 
     cap.release()
-    pct = (detected_count / max(1, frame_idx) * 100)
-    print(f"[MOTION] Telemetry complete: {detected_count}/{frame_idx} frames with motion ({pct:.0f}%)")
+
+    n = len(raw_cx)
+    detected_count = sum(1 for v in raw_cx if v is not None)
+    pct = (detected_count / max(1, n) * 100)
+    print(f"[MOTION] Raw detection: {detected_count}/{n} frames with motion ({pct:.0f}%)")
+
+    # --- Pass 2: fill gaps, median filter, then light EMA ---
+
+    # Forward-fill None gaps with last known value
+    filled_cx = np.full(n, np.nan, dtype=np.float64)
+    filled_cy = np.full(n, np.nan, dtype=np.float64)
+    for i in range(n):
+        if raw_cx[i] is not None:
+            filled_cx[i] = raw_cx[i]
+            filled_cy[i] = raw_cy[i]
+
+    # If frame 0 is NaN, fill from the first valid frame
+    first_valid = -1
+    for i in range(n):
+        if np.isfinite(filled_cx[i]):
+            first_valid = i
+            break
+    if first_valid > 0:
+        filled_cx[:first_valid] = filled_cx[first_valid]
+        filled_cy[:first_valid] = filled_cy[first_valid]
+    elif first_valid < 0:
+        # No motion detected at all — use frame center
+        filled_cx[:] = w / 2.0
+        filled_cy[:] = h * 0.55
+
+    # Forward-fill remaining NaN gaps
+    last_cx = filled_cx[0]
+    last_cy = filled_cy[0]
+    for i in range(n):
+        if np.isfinite(filled_cx[i]):
+            last_cx = filled_cx[i]
+            last_cy = filled_cy[i]
+        else:
+            filled_cx[i] = last_cx
+            filled_cy[i] = last_cy
+
+    # Median filter to remove outlier jumps (window=7 → 0.23s at 30fps)
+    med_win = 7
+    if n >= med_win:
+        try:
+            from scipy.ndimage import median_filter as _median_filter
+            smooth_cx = _median_filter(filled_cx, size=med_win, mode="nearest")
+            smooth_cy = _median_filter(filled_cy, size=med_win, mode="nearest")
+        except ImportError:
+            # Fallback: simple rolling median without scipy
+            smooth_cx = filled_cx.copy()
+            smooth_cy = filled_cy.copy()
+            half = med_win // 2
+            for i in range(n):
+                lo = max(0, i - half)
+                hi = min(n, i + half + 1)
+                smooth_cx[i] = float(np.median(filled_cx[lo:hi]))
+                smooth_cy[i] = float(np.median(filled_cy[lo:hi]))
+    else:
+        smooth_cx = filled_cx.copy()
+        smooth_cy = filled_cy.copy()
+
+    # Light EMA for final smoothness (alpha=0.5 = responsive)
+    alpha = 0.50
+    ema_cx = np.empty(n, dtype=np.float64)
+    ema_cy = np.empty(n, dtype=np.float64)
+    ema_cx[0] = smooth_cx[0]
+    ema_cy[0] = smooth_cy[0]
+    for i in range(1, n):
+        ema_cx[i] = alpha * smooth_cx[i] + (1.0 - alpha) * ema_cx[i - 1]
+        ema_cy[i] = alpha * smooth_cy[i] + (1.0 - alpha) * ema_cy[i - 1]
+
+    # --- Write JSONL ---
+    with out_path.open("w", encoding="utf-8") as f:
+        for i in range(n):
+            f.write(json.dumps({
+                "frame": i,
+                "t": i / fps_value if fps_value else float(i),
+                "cx": float(ema_cx[i]),
+                "cy": float(ema_cy[i]),
+                "conf": raw_conf[i] if raw_cx[i] is not None else 0.3,
+            }) + "\n")
+
+    cx_range = (float(np.nanmin(ema_cx)), float(np.nanmax(ema_cx)))
+    print(f"[MOTION] Telemetry complete: {detected_count}/{n} frames, "
+          f"cx=[{cx_range[0]:.0f}, {cx_range[1]:.0f}]")
 
 
 def _circularity(cnt):
