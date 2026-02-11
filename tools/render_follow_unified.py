@@ -6123,6 +6123,18 @@ def _default_output_path(input_path: Path, preset: str) -> Path:
     return input_path.with_name(name)
 
 
+def _prepare_temp_dir(temp_dir: Path, clean: bool = False) -> None:
+    """Ensure *temp_dir* exists, optionally wiping it first."""
+    if clean and temp_dir.is_dir():
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+def _scratch_root(explicit: Optional[str] = None) -> Path:
+    """Return the base scratch directory for temporary frame extraction."""
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return Path("out/_scratch").resolve()
+
 def _derive_run_key(input_path: Path) -> str:
     stem = input_path.stem
     cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", stem).strip("_")
@@ -6509,6 +6521,11 @@ def run(
         else:
             logger.info("[OUT] Using output directory: %s", output_path.parent)
     lost_use_motion = bool(getattr(args, "lost_use_motion", False))
+    lost_hold_ms = getattr(args, "lost_hold_ms", 500)
+    lost_pan_ms = getattr(args, "lost_pan_ms", 1200)
+    lost_lookahead_s = getattr(args, "lost_lookahead_s", 6.0)
+    lost_chase_motion_ms = getattr(args, "lost_chase_motion_ms", 900)
+    lost_motion_thresh = getattr(args, "lost_motion_thresh", 1.6)
 
     lead_time_s = 0.0
     lead_val = follow_config.get("lead_time") if follow_config else None
