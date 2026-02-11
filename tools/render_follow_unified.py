@@ -3230,6 +3230,71 @@ def detect_red_ball_xy(
     return best
 
 
+def detect_ball_xy(
+    frame_bgr: np.ndarray,
+    prev_xy: tuple[float, float] | None,
+    *,
+    ignore_top_frac: float = 0.33,
+    min_area: float = 20.0,
+    max_area: float = 1200.0,
+) -> tuple[float, float] | None:
+    """General-purpose ball detector: tries red mask first, then build_ball_mask.
+
+    Works for red/orange, white, yellow, and most ball colours against grass.
+    """
+    # Try red/orange first (higher specificity)
+    result = detect_red_ball_xy(
+        frame_bgr, prev_xy,
+        ignore_top_frac=ignore_top_frac,
+        min_area=min_area, max_area=max_area,
+    )
+    if result is not None:
+        return result
+
+    # Fallback: general bright-non-green mask (white/yellow balls)
+    h, w = frame_bgr.shape[:2]
+    mask = build_ball_mask(frame_bgr)
+    y0 = int(h * ignore_top_frac)
+    mask[:y0, :] = 0
+
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+
+    best = None
+    best_score = -1e18
+
+    for c in cnts:
+        area = float(cv2.contourArea(c))
+        if area < min_area or area > max_area:
+            continue
+        per = float(cv2.arcLength(c, True))
+        if per <= 1e-6:
+            continue
+        circ = 4.0 * np.pi * area / (per * per)
+        if circ < 0.55:
+            continue
+        x_bb, y_bb, ww, hh = cv2.boundingRect(c)
+        aspect = ww / max(1.0, float(hh))
+        if aspect < 0.5 or aspect > 1.8:
+            continue
+        M = cv2.moments(c)
+        if abs(M["m00"]) < 1e-6:
+            continue
+        cx = float(M["m10"] / M["m00"])
+        cy = float(M["m01"] / M["m00"])
+
+        score = 3.0 * circ + 0.5 * (1.0 - abs(aspect - 1.0)) - 0.001 * area
+        if prev_xy is not None:
+            d2 = (cx - prev_xy[0]) ** 2 + (cy - prev_xy[1]) ** 2
+            score += -0.002 * d2
+        if score > best_score:
+            best_score = score
+            best = (cx, cy)
+
+    return best
+
+
 def write_red_ball_telemetry(
     in_path: Path,
     out_path: Path,
@@ -3246,7 +3311,10 @@ def write_red_ball_telemetry(
     if fps_value <= 0:
         fps_value = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
 
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    detected_count = 0
     prev_xy: tuple[float, float] | None = None
+    print(f"[BALL] Generating ball telemetry for {in_path.name} ({total_frames} frames)...")
     with out_path.open("w", encoding="utf-8") as f:
         frame_idx = 0
         while True:
@@ -3254,11 +3322,12 @@ def write_red_ball_telemetry(
             if not ok or frame_bgr is None:
                 break
 
-            xy = detect_red_ball_xy(frame_bgr, prev_xy)
+            xy = detect_ball_xy(frame_bgr, prev_xy)
             if xy is not None:
                 prev_xy = xy
                 bx, by = xy
                 conf = 1.0
+                detected_count += 1
             else:
                 bx, by = None, None
                 conf = 0.0
@@ -3277,6 +3346,8 @@ def write_red_ball_telemetry(
             )
             frame_idx += 1
     cap.release()
+    pct = (detected_count / frame_idx * 100) if frame_idx > 0 else 0
+    print(f"[BALL] Telemetry complete: {detected_count}/{frame_idx} frames detected ({pct:.0f}%)")
 
 
 def _circularity(cnt):
@@ -6270,14 +6341,45 @@ def run(
 
     src_path = original_source_path
     upscale_factor = 1
+    original_width_pre_upscale: Optional[int] = None
+    original_height_pre_upscale: Optional[int] = None
     if getattr(args, "upscale", False):
+        # Read original dimensions BEFORE upscale
+        _pre_cap = cv2.VideoCapture(str(src_path))
+        if _pre_cap.isOpened():
+            original_width_pre_upscale = int(_pre_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            original_height_pre_upscale = int(_pre_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            _pre_cap.release()
+
         scale_value = args.upscale_scale if args.upscale_scale and args.upscale_scale > 0 else 2
         upscaled_str = upscale_video(str(src_path), scale=scale_value)
         src_path = Path(upscaled_str).expanduser().resolve()
-        upscale_factor = int(scale_value)
+
+        # Verify actual upscale ratio from the output file
+        _post_cap = cv2.VideoCapture(str(src_path))
+        if _post_cap.isOpened() and original_width_pre_upscale and original_width_pre_upscale > 0:
+            actual_w = int(_post_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(_post_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            _post_cap.release()
+            actual_ratio = actual_w / original_width_pre_upscale
+            upscale_factor = round(actual_ratio)
+            if upscale_factor < 1:
+                upscale_factor = 1
+            if abs(actual_ratio - scale_value) > 0.1:
+                print(
+                    f"[UPSCALE] WARNING: Requested {scale_value}x but actual ratio is "
+                    f"{actual_ratio:.2f}x ({original_width_pre_upscale}x{original_height_pre_upscale}"
+                    f" -> {actual_w}x{actual_h}). Using {upscale_factor}x."
+                )
+        else:
+            if _post_cap.isOpened():
+                _post_cap.release()
+            upscale_factor = int(scale_value)
+
         logging.info(
-            "Upscaled source with Real-ESRGAN (scale=%s): %s -> %s",
+            "Upscaled source with Real-ESRGAN (scale=%sx, actual=%sx): %s -> %s",
             scale_value,
+            upscale_factor,
             original_source_path,
             src_path,
         )
@@ -6630,6 +6732,10 @@ def run(
     keepinview_path: list[tuple[float, float]] | None = None
     follow_telemetry_path: str | None = None
     use_ball_telemetry = bool(getattr(args, "use_ball_telemetry", False))
+    # In portrait mode the whole point is to follow the ball/action,
+    # so enable ball telemetry automatically unless explicitly disabled.
+    if portrait is not None and not use_ball_telemetry:
+        use_ball_telemetry = True
     use_red_fallback = bool(getattr(args, "ball_fallback_red", False))
     telemetry_path: Path | None = None
     offline_ball_path: Optional[List[Optional[dict[str, float]]]] = None
@@ -6823,10 +6929,9 @@ def run(
                         follow_telemetry_path = smooth_follow_telemetry(follow_telemetry_path)
                         log_dict["follow_telemetry"] = follow_telemetry_path
                 ball_samples = load_ball_telemetry(telemetry_path)
-                if upscale_factor > 1:
-                    for _s in ball_samples:
-                        _s.x *= upscale_factor
-                        _s.y *= upscale_factor
+                # Telemetry from this path was generated from the upscaled
+                # video (write_red_ball_telemetry uses input_path), so
+                # coordinates are already in upscaled space.  Do NOT scale.
                 if fallback_active:
                     fallback_ball_samples = list(ball_samples)
                 jerk_stat = ball_cam_stats.get("jerk95_cam", ball_cam_stats.get("jerk95", 0.0))
