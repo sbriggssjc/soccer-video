@@ -6269,10 +6269,12 @@ def run(
         raise FileNotFoundError(f"Input file not found: {original_source_path}")
 
     src_path = original_source_path
+    upscale_factor = 1
     if getattr(args, "upscale", False):
         scale_value = args.upscale_scale if args.upscale_scale and args.upscale_scale > 0 else 2
         upscaled_str = upscale_video(str(src_path), scale=scale_value)
         src_path = Path(upscaled_str).expanduser().resolve()
+        upscale_factor = int(scale_value)
         logging.info(
             "Upscaled source with Real-ESRGAN (scale=%s): %s -> %s",
             scale_value,
@@ -6821,6 +6823,10 @@ def run(
                         follow_telemetry_path = smooth_follow_telemetry(follow_telemetry_path)
                         log_dict["follow_telemetry"] = follow_telemetry_path
                 ball_samples = load_ball_telemetry(telemetry_path)
+                if upscale_factor > 1:
+                    for _s in ball_samples:
+                        _s.x *= upscale_factor
+                        _s.y *= upscale_factor
                 if fallback_active:
                     fallback_ball_samples = list(ball_samples)
                 jerk_stat = ball_cam_stats.get("jerk95_cam", ball_cam_stats.get("jerk95", 0.0))
@@ -6862,7 +6868,10 @@ def run(
             frame_step = 1.0 / float(fps_in) if fps_in > 0 else 0.0
             duration_s = max_label_time + frame_step
 
-    label_pts = resample_labels_by_time(raw_points, fps_out, duration_s)
+    # Resample at source fps so we get one position per source frame.
+    # write_frames reads every source frame, so states must match fps_in.
+    render_fps_for_plan = fps_in if fps_in > 0 else fps_out
+    label_pts = resample_labels_by_time(raw_points, render_fps_for_plan, duration_s)
 
     def _rng(arr):
         xs = [a[1] for a in arr]
@@ -6872,13 +6881,11 @@ def run(
     log_dict["labels_resampled_count"] = len(label_pts)
     log_dict["labels_resampled_range"] = _rng(label_pts)
 
-    positions, used_mask = labels_to_positions(label_pts, fps_out, duration_s, raw_points)
+    positions, used_mask = labels_to_positions(label_pts, render_fps_for_plan, duration_s, raw_points)
 
-    if len(positions) == 0 and frame_count > 0 and fps_out > 0:
-        target_frames = int(round(frame_count * (fps_out / float(fps_in if fps_in > 0 else fps_out))))
-        target_frames = max(target_frames, frame_count)
-        positions = np.full((target_frames, 2), np.nan, dtype=np.float32)
-        used_mask = np.zeros(target_frames, dtype=bool)
+    if len(positions) == 0 and frame_count > 0:
+        positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
+        used_mask = np.zeros(frame_count, dtype=bool)
 
     if args.flip180 and len(positions) > 0:
         flipped_positions = positions.copy()
@@ -6914,12 +6921,16 @@ def run(
     )
     if not ball_samples:
         ball_samples = load_ball_telemetry_for_clip(str(original_source_path))
+        if ball_samples and upscale_factor > 1:
+            for _s in ball_samples:
+                _s.x *= upscale_factor
+                _s.y *= upscale_factor
         if not ball_samples:
             expected_path = Path(telemetry_path_for_video(original_source_path))
             print(f"[BALL] No ball telemetry found (expected {expected_path})")
     num_frames = frame_count
-    fps = fps_out
-    print(f"[DEBUG] num_frames={num_frames} fps={fps} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
+    fps = render_fps_for_plan
+    print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask)
 
@@ -6969,7 +6980,7 @@ def run(
             plan_config = PlannerConfig(
                 frame_size=(float(width), float(height)),
                 crop_aspect=float(portrait_w) / float(portrait_h),
-                fps=float(fps_out) if fps_out else float(fps_in) if fps_in else 30.0,
+                fps=float(fps_in) if fps_in > 0 else float(fps_out) if fps_out else 30.0,
                 keep_in_frame_frac_x=(0.4, 0.6),
                 keep_in_frame_frac_y=(0.4, 0.6),
                 min_zoom=float(zoom_min),
@@ -7258,6 +7269,7 @@ def run(
         "-framerate", str(stitch_fps),
         "-i", frame_pattern,
         "-c:v", "libx264",
+        "-preset", "slow",
         "-crf", str(crf),
         "-pix_fmt", "yuv420p",
         "-g", str(keyint),
