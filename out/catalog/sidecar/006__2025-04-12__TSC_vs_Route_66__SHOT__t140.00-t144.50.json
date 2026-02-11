@@ -7,7 +7,15 @@
     "height": 720,
     "fps": "30/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\006__2025-04-12__TSC_vs_Route_66__SHOT__t140.00-t144.50__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-11T22:24:33+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
   "master_rel": "out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",

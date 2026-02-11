@@ -7,7 +7,15 @@
     "height": 1080,
     "fps": "24/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\005__2025-09-20__TSC_vs_Greenwood__WIN_FREE_KICK__t32280.00-t33180.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-11T22:50:47+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [
     {
       "step": "scan",
