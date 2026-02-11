@@ -2,6 +2,8 @@
 out/*
 !out/catalog/
 !out/catalog/**
+out/catalog/pipeline_status.csv
+out/catalog/sidecar/
 !out/games/
 !out/games/*/
 !out/games/*/clip_index.txt
