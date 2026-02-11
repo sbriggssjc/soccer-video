@@ -1,12 +1,12 @@
 cinematic:
   fps: 24                 # fixed social cadence
-  lookahead: 8            # reduced: telemetry already has forward-biased smoothing
+  lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
   smoothing: 0.40         # more responsive camera tracking
   pad: 0.10
   speed_limit: 3000
   zoom_min: 1.00
   zoom_max: 1.90
-  crf: 19
+  crf: 17                 # higher quality output
   keyint_factor: 4
   follow:
     source: ball
