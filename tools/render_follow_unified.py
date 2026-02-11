@@ -4205,22 +4205,22 @@ FOLLOW_DEFAULTS = {
 
 DEFAULT_PRESETS = {
     "cinematic": {
-        "fps": 30,
+        "fps": 24,
         "portrait": "1080x1920",
-        "lookahead": 20,
-        "smoothing": 0.30,
-        "pad": 0.12,
-        "speed_limit": 1400,
+        "lookahead": 8,
+        "smoothing": 0.40,
+        "pad": 0.10,
+        "speed_limit": 3000,
         "zoom_min": 1.0,
-        "zoom_max": 1.8,
+        "zoom_max": 1.9,
         "crf": 19,
         "keyint_factor": 4,
     },
     "wide_follow": {
         "fps": 24,
         "portrait": "1080x1920",
-        "lookahead": 20,
-        "smoothing": 0.30,
+        "lookahead": 10,
+        "smoothing": 0.35,
         "pad": 0.02,
         "speed_limit": 1400,
         "zoom_min": 1.0,
@@ -4228,7 +4228,7 @@ DEFAULT_PRESETS = {
         "crf": 19,
         "keyint_factor": 4,
         "follow": {
-            "smoothing": 0.30,
+            "smoothing": 0.35,
             "lead_time": 0.10,
             "margin_px": 140,
             "zoom_out_max": 1.25,
@@ -4236,9 +4236,9 @@ DEFAULT_PRESETS = {
             "speed_zoom": {
                 "enabled": True,
                 "v_lo": 2.0,
-                "v_hi": 10.0,
-                "zoom_lo": 1.0,
-                "zoom_hi": 0.90,
+                "v_hi": 12.0,
+                "zoom_lo": 1.20,
+                "zoom_hi": 1.00,
             },
             "controller": {
                 "zeta": 1.10,
@@ -4254,8 +4254,8 @@ DEFAULT_PRESETS = {
     "segment_smooth": {
         "fps": 24,
         "portrait": "1080x1920",
-        "lookahead": 20,
-        "smoothing": 0.30,
+        "lookahead": 10,
+        "smoothing": 0.35,
         "pad": 0.02,
         "speed_limit": 1400,
         "zoom_min": 1.0,
@@ -4263,7 +4263,7 @@ DEFAULT_PRESETS = {
         "crf": 19,
         "keyint_factor": 4,
         "follow": {
-            "smoothing": 0.30,
+            "smoothing": 0.35,
             "lead_time": 0.10,
             "margin_px": 140,
             "zoom_out_max": 1.25,
@@ -4271,9 +4271,9 @@ DEFAULT_PRESETS = {
             "speed_zoom": {
                 "enabled": True,
                 "v_lo": 2.0,
-                "v_hi": 10.0,
-                "zoom_lo": 1.0,
-                "zoom_hi": 0.90,
+                "v_hi": 12.0,
+                "zoom_lo": 1.20,
+                "zoom_hi": 1.00,
             },
             "controller": {
                 "zeta": 1.10,
@@ -4900,8 +4900,8 @@ class CameraPlanner:
         # that wants named attributes instead of the implicit band.
         # These are vertical fractions of the portrait height where we
         # consider the ball "comfortably framed".
-        self.keepinview_min_band_frac = 0.25
-        self.keepinview_max_band_frac = 0.75
+        self.keepinview_min_band_frac = 0.15
+        self.keepinview_max_band_frac = 0.85
 
         if not math.isfinite(center_frac):
             center_frac = 0.5
@@ -4913,7 +4913,7 @@ class CameraPlanner:
             render_fps = 30.0
         self.render_fps = render_fps
         self.speed_norm_px = 24.0 * (render_fps / 24.0)
-        self.zoom_slew = 0.02 * (render_fps / 24.0)
+        self.zoom_slew = 0.04 * (render_fps / 24.0)
 
         self.min_box_w = 0.0
         self.min_box_h = 0.0
@@ -5028,7 +5028,7 @@ class CameraPlanner:
             zoom_clamped, crop_w, crop_h = _compute_crop_dimensions(zoom_value)
             adjusted_cy = center_y
             if aspect_target:
-                adjusted_cy = adjusted_cy + 0.10 * crop_h
+                adjusted_cy = adjusted_cy + 0.05 * crop_h
                 if self.horizon_lock > 0.0:
                     anchor = self.height * self.horizon_lock
                     adjusted_cy = float(

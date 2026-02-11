@@ -1,7 +1,7 @@
 cinematic:
   fps: 24                 # fixed social cadence
-  lookahead: 20
-  smoothing: 0.25
+  lookahead: 8            # reduced: telemetry already has forward-biased smoothing
+  smoothing: 0.40         # more responsive camera tracking
   pad: 0.10
   speed_limit: 3000
   zoom_min: 1.00
@@ -11,23 +11,23 @@ cinematic:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.25
+    smoothing: 0.40
     lead_time: 0.10
     margin_px: 120
     speed_zoom:
       enabled: true
       v_lo: 2.0
-      v_hi: 10.0
-      zoom_lo: 1.00
-      zoom_hi: 0.82
+      v_hi: 12.0
+      zoom_lo: 1.50        # slow motion -> zoom in (tighter frame)
+      zoom_hi: 1.00        # fast motion -> zoom out (wider view)
   portrait:
     size: 1080x1920
     min_box_px: [486, 864]
     horizon_lock: 0.20
 wide_follow:
   fps: 24
-  lookahead: 20
-  smoothing: 0.30
+  lookahead: 10
+  smoothing: 0.35
   pad: 0.02
   speed_limit: 1400
   zoom_min: 1.00
@@ -37,7 +37,7 @@ wide_follow:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.30
+    smoothing: 0.35
     lead_time: 0.10
     margin_px: 140
     zoom_out_max: 1.25
@@ -45,9 +45,9 @@ wide_follow:
     speed_zoom:
       enabled: true
       v_lo: 2.0
-      v_hi: 10.0
-      zoom_lo: 1.00
-      zoom_hi: 0.90
+      v_hi: 12.0
+      zoom_lo: 1.20
+      zoom_hi: 1.00
     controller:
       zeta: 1.10
       wn: 2.20
@@ -62,8 +62,8 @@ wide_follow:
     horizon_lock: 0.20
 segment_smooth:
   fps: 24
-  lookahead: 20
-  smoothing: 0.30
+  lookahead: 10
+  smoothing: 0.35
   pad: 0.02
   speed_limit: 1400
   zoom_min: 1.00
@@ -73,7 +73,7 @@ segment_smooth:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.30
+    smoothing: 0.35
     lead_time: 0.10
     margin_px: 140
     zoom_out_max: 1.25
@@ -81,9 +81,9 @@ segment_smooth:
     speed_zoom:
       enabled: true
       v_lo: 2.0
-      v_hi: 10.0
-      zoom_lo: 1.00
-      zoom_hi: 0.90
+      v_hi: 12.0
+      zoom_lo: 1.20
+      zoom_hi: 1.00
     controller:
       zeta: 1.10
       wn: 2.20
@@ -99,7 +99,7 @@ segment_smooth:
 balanced-responsive:
   fps: 24
   lookahead: 5
-  smoothing: 0.25
+  smoothing: 0.35
   pad: 0.10
   speed_limit: 3000
   zoom_min: 1.00
@@ -109,15 +109,15 @@ balanced-responsive:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.25
+    smoothing: 0.35
     lead_time: 0.10
     margin_px: 120
     speed_zoom:
       enabled: true
       v_lo: 2.0
-      v_hi: 10.0
-      zoom_lo: 1.00
-      zoom_hi: 0.82
+      v_hi: 12.0
+      zoom_lo: 1.50
+      zoom_hi: 1.00
     controller:
       zeta: 1.10
       wn: 4.5
@@ -155,7 +155,7 @@ realzoom:
 burst-catch:
   fps: 24
   lookahead: 6
-  smoothing: 0.25
+  smoothing: 0.35
   pad: 0.10
   speed_limit: 3000
   zoom_min: 1.00
@@ -165,15 +165,15 @@ burst-catch:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.25
+    smoothing: 0.35
     lead_time: 0.10
     margin_px: 120
     speed_zoom:
       enabled: true
       v_lo: 2.0
-      v_hi: 10.0
-      zoom_lo: 1.00
-      zoom_hi: 0.82
+      v_hi: 12.0
+      zoom_lo: 1.50
+      zoom_hi: 1.00
     controller:
       zeta: 1.05
       wn: 5.2
