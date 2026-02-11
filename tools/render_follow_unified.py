@@ -13,6 +13,7 @@ Windows behaviour rather than raw performance.
 from __future__ import annotations
 
 
+import argparse
 import os, sys
 
 # Ensure repo root is importable even when running python tools\...`r
