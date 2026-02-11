@@ -6918,6 +6918,8 @@ def run(
 
     margin_px = 0.0
     margin_val = follow_config.get("margin_px") if follow_config else None
+    if margin_val is not None:
+        margin_px = float(margin_val)
 
     keepinview_margin = max(96.0, margin_px)
     keepinview_nudge = 0.6
@@ -6981,6 +6983,8 @@ def run(
 
     lead_time_s = 0.0
     lead_val = follow_config.get("lead_time") if follow_config else None
+    if lead_val is not None:
+        lead_time_s = float(lead_val)
     lead_frames = int(round(lead_time_s * fps_out)) if fps_out > 0 else 0
 
     speed_zoom_value = follow_config.get("speed_zoom") if follow_config else None
