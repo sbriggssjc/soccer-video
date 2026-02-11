@@ -5092,6 +5092,15 @@ class CameraPlanner:
         keepinview_zoom_cap = float(self.keepinview_zoom_out_max)
         base_keepinview_margin = float(self.keepinview_margin_px)
 
+        # Acceleration-aware zoom: track velocity history to detect
+        # rapid direction changes (shots, blocks).  When acceleration
+        # is high, zoom out to keep more action visible.
+        prev_speed_pf = 0.0
+        accel_zoom_out = 1.0  # multiplier: 1.0 = no change, <1.0 = zoom out
+        accel_zoom_decay = 0.92  # how fast the zoom-out recovers (per frame)
+        accel_threshold_pf = 4.0  # px/frame acceleration threshold
+        accel_zoom_strength = 0.15  # max zoom reduction per acceleration event
+
         prev_bx = prev_cx
         prev_by = prev_cy
 
@@ -5132,6 +5141,20 @@ class CameraPlanner:
             clamp_flags: List[str] = []
 
             speed_pf = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
+
+            # --- Acceleration detection ---
+            accel_pf = abs(speed_pf - prev_speed_pf)
+            if accel_pf > accel_threshold_pf:
+                # High acceleration: zoom out proportionally
+                accel_frac = min(1.0, accel_pf / (accel_threshold_pf * 4.0))
+                accel_zoom_out = min(accel_zoom_out, 1.0 - accel_zoom_strength * accel_frac)
+                clamp_flags.append(f"accel_zoom={accel_zoom_out:.3f}")
+            else:
+                # Decay back toward 1.0 (no zoom-out)
+                accel_zoom_out = accel_zoom_out + (1.0 - accel_zoom_out) * (1.0 - accel_zoom_decay)
+            accel_zoom_out = float(np.clip(accel_zoom_out, 0.75, 1.0))
+            prev_speed_pf = speed_pf
+
             if self.speed_zoom_config:
                 config = self.speed_zoom_config
                 v_lo = config["v_lo"]
@@ -5149,6 +5172,10 @@ class CameraPlanner:
                 if speed_norm_px > 1e-6:
                     norm = min(1.0, speed_pf / speed_norm_px)
                 zoom_target = self.zoom_min + (self.zoom_max - self.zoom_min) * (1.0 - norm)
+
+            # Apply acceleration zoom-out on top of speed zoom
+            zoom_target = float(np.clip(zoom_target * accel_zoom_out, self.zoom_min, self.zoom_max))
+
             zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
@@ -5213,8 +5240,12 @@ class CameraPlanner:
                 if not any(flag.startswith("keepin_zoom=") for flag in clamp_flags):
                     clamp_flags.append(f"keepin_zoom={keepinview_zoom_out:.3f}")
 
-            cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x)
-            cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y)
+            # Boost pan speed limit during high acceleration so camera
+            # can follow fast action instead of falling behind.
+            accel_speed_boost = 1.0 + 0.5 * (1.0 - accel_zoom_out) / 0.25  # up to 1.3x
+            accel_speed_boost = min(1.3, accel_speed_boost)
+            cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x * accel_speed_boost)
+            cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y * accel_speed_boost)
             speed_limited = x_clamped or y_clamped
             if speed_limited:
                 clamp_flags.append("speed")
