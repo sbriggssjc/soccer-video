@@ -1,0 +1,14 @@
+{
+  "clip_path": "/home/user/soccer-video/nonexistent.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "at": "2026-02-11T22:28:17+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}
