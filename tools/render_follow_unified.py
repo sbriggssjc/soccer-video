@@ -6084,6 +6084,33 @@ def ffmpeg_stitch(
 def _temp_output_path(output_path: Path) -> Path:
     return output_path.with_name(f".tmp.{output_path.name}")
 
+def _resolve_output_path(
+    explicit_out: Optional[str],
+    input_path: Path,
+    preset: str,
+) -> Tuple[Path, bool]:
+    """Return (output_path, is_explicit_file).
+
+    If the user passed --out pointing to an existing directory (or a path
+    without an extension), place the deterministically named file inside it.
+    Otherwise treat --out as a full file path.  When --out is not given,
+    fall back to ``_default_output_path``.
+    """
+    if explicit_out:
+        p = Path(explicit_out)
+        if p.is_dir():
+            name = build_output_name(
+                input_path=str(input_path),
+                preset=preset,
+                portrait=None,
+                follow=None,
+                is_final=False,
+                extra_tags=[],
+            )
+            return p / name, False
+        return p, True
+    return _default_output_path(input_path, preset), False
+
 def _default_output_path(input_path: Path, preset: str) -> Path:
     name = build_output_name(
         input_path=str(input_path),
