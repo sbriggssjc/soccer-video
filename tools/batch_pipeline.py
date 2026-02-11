@@ -161,6 +161,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Permanently delete trashed duplicates",
     )
 
+    # Output cleanup
+    p.add_argument(
+        "--clean-output",
+        action="store_true",
+        help="Remove render output files not tracked in pipeline_status.csv",
+    )
+
     # Reporting
     p.add_argument(
         "--report",
@@ -304,6 +311,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         run_report()
         return 0
+
+    # --- Clean output directory ---
+    if args.clean_output:
+        out_dir = REPO_ROOT / args.out_dir
+        _clean_output_dir(out_dir, dry_run=args.dry_run)
+        if not args.rebuild_catalog and not args.clip and args.dry_run:
+            return 0
 
     # --- Rebuild catalog ---
     if args.rebuild_catalog:
@@ -506,6 +520,46 @@ def main(argv: list[str] | None = None) -> int:
         _run_cleanup(args)
 
     return 1 if failed > 0 else 0
+
+
+def _clean_output_dir(out_dir: Path, dry_run: bool = False) -> int:
+    """Remove render output files not tracked in pipeline_status.csv.
+
+    Returns count of files removed (or that would be removed in dry-run).
+    """
+    if not out_dir.is_dir():
+        print(f"[CLEAN] Output directory does not exist: {out_dir}")
+        return 0
+
+    # Build set of tracked portrait paths (resolved)
+    table = load_pipeline_status_table()
+    tracked_paths: set[str] = set()
+    for _key, status in table.items():
+        pp = status.get("portrait_path", "")
+        if pp:
+            try:
+                tracked_paths.add(str(Path(pp).resolve()))
+            except Exception:
+                tracked_paths.add(pp)
+
+    removed = 0
+    for mp4 in sorted(out_dir.rglob("*.mp4")):
+        resolved = str(mp4.resolve())
+        if resolved not in tracked_paths:
+            if dry_run:
+                print(f"  [CLEAN] Would remove: {mp4.name}")
+            else:
+                print(f"  [CLEAN] Removing: {mp4.name}")
+                mp4.unlink()
+            removed += 1
+
+    if removed == 0:
+        print("[CLEAN] No stale output files found.")
+    elif dry_run:
+        print(f"[CLEAN] Would remove {removed} stale file(s). Run without --dry-run to delete.")
+    else:
+        print(f"[CLEAN] Removed {removed} stale file(s).")
+    return removed
 
 
 def _run_cleanup(args: argparse.Namespace) -> None:
