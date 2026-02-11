@@ -5759,7 +5759,9 @@ class Renderer:
                 state.x0 = float(state.cx) - float(crop_w) / 2.0
                 state.y0 = float(state.cy) - float(crop_h) / 2.0
 
-        render_fps = float(self.fps_out)
+        # Use source fps since write_frames reads every source frame without
+        # rate conversion.
+        render_fps = float(self.fps_in) if self.fps_in and self.fps_in > 0 else float(self.fps_out)
         zoom_min = float(self.zoom_min)
         zoom_max = float(self.zoom_max)
         src_w_f = float(width)
@@ -6867,7 +6869,7 @@ def run(
     planner = CameraPlanner(
         width=width,
         height=height,
-        fps=fps_out,
+        fps=fps_in if fps_in > 0 else fps_out,
         lookahead=lookahead,
         smoothing=smoothing,
         pad=pad,
@@ -7036,7 +7038,7 @@ def run(
     follow_centers: Optional[Sequence[float]] = None
     follow_centers_int: Optional[list[int]] = None
     pan_plan: Optional[np.ndarray] = None
-    fps_for_path = float(fps_out if fps_out and fps_out > 0 else fps_in or 0.0)
+    fps_for_path = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
     portrait_crop_width = float(follow_crop_width or width)
     if follow_override_map is None:
 
@@ -7224,10 +7226,14 @@ def run(
     temp_output_path = _temp_output_path(output_path)
     if temp_output_path.exists():
         temp_output_path.unlink(missing_ok=True)
+    # Use source fps for frame stitching since write_frames() passes through
+    # every source frame without rate conversion.  The output can be re-encoded
+    # to a different fps later if needed.
+    stitch_fps = fps_in if fps_in > 0 else fps_out
     ffmpeg_cmd = [
         "ffmpeg",
         "-y",
-        "-framerate", str(fps_out),
+        "-framerate", str(stitch_fps),
         "-i", frame_pattern,
         "-c:v", "libx264",
         "-crf", str(crf),
