@@ -7320,6 +7320,31 @@ def run(
         positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
         used_mask = np.zeros(frame_count, dtype=bool)
 
+    # When YOLO labels are missing or sparse (<10% coverage), merge
+    # motion-centroid telemetry into positions so CameraPlanner can
+    # track the ball instead of defaulting to frame center.
+    valid_label_count = int(used_mask.sum()) if len(used_mask) > 0 else 0
+    if valid_label_count < max(1, len(used_mask)) * 0.1 and ball_samples:
+        merged = 0
+        for sample in ball_samples:
+            fidx = getattr(sample, "frame", None)
+            sx = _safe_float(getattr(sample, "x", None))
+            sy = _safe_float(getattr(sample, "y", None))
+            if fidx is None or sx is None or sy is None:
+                continue
+            fidx = int(fidx)
+            if 0 <= fidx < len(positions) and not used_mask[fidx]:
+                positions[fidx, 0] = sx
+                positions[fidx, 1] = sy
+                used_mask[fidx] = True
+                merged += 1
+        if merged > 0:
+            logger.info(
+                "[PLANNER] Merged %d motion-centroid samples into CameraPlanner "
+                "positions (YOLO labels: %d/%d frames)",
+                merged, valid_label_count, len(used_mask),
+            )
+
     if args.flip180 and len(positions) > 0:
         flipped_positions = positions.copy()
         valid_mask = ~np.isnan(flipped_positions).any(axis=1)
@@ -7388,6 +7413,34 @@ def run(
     print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask)
+
+    # Compute CameraPlanner-specific ball-in-crop coverage.
+    # This measures the ACTUAL camera plan, unlike ball_cam_stats which
+    # measures the EMA path (a different camera system).
+    if states and ball_samples and follow_crop_width > 0:
+        _cp_inside = 0
+        _cp_total = 0
+        _half_pw = float(follow_crop_width) / 2.0
+        for _bs in ball_samples:
+            _fidx = getattr(_bs, "frame", None)
+            _bsx = _safe_float(getattr(_bs, "x", None))
+            if _fidx is None or _bsx is None:
+                continue
+            _fidx = int(_fidx)
+            if 0 <= _fidx < len(states):
+                _cp_total += 1
+                _scx = states[_fidx].cx
+                _crop_left = max(0.0, _scx - _half_pw)
+                if _crop_left + follow_crop_width > width:
+                    _crop_left = max(0.0, width - follow_crop_width)
+                _crop_right = _crop_left + follow_crop_width
+                if _crop_left <= _bsx <= _crop_right:
+                    _cp_inside += 1
+        _cp_pct = 100.0 * _cp_inside / max(1, _cp_total)
+        logger.info(
+            "[CAMERA-PLANNER] ball_in_crop: %.1f%% (%d/%d frames)",
+            _cp_pct, _cp_inside, _cp_total,
+        )
 
     temp_root = scratch_root / "autoframe_work"
     temp_dir = temp_root / preset_key / original_source_path.stem

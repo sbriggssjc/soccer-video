@@ -16,6 +16,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from tools.batch_pipeline import (
+    _clean_output_dir,
     _clips_from_catalog,
     _load_duplicate_set,
     _output_path_for_clip,
@@ -234,6 +235,50 @@ class TestReport:
 
 
 # --- Rebuild catalog ----------------------------------------------------------
+
+class TestCleanOutput:
+    def test_clean_removes_untracked(self, pipeline_env):
+        """_clean_output_dir removes mp4s not in pipeline_status."""
+        out_dir = pipeline_env["root"] / "out" / "portrait_reels" / "clean"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        stale = out_dir / "old_render.mp4"
+        stale.write_bytes(b"\x00" * 100)
+
+        removed = _clean_output_dir(out_dir)
+        assert removed == 1
+        assert not stale.exists()
+
+    def test_clean_dry_run(self, pipeline_env):
+        """Dry run reports files but doesn't delete them."""
+        out_dir = pipeline_env["root"] / "out" / "portrait_reels" / "clean"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        stale = out_dir / "old_render.mp4"
+        stale.write_bytes(b"\x00" * 100)
+
+        removed = _clean_output_dir(out_dir, dry_run=True)
+        assert removed == 1
+        assert stale.exists()  # still there in dry-run
+
+    def test_clean_preserves_tracked(self, pipeline_env):
+        """Files tracked in pipeline_status.csv are preserved."""
+        from tools.catalog import mark_rendered
+
+        out_dir = pipeline_env["root"] / "out" / "portrait_reels" / "clean"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a clip and mark it as rendered
+        game_dir = pipeline_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        tracked_file = out_dir / "001__GOAL__t10-t20__CINEMATIC_portrait_FINAL.mp4"
+        tracked_file.write_bytes(b"\x00" * 100)
+        mark_rendered(clip, tracked_file, preset="cinematic")
+
+        removed = _clean_output_dir(out_dir)
+        assert removed == 0
+        assert tracked_file.exists()
+
 
 class TestRebuildCatalog:
     def test_rebuild_flag(self, pipeline_env):
