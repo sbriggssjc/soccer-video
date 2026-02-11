@@ -1,0 +1,540 @@
+#!/usr/bin/env python
+"""Unified batch pipeline: render portrait reels, upscale, and track in catalog.
+
+Usage examples:
+
+    # Dry run — show what would be processed (no rendering)
+    python tools/batch_pipeline.py --dry-run
+
+    # Render all canonical clips with cinematic preset
+    python tools/batch_pipeline.py --preset cinematic
+
+    # Render + upscale with progress tracking
+    python tools/batch_pipeline.py --preset cinematic --upscale
+
+    # Limit to first 5 clips for testing
+    python tools/batch_pipeline.py --preset cinematic --limit 5
+
+    # Rebuild catalog, detect duplicates, and clean up before rendering
+    python tools/batch_pipeline.py --preset cinematic --rebuild-catalog --cleanup-dupes
+
+    # Generate status report only
+    python tools/batch_pipeline.py --report
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.catalog import (
+    ATOMIC_INDEX_PATH,
+    DUPLICATES_PATH,
+    PIPELINE_STATUS_PATH,
+    ensure_catalog_dirs,
+    generate_report,
+    load_duplicates,
+    load_existing_atomic_rows,
+    load_pipeline_status_table,
+    mark_rendered,
+    mark_upscaled,
+    normalize_tree,
+    rebuild_atomic_index,
+    write_duplicates_from_index,
+)
+from tools.path_naming import build_output_name
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Unified batch pipeline: render, upscale, track, and clean.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # Pipeline steps
+    p.add_argument(
+        "--preset",
+        default="cinematic",
+        help="Render preset (default: cinematic)",
+    )
+    p.add_argument(
+        "--portrait",
+        default="1080x1920",
+        help="Portrait output geometry WxH (default: 1080x1920)",
+    )
+    p.add_argument(
+        "--upscale",
+        action="store_true",
+        help="Upscale portrait renders after rendering (2x lanczos)",
+    )
+    p.add_argument(
+        "--upscale-scale",
+        type=int,
+        default=2,
+        help="Upscale factor (default: 2)",
+    )
+    p.add_argument(
+        "--upscale-method",
+        default="lanczos",
+        choices=["lanczos", "realesrgan"],
+        help="Upscale method (default: lanczos)",
+    )
+
+    # Clip selection
+    p.add_argument(
+        "--src-dir",
+        default="out/atomic_clips",
+        help="Root directory for atomic clips (default: out/atomic_clips)",
+    )
+    p.add_argument(
+        "--out-dir",
+        default="out/portrait_reels/clean",
+        help="Output directory for portrait renders (default: out/portrait_reels/clean)",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Max clips to process (0 = no limit)",
+    )
+    p.add_argument(
+        "--pattern",
+        default="*.mp4",
+        help="Glob pattern for scanning clips (default: *.mp4)",
+    )
+    p.add_argument(
+        "--game",
+        help="Filter to a specific game folder name (substring match)",
+    )
+    p.add_argument(
+        "--clip",
+        action="append",
+        help="Process specific clip path(s) instead of scanning (repeatable)",
+    )
+
+    # Behavior
+    p.add_argument(
+        "--skip-existing",
+        action="store_true",
+        default=True,
+        help="Skip clips with existing output (default: True)",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-render even if output exists",
+    )
+    p.add_argument(
+        "--skip-duplicates",
+        action="store_true",
+        default=True,
+        help="Skip duplicate clips (default: True)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be processed without rendering",
+    )
+
+    # Catalog operations
+    p.add_argument(
+        "--rebuild-catalog",
+        action="store_true",
+        help="Rebuild atomic_index.csv and duplicates.csv before processing",
+    )
+    p.add_argument(
+        "--cleanup-dupes",
+        action="store_true",
+        help="Move duplicate clips to trash after processing",
+    )
+    p.add_argument(
+        "--purge-trash",
+        action="store_true",
+        help="Permanently delete trashed duplicates",
+    )
+
+    # Reporting
+    p.add_argument(
+        "--report",
+        action="store_true",
+        help="Print pipeline status report and exit",
+    )
+
+    # Render options
+    p.add_argument(
+        "--keep-scratch",
+        action="store_true",
+        help="Keep scratch artifacts after rendering",
+    )
+    p.add_argument(
+        "--scratch-root",
+        help="Root directory for scratch artifacts",
+    )
+
+    return p.parse_args(argv)
+
+
+def _load_duplicate_set() -> set[str]:
+    """Return set of clip_rel paths that are duplicates (not canonical)."""
+    dupes = set()
+    try:
+        records = load_duplicates()
+        for rec in records:
+            if rec.duplicate_rel:
+                dupes.add(rec.duplicate_rel.replace("\\", "/"))
+    except Exception:
+        pass
+    return dupes
+
+
+def _clips_from_catalog(src_dir: str, pattern: str, game_filter: str | None) -> list[dict]:
+    """Load clips from atomic_index.csv, falling back to directory scan."""
+    clips = []
+    rows = load_existing_atomic_rows()
+    if rows:
+        for rel, row in rows.items():
+            clip_path = row.get("clip_path", "")
+            if not clip_path:
+                continue
+            if game_filter and game_filter.lower() not in rel.lower():
+                continue
+            clips.append(row)
+        return clips
+
+    # Fallback: scan directory
+    src_root = REPO_ROOT / src_dir
+    if not src_root.exists():
+        return []
+    for mp4 in sorted(src_root.rglob(pattern)):
+        rel = str(mp4.relative_to(REPO_ROOT)).replace("\\", "/")
+        if game_filter and game_filter.lower() not in rel.lower():
+            continue
+        clips.append({
+            "clip_path": str(mp4),
+            "clip_rel": rel,
+            "clip_stem": mp4.stem,
+        })
+    return clips
+
+
+def _output_path_for_clip(clip_path: str, preset: str, portrait: str, out_dir: Path) -> Path:
+    """Compute deterministic output path for a clip."""
+    output_name = build_output_name(
+        input_path=clip_path,
+        preset=preset.upper(),
+        portrait=portrait,
+        follow=None,
+        is_final=True,
+        extra_tags=[],
+    )
+    return out_dir / output_name
+
+
+def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
+                 *, keep_scratch: bool = False, scratch_root: str | None = None) -> bool:
+    """Invoke render_follow_unified.py for a single clip. Returns True on success."""
+    cmd = [
+        sys.executable,
+        str(REPO_ROOT / "tools" / "render_follow_unified.py"),
+        "--preset", preset,
+        "--in", str(clip_path),
+        "--out", str(out_path),
+        "--portrait", portrait,
+        "--no-draw-ball",
+    ]
+    if keep_scratch:
+        cmd.append("--keep-scratch")
+    if scratch_root:
+        cmd.extend(["--scratch-root", scratch_root])
+
+    result = subprocess.run(cmd)
+    return result.returncode == 0
+
+
+def _upscale_clip(portrait_path: Path, scale: int, method: str) -> str | None:
+    """Upscale a portrait render. Returns output path or None on failure."""
+    try:
+        from tools.upscale import upscale_video
+        return upscale_video(str(portrait_path), scale=scale, method=method, track=True)
+    except Exception as exc:
+        print(f"[ERROR] Upscale failed for {portrait_path}: {exc}")
+        return None
+
+
+def run_report() -> None:
+    """Print a comprehensive pipeline status report."""
+    ensure_catalog_dirs()
+    report = generate_report()
+
+    print("=" * 60)
+    print("PIPELINE STATUS REPORT")
+    print("=" * 60)
+    print(f"  Total atomic clips:    {report['total_clips']}")
+    print(f"  Portrait renders done: {report['rendered']}")
+    print(f"  Upscaled:              {report['upscaled']}")
+    print(f"  Branded:               {report['branded']}")
+    print(f"  Duplicate groups:      {report['dup_groups']}")
+    print(f"  Orphans (no master):   {report['orphans']}")
+    print(f"  Sidecars with errors:  {report['sidecars_with_errors']}")
+    print()
+
+    # Show per-step completion
+    total = report["total_clips"]
+    if total > 0:
+        pct_rendered = 100 * report["rendered"] / total
+        pct_upscaled = 100 * report["upscaled"] / total
+        print(f"  Render progress: {report['rendered']}/{total} ({pct_rendered:.0f}%)")
+        print(f"  Upscale progress: {report['upscaled']}/{total} ({pct_upscaled:.0f}%)")
+    print("=" * 60)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    ensure_catalog_dirs()
+
+    # --- Report mode ---
+    if args.report:
+        run_report()
+        return 0
+
+    # --- Rebuild catalog ---
+    if args.rebuild_catalog:
+        print("[CATALOG] Rebuilding atomic index and duplicates...")
+        result = rebuild_atomic_index()
+        print(
+            f"[CATALOG] Scanned: {result.scanned} | Changed: {result.changed} | "
+            f"Hard dupes: {result.hard_dupes} | Soft dupes: {result.soft_dupes}"
+        )
+
+    # --- Load clips ---
+    if args.clip:
+        clips = []
+        for c in args.clip:
+            p = Path(c)
+            clips.append({
+                "clip_path": str(p.resolve()),
+                "clip_rel": str(p.relative_to(REPO_ROOT)).replace("\\", "/") if p.is_absolute() else c,
+                "clip_stem": p.stem,
+            })
+    else:
+        clips = _clips_from_catalog(args.src_dir, args.pattern, args.game)
+
+    if not clips:
+        print("[WARN] No clips found to process.")
+        return 0
+
+    # --- Filter duplicates ---
+    dup_set = _load_duplicate_set() if args.skip_duplicates else set()
+    pipeline_table = load_pipeline_status_table()
+
+    out_dir = REPO_ROOT / args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build work list
+    work = []
+    skipped_dup = 0
+    skipped_done = 0
+    for row in clips:
+        clip_rel = row.get("clip_rel", "")
+        clip_path_str = row.get("clip_path", "")
+
+        # Skip duplicates
+        if clip_rel in dup_set:
+            skipped_dup += 1
+            continue
+
+        clip_path = Path(clip_path_str)
+        out_path = _output_path_for_clip(clip_path_str, args.preset, args.portrait, out_dir)
+
+        # Check if already rendered
+        already_rendered = False
+        status = pipeline_table.get(str(clip_path.resolve()), {})
+        if status.get("portrait_path") and not args.force:
+            portrait_p = Path(status["portrait_path"])
+            if portrait_p.exists() and portrait_p.stat().st_size > 0:
+                already_rendered = True
+
+        if not already_rendered and not args.force:
+            if out_path.exists() and out_path.stat().st_size > 0:
+                already_rendered = True
+
+        if already_rendered and args.skip_existing and not args.force:
+            skipped_done += 1
+            continue
+
+        # Check upscale status
+        already_upscaled = False
+        if args.upscale and status.get("upscaled_path"):
+            up_p = Path(status["upscaled_path"])
+            if up_p.exists() and up_p.stat().st_size > 0 and not args.force:
+                already_upscaled = True
+
+        work.append({
+            "clip_path": clip_path,
+            "clip_rel": clip_rel,
+            "out_path": out_path,
+            "already_rendered": already_rendered,
+            "already_upscaled": already_upscaled,
+        })
+
+    if args.limit and args.limit > 0:
+        work = work[:args.limit]
+
+    # Summary
+    total_clips = len(clips)
+    print(f"\n{'=' * 60}")
+    print(f"BATCH PIPELINE — {args.preset} preset")
+    print(f"{'=' * 60}")
+    print(f"  Total clips in catalog: {total_clips}")
+    print(f"  Skipped (duplicates):   {skipped_dup}")
+    print(f"  Skipped (already done): {skipped_done}")
+    print(f"  To process:             {len(work)}")
+    if args.upscale:
+        needs_upscale = sum(1 for w in work if not w["already_upscaled"])
+        print(f"  Needs upscale:          {needs_upscale}")
+    print(f"  Output directory:       {out_dir}")
+    print(f"{'=' * 60}\n")
+
+    if args.dry_run:
+        print("[DRY-RUN] Would process:")
+        for i, item in enumerate(work, 1):
+            status_parts = []
+            if item["already_rendered"]:
+                status_parts.append("render:skip")
+            else:
+                status_parts.append("render:TODO")
+            if args.upscale:
+                if item["already_upscaled"]:
+                    status_parts.append("upscale:skip")
+                else:
+                    status_parts.append("upscale:TODO")
+            status_str = ", ".join(status_parts)
+            print(f"  {i:3d}. {item['clip_rel']}  [{status_str}]")
+        return 0
+
+    if not work:
+        print("[OK] Nothing to process — all clips are up to date.")
+        if args.cleanup_dupes:
+            _run_cleanup(args)
+        return 0
+
+    # --- Process clips ---
+    ok = 0
+    failed = 0
+    upscaled = 0
+    t_start = time.monotonic()
+
+    for i, item in enumerate(work, 1):
+        clip_path = item["clip_path"]
+        out_path = item["out_path"]
+        clip_rel = item["clip_rel"]
+        elapsed = time.monotonic() - t_start
+        eta = ""
+        if i > 1 and ok + failed > 0:
+            avg = elapsed / (ok + failed)
+            remaining = avg * (len(work) - i + 1)
+            eta = f"  ETA: {int(remaining // 60)}m{int(remaining % 60):02d}s"
+
+        print(f"\n[{i}/{len(work)}] {clip_rel}{eta}")
+
+        # --- Render ---
+        if not item["already_rendered"]:
+            if not clip_path.exists():
+                print(f"  [SKIP] Source not found: {clip_path}")
+                failed += 1
+                mark_rendered(clip_path, None, preset=args.preset, error="source not found")
+                continue
+
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            print(f"  [RENDER] {clip_path.name} -> {out_path.name}")
+            success = _render_clip(
+                clip_path, out_path, args.preset, args.portrait,
+                keep_scratch=args.keep_scratch,
+                scratch_root=args.scratch_root,
+            )
+
+            if success and out_path.exists():
+                mark_rendered(clip_path, out_path, preset=args.preset, portrait=args.portrait)
+                print(f"  [OK] Rendered: {out_path.name}")
+                ok += 1
+            else:
+                mark_rendered(clip_path, None, preset=args.preset, error="render failed")
+                print(f"  [FAIL] Render failed: {clip_path.name}")
+                failed += 1
+                continue
+        else:
+            out_path = item["out_path"]
+            # Check if pipeline has the path
+            status = pipeline_table.get(str(clip_path.resolve()), {})
+            if status.get("portrait_path"):
+                out_path = Path(status["portrait_path"])
+            ok += 1
+
+        # --- Upscale ---
+        if args.upscale and not item["already_upscaled"]:
+            if out_path.exists():
+                print(f"  [UPSCALE] {out_path.name}")
+                result = _upscale_clip(out_path, args.upscale_scale, args.upscale_method)
+                if result:
+                    upscaled += 1
+                    print(f"  [OK] Upscaled: {Path(result).name}")
+                else:
+                    print(f"  [FAIL] Upscale failed")
+
+    # --- Summary ---
+    elapsed = time.monotonic() - t_start
+    print(f"\n{'=' * 60}")
+    print(f"BATCH COMPLETE")
+    print(f"{'=' * 60}")
+    print(f"  Rendered:  {ok}")
+    print(f"  Failed:    {failed}")
+    if args.upscale:
+        print(f"  Upscaled:  {upscaled}")
+    print(f"  Time:      {int(elapsed // 60)}m{int(elapsed % 60):02d}s")
+    print(f"{'=' * 60}")
+
+    # --- Cleanup duplicates ---
+    if args.cleanup_dupes:
+        _run_cleanup(args)
+
+    return 1 if failed > 0 else 0
+
+
+def _run_cleanup(args: argparse.Namespace) -> None:
+    """Run duplicate cleanup after processing."""
+    print("\n[CLEANUP] Detecting and cleaning up duplicates...")
+
+    # Refresh duplicates from current catalog
+    if not DUPLICATES_PATH.exists():
+        print("[CLEANUP] Computing duplicate groups...")
+        hard, soft = write_duplicates_from_index()
+        print(f"[CLEANUP] Found {hard} hard + {soft} soft duplicate groups")
+
+    try:
+        result = normalize_tree(
+            dry_run=False,
+            force=True,
+            purge=args.purge_trash,
+        )
+        print(
+            f"[CLEANUP] Moved: {result['moved']} | "
+            f"Upscale redirects: {result['upscaled_redirected']} | "
+            f"Brand redirects: {result['branded_redirected']} | "
+            f"Dirs removed: {result['removed_dirs']}"
+        )
+        if result["trash_purged"]:
+            print("[CLEANUP] Trash purged.")
+    except Exception as exc:
+        print(f"[CLEANUP] Error: {exc}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

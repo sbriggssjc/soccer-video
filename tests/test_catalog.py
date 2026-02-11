@@ -20,6 +20,7 @@ if str(_ROOT) not in sys.path:
 
 from tools.catalog import (
     ATOMIC_HEADERS,
+    PIPELINE_HEADERS,
     ClipRecord,
     DuplicateRecord,
     MasterRecord,
@@ -31,8 +32,10 @@ from tools.catalog import (
     gather_clip_record,
     is_canonical_rel,
     load_duplicates,
+    load_pipeline_status_table,
     load_sidecar,
     mark_branded,
+    mark_rendered,
     mark_upscaled,
     normalize_tree,
     parse_timestamps,
@@ -572,3 +575,85 @@ class TestCatalogPipeline:
         assert len(dupes) >= 1
         assert dupes[0].reason == "hard"
         assert dupes[0].overlap_ratio == 1.0
+
+    def test_mark_rendered(self, catalog_env):
+        """mark_rendered should record portrait render in pipeline status and sidecar."""
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        portrait = clip.parent / "001__CINEMATIC_portrait_FINAL.mp4"
+
+        mark_rendered(clip, portrait, preset="cinematic", portrait="1080x1920")
+
+        data = load_sidecar(clip)
+        assert data["steps"]["portrait_render"]["done"] is True
+        assert data["steps"]["portrait_render"]["preset"] == "cinematic"
+        assert data["steps"]["portrait_render"]["portrait"] == "1080x1920"
+
+        table = load_pipeline_status_table()
+        key = str(clip.resolve())
+        assert key in table
+        assert table[key]["portrait_path"] == str(portrait.resolve())
+        assert table[key]["render_preset"] == "cinematic"
+        assert table[key]["render_done_at"] != ""
+
+    def test_mark_rendered_error(self, catalog_env):
+        """mark_rendered with error should record the error, not the path."""
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+
+        mark_rendered(clip, None, preset="cinematic", error="render failed")
+
+        data = load_sidecar(clip)
+        assert data["steps"]["portrait_render"]["done"] is False
+        assert data["steps"]["portrait_render"]["error"] == "render failed"
+
+        table = load_pipeline_status_table()
+        key = str(clip.resolve())
+        assert key in table
+        assert table[key]["last_error"] == "render failed"
+        assert table[key]["portrait_path"] == ""
+
+    def test_pipeline_headers_include_render_fields(self, catalog_env):
+        """Pipeline headers should include the new portrait render tracking fields."""
+        assert "portrait_path" in PIPELINE_HEADERS
+        assert "render_done_at" in PIPELINE_HEADERS
+        assert "render_preset" in PIPELINE_HEADERS
+
+    def test_report_includes_rendered(self, catalog_env):
+        """generate_report should include rendered count."""
+        from tools.catalog import generate_report
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+        rebuild_atomic_index()
+
+        # Mark one clip as rendered
+        mark_rendered(clip, clip.parent / "001__FINAL.mp4", preset="cinematic")
+
+        report = generate_report()
+        assert report["total_clips"] == 1
+        assert report["rendered"] == 1
+        assert report["upscaled"] == 0
+
+    def test_full_pipeline_tracking(self, catalog_env):
+        """Test render -> upscale -> brand tracking chain."""
+        game_dir = catalog_env["atomic_dir"] / "2025-01-01__Test_Game"
+        clip = _make_clip(game_dir / "001__GOAL__t10-t20.mp4")
+
+        portrait = clip.parent / "001__CINEMATIC_portrait_FINAL.mp4"
+        upscaled = clip.parent / "001__x2.mp4"
+        branded = clip.parent / "001__branded.mp4"
+
+        mark_rendered(clip, portrait, preset="cinematic", portrait="1080x1920")
+        mark_upscaled(clip, upscaled, scale=2, model="lanczos")
+        mark_branded(clip, branded, brand="TSC")
+
+        data = load_sidecar(clip)
+        assert data["steps"]["portrait_render"]["done"] is True
+        assert data["steps"]["upscale"]["done"] is True
+        assert data["steps"]["follow_crop_brand"]["done"] is True
+
+        table = load_pipeline_status_table()
+        key = str(clip.resolve())
+        assert table[key]["portrait_path"] == str(portrait.resolve())
+        assert table[key]["upscaled_path"] == str(upscaled.resolve())
+        assert table[key]["branded_path"] == str(branded.resolve())

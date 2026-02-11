@@ -61,6 +61,9 @@ ATOMIC_HEADERS = [
 
 PIPELINE_HEADERS = [
     "clip_path",
+    "portrait_path",
+    "render_done_at",
+    "render_preset",
     "upscaled_path",
     "upscale_done_at",
     "branded_path",
@@ -1018,6 +1021,47 @@ def update_sidecar_step(
     save_sidecar(clip_path, data)
 
 
+def mark_rendered(
+    clip_path: Path,
+    out_path: Optional[Path],
+    *,
+    at: Optional[str] = None,
+    preset: Optional[str] = None,
+    portrait: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Record a portrait render completion in pipeline status and sidecar."""
+    timestamp = at or iso_now()
+    clip_path = clip_path.resolve()
+    out_str = str(out_path.resolve()) if out_path else ""
+
+    if error:
+        updates = {
+            "last_error": error,
+            "last_run_at": timestamp,
+        }
+    else:
+        updates = {
+            "portrait_path": out_str,
+            "render_done_at": timestamp,
+            "render_preset": preset or "",
+            "last_error": "",
+            "last_run_at": timestamp,
+        }
+
+    update_pipeline_status(clip_path, **updates)
+
+    step_info = {
+        "done": error is None,
+        "out": out_str,
+        "at": timestamp if not error else None,
+        "preset": preset,
+        "portrait": portrait,
+        "error": error,
+    }
+    update_sidecar_step(clip_path, "portrait_render", step_info, error=error)
+
+
 def mark_upscaled(
     clip_path: Path,
     out_path: Optional[Path],
@@ -1370,12 +1414,15 @@ def generate_report() -> dict:
     duplicates = load_duplicates()
 
     total = len(atomic_rows)
+    rendered = 0
     upscaled = 0
     branded = 0
     orphans = 0
     for row in atomic_rows.values():
         clip_path = row.get("clip_path", "")
         status = table.get(clip_path, {})
+        if status.get("portrait_path"):
+            rendered += 1
         if status.get("upscaled_path"):
             upscaled += 1
         if status.get("branded_path"):
@@ -1397,6 +1444,7 @@ def generate_report() -> dict:
     dup_groups = {rec.group_id for rec in duplicates}
     return {
         "total_clips": total,
+        "rendered": rendered,
         "upscaled": upscaled,
         "branded": branded,
         "orphans": orphans,
@@ -1688,9 +1736,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.report:
         report = generate_report()
         print(
-            "Atomic clips: {total} | Upscaled: {upscaled} | Branded: {branded} | "
-            "Dup groups: {dups} | Orphans: {orphans} | Sidecars w/ errors: {errors}".format(
+            "Atomic clips: {total} | Rendered: {rendered} | Upscaled: {upscaled} | "
+            "Branded: {branded} | Dup groups: {dups} | Orphans: {orphans} | "
+            "Sidecars w/ errors: {errors}".format(
                 total=report["total_clips"],
+                rendered=report["rendered"],
                 upscaled=report["upscaled"],
                 branded=report["branded"],
                 dups=report["dup_groups"],
