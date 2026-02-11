@@ -5865,7 +5865,7 @@ class Renderer:
             x1, y1 = 0, 0
             x2, y2 = width, height
 
-        resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_CUBIC)
+        resized = cv2.resize(cropped, output_size, interpolation=cv2.INTER_LANCZOS4)
 
         if overlay_image is not None:
             resized = _apply_overlay(resized, overlay_image)
@@ -7267,6 +7267,28 @@ def run(
             flipped_positions[valid_mask, 1] = float(height) - flipped_positions[valid_mask, 1]
         positions = flipped_positions
 
+    # Override min_box to match the actual portrait crop dimensions.
+    # The preset min_box_px may be larger than the real visible area
+    # (e.g., [486, 864] vs actual 405x720 for a 720p source).  If
+    # CameraPlanner uses a too-large min_box, its safety margins are
+    # computed against a crop wider than what's rendered, allowing the
+    # ball to appear outside the visible frame.
+    effective_min_box = portrait_min_box
+    if follow_crop_width > 0:
+        actual_crop_w = float(follow_crop_width)
+        actual_crop_h = float(height)
+        if portrait_min_box is not None:
+            if isinstance(portrait_min_box, (list, tuple)) and len(portrait_min_box) >= 2:
+                preset_w = float(portrait_min_box[0])
+                if preset_w > actual_crop_w:
+                    effective_min_box = (actual_crop_w, actual_crop_h)
+                    logger.info(
+                        "[PLANNER] min_box capped to actual portrait crop: %.0f x %.0f (was %.0f x %.0f)",
+                        actual_crop_w, actual_crop_h, preset_w, float(portrait_min_box[1]),
+                    )
+        else:
+            effective_min_box = (actual_crop_w, actual_crop_h)
+
     planner = CameraPlanner(
         width=width,
         height=height,
@@ -7281,7 +7303,7 @@ def run(
         margin_px=margin_px,
         lead_frames=lead_frames,
         speed_zoom=speed_zoom_config,
-        min_box=portrait_min_box,
+        min_box=effective_min_box,
         horizon_lock=portrait_horizon_lock,
         emergency_gain=getattr(args, "emergency_gain", 0.6),
         emergency_zoom_max=getattr(args, "emergency_zoom_max", 1.45),
@@ -7445,7 +7467,22 @@ def run(
     pan_plan: Optional[np.ndarray] = None
     fps_for_path = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
     portrait_crop_width = float(follow_crop_width or width)
-    if follow_override_map is None:
+
+    # When CameraPlanner has produced valid states from motion-centroid
+    # telemetry, let it drive panning directly.  Skip the Option C
+    # override which uses a separate, less-accurate tracking algorithm.
+    _use_camera_planner_direct = bool(states and len(states) > 0)
+    if _use_camera_planner_direct:
+        logger.info("[PAN] CameraPlanner driving panning directly (Option C disabled)")
+        # Extract CameraPlanner centers so renderer has a plan, but
+        # do NOT set follow_centers (which would override state.cx).
+        cam_plan_cx = np.array([s.cx for s in states], dtype=float)
+        renderer.follow_plan_x = cam_plan_cx
+        # Do NOT set renderer.pan_x_plan — this would override state.cx
+        # in _compose_frame via active_pan_plan.
+        renderer.pan_x_plan = None
+
+    elif follow_override_map is None:
 
         if portrait_crop_width > 0 and width > 0:
             total_frames_for_pan = len(states) if states else int(round(duration_s * fps_for_path))
@@ -7475,7 +7512,7 @@ def run(
             renderer.follow_crop_scale_plan = np.asarray(crop_scales_option_c, dtype=float)
             renderer.pan_recovery_flags = np.asarray(recovery_flags_option_c, dtype=bool)
 
-    if renderer.pan_x_plan is None:
+    if renderer.pan_x_plan is None and not _use_camera_planner_direct:
         frames_for_plan = len(states)
         (
             centers_option_c,
