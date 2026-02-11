@@ -8,8 +8,9 @@ REALESRGAN_EXE = _SCRIPT_DIR / "realesrgan" / "realesrgan-ncnn-vulkan.exe"
 UPSCALE_OUT_ROOT = _REPO_ROOT / "out" / "upscaled"
 UPSCALE_OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-def _out_path(src: Path, scale: int) -> Path:
-    return UPSCALE_OUT_ROOT / f"{src.stem}__x{scale}.mp4"
+def _out_path(src: Path, scale: int, method: str = "") -> Path:
+    tag = f"__{method}" if method else ""
+    return UPSCALE_OUT_ROOT / f"{src.stem}__x{scale}{tag}.mp4"
 
 
 def _probe_fps(src: Path) -> str:
@@ -39,11 +40,19 @@ def _probe_resolution(path: Path) -> tuple[int, int]:
 
 
 def upscale_video(inp: str, scale: int = 2, model: str = "realesrgan-x4plus",
-                  *, force: bool = False) -> str:
+                  *, force: bool = False, method: str = "lanczos") -> str:
+    """Upscale a video by *scale*x.
+
+    *method*:
+        ``"lanczos"`` (default) – FFmpeg lanczos resampler + light sharpening.
+            Reliable, no artifacts, good quality for 2x.
+        ``"realesrgan"`` – Real-ESRGAN neural upscaler (frame-by-frame, no tiling).
+            Better perceptual quality but may produce tile-boundary artifacts
+            on some GPU/driver combinations.
+    """
     src = Path(inp)
-    out = _out_path(src, scale)
+    out = _out_path(src, scale, method)
     if not force and out.exists() and out.stat().st_mtime > src.stat().st_mtime:
-        # Verify cached output has correct dimensions
         src_w, src_h = _probe_resolution(src)
         out_w, out_h = _probe_resolution(out)
         if src_w > 0 and out_w > 0:
@@ -55,41 +64,73 @@ def upscale_video(inp: str, scale: int = 2, model: str = "realesrgan-x4plus",
         else:
             return str(out)
 
+    if method == "realesrgan":
+        result = _upscale_realesrgan(src, out, scale, model)
+        if result is not None:
+            return result
+        print("[UPSCALE] Real-ESRGAN failed, falling back to lanczos")
+
+    return _upscale_lanczos(src, out, scale)
+
+
+def _upscale_lanczos(src: Path, out: Path, scale: int) -> str:
+    """FFmpeg lanczos upscale with light denoising and sharpening."""
+    print(f"[UPSCALE] FFmpeg lanczos {scale}x: {src.name} ...")
+    subprocess.check_call([
+        'ffmpeg', '-hide_banner', '-y', '-i', str(src),
+        '-vf', (
+            f'scale=iw*{scale}:ih*{scale}:flags=lanczos,'
+            'hqdn3d=2:1:2:3,'
+            'unsharp=5:5:0.5:5:5:0.0'
+        ),
+        '-map', '0:v:0', '-map', '0:a?',
+        '-c:v', 'libx264', '-preset', 'slow', '-crf', '17',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '160k',
+        str(out),
+    ])
+    out_w, out_h = _probe_resolution(out)
+    print(f"[UPSCALE] Done: {out_w}x{out_h}")
+    return str(out)
+
+
+def _upscale_realesrgan(src: Path, out: Path, scale: int, model: str) -> str | None:
+    """Real-ESRGAN frame-by-frame upscale.  Returns path or None on failure."""
     exe = Path(REALESRGAN_EXE)
-    if exe.exists():
-        # Use frame-by-frame mode (more reliable than direct video mode).
-        # Use --tile 0 to avoid tile-boundary kaleidoscope artifacts.
-        fps = _probe_fps(src)
-        print(f"[UPSCALE] Real-ESRGAN frame-by-frame ({model}, {scale}x, tile=0)...")
+    if not exe.exists():
+        return None
+
+    fps = _probe_fps(src)
+    print(f"[UPSCALE] Real-ESRGAN frame-by-frame ({model}, {scale}x, tile=0)...")
+    try:
         with tempfile.TemporaryDirectory() as td:
             tdin  = Path(td) / "in";  tdin.mkdir()
             tdout = Path(td) / "out"; tdout.mkdir()
 
-            subprocess.check_call(['ffmpeg','-hide_banner','-y','-i',str(src),
-                                   '-map','0:v:0','-vsync','0', str(tdin / '%06d.png')])
+            subprocess.check_call([
+                'ffmpeg', '-hide_banner', '-y', '-i', str(src),
+                '-map', '0:v:0', '-fps_mode', 'passthrough',
+                str(tdin / '%06d.png'),
+            ])
 
-            subprocess.check_call([str(exe), '-i', str(tdin), '-o', str(tdout),
-                                   '-n', model, '-s', str(scale), '-t', '0'])
+            subprocess.check_call([
+                str(exe), '-i', str(tdin), '-o', str(tdout),
+                '-n', model, '-s', str(scale), '-t', '0',
+            ])
 
-            subprocess.check_call(['ffmpeg','-hide_banner','-y','-framerate',fps,
-                                   '-i', str(tdout / '%06d.png'),
-                                   '-i', str(src), '-map','0:v:0','-map','1:a?',
-                                   '-c:v','libx264','-preset','slow','-crf','18',
-                                   '-pix_fmt','yuv420p', str(out)])
+            subprocess.check_call([
+                'ffmpeg', '-hide_banner', '-y', '-framerate', fps,
+                '-i', str(tdout / '%06d.png'),
+                '-i', str(src), '-map', '0:v:0', '-map', '1:a?',
+                '-c:v', 'libx264', '-preset', 'slow', '-crf', '17',
+                '-pix_fmt', 'yuv420p',
+                str(out),
+            ])
 
         if out.exists():
             out_w, out_h = _probe_resolution(out)
             print(f"[UPSCALE] Real-ESRGAN done: {out_w}x{out_h}")
             return str(out)
-
-        print("[UPSCALE] Real-ESRGAN failed, falling back to FFmpeg lanczos")
-
-    # ffmpeg-only fallback (lanczos upscale + light sharpening)
-    print(f"[UPSCALE] FFmpeg lanczos {scale}x upscale...")
-    subprocess.check_call(['ffmpeg','-hide_banner','-y','-i',str(src),
-                           '-vf', f'scale=iw*{scale}:ih*{scale}:flags=lanczos,hqdn3d=2:1:2:3,unsharp=5:5:0.5:5:5:0.0',
-                           '-map','0:v:0','-map','0:a?',
-                           '-c:v','libx264','-preset','slow','-crf','18','-pix_fmt','yuv420p',
-                           '-c:a','aac','-b:a','160k',
-                           str(out)])
-    return str(out)
+    except subprocess.CalledProcessError as exc:
+        print(f"[UPSCALE] Real-ESRGAN error: {exc}")
+    return None
