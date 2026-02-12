@@ -5122,6 +5122,8 @@ class CameraPlanner:
         # rapid direction changes (shots, blocks).  When acceleration
         # is high, zoom out to keep more action visible.
         prev_speed_pf = 0.0
+        smooth_speed_pf = 0.0  # EMA-smoothed speed for zoom decisions
+        speed_ema_alpha = 0.25  # 25% new → ~4-frame window, dampens fusion noise
         accel_zoom_out = 1.0  # multiplier: 1.0 = no change, <1.0 = zoom out
         accel_zoom_decay = 0.92  # how fast the zoom-out recovers (per frame)
         accel_threshold_pf = 4.0  # px/frame acceleration threshold
@@ -5161,7 +5163,11 @@ class CameraPlanner:
 
             clamp_flags: List[str] = []
 
-            speed_pf = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
+            raw_speed_pf = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
+            # Smooth speed with EMA to prevent zoom/accel oscillation from
+            # residual position noise (YOLO-centroid fusion artifacts).
+            smooth_speed_pf = speed_ema_alpha * raw_speed_pf + (1.0 - speed_ema_alpha) * smooth_speed_pf
+            speed_pf = smooth_speed_pf
 
             # --- Acceleration detection ---
             accel_pf = abs(speed_pf - prev_speed_pf)
@@ -7636,6 +7642,25 @@ def run(
     print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask, confidence=fusion_confidence)
+
+    # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
+    if states and len(states) > 1:
+        _cx_arr = np.array([s.cx for s in states], dtype=np.float64)
+        _cx_deltas = np.abs(np.diff(_cx_arr))
+        _cx_max_delta = float(_cx_deltas.max())
+        _cx_mean_delta = float(_cx_deltas.mean())
+        _cx_p95_delta = float(np.percentile(_cx_deltas, 95))
+        # Count direction reversals (sign changes in velocity)
+        _cx_vel = np.diff(_cx_arr)
+        _reversals = int(np.sum(np.diff(np.sign(_cx_vel)) != 0))
+        _cx_range = float(_cx_arr.max() - _cx_arr.min())
+        print(
+            f"[CAMERA] cx: range={_cx_range:.0f}px, "
+            f"max_delta={_cx_max_delta:.1f}px/f, "
+            f"mean_delta={_cx_mean_delta:.1f}px/f, "
+            f"p95_delta={_cx_p95_delta:.1f}px/f, "
+            f"reversals={_reversals}"
+        )
 
     # Compute CameraPlanner-specific ball-in-crop coverage.
     # This measures the ACTUAL camera plan, unlike ball_cam_stats which
