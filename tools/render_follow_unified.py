@@ -4236,13 +4236,14 @@ DEFAULT_PRESETS = {
         "fps": 24,
         "portrait": "1080x1920",
         "lookahead": 0,
-        "smoothing": 0.55,
+        "smoothing": 0.30,
         "pad": 0.10,
-        "speed_limit": 3000,
+        "speed_limit": 1200,
         "zoom_min": 1.0,
         "zoom_max": 1.9,
         "crf": 17,
         "keyint_factor": 4,
+        "post_smooth_sigma": 4.0,
     },
     "wide_follow": {
         "fps": 24,
@@ -4901,6 +4902,7 @@ class CameraPlanner:
         keepinview_zoom_gain: float = 0.4,
         keepinview_zoom_out_max: float = 1.6,
         center_frac: float = 0.5,
+        post_smooth_sigma: float = 0.0,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -4930,6 +4932,7 @@ class CameraPlanner:
         # consider the ball "comfortably framed".
         self.keepinview_min_band_frac = 0.15
         self.keepinview_max_band_frac = 0.85
+        self._post_smooth_sigma = max(0.0, float(post_smooth_sigma))
 
         if not math.isfinite(center_frac):
             center_frac = 0.5
@@ -5241,7 +5244,13 @@ class CameraPlanner:
             # when the override toggles on/off between consecutive frames.
             dx_excess = max(0.0, dx - margin_x) / max(margin_x, 1.0)
             dy_excess = max(0.0, dy - margin_y) / max(margin_y, 1.0)
+            # Square the excess to create a gradual ease-in curve instead
+            # of a linear ramp.  Small excesses produce negligible nudge
+            # (0.1^2 = 0.01) while large excesses still trigger strong
+            # recentering (0.8^2 = 0.64).  This eliminates the visible
+            # snap when the ball crosses the margin boundary.
             excess_frac = min(1.0, max(dx_excess, dy_excess))
+            excess_frac = excess_frac * excess_frac  # quadratic ramp
 
             keepinview_override = excess_frac > 0.0
             if keepinview_override:
@@ -5282,8 +5291,9 @@ class CameraPlanner:
 
             # Boost pan speed limit during high acceleration so camera
             # can follow fast action instead of falling behind.
-            accel_speed_boost = 1.0 + 0.5 * (1.0 - accel_zoom_out) / 0.25  # up to 1.3x
-            accel_speed_boost = min(1.3, accel_speed_boost)
+            # Capped at 1.1x — higher values cause visible jerks.
+            accel_speed_boost = 1.0 + 0.2 * (1.0 - accel_zoom_out) / 0.25  # up to 1.1x
+            accel_speed_boost = min(1.1, accel_speed_boost)
             cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x * accel_speed_boost)
             cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y * accel_speed_boost)
             speed_limited = x_clamped or y_clamped
@@ -5489,6 +5499,63 @@ class CameraPlanner:
                     keepinview_override=keepinview_override,
                 )
             )
+
+        # --- POST-PLAN GAUSSIAN SMOOTHING ---
+        # The forward EMA + speed clamping above produces discrete stepped
+        # motion that looks jerky, especially on a cinematic preset.  A
+        # Gaussian post-filter converts those hard steps into smooth curves
+        # while preserving the overall planned trajectory.
+        #
+        # sigma_frames is proportional to the fps so the physical smoothing
+        # window stays constant regardless of frame rate.
+        sigma_frames = getattr(self, "_post_smooth_sigma", 0.0)
+        if sigma_frames >= 0.5 and len(states) >= 5:
+            cx_arr = np.array([s.cx for s in states], dtype=np.float64)
+            cy_arr = np.array([s.cy for s in states], dtype=np.float64)
+            zoom_arr = np.array([s.zoom for s in states], dtype=np.float64)
+
+            # Build a 1-D Gaussian kernel.
+            radius = int(sigma_frames * 3.0 + 0.5)
+            radius = min(radius, len(states) // 2)
+            if radius >= 1:
+                x = np.arange(-radius, radius + 1, dtype=np.float64)
+                kernel = np.exp(-0.5 * (x / sigma_frames) ** 2)
+                kernel /= kernel.sum()
+
+                # Pad with edge values (avoid zero-pull at boundaries).
+                cx_pad = np.pad(cx_arr, radius, mode="edge")
+                cy_pad = np.pad(cy_arr, radius, mode="edge")
+                zm_pad = np.pad(zoom_arr, radius, mode="edge")
+
+                cx_smooth = np.convolve(cx_pad, kernel, mode="valid")
+                cy_smooth = np.convolve(cy_pad, kernel, mode="valid")
+                zm_smooth = np.convolve(zm_pad, kernel, mode="valid")
+
+                # Clamp zoom to valid range.
+                zm_smooth = np.clip(zm_smooth, self.zoom_min, self.zoom_max)
+
+                # Re-derive crop dimensions from smoothed positions/zoom
+                # and write back into the CamState objects.
+                for i, st in enumerate(states):
+                    st.cx = float(cx_smooth[i])
+                    st.cy = float(cy_smooth[i])
+                    st.zoom = float(zm_smooth[i])
+
+                    z = float(np.clip(st.zoom, self.zoom_min, self.zoom_max))
+                    c_h = self.height / max(z, 1e-6)
+                    c_w = c_h * aspect_ratio
+                    if c_w > self.width:
+                        c_w = self.width
+                        c_h = c_w / max(aspect_ratio, 1e-6)
+                    if self.pad > 0.0:
+                        ps = max(0.0, 1.0 - 2.0 * self.pad)
+                        c_w *= ps
+                        c_h *= ps
+                    st.crop_w = c_w
+                    st.crop_h = c_h
+                    # Recompute x0/y0 from smoothed center.
+                    st.x0 = float(np.clip(st.cx - c_w / 2.0, 0.0, max(0.0, self.width - c_w)))
+                    st.y0 = float(np.clip(st.cy - c_h / 2.0, 0.0, max(0.0, self.height - c_h)))
 
         return states
 
@@ -7553,6 +7620,7 @@ def run(
         keepinview_zoom_gain=keepinview_zoom_gain,
         keepinview_zoom_out_max=keepinview_zoom_cap,
         center_frac=cy_frac,
+        post_smooth_sigma=float(preset_config.get("post_smooth_sigma", 0.0)),
     )
     if not ball_samples:
         ball_samples = load_ball_telemetry_for_clip(str(original_source_path))

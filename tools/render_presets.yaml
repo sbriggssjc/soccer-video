@@ -1,9 +1,10 @@
 cinematic:
   fps: 24                 # fixed social cadence
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
-  smoothing: 0.55         # base alpha; adaptive smoothing boosts when target is far
+  smoothing: 0.30         # low alpha = smooth cinematic tracking (less reactive)
   pad: 0.10
-  speed_limit: 3000
+  speed_limit: 1200       # ~50 px/frame at 24fps — smooth pan, no visible steps
+  post_smooth_sigma: 4.0  # Gaussian post-filter (sigma in frames) eliminates micro-jitter
   zoom_min: 1.00
   zoom_max: 1.90
   crf: 17                 # higher quality output
@@ -11,7 +12,7 @@ cinematic:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.55
+    smoothing: 0.30
     lead_time: 0.0           # zero-phase filter handles centering; no lead needed
     margin_px: 120
     speed_zoom:
