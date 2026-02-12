@@ -5131,10 +5131,12 @@ class CameraPlanner:
             pos = positions[frame_idx]
             has_position = bool(used_mask[frame_idx]) and not np.isnan(pos).any()
 
-            # Raw ball position — use directly as pan target.
-            # Telemetry positions are already forward-Gaussian smoothed;
-            # no additional EMA is needed.  Only the speed limit and
-            # keepinview guards constrain camera motion.
+            # Ball position as pan target.
+            # Positions are pre-smoothed by the bidirectional EMA filter
+            # applied after fusion (before CameraPlanner construction).
+            # The EMA below (center_alpha) provides additional tracking
+            # smoothness; speed limit and keepinview guards constrain
+            # large motions.
             if has_position:
                 target = pos.copy()
             else:
@@ -7451,6 +7453,60 @@ def run(
                 "[PLANNER] Forward-filled %d/%d NaN position gaps",
                 _ffill_count, len(positions),
             )
+
+    # ------------------------------------------------------------------
+    # Post-fusion position smoothing
+    # ------------------------------------------------------------------
+    # The fused YOLO+centroid positions can have frame-to-frame jitter
+    # when the source switches between YOLO (actual ball) and centroid
+    # (player activity cluster).  These two signals can differ by
+    # 50-200px, and alternating between them creates visible camera
+    # oscillation that a single-pass EMA (alpha=0.55) cannot dampen.
+    #
+    # Apply a bidirectional EMA: forward pass + backward pass, then
+    # average.  This eliminates high-frequency jitter while preserving
+    # the real trajectory and adding zero directional lag.
+    _n_pos = len(positions) if len(positions) > 0 else 0
+    if _n_pos > 5:
+        _pos_alpha = 0.30  # 30% new → ~3-frame window per direction
+
+        # Compute max delta before smoothing (for diagnostics)
+        _pre_deltas = []
+        for _si in range(1, _n_pos):
+            if used_mask[_si] and used_mask[_si - 1]:
+                _d = float(np.linalg.norm(positions[_si] - positions[_si - 1]))
+                _pre_deltas.append(_d)
+        _pre_max = max(_pre_deltas) if _pre_deltas else 0.0
+
+        # Forward EMA pass
+        _fwd = positions.copy()
+        for _si in range(1, _n_pos):
+            if used_mask[_si] and used_mask[_si - 1]:
+                _fwd[_si] = _pos_alpha * positions[_si] + (1.0 - _pos_alpha) * _fwd[_si - 1]
+
+        # Backward EMA pass
+        _bwd = positions.copy()
+        for _si in range(_n_pos - 2, -1, -1):
+            if used_mask[_si] and used_mask[_si + 1]:
+                _bwd[_si] = _pos_alpha * positions[_si] + (1.0 - _pos_alpha) * _bwd[_si + 1]
+
+        # Average forward and backward passes (zero-lag result)
+        for _si in range(_n_pos):
+            if used_mask[_si]:
+                positions[_si] = (_fwd[_si] + _bwd[_si]) * 0.5
+
+        # Compute max delta after smoothing
+        _post_deltas = []
+        for _si in range(1, _n_pos):
+            if used_mask[_si] and used_mask[_si - 1]:
+                _d = float(np.linalg.norm(positions[_si] - positions[_si - 1]))
+                _post_deltas.append(_d)
+        _post_max = max(_post_deltas) if _post_deltas else 0.0
+
+        logger.info(
+            "[PLANNER] Position smoothing: %d frames, max Δ %.1f→%.1f px/frame",
+            _n_pos, _pre_max, _post_max,
+        )
 
     # Override min_box to match the actual portrait crop dimensions.
     # The preset min_box_px may be larger than the real visible area
