@@ -1176,9 +1176,11 @@ BALL_CAM_CONFIG: dict[str, object] = {
 
 from tools.ball_telemetry import (
     BallSample,
+    fuse_yolo_and_centroid,
     load_and_interpolate_telemetry,
     load_ball_telemetry,
     load_ball_telemetry_for_clip,
+    run_yolo_ball_detection,
     set_telemetry_frame_bounds,
     telemetry_path_for_video,
 )
@@ -4981,9 +4983,21 @@ class CameraPlanner:
                     sz[k] = float(sz[k])
                 self.speed_zoom_config = sz
 
-    def plan(self, positions: np.ndarray, used_mask: np.ndarray) -> List[CamState]:
+    def plan(
+        self,
+        positions: np.ndarray,
+        used_mask: np.ndarray,
+        confidence: Optional[np.ndarray] = None,
+    ) -> List[CamState]:
         frame_count = len(positions)
         states: List[CamState] = []
+
+        # Per-frame confidence array (default 1.0 when not provided).
+        if confidence is not None and len(confidence) == frame_count:
+            frame_confidence = confidence.astype(np.float32)
+        else:
+            frame_confidence = np.ones(frame_count, dtype=np.float32)
+
         # Initialize camera at first valid ball position (not frame center)
         # so the ball is in-frame from frame 0.
         init_cx = self.width / 2.0
@@ -5170,6 +5184,20 @@ class CameraPlanner:
 
             # Apply acceleration zoom-out on top of speed zoom
             zoom_target = float(np.clip(zoom_target * accel_zoom_out, self.zoom_min, self.zoom_max))
+
+            # Confidence-based zoom: when detection confidence is low,
+            # zoom out to keep more of the field visible.  When
+            # confidence is high, allow the normal (potentially tighter)
+            # zoom.  This makes the camera "hedge its bets" during
+            # uncertain tracking, reducing the chance of losing the ball.
+            frame_conf = float(frame_confidence[frame_idx])
+            if frame_conf < 0.50:
+                # Map confidence 0..0.5 → zoom scale 0.70..1.0
+                conf_scale = 0.70 + 0.60 * frame_conf  # 0.70 at conf=0, 1.0 at conf=0.5
+                zoom_target = float(np.clip(
+                    zoom_target * conf_scale, self.zoom_min, self.zoom_max
+                ))
+                clamp_flags.append(f"conf_zoom={conf_scale:.2f}")
 
             zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
@@ -7307,30 +7335,69 @@ def run(
         positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
         used_mask = np.zeros(frame_count, dtype=bool)
 
-    # When YOLO labels are missing or sparse (<10% coverage), merge
-    # motion-centroid telemetry into positions so CameraPlanner can
-    # track the ball instead of defaulting to frame center.
+    # --- YOLO ball detection + fusion with motion centroid ---
+    # Run real YOLO ball detection on the source video to get actual
+    # ball positions.  Fuse with the motion-centroid telemetry using
+    # confidence weighting: YOLO is preferred when confident, centroid
+    # fills gaps.  The per-frame confidence drives dynamic zoom (zoom
+    # out when uncertain to keep more field visible).
     valid_label_count = int(used_mask.sum()) if len(used_mask) > 0 else 0
-    if valid_label_count < max(1, len(used_mask)) * 0.1 and ball_samples:
-        merged = 0
-        for sample in ball_samples:
-            fidx = getattr(sample, "frame", None)
-            sx = _safe_float(getattr(sample, "x", None))
-            sy = _safe_float(getattr(sample, "y", None))
-            if fidx is None or sx is None or sy is None:
-                continue
-            fidx = int(fidx)
-            if 0 <= fidx < len(positions) and not used_mask[fidx]:
-                positions[fidx, 0] = sx
-                positions[fidx, 1] = sy
-                used_mask[fidx] = True
-                merged += 1
-        if merged > 0:
-            logger.info(
-                "[PLANNER] Merged %d motion-centroid samples into CameraPlanner "
-                "positions (YOLO labels: %d/%d frames)",
-                merged, valid_label_count, len(used_mask),
+    fusion_confidence: Optional[np.ndarray] = None
+
+    if valid_label_count < max(1, len(used_mask)) * 0.1:
+        # YOLO label files are sparse/absent — run real-time YOLO detection
+        yolo_samples = run_yolo_ball_detection(
+            original_source_path,
+            min_conf=0.30,
+            cache=True,
+        )
+
+        # Scale YOLO detections if the source was upscaled
+        if yolo_samples and upscale_factor > 1:
+            for _ys in yolo_samples:
+                _ys.x *= upscale_factor
+                _ys.y *= upscale_factor
+
+        if yolo_samples or ball_samples:
+            # Fuse YOLO + centroid → merged positions with confidence
+            fused_positions, fused_mask, fusion_confidence = fuse_yolo_and_centroid(
+                yolo_samples=yolo_samples,
+                centroid_samples=ball_samples,
+                frame_count=len(positions),
+                width=float(width),
+                height=float(height),
             )
+            # Replace positions/mask with fused result
+            positions = fused_positions
+            used_mask = fused_mask
+            logger.info(
+                "[PLANNER] Using YOLO+centroid fusion: %d/%d frames covered, "
+                "avg confidence=%.2f",
+                int(used_mask.sum()),
+                len(used_mask),
+                float(fusion_confidence[used_mask].mean()) if used_mask.any() else 0.0,
+            )
+        elif ball_samples:
+            # No YOLO available, fall back to centroid-only merge
+            merged = 0
+            for sample in ball_samples:
+                fidx = getattr(sample, "frame", None)
+                sx = _safe_float(getattr(sample, "x", None))
+                sy = _safe_float(getattr(sample, "y", None))
+                if fidx is None or sx is None or sy is None:
+                    continue
+                fidx = int(fidx)
+                if 0 <= fidx < len(positions) and not used_mask[fidx]:
+                    positions[fidx, 0] = sx
+                    positions[fidx, 1] = sy
+                    used_mask[fidx] = True
+                    merged += 1
+            if merged > 0:
+                logger.info(
+                    "[PLANNER] Merged %d motion-centroid samples (no YOLO available; "
+                    "YOLO labels: %d/%d frames)",
+                    merged, valid_label_count, len(used_mask),
+                )
 
     if args.flip180 and len(positions) > 0:
         flipped_positions = positions.copy()
@@ -7399,7 +7466,7 @@ def run(
     fps = render_fps_for_plan
     print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
-    states = planner.plan(positions, used_mask)
+    states = planner.plan(positions, used_mask, confidence=fusion_confidence)
 
     # Compute CameraPlanner-specific ball-in-crop coverage.
     # This measures the ACTUAL camera plan, unlike ball_cam_stats which
