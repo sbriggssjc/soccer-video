@@ -5010,8 +5010,6 @@ class CameraPlanner:
         prev_cx = init_cx
         prev_cy = init_cy
         prev_zoom = self.base_zoom
-        fallback_center = np.array([init_cx, init_cy], dtype=np.float32)
-        fallback_alpha = 0.05
         render_fps = self.render_fps
         px_per_sec_x = self.speed_limit * 1.35
         px_per_sec_y = self.speed_limit * 0.90
@@ -5129,13 +5127,11 @@ class CameraPlanner:
             if has_position:
                 target = pos.copy()
             else:
-                fallback_target = np.array(
-                    [self.width / 2.0, self.height * self.center_frac], dtype=np.float32
-                )
-                fallback_center = (
-                    fallback_alpha * fallback_target + (1.0 - fallback_alpha) * fallback_center
-                )
-                target = fallback_center
+                # Hold camera at previous position when tracking is lost.
+                # Do NOT drift toward frame center — that creates visible
+                # fighting between the ball-tracking path and the center
+                # of the landscape frame.
+                target = np.array([prev_cx, prev_cy], dtype=np.float32)
 
             bx_used = float(target[0])
             by_used = float(target[1])
@@ -7409,6 +7405,28 @@ def run(
             flipped_positions[valid_mask, 0] = float(width) - flipped_positions[valid_mask, 0]
             flipped_positions[valid_mask, 1] = float(height) - flipped_positions[valid_mask, 1]
         positions = flipped_positions
+
+    # Forward-fill NaN gaps in positions so CameraPlanner always has
+    # a usable target.  Without this, gaps in YOLO/centroid coverage
+    # cause the planner to hold at a stale position, and large gaps
+    # at the start of the clip leave the planner stuck at frame center.
+    if len(positions) > 0:
+        _ffill_count = 0
+        _last_valid: Optional[np.ndarray] = None
+        for _fi in range(len(positions)):
+            if used_mask[_fi] and not np.isnan(positions[_fi]).any():
+                _last_valid = positions[_fi].copy()
+            elif _last_valid is not None:
+                positions[_fi] = _last_valid.copy()
+                used_mask[_fi] = True
+                if fusion_confidence is not None and _fi < len(fusion_confidence):
+                    fusion_confidence[_fi] = max(fusion_confidence[_fi], 0.15)
+                _ffill_count += 1
+        if _ffill_count > 0:
+            logger.info(
+                "[PLANNER] Forward-filled %d/%d NaN position gaps",
+                _ffill_count, len(positions),
+            )
 
     # Override min_box to match the actual portrait crop dimensions.
     # The preset min_box_px may be larger than the real visible area
