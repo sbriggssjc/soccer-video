@@ -4236,14 +4236,14 @@ DEFAULT_PRESETS = {
         "fps": 24,
         "portrait": "1080x1920",
         "lookahead": 0,
-        "smoothing": 0.30,
+        "smoothing": 0.12,
         "pad": 0.10,
-        "speed_limit": 1200,
+        "speed_limit": 500,
         "zoom_min": 1.0,
         "zoom_max": 1.9,
         "crf": 17,
         "keyint_factor": 4,
-        "post_smooth_sigma": 4.0,
+        "post_smooth_sigma": 10.0,
     },
     "wide_follow": {
         "fps": 24,
@@ -7535,7 +7535,7 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = 0.30  # 30% new → ~3-frame window per direction
+        _pos_alpha = 0.12  # 12% new → ~8-frame window per direction; dampens YOLO-centroid switches
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
