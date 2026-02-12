@@ -5118,7 +5118,7 @@ class CameraPlanner:
                         ).any()
                         if future_valid:
                             lead_pos = positions[lead_idx]
-                            target = 0.6 * target + 0.4 * lead_pos
+                            target = 0.45 * target + 0.55 * lead_pos
             else:
                 fallback_target = np.array(
                     [self.width / 2.0, self.height * self.center_frac], dtype=np.float32
@@ -6985,7 +6985,7 @@ def run(
     lead_val = follow_config.get("lead_time") if follow_config else None
     if lead_val is not None:
         lead_time_s = float(lead_val)
-    lead_frames = int(round(lead_time_s * fps_out)) if fps_out > 0 else 0
+    lead_frames = int(round(lead_time_s * fps_in)) if fps_in > 0 else 0
 
     speed_zoom_value = follow_config.get("speed_zoom") if follow_config else None
     speed_zoom_config = speed_zoom_value if isinstance(speed_zoom_value, Mapping) else None

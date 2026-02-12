@@ -12,7 +12,7 @@ cinematic:
     source: ball
     keys: [bx_stab, by_stab]
     smoothing: 0.55
-    lead_time: 0.10
+    lead_time: 0.25
     margin_px: 120
     speed_zoom:
       enabled: true
