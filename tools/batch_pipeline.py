@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import subprocess
 import sys
 import time
@@ -246,8 +247,12 @@ def _output_path_for_clip(clip_path: str, preset: str, portrait: str, out_dir: P
 
 
 def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
-                 *, keep_scratch: bool = False, scratch_root: str | None = None) -> bool:
-    """Invoke render_follow_unified.py for a single clip. Returns True on success."""
+                 *, keep_scratch: bool = False,
+                 scratch_root: str | None = None) -> tuple[bool, str]:
+    """Invoke render_follow_unified.py for a single clip.
+
+    Returns (success, error_message).
+    """
     cmd = [
         sys.executable,
         str(REPO_ROOT / "tools" / "render_follow_unified.py"),
@@ -262,8 +267,13 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
     if scratch_root:
         cmd.extend(["--scratch-root", scratch_root])
 
-    result = subprocess.run(cmd)
-    return result.returncode == 0
+    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+    if result.returncode == 0:
+        return True, ""
+    # Extract last non-empty line of stderr for a concise error
+    stderr_lines = [ln for ln in (result.stderr or "").strip().splitlines() if ln.strip()]
+    err_msg = stderr_lines[-1][:200] if stderr_lines else f"exit code {result.returncode}"
+    return False, err_msg
 
 
 def _upscale_clip(portrait_path: Path, scale: int, method: str) -> str | None:
@@ -356,9 +366,21 @@ def main(argv: list[str] | None = None) -> int:
     work = []
     skipped_dup = 0
     skipped_done = 0
+    skipped_output = 0
+    preset_upper = args.preset.strip().upper()
+    # Detect rendered outputs: stem contains dot-prefixed preset tag like .__CINEMATIC
+    _output_tag_re = re.compile(
+        rf"\.__{re.escape(preset_upper)}(?:\b|__|\.|$)",
+        flags=re.IGNORECASE,
+    )
     for row in clips:
         clip_rel = row.get("clip_rel", "")
         clip_path_str = row.get("clip_path", "")
+
+        # Skip clips that are rendered outputs (stacked preset tags from previous runs)
+        if _output_tag_re.search(Path(clip_path_str).stem):
+            skipped_output += 1
+            continue
 
         # Skip duplicates
         if clip_rel in dup_set:
@@ -408,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"BATCH PIPELINE — {args.preset} preset")
     print(f"{'=' * 60}")
     print(f"  Total clips in catalog: {total_clips}")
+    print(f"  Skipped (rendered outputs): {skipped_output}")
     print(f"  Skipped (duplicates):   {skipped_dup}")
     print(f"  Skipped (already done): {skipped_done}")
     print(f"  To process:             {len(work)}")
@@ -469,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
             print(f"  [RENDER] {clip_path.name} -> {out_path.name}")
-            success = _render_clip(
+            success, err_msg = _render_clip(
                 clip_path, out_path, args.preset, args.portrait,
                 keep_scratch=args.keep_scratch,
                 scratch_root=args.scratch_root,
@@ -480,8 +503,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  [OK] Rendered: {out_path.name}")
                 ok += 1
             else:
-                mark_rendered(clip_path, None, preset=args.preset, error="render failed")
+                mark_rendered(clip_path, None, preset=args.preset, error=err_msg or "render failed")
                 print(f"  [FAIL] Render failed: {clip_path.name}")
+                if err_msg:
+                    print(f"         {err_msg}")
                 failed += 1
                 continue
         else:
