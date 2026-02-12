@@ -5104,58 +5104,16 @@ class CameraPlanner:
         prev_bx = prev_cx
         prev_by = prev_cy
 
-        # --- Zero-phase (forward-backward) EMA pre-smoothing ---
-        # Since we have ALL positions upfront, apply EMA in both directions
-        # and average.  This eliminates the phase lag inherent in forward-only
-        # EMA, keeping the ball centered without needing lead_frames heuristics.
-        zp_targets = np.full((frame_count, 2), np.nan, dtype=np.float64)
-        _valid_positions = []
-        for _i in range(frame_count):
-            if used_mask[_i] and not np.isnan(positions[_i]).any():
-                _valid_positions.append((_i, positions[_i].copy()))
-        if _valid_positions:
-            # Forward pass
-            fwd = np.full((frame_count, 2), np.nan, dtype=np.float64)
-            _init = _valid_positions[0][1]
-            fwd[0] = _init if (used_mask[0] and not np.isnan(positions[0]).any()) else _init
-            for _i in range(1, frame_count):
-                if used_mask[_i] and not np.isnan(positions[_i]).any():
-                    tgt = positions[_i]
-                else:
-                    tgt = fwd[_i - 1]
-                dist = math.hypot(tgt[0] - fwd[_i - 1][0], tgt[1] - fwd[_i - 1][1])
-                _a = center_alpha + (1.0 - center_alpha) * min(1.0, dist / 50.0)
-                fwd[_i] = fwd[_i - 1] + _a * (tgt - fwd[_i - 1])
-            # Backward pass
-            bwd = np.full((frame_count, 2), np.nan, dtype=np.float64)
-            _last = _valid_positions[-1][1]
-            bwd[-1] = fwd[-1]
-            for _i in range(frame_count - 2, -1, -1):
-                if used_mask[_i] and not np.isnan(positions[_i]).any():
-                    tgt = positions[_i]
-                else:
-                    tgt = bwd[_i + 1]
-                dist = math.hypot(tgt[0] - bwd[_i + 1][0], tgt[1] - bwd[_i + 1][1])
-                _a = center_alpha + (1.0 - center_alpha) * min(1.0, dist / 50.0)
-                bwd[_i] = bwd[_i + 1] + _a * (tgt - bwd[_i + 1])
-            # Average = zero-phase (no lag, no lead)
-            zp_targets = (fwd + bwd) / 2.0
-
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
             has_position = bool(used_mask[frame_idx]) and not np.isnan(pos).any()
 
-            # Raw ball position for keepinview guards (actual location)
-            bx_raw = float(pos[0]) if has_position else None
-            by_raw = float(pos[1]) if has_position else None
-
+            # Raw ball position — use directly as pan target.
+            # Telemetry positions are already forward-Gaussian smoothed;
+            # no additional EMA is needed.  Only the speed limit and
+            # keepinview guards constrain camera motion.
             if has_position:
-                # Use zero-phase smoothed target for pan destination
-                # (centered, no lag/lead).  Keep raw pos for keepinview guards.
-                if not np.isnan(zp_targets[frame_idx]).any():
-                    target = zp_targets[frame_idx].copy()
-                else:
-                    target = pos.copy()
+                target = pos.copy()
             else:
                 fallback_target = np.array(
                     [self.width / 2.0, self.height * self.center_frac], dtype=np.float32
@@ -5219,14 +5177,11 @@ class CameraPlanner:
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
 
-            # --- FOLLOW: zero-phase targets are already optimally smoothed ---
-            # Apply only a light single-frame EMA to prevent sub-pixel jitter.
-            # The zero-phase pre-pass already guarantees centered, lag-free
-            # tracking, so we use a high alpha (0.85) to stay very close to
-            # the pre-smoothed target without adding phase delay.
-            zp_alpha = 0.85
-            cx_smooth = prev_cx + zp_alpha * (bx_used - prev_cx)
-            cy_smooth = prev_cy + zp_alpha * (target_center_y - prev_cy)
+            # --- FOLLOW: direct-target tracking ---
+            # Telemetry is already smoothed; go directly toward the detected
+            # position.  Only speed limit and keepinview guard constrain motion.
+            cx_smooth = bx_used
+            cy_smooth = target_center_y
 
             # 4) KEEP-IN-VIEW GUARD (DOMINANT)
             kv_zoom, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
@@ -5235,17 +5190,14 @@ class CameraPlanner:
             margin_x = max(base_keepinview_margin, kv_crop_w * guard_frac)
             margin_y = max(base_keepinview_margin, kv_crop_h * guard_frac)
 
-            # Use RAW ball position for guard checks (actual location, not smoothed)
-            kv_bx = bx_raw if bx_raw is not None else bx_used
-            kv_by = by_raw if by_raw is not None else target_center_y
-            dx = abs(kv_bx - cx_smooth)
-            dy = abs(kv_by - cy_smooth)
+            dx = abs(bx_used - cx_smooth)
+            dy = abs(target_center_y - cy_smooth)
 
             keepinview_override = dx > margin_x or dy > margin_y
             if keepinview_override:
-                # OVERRIDE: hard recenter toward CURRENT raw ball position
-                cx = prev_cx + keepinview_nudge * (kv_bx - prev_cx)
-                cy = prev_cy + keepinview_nudge * (kv_by - prev_cy)
+                # OVERRIDE: hard recenter toward ball
+                cx = prev_cx + keepinview_nudge * (bx_used - prev_cx)
+                cy = prev_cy + keepinview_nudge * (target_center_y - prev_cy)
 
                 clamp_flags.append("keepin_override")
             else:
