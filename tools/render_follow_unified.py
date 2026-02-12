@@ -5205,11 +5205,14 @@ class CameraPlanner:
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
 
-            # --- FOLLOW: direct-target tracking ---
-            # Telemetry is already smoothed; go directly toward the detected
-            # position.  Only speed limit and keepinview guard constrain motion.
-            cx_smooth = bx_used
-            cy_smooth = target_center_y
+            # --- FOLLOW: light EMA smoothing ---
+            # Mostly follow the target directly but apply a small EMA
+            # (alpha=0.80) to eliminate single-frame jitter that causes
+            # visible frame-skipping artifacts.  The speed limit and
+            # keepinview guards still constrain large motions.
+            follow_alpha = 0.80
+            cx_smooth = follow_alpha * bx_used + (1.0 - follow_alpha) * prev_cx
+            cy_smooth = follow_alpha * target_center_y + (1.0 - follow_alpha) * prev_cy
 
             # 4) KEEP-IN-VIEW GUARD (DOMINANT)
             kv_zoom, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
@@ -7348,7 +7351,7 @@ def run(
         # YOLO label files are sparse/absent — run real-time YOLO detection
         yolo_samples = run_yolo_ball_detection(
             original_source_path,
-            min_conf=0.30,
+            min_conf=0.20,
             cache=True,
         )
 
