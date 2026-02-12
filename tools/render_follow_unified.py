@@ -4998,6 +4998,17 @@ class CameraPlanner:
         else:
             frame_confidence = np.ones(frame_count, dtype=np.float32)
 
+        # Pre-smooth confidence with a gentle EMA to prevent zoom hunting.
+        # Without this, rapid alternation between YOLO (conf ≥ 0.4) and
+        # centroid-only (conf = 0.3) frames causes the confidence-based zoom
+        # to oscillate, producing visible zoom jitter even with zoom_slew.
+        _conf_alpha = 0.15  # 15% new, 85% prev → ~6-frame effective window
+        for _ci in range(1, frame_count):
+            frame_confidence[_ci] = (
+                _conf_alpha * frame_confidence[_ci]
+                + (1.0 - _conf_alpha) * frame_confidence[_ci - 1]
+            )
+
         # Initialize camera at first valid ball position (not frame center)
         # so the ball is in-frame from frame 0.
         init_cx = self.width / 2.0
@@ -5201,12 +5212,14 @@ class CameraPlanner:
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
 
-            # --- FOLLOW: light EMA smoothing ---
-            # Mostly follow the target directly but apply a small EMA
-            # (alpha=0.80) to eliminate single-frame jitter that causes
-            # visible frame-skipping artifacts.  The speed limit and
-            # keepinview guards still constrain large motions.
-            follow_alpha = 0.80
+            # --- FOLLOW: EMA smoothing driven by preset ---
+            # Use the preset's smoothing parameter (center_alpha) to
+            # control how eagerly the camera tracks the target.  Lower
+            # values = smoother/slower panning, higher = more responsive.
+            # The speed limit and keepinview guards still constrain large
+            # motions, so center_alpha can be moderate without losing
+            # the ball.
+            follow_alpha = center_alpha
             cx_smooth = follow_alpha * bx_used + (1.0 - follow_alpha) * prev_cx
             cy_smooth = follow_alpha * target_center_y + (1.0 - follow_alpha) * prev_cy
 
@@ -5220,20 +5233,31 @@ class CameraPlanner:
             dx = abs(bx_used - cx_smooth)
             dy = abs(target_center_y - cy_smooth)
 
-            keepinview_override = dx > margin_x or dy > margin_y
-            if keepinview_override:
-                # OVERRIDE: hard recenter toward ball
-                cx = prev_cx + keepinview_nudge * (bx_used - prev_cx)
-                cy = prev_cy + keepinview_nudge * (target_center_y - prev_cy)
+            # Proportional keep-in-view: instead of a hard binary switch,
+            # ramp nudge strength based on how far outside the margin the
+            # ball has drifted.  This avoids the visible jolt that occurs
+            # when the override toggles on/off between consecutive frames.
+            dx_excess = max(0.0, dx - margin_x) / max(margin_x, 1.0)
+            dy_excess = max(0.0, dy - margin_y) / max(margin_y, 1.0)
+            excess_frac = min(1.0, max(dx_excess, dy_excess))
 
-                clamp_flags.append("keepin_override")
+            keepinview_override = excess_frac > 0.0
+            if keepinview_override:
+                # Blend between smooth follow (center_alpha) and hard
+                # recenter (keepinview_nudge) proportionally to how far
+                # outside the safety band the ball is.
+                adjusted_nudge = follow_alpha + (keepinview_nudge - follow_alpha) * excess_frac
+                cx = prev_cx + adjusted_nudge * (bx_used - prev_cx)
+                cy = prev_cy + adjusted_nudge * (target_center_y - prev_cy)
+
+                clamp_flags.append(f"keepin_prop={excess_frac:.2f}")
             else:
                 # Safe: allow anticipation + smoothing
                 cx = cx_smooth
                 cy = cy_smooth
 
-            # If keep-in-view triggered, DO NOT apply further anticipation this frame
-            if keepinview_override:
+            # If keep-in-view triggered strongly, suppress anticipation
+            if keepinview_override and excess_frac > 0.3:
                 vx = 0.0
                 vy = 0.0
 
