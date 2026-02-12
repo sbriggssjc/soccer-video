@@ -7,7 +7,15 @@
     "height": 1080,
     "fps": "24/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\016__2025-09-20__TSC_vs_RVFC__BUILD_UP_PLAY_SHOT__t59940.00-t61320.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-11T23:51:11+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [
     {
       "step": "scan",

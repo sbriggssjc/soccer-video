@@ -7,7 +7,15 @@
     "height": 1080,
     "fps": "24/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\011__2025-10-14__TSC_vs_BASC__SHOT__t1718.60-t1730.60__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-12T00:45:27+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
   "master_rel": "out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",

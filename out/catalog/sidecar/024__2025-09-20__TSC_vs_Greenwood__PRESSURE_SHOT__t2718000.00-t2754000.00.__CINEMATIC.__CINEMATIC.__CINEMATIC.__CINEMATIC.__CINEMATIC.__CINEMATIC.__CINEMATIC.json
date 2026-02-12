@@ -7,8 +7,20 @@
     "height": 1920,
     "fps": "24/1"
   },
-  "steps": {},
-  "errors": [],
+  "steps": {
+    "portrait_render": {
+      "done": false,
+      "preset": "cinematic",
+      "error": "render failed"
+    }
+  },
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "render failed",
+      "at": "2026-02-11T23:25:04+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "t_start_s": 1887.5,

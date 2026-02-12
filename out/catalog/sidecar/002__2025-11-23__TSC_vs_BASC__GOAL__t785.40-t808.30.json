@@ -7,7 +7,15 @@
     "height": 720,
     "fps": "30/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\002__2025-11-23__TSC_vs_BASC__GOAL__t785.40-t808.30__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-12T01:13:55+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-23__TSC_vs_BASC/MASTER.mp4",
   "master_rel": "out/games/2025-11-23__TSC_vs_BASC/MASTER.mp4",
