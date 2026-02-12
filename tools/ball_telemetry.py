@@ -1011,15 +1011,272 @@ def main(argv: Sequence[str] | None = None) -> int:
     return args.func(args)
 
 
+# ---------------------------------------------------------------------------
+# YOLO ball detection with caching
+# ---------------------------------------------------------------------------
+
+
+def yolo_telemetry_path_for_video(video_path: str | Path) -> str:
+    """Return the canonical YOLO ball telemetry cache path."""
+    video_path = Path(video_path)
+    stem = video_path.stem
+    out_dir = Path("out") / "telemetry"
+    return str(out_dir / f"{stem}.yolo_ball.jsonl")
+
+
+def run_yolo_ball_detection(
+    video_path: str | Path,
+    *,
+    min_conf: float = 0.30,
+    cache: bool = True,
+) -> list[BallSample]:
+    """Run YOLO ball detection on every frame, returning BallSamples with confidence.
+
+    Results are cached to ``out/telemetry/<stem>.yolo_ball.jsonl``.  If
+    a cache file already exists and *cache* is True, the cached result
+    is returned without re-running detection.
+
+    Uses the BallTracker from soccer_highlights.ball_tracker which wraps
+    ultralytics YOLO with constant-velocity smoothing.
+    """
+    video_path = Path(video_path)
+    cache_path = Path(yolo_telemetry_path_for_video(video_path))
+
+    # Return cached results if available
+    if cache and cache_path.is_file():
+        samples = _load_yolo_cache(cache_path)
+        if samples:
+            print(f"[YOLO] Loaded {len(samples)} cached YOLO detections from {cache_path}")
+            return samples
+
+    try:
+        import cv2 as _cv2
+    except ImportError:
+        print("[YOLO] OpenCV is required for YOLO ball detection")
+        return []
+
+    try:
+        from soccer_highlights.ball_tracker import BallTracker
+    except ImportError:
+        print("[YOLO] soccer_highlights.ball_tracker not available; skipping YOLO detection")
+        return []
+
+    tracker = BallTracker(
+        weights_path=None,  # uses default yolov8n.pt
+        min_conf=min_conf,
+        device="cpu",
+        smooth_alpha=0.25,
+        max_gap=12,
+    )
+    if not tracker.is_ready:
+        reason = tracker.failure_reason or "unknown"
+        print(f"[YOLO] BallTracker not ready: {reason}")
+        return []
+
+    cap = _cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[YOLO] Could not open video: {video_path}")
+        return []
+
+    fps = _get_video_fps(video_path)
+    total_frames = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT) or 0)
+    width = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    set_telemetry_frame_bounds(width, height)
+
+    print(
+        f"[YOLO] Running ball detection on {video_path.name} "
+        f"({total_frames} frames, {width}x{height} @ {fps:.1f}fps)"
+    )
+
+    samples: list[BallSample] = []
+    detections = 0
+    frame_idx = 0
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            t_val = frame_idx / fps if fps > 0 else 0.0
+            track = tracker.update(frame_idx, frame)
+            if track is not None:
+                cx, cy = float(track.cx), float(track.cy)
+                conf = float(track.conf)
+                cx, cy = _clamp_xy(cx, cy)
+                samples.append(BallSample(
+                    t=t_val,
+                    frame=frame_idx,
+                    x=cx,
+                    y=cy,
+                    conf=conf,
+                ))
+                detections += 1
+            if frame_idx % 100 == 0 and total_frames > 0:
+                print(f"[YOLO] Frame {frame_idx}/{total_frames} ({100*frame_idx/total_frames:.0f}%)")
+            frame_idx += 1
+    finally:
+        cap.release()
+
+    coverage = 100.0 * detections / max(1, frame_idx)
+    print(f"[YOLO] Detection complete: {detections}/{frame_idx} frames ({coverage:.1f}%)")
+
+    # Save cache
+    if cache:
+        _save_yolo_cache(cache_path, samples)
+
+    return samples
+
+
+def _save_yolo_cache(path: Path, samples: list[BallSample]) -> None:
+    """Write YOLO detections to JSONL with confidence."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for s in samples:
+            rec = {
+                "frame": s.frame,
+                "t": round(s.t, 6),
+                "cx": round(s.x, 2),
+                "cy": round(s.y, 2),
+                "conf": round(s.conf, 4),
+            }
+            f.write(json.dumps(rec) + "\n")
+    print(f"[YOLO] Cached {len(samples)} detections to {path}")
+
+
+def _load_yolo_cache(path: Path) -> list[BallSample]:
+    """Load YOLO detections from JSONL cache."""
+    samples: list[BallSample] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            frame_idx = _as_int(rec.get("frame"), 0)
+            t_val = _as_float(rec.get("t"))
+            cx = _as_float(rec.get("cx"))
+            cy = _as_float(rec.get("cy"))
+            conf = _as_float(rec.get("conf"))
+            if not (math.isfinite(cx) and math.isfinite(cy)):
+                continue
+            if not math.isfinite(conf):
+                conf = 0.0
+            if not math.isfinite(t_val):
+                t_val = 0.0
+            samples.append(BallSample(t=t_val, frame=frame_idx, x=cx, y=cy, conf=conf))
+    return samples
+
+
+# ---------------------------------------------------------------------------
+# Fusion: YOLO + motion-centroid → merged positions + confidence
+# ---------------------------------------------------------------------------
+
+
+def fuse_yolo_and_centroid(
+    yolo_samples: list[BallSample],
+    centroid_samples: list[BallSample],
+    frame_count: int,
+    width: float,
+    height: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Merge YOLO ball detections with motion-centroid positions.
+
+    Returns:
+        positions: (frame_count, 2) float32 array of (x, y) per frame
+        used_mask: (frame_count,) bool array — True where a position is available
+        confidence: (frame_count,) float32 array in [0, 1] — per-frame confidence
+
+    Fusion strategy:
+        - YOLO detection present + confident (>= 0.4): use YOLO position, high confidence
+        - YOLO present but low confidence: blend YOLO + centroid weighted by YOLO conf
+        - Only centroid present: use centroid, moderate confidence (0.3)
+        - Neither present: NaN position, zero confidence
+    """
+    positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
+    used_mask = np.zeros(frame_count, dtype=bool)
+    confidence = np.zeros(frame_count, dtype=np.float32)
+
+    # Index YOLO samples by frame
+    yolo_by_frame: dict[int, BallSample] = {}
+    for s in yolo_samples:
+        fidx = int(s.frame)
+        if 0 <= fidx < frame_count and math.isfinite(s.x) and math.isfinite(s.y):
+            yolo_by_frame[fidx] = s
+
+    # Index centroid samples by frame
+    centroid_by_frame: dict[int, BallSample] = {}
+    for s in centroid_samples:
+        fidx = int(s.frame)
+        if 0 <= fidx < frame_count and math.isfinite(s.x) and math.isfinite(s.y):
+            centroid_by_frame[fidx] = s
+
+    yolo_used = 0
+    centroid_used = 0
+    blended = 0
+    conf_threshold = 0.40  # YOLO conf above which we trust it fully
+
+    for i in range(frame_count):
+        yolo = yolo_by_frame.get(i)
+        centroid = centroid_by_frame.get(i)
+
+        if yolo is not None and centroid is not None:
+            yolo_conf = max(0.0, min(1.0, yolo.conf))
+            if yolo_conf >= conf_threshold:
+                # High-confidence YOLO: use directly
+                positions[i, 0] = yolo.x
+                positions[i, 1] = yolo.y
+                confidence[i] = yolo_conf
+                yolo_used += 1
+            else:
+                # Low-confidence YOLO: blend with centroid
+                # Weight YOLO by its confidence, centroid gets the remainder
+                w_yolo = yolo_conf / conf_threshold  # 0..1
+                w_cent = 1.0 - w_yolo
+                positions[i, 0] = w_yolo * yolo.x + w_cent * centroid.x
+                positions[i, 1] = w_yolo * yolo.y + w_cent * centroid.y
+                confidence[i] = 0.3 + 0.5 * w_yolo  # 0.3 to 0.8
+                blended += 1
+            used_mask[i] = True
+        elif yolo is not None:
+            # Only YOLO
+            positions[i, 0] = yolo.x
+            positions[i, 1] = yolo.y
+            confidence[i] = max(0.0, min(1.0, yolo.conf))
+            used_mask[i] = True
+            yolo_used += 1
+        elif centroid is not None:
+            # Only centroid
+            positions[i, 0] = centroid.x
+            positions[i, 1] = centroid.y
+            confidence[i] = 0.30  # centroid-only: moderate confidence
+            used_mask[i] = True
+            centroid_used += 1
+
+    total_covered = int(used_mask.sum())
+    coverage = 100.0 * total_covered / max(1, frame_count)
+    print(
+        f"[FUSION] {total_covered}/{frame_count} frames covered ({coverage:.1f}%): "
+        f"yolo={yolo_used}, centroid={centroid_used}, blended={blended}, "
+        f"avg_conf={float(confidence[used_mask].mean()) if total_covered > 0 else 0:.2f}"
+    )
+    return positions, used_mask, confidence
+
+
 __all__ = [
     "BallSample",
     "load_ball_telemetry",
     "load_ball_telemetry_for_clip",
     "telemetry_path_for_video",
+    "yolo_telemetry_path_for_video",
     "save_ball_telemetry_jsonl",
     "load_and_interpolate_telemetry",
     "set_telemetry_frame_bounds",
     "smooth_telemetry",
+    "run_yolo_ball_detection",
+    "fuse_yolo_and_centroid",
 ]
 
 
