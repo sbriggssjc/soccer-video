@@ -951,11 +951,32 @@ def write_duplicates_csv(duplicates: Sequence[DuplicateRecord]) -> None:
     write_catalog(DUPLICATES_PATH, DUPLICATES_HEADERS, rows)
 
 
-def rebuild_atomic_index() -> BuildResult:
+def rebuild_atomic_index(*, allow_empty: bool = False) -> BuildResult:
     ensure_catalog_dirs()
     ensure_pipeline_status_columns()
 
     records, masters_cache, probe_failures = scan_atomic_clips()
+
+    # Guard: don't overwrite a populated catalog with an empty scan
+    existing_rows = load_existing_atomic_rows()
+    if not records and existing_rows and not allow_empty:
+        import warnings
+        warnings.warn(
+            f"Scan found 0 clips but catalog has {len(existing_rows)} entries. "
+            "Skipping overwrite to preserve catalog. "
+            "Pass allow_empty=True or ensure clips exist in out/atomic_clips/.",
+            stacklevel=2,
+        )
+        return BuildResult(
+            scanned=0,
+            indexed=len(existing_rows),
+            changed=0,
+            masters_found=0,
+            hard_dupes=0,
+            soft_dupes=0,
+            probe_failures=0,
+        )
+
     changed = write_atomic_index(records)
     write_masters_index(masters_cache)
     duplicates, hard_count, soft_count = compute_duplicate_groups(records)

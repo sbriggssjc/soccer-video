@@ -203,6 +203,24 @@ def _load_duplicate_set() -> set[str]:
     return dupes
 
 
+def _scan_directory(src_dir: str, pattern: str, game_filter: str | None) -> list[dict]:
+    """Scan src_dir for clip files, applying optional game filter."""
+    clips: list[dict] = []
+    src_root = REPO_ROOT / src_dir
+    if not src_root.exists():
+        return clips
+    for mp4 in sorted(src_root.rglob(pattern)):
+        rel = str(mp4.relative_to(REPO_ROOT)).replace("\\", "/")
+        if game_filter and game_filter.lower() not in rel.lower():
+            continue
+        clips.append({
+            "clip_path": str(mp4),
+            "clip_rel": rel,
+            "clip_stem": mp4.stem,
+        })
+    return clips
+
+
 def _clips_from_catalog(src_dir: str, pattern: str, game_filter: str | None) -> list[dict]:
     """Load clips from atomic_index.csv, falling back to directory scan."""
     clips = []
@@ -215,21 +233,29 @@ def _clips_from_catalog(src_dir: str, pattern: str, game_filter: str | None) -> 
             if game_filter and game_filter.lower() not in rel.lower():
                 continue
             clips.append(row)
-        return clips
+        if clips:
+            return clips
+        # Catalog had rows but none matched the filter — show diagnostics
+        if game_filter:
+            # Collect unique game folder names from catalog for suggestion
+            game_names: set[str] = set()
+            for rel in rows:
+                parts = rel.replace("\\", "/").split("/")
+                # Expect pattern: out/atomic_clips/<game>/clip.mp4
+                if len(parts) >= 3:
+                    game_names.add(parts[-2])
+            print(f"[INFO] Catalog has {len(rows)} clips but none match --game {game_filter!r}.")
+            if game_names:
+                print(f"[INFO] Available games: {', '.join(sorted(game_names))}")
+        else:
+            print(f"[INFO] Catalog has {len(rows)} rows but all have empty clip_path.")
+    else:
+        print(f"[INFO] Catalog is empty or missing ({ATOMIC_INDEX_PATH}).")
 
     # Fallback: scan directory
-    src_root = REPO_ROOT / src_dir
-    if not src_root.exists():
-        return []
-    for mp4 in sorted(src_root.rglob(pattern)):
-        rel = str(mp4.relative_to(REPO_ROOT)).replace("\\", "/")
-        if game_filter and game_filter.lower() not in rel.lower():
-            continue
-        clips.append({
-            "clip_path": str(mp4),
-            "clip_rel": rel,
-            "clip_stem": mp4.stem,
-        })
+    clips = _scan_directory(src_dir, pattern, game_filter)
+    if clips:
+        print(f"[INFO] Found {len(clips)} clips via directory scan of {src_dir}/.")
     return clips
 
 
@@ -353,6 +379,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not clips:
         print("[WARN] No clips found to process.")
+        src_root = REPO_ROOT / args.src_dir
+        if not src_root.exists():
+            print(f"[HINT] Source directory does not exist: {src_root}")
+        elif not list(src_root.rglob(args.pattern)):
+            print(f"[HINT] No {args.pattern} files found under {src_root}")
+        if not ATOMIC_INDEX_PATH.exists():
+            print("[HINT] Catalog file missing. Run --rebuild-catalog with clips present.")
         return 0
 
     # --- Filter duplicates ---
