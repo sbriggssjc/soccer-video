@@ -1027,7 +1027,7 @@ def yolo_telemetry_path_for_video(video_path: str | Path) -> str:
 def run_yolo_ball_detection(
     video_path: str | Path,
     *,
-    min_conf: float = 0.30,
+    min_conf: float = 0.20,
     cache: bool = True,
 ) -> list[BallSample]:
     """Run YOLO ball detection on every frame, returning BallSamples with confidence.
@@ -1065,6 +1065,7 @@ def run_yolo_ball_detection(
         weights_path=None,  # uses default yolov8n.pt
         min_conf=min_conf,
         device="cpu",
+        input_size=1280,    # full resolution — critical for small soccer balls
         smooth_alpha=0.25,
         max_gap=12,
     )
