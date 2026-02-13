@@ -1,10 +1,10 @@
 cinematic:
   fps: 24                 # fixed social cadence
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
-  smoothing: 0.12         # very low alpha = ultra-smooth cinematic tracking
+  smoothing: 0.06         # ultra-low alpha = buttery cinematic tracking
   pad: 0.10
-  speed_limit: 500        # ~22 px/frame at 30fps = 5.5% visible width — cinematic pan
-  post_smooth_sigma: 10.0 # wide Gaussian post-filter (~2s window) for silky output
+  speed_limit: 200        # ~9 px/frame at 30fps = 2.3% visible width — slow cinematic pan
+  post_smooth_sigma: 30.0 # very wide Gaussian post-filter (~2s effective window) for buttery output
   zoom_min: 1.00
   zoom_max: 1.90
   crf: 17                 # higher quality output
@@ -12,9 +12,13 @@ cinematic:
   follow:
     source: ball
     keys: [bx_stab, by_stab]
-    smoothing: 0.12
+    smoothing: 0.06
     lead_time: 0.0           # zero-phase filter handles centering; no lead needed
     margin_px: 120
+    keepinview:
+      nudge_gain: 0.20      # gentle recenter — rely on post-smooth Gaussian instead
+      zoom_gain: 0.20       # minimal zoom-out on keepinview
+      zoom_cap: 1.4         # cap keepinview zoom to prevent jarring scale changes
     speed_zoom:
       enabled: true
       v_lo: 2.0

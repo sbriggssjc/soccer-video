@@ -7035,6 +7035,16 @@ def run(
     keepinview_zoom_gain = 0.55
     keepinview_zoom_cap = 1.8
     keepinview_cfg = follow_config.get("keepinview") if follow_config else None
+    # Apply preset-level keepinview overrides (e.g. cinematic uses gentle values)
+    if keepinview_cfg and isinstance(keepinview_cfg, dict):
+        if "nudge_gain" in keepinview_cfg:
+            keepinview_nudge = float(keepinview_cfg["nudge_gain"])
+        if "zoom_gain" in keepinview_cfg:
+            keepinview_zoom_gain = float(keepinview_cfg["zoom_gain"])
+        if "zoom_cap" in keepinview_cfg:
+            keepinview_zoom_cap = float(keepinview_cfg["zoom_cap"])
+        if "margin_px" in keepinview_cfg:
+            keepinview_margin = max(96.0, float(keepinview_cfg["margin_px"]))
 
     keepinview_margin_arg = getattr(args, "keepinview_margin", None)
 
@@ -7057,6 +7067,14 @@ def run(
     keepinview_zoom_arg = getattr(args, "keepinview_zoom", None)
     keepinview_zoom_cap_arg = getattr(args, "keepinview_zoom_cap", None)
     keepinview_zoom_cap_override = False
+    # CLI args override preset keepinview values
+    if keepinview_nudge_arg is not None:
+        keepinview_nudge = float(keepinview_nudge_arg)
+    if keepinview_zoom_arg is not None:
+        keepinview_zoom_gain = float(keepinview_zoom_arg)
+    if keepinview_zoom_cap_arg is not None:
+        keepinview_zoom_cap = float(keepinview_zoom_cap_arg)
+        keepinview_zoom_cap_override = True
 
     zoom_out_max_default = follow_config.get("zoom_out_max") if follow_config else None
     follow_zoom_out_max = 1.35
@@ -7541,7 +7559,7 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = 0.12  # 12% new → ~8-frame window per direction; dampens YOLO-centroid switches
+        _pos_alpha = min(0.12, smoothing)  # scale with preset (cinematic=0.06); dampens YOLO-centroid switches
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
