@@ -4304,10 +4304,19 @@ DEFAULT_PRESETS = {
         "pad": 0.04,
         "speed_limit": 500,
         "zoom_min": 1.0,
-        "zoom_max": 1.4,
+        "zoom_max": 1.5,
         "crf": 17,
         "keyint_factor": 4,
         "post_smooth_sigma": 8.0,
+        "follow": {
+            "speed_zoom": {
+                "enabled": True,
+                "v_lo": 2.0,
+                "v_hi": 8.0,
+                "zoom_lo": 1.30,
+                "zoom_hi": 0.72,
+            },
+        },
     },
     "wide_follow": {
         "fps": 24,
@@ -5192,7 +5201,7 @@ class CameraPlanner:
         accel_zoom_out = 1.0  # multiplier: 1.0 = no change, <1.0 = zoom out
         accel_zoom_decay = 0.92  # how fast the zoom-out recovers (per frame)
         accel_threshold_pf = 4.0  # px/frame acceleration threshold
-        accel_zoom_strength = 0.15  # max zoom reduction per acceleration event
+        accel_zoom_strength = 0.22  # max zoom reduction per acceleration event
 
         prev_bx = prev_cx
         prev_by = prev_cy
@@ -5367,12 +5376,13 @@ class CameraPlanner:
                 _frame_persons = person_boxes.get(frame_idx)
                 if _frame_persons:
                     # Dynamic context radius: expands during ball flight
-                    _ctx_base = self.width * 0.20
+                    # to capture goal area and nearby defenders during shots.
+                    _ctx_base = self.width * 0.22
                     _ctx_flight_boost = 0.0
                     if smooth_speed_pf > _flight_speed_thr:
-                        _ctx_flight_boost = min(0.15, 0.15 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
-                    _ctx_radius = self.width * (0.20 + _ctx_flight_boost)
-                    _ctx_pad = self.width * 0.06
+                        _ctx_flight_boost = min(0.25, 0.25 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
+                    _ctx_radius = self.width * (0.22 + _ctx_flight_boost)
+                    _ctx_pad = self.width * 0.08
 
                     # Find persons within the context radius
                     _nearby = []
@@ -5435,7 +5445,14 @@ class CameraPlanner:
                                 zoom_target = max(self.zoom_min, _zoom_ceiling)
                                 clamp_flags.append(f"person_ctx={len(_nearby)}")
 
-            zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
+            # Dynamic zoom slew: allow faster zoom transitions during
+            # high-speed events (shots, goals) so the frame opens up
+            # quickly enough to capture the full action.
+            _zoom_slew_eff = zoom_slew
+            if smooth_speed_pf > _flight_speed_thr:
+                _slew_boost = min(2.5, 1.0 + 1.5 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
+                _zoom_slew_eff = zoom_slew * _slew_boost
+            zoom_step = float(np.clip(zoom_target - prev_zoom, -_zoom_slew_eff, _zoom_slew_eff))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
             # --- POST-GOAL SNAP TO SCORER ---
