@@ -5231,17 +5231,45 @@ class CameraPlanner:
             # chasing tiny offsets — creating natural pauses between
             # pan movements instead of perpetual continuous motion.
             #
+            # Two complementary deadzone checks:
+            #  (a) Position: target is close to camera → hold
+            #  (b) Velocity: target is barely moving → hold
+            # The position check alone fails because EMA lag (alpha=0.15)
+            # keeps the target ~26px from the camera at typical speeds,
+            # exceeding the 18px deadzone radius.  The velocity check
+            # catches cases where the ball is nearly stationary but the
+            # camera hasn't caught up — preventing perpetual drift.
+            #
             # Inside deadzone:  camera holds (alpha=0)
-            # Ramp zone (1x–3x): alpha linearly ramps to full
-            # Beyond ramp zone:  full tracking at center_alpha
+            # Ramp zone:        alpha linearly ramps to full
+            # Beyond ramp zone: full tracking at center_alpha
             _, _dz_crop_w, _ = _compute_crop_dimensions(zoom)
             _dz_radius = _dz_crop_w * 0.045  # 4.5% of crop width
             _dz_dist = math.hypot(bx_used - prev_cx, target_center_y - prev_cy)
-            if _dz_dist < _dz_radius:
+            _target_delta = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
+            # Position-based thresholds (original)
+            _pos_hold = _dz_dist < _dz_radius
+            _pos_ramp = _dz_dist < _dz_radius * 3.0
+            # Velocity-based thresholds: hold when target moves < 15% of
+            # deadzone radius per frame; ramp when < 50%.
+            _vel_hold = _target_delta < _dz_radius * 0.15
+            _vel_ramp = _target_delta < _dz_radius * 0.50
+            if _pos_hold or _vel_hold:
                 follow_alpha = 0.0
                 _dz_hold_count += 1
-            elif _dz_dist < _dz_radius * 3.0:
-                _dz_ramp = (_dz_dist - _dz_radius) / max(_dz_radius * 2.0, 1.0)
+            elif _pos_ramp or _vel_ramp:
+                # Use the more restrictive (smaller) ramp value
+                if _pos_ramp and _vel_ramp:
+                    _ramp_pos = (_dz_dist - _dz_radius) / max(_dz_radius * 2.0, 1.0)
+                    _ramp_vel = (_target_delta - _dz_radius * 0.15) / max(_dz_radius * 0.35, 1.0)
+                    _dz_ramp = min(_ramp_pos, _ramp_vel)
+                elif _pos_ramp:
+                    _dz_ramp = (_dz_dist - _dz_radius) / max(_dz_radius * 2.0, 1.0)
+                elif _vel_ramp:
+                    _dz_ramp = (_target_delta - _dz_radius * 0.15) / max(_dz_radius * 0.35, 1.0)
+                else:
+                    _dz_ramp = 1.0
+                _dz_ramp = float(np.clip(_dz_ramp, 0.0, 1.0))
                 follow_alpha = center_alpha * _dz_ramp
             else:
                 follow_alpha = center_alpha
@@ -5493,6 +5521,24 @@ class CameraPlanner:
 
             if bounds_clamped:
                 clamp_flags.append("bounds")
+
+            # --- FINAL SPEED CLAMP ---
+            # Emergency keep-in-view and margin adjustments above can shift
+            # actual_cx/actual_cy well beyond the speed limit, creating
+            # visible frame-to-frame jitter ("rapid left-right glitching").
+            # Re-apply the speed limit as a final gate so the rendered
+            # camera motion never exceeds the configured maximum pan speed.
+            actual_cx, _fsc_x = _clamp_axis(prev_cx, actual_cx, pxpf_x * accel_speed_boost)
+            actual_cy, _fsc_y = _clamp_axis(prev_cy, actual_cy, pxpf_y * accel_speed_boost)
+            if _fsc_x or _fsc_y:
+                # Recompute x0/y0 from clamped center for state consistency.
+                _max_x0 = max(0.0, self.width - crop_w)
+                _max_y0 = max(0.0, self.height - crop_h)
+                x0 = float(np.clip(actual_cx - crop_w / 2.0, 0.0, _max_x0))
+                y0 = float(np.clip(actual_cy - crop_h / 2.0, 0.0, _max_y0))
+                actual_cx = x0 + crop_w / 2.0
+                actual_cy = y0 + crop_h / 2.0
+                clamp_flags.append("final_speed")
 
             prev_cx = actual_cx
             prev_cy = actual_cy
@@ -5937,18 +5983,18 @@ class Renderer:
             cv2.line(frame, (cx, 0), (cx, height - 1), (0, 255, 0), 2)
 
         half_w = portrait_w / 2.0
+        crop_w_int = int(round(portrait_w))
+        # Derive right from left + fixed width to prevent ±1px crop width
+        # fluctuation caused by independent rounding of both edges.
         left = int(round(center_x - half_w))
-        right = int(round(center_x + half_w))
+        right = left + crop_w_int
 
         if left < 0:
             left = 0
-        if right > self.src_w:
+            right = left + crop_w_int
+        if right > int(self.src_w):
             right = int(self.src_w)
-        if right - left < portrait_w:
-            if left == 0:
-                right = min(int(self.src_w), int(left + portrait_w))
-            else:
-                left = max(0, int(round(right - portrait_w)))
+            left = max(0, right - crop_w_int)
 
         cropped = frame[:, left:right]
         width = cropped.shape[1]
