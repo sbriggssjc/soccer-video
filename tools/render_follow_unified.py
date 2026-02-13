@@ -5602,6 +5602,64 @@ class CameraPlanner:
                 # Clamp zoom to valid range.
                 zm_smooth = np.clip(zm_smooth, self.zoom_min, self.zoom_max)
 
+                # --- ACCELERATION LIMITING ---
+                # The Gaussian smooths positions but the camera still has
+                # instantaneous velocity changes (trapezoidal profile) at
+                # hold/track transitions.  An acceleration limiter converts
+                # those into S-curve profiles: the camera eases in and out
+                # of motion instead of snapping to full speed.
+                #
+                # max_accel = max_speed / (ramp_time * fps)
+                # With ramp_time ~0.3s the camera takes ~9 frames to reach
+                # full speed, producing visibly smooth acceleration.
+                _max_spd_x = pxpf_x  # pre-computed speed limit px/frame
+                _max_spd_y = pxpf_y
+                _ramp_s = 0.30  # seconds to reach full speed
+                _ramp_frames = max(1.0, _ramp_s * render_fps)
+                _max_accel_x = _max_spd_x / _ramp_frames
+                _max_accel_y = _max_spd_y / _ramp_frames
+
+                n = len(cx_smooth)
+                if n > 2:
+                    # Compute velocities
+                    vx_arr = np.diff(cx_smooth)
+                    vy_arr = np.diff(cy_smooth)
+
+                    # Forward pass: enforce acceleration limit
+                    for _ai in range(1, len(vx_arr)):
+                        dvx = vx_arr[_ai] - vx_arr[_ai - 1]
+                        if abs(dvx) > _max_accel_x:
+                            vx_arr[_ai] = vx_arr[_ai - 1] + np.clip(dvx, -_max_accel_x, _max_accel_x)
+                        dvy = vy_arr[_ai] - vy_arr[_ai - 1]
+                        if abs(dvy) > _max_accel_y:
+                            vy_arr[_ai] = vy_arr[_ai - 1] + np.clip(dvy, -_max_accel_y, _max_accel_y)
+
+                    # Re-apply speed limit on velocities
+                    vx_arr = np.clip(vx_arr, -_max_spd_x, _max_spd_x)
+                    vy_arr = np.clip(vy_arr, -_max_spd_y, _max_spd_y)
+
+                    # Reconstruct positions from clamped velocities
+                    cx_smooth[0] = cx_smooth[0]  # anchor first frame
+                    cy_smooth[0] = cy_smooth[0]
+                    for _ai in range(len(vx_arr)):
+                        cx_smooth[_ai + 1] = cx_smooth[_ai] + vx_arr[_ai]
+                        cy_smooth[_ai + 1] = cy_smooth[_ai] + vy_arr[_ai]
+
+                    # Light final Gaussian to remove any remaining kinks
+                    # from the acceleration clamping.
+                    _final_sigma = min(3.0, sigma_frames * 0.4)
+                    if _final_sigma >= 0.5:
+                        _fr = int(_final_sigma * 3.0 + 0.5)
+                        _fr = min(_fr, n // 2)
+                        if _fr >= 1:
+                            _fx = np.arange(-_fr, _fr + 1, dtype=np.float64)
+                            _fk = np.exp(-0.5 * (_fx / _final_sigma) ** 2)
+                            _fk /= _fk.sum()
+                            _cx_p2 = np.pad(cx_smooth, _fr, mode="edge")
+                            _cy_p2 = np.pad(cy_smooth, _fr, mode="edge")
+                            cx_smooth = np.convolve(_cx_p2, _fk, mode="valid")
+                            cy_smooth = np.convolve(_cy_p2, _fk, mode="valid")
+
                 # Re-derive crop dimensions from smoothed positions/zoom
                 # and write back into the CamState objects.
                 for i, st in enumerate(states):
@@ -6043,14 +6101,22 @@ class Renderer:
             clamped_y0 = max(0.0, float(height) - crop_h)
             y2_f = clamped_y0 + crop_h
 
+        # Derive right/bottom from left/top + fixed integer size to prevent
+        # ±1px crop dimension fluctuation caused by independent rounding of
+        # both edges.  Same pattern used for the first (portrait_w) crop.
+        crop_w_int2 = int(round(crop_w))
+        crop_h_int2 = int(round(crop_h))
         crop_left = int(round(clamped_x0))
         y1 = int(round(clamped_y0))
-        x2 = int(round(min(x2_f, float(width))))
-        y2 = int(round(min(y2_f, float(height))))
         x1 = max(0, min(crop_left, width - 1))
         y1 = max(0, min(y1, height - 1))
-        x2 = max(x1 + 1, min(x2, width))
-        y2 = max(y1 + 1, min(y2, height))
+        x2 = min(x1 + crop_w_int2, width)
+        y2 = min(y1 + crop_h_int2, height)
+        # If right/bottom clamp pushed us, shift left/top back so size stays fixed.
+        if x2 - x1 < crop_w_int2 and x1 > 0:
+            x1 = max(0, x2 - crop_w_int2)
+        if y2 - y1 < crop_h_int2 and y1 > 0:
+            y1 = max(0, y2 - crop_h_int2)
 
         crop_right = x2
         logger.debug("[PAN-DEBUG] crop_left=%d crop_right=%d", crop_left, crop_right)

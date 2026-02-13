@@ -4,7 +4,7 @@ cinematic:
   smoothing: 0.15         # tracking alpha (pre-smoothing caps at 0.12); deadzone creates holds
   pad: 0.10
   speed_limit: 200        # ~9 px/frame at 30fps = 2.3% visible width — slow cinematic pan
-  post_smooth_sigma: 5.0  # moderate Gaussian (~0.17s at 30fps); preserves deadzone hold periods
+  post_smooth_sigma: 9.0  # strong Gaussian (~0.30s at 30fps); S-curve acceleration follows
   zoom_min: 1.00
   zoom_max: 1.90
   crf: 17                 # higher quality output
