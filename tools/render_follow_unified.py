@@ -3129,6 +3129,28 @@ def _get_ball_xy_src(
     return None, None
 
 
+def estimate_global_shift(
+    prev_gray: np.ndarray,
+    curr_gray: np.ndarray,
+    *,
+    min_shift_px: float = 1.5,
+) -> tuple[float, float]:
+    """Estimate dominant global translation (camera pan) between two frames.
+
+    Uses phase correlation (FFT-based, fast) to detect the shift.  Returns
+    ``(dx, dy)`` in pixels — the translation that aligns *prev* with *curr*.
+    Returns ``(0.0, 0.0)`` when the shift is below *min_shift_px* (noise /
+    minor camera vibration).
+    """
+    prev_f = prev_gray.astype(np.float64)
+    curr_f = curr_gray.astype(np.float64)
+    # phaseCorrelate returns how much curr is shifted relative to prev.
+    (dx, dy), _response = cv2.phaseCorrelate(prev_f, curr_f)
+    if math.hypot(dx, dy) < min_shift_px:
+        return 0.0, 0.0
+    return dx, dy
+
+
 def detect_motion_centroid(
     prev_gray: np.ndarray,
     curr_gray: np.ndarray,
@@ -3140,6 +3162,7 @@ def detect_motion_centroid(
     blur_ksize: int = 41,
     min_area_frac: float = 0.0005,
     locality_radius: int = 200,
+    global_shift: tuple[float, float] | None = None,
 ) -> tuple:
     """Find (cx, cy, confidence) of the motion centroid between two frames.
 
@@ -3149,11 +3172,29 @@ def detect_motion_centroid(
     separate groups of players.
 
     Returns (None, None, 0.0) if insufficient motion is detected.
+
+    When *global_shift* ``(dx, dy)`` is provided (from :func:`estimate_global_shift`),
+    the previous frame is warped to cancel the source-camera pan before
+    differencing.  This isolates player / ball motion from XBotGo camera
+    rotation so the centroid tracks the action, not the pan direction.
     """
     h, w = curr_gray.shape[:2]
 
-    # Absolute frame difference
-    diff = cv2.absdiff(prev_gray, curr_gray)
+    # --- Source-camera pan compensation ---
+    # Warp prev to align with curr so that the frame difference only
+    # contains actual object motion (players, ball), not the global shift
+    # caused by the physical camera panning / rotating.
+    prev_for_diff = prev_gray
+    if global_shift is not None:
+        dx, dy = global_shift
+        if abs(dx) > 0.5 or abs(dy) > 0.5:
+            M = np.float32([[1, 0, dx], [0, 1, dy]])
+            prev_for_diff = cv2.warpAffine(
+                prev_gray, M, (w, h), borderMode=cv2.BORDER_REPLICATE,
+            )
+
+    # Absolute frame difference (on pan-compensated pair when available)
+    diff = cv2.absdiff(prev_for_diff, curr_gray)
 
     # Pre-blur to suppress compression artifacts
     diff = cv2.GaussianBlur(diff, (5, 5), 0)
@@ -3461,13 +3502,29 @@ def write_red_ball_telemetry(
 
     h, w = grays[0].shape[:2]
 
+    # --- Pre-compute source-camera pan compensation ---
+    # Detect per-frame global translation caused by XBotGo rotating.
+    # Phase correlation is FFT-based and very fast (~1ms per pair).
+    # shifts[i] = (dx, dy) to align grays[i-1] with grays[i].
+    shifts: list[tuple[float, float]] = [(0.0, 0.0)]  # frame 0 has no shift
+    pan_frame_count = 0
+    for i in range(1, n):
+        shift = estimate_global_shift(grays[i - 1], grays[i])
+        shifts.append(shift)
+        if shift != (0.0, 0.0):
+            pan_frame_count += 1
+    if pan_frame_count > 0:
+        print(f"[MOTION] Source-camera pan detected on {pan_frame_count}/{n} frames — compensating")
+
     # --- Pass 1: global peak detection per frame (no locality bias) ---
     # This gives us the "ground truth" of where the most motion is.
     global_cx = np.full(n, np.nan, dtype=np.float64)
     global_cy = np.full(n, np.nan, dtype=np.float64)
     global_conf = np.zeros(n, dtype=np.float64)
     for i in range(1, n):
-        cx, cy, conf = detect_motion_centroid(grays[i - 1], grays[i])
+        cx, cy, conf = detect_motion_centroid(
+            grays[i - 1], grays[i], global_shift=shifts[i],
+        )
         if cx is not None:
             global_cx[i] = cx
             global_cy[i] = cy
@@ -3486,6 +3543,7 @@ def write_red_ball_telemetry(
         cx, cy, conf = detect_motion_centroid(
             grays[i - 1], grays[i],
             prev_cx=prev_cx_f, prev_cy=prev_cy_f,
+            global_shift=shifts[i],
         )
         if cx is not None:
             fwd_cx[i] = cx
@@ -3495,15 +3553,19 @@ def write_red_ball_telemetry(
             prev_cy_f = cy
 
     # --- Pass 3: backward sweep with locality bias ---
+    # Reverse the shift sign since frame order is swapped.
     bwd_cx = np.full(n, np.nan, dtype=np.float64)
     bwd_cy = np.full(n, np.nan, dtype=np.float64)
     bwd_conf = np.zeros(n, dtype=np.float64)
     prev_cx_b: float | None = None
     prev_cy_b: float | None = None
     for i in range(n - 1, 0, -1):
+        # Negate shift: shifts[i] aligns (i-1)->i, but here we diff i->i-1
+        bwd_shift = (-shifts[i][0], -shifts[i][1])
         cx, cy, conf = detect_motion_centroid(
             grays[i], grays[i - 1],
             prev_cx=prev_cx_b, prev_cy=prev_cy_b,
+            global_shift=bwd_shift,
         )
         if cx is not None:
             bwd_cx[i] = cx
