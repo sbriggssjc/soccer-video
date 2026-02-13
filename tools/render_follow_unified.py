@@ -4236,14 +4236,14 @@ DEFAULT_PRESETS = {
         "fps": 24,
         "portrait": "1080x1920",
         "lookahead": 0,
-        "smoothing": 0.12,
+        "smoothing": 0.18,
         "pad": 0.10,
         "speed_limit": 500,
         "zoom_min": 1.0,
         "zoom_max": 1.9,
         "crf": 17,
         "keyint_factor": 4,
-        "post_smooth_sigma": 10.0,
+        "post_smooth_sigma": 5.0,
     },
     "wide_follow": {
         "fps": 24,
@@ -5131,6 +5131,7 @@ class CameraPlanner:
 
         prev_bx = prev_cx
         prev_by = prev_cy
+        _dz_hold_count = 0  # tracking deadzone: frames where camera held still
 
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
@@ -5223,14 +5224,27 @@ class CameraPlanner:
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
 
-            # --- FOLLOW: EMA smoothing driven by preset ---
-            # Use the preset's smoothing parameter (center_alpha) to
-            # control how eagerly the camera tracks the target.  Lower
-            # values = smoother/slower panning, higher = more responsive.
-            # The speed limit and keepinview guards still constrain large
-            # motions, so center_alpha can be moderate without losing
-            # the ball.
-            follow_alpha = center_alpha
+            # --- FOLLOW: EMA smoothing with tracking deadzone ---
+            # Broadcast cameras hold still when the action is centered,
+            # only panning when the subject drifts significantly.  The
+            # deadzone suppresses micro-drift from the EMA always
+            # chasing tiny offsets — creating natural pauses between
+            # pan movements instead of perpetual continuous motion.
+            #
+            # Inside deadzone:  camera holds (alpha=0)
+            # Ramp zone (1x–3x): alpha linearly ramps to full
+            # Beyond ramp zone:  full tracking at center_alpha
+            _, _dz_crop_w, _ = _compute_crop_dimensions(zoom)
+            _dz_radius = _dz_crop_w * 0.045  # 4.5% of crop width
+            _dz_dist = math.hypot(bx_used - prev_cx, target_center_y - prev_cy)
+            if _dz_dist < _dz_radius:
+                follow_alpha = 0.0
+                _dz_hold_count += 1
+            elif _dz_dist < _dz_radius * 3.0:
+                _dz_ramp = (_dz_dist - _dz_radius) / max(_dz_radius * 2.0, 1.0)
+                follow_alpha = center_alpha * _dz_ramp
+            else:
+                follow_alpha = center_alpha
             cx_smooth = follow_alpha * bx_used + (1.0 - follow_alpha) * prev_cx
             cy_smooth = follow_alpha * target_center_y + (1.0 - follow_alpha) * prev_cy
 
@@ -5505,6 +5519,8 @@ class CameraPlanner:
                     keepinview_override=keepinview_override,
                 )
             )
+
+        self._deadzone_hold_frames = _dz_hold_count
 
         # --- POST-PLAN GAUSSIAN SMOOTHING ---
         # The forward EMA + speed clamping above produces discrete stepped
@@ -7672,12 +7688,18 @@ def run(
         _cx_vel = np.diff(_cx_arr)
         _reversals = int(np.sum(np.diff(np.sign(_cx_vel)) != 0))
         _cx_range = float(_cx_arr.max() - _cx_arr.min())
+        _dz_hold = getattr(planner, '_deadzone_hold_frames', 0)
+        _dz_pct = 100.0 * _dz_hold / max(len(states), 1)
+        # Count frames where camera is effectively still (delta < 0.3px)
+        _still_count = int(np.sum(_cx_deltas < 0.3))
+        _still_pct = 100.0 * _still_count / max(len(_cx_deltas), 1)
         print(
             f"[CAMERA] cx: range={_cx_range:.0f}px, "
             f"max_delta={_cx_max_delta:.1f}px/f, "
             f"mean_delta={_cx_mean_delta:.1f}px/f, "
             f"p95_delta={_cx_p95_delta:.1f}px/f, "
-            f"reversals={_reversals}"
+            f"reversals={_reversals}, "
+            f"deadzone_hold={_dz_pct:.0f}%, still={_still_pct:.0f}%"
         )
 
     # Compute CameraPlanner-specific ball-in-crop coverage.
