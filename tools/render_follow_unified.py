@@ -1176,11 +1176,13 @@ BALL_CAM_CONFIG: dict[str, object] = {
 
 from tools.ball_telemetry import (
     BallSample,
+    PersonBox,
     fuse_yolo_and_centroid,
     load_and_interpolate_telemetry,
     load_ball_telemetry,
     load_ball_telemetry_for_clip,
     run_yolo_ball_detection,
+    run_yolo_person_detection,
     set_telemetry_frame_bounds,
     telemetry_path_for_video,
 )
@@ -4237,10 +4239,10 @@ DEFAULT_PRESETS = {
         "portrait": "1080x1920",
         "lookahead": 0,
         "smoothing": 0.18,
-        "pad": 0.10,
+        "pad": 0.04,
         "speed_limit": 500,
         "zoom_min": 1.0,
-        "zoom_max": 1.9,
+        "zoom_max": 1.4,
         "crf": 17,
         "keyint_factor": 4,
         "post_smooth_sigma": 8.0,
@@ -4991,6 +4993,7 @@ class CameraPlanner:
         positions: np.ndarray,
         used_mask: np.ndarray,
         confidence: Optional[np.ndarray] = None,
+        person_boxes: Optional[dict] = None,
     ) -> List[CamState]:
         frame_count = len(positions)
         states: List[CamState] = []
@@ -5217,6 +5220,39 @@ class CameraPlanner:
                     zoom_target * conf_scale, self.zoom_min, self.zoom_max
                 ))
                 clamp_flags.append(f"conf_zoom={conf_scale:.2f}")
+
+            # --- Player-aware zoom ceiling ---
+            # When persons are detected near the ball, cap the zoom so the
+            # crop is wide enough to keep both the ball and nearby players
+            # in frame.  This prevents the camera from zooming so tight
+            # that a pass receiver or shooter is cut off.
+            if person_boxes and has_position:
+                _frame_persons = person_boxes.get(frame_idx)
+                if _frame_persons:
+                    _ctx_radius = self.width * 0.20  # search within 20% of frame width
+                    _ctx_pad = self.width * 0.06  # 6% padding around action box
+                    _nearby = [
+                        p for p in _frame_persons
+                        if math.hypot(p.cx - bx_used, p.cy - by_used) < _ctx_radius
+                    ]
+                    if _nearby:
+                        _all_x = [bx_used] + [p.cx for p in _nearby]
+                        _all_y = [by_used] + [p.cy for p in _nearby]
+                        _bbox_w = max(_all_x) - min(_all_x) + _ctx_pad * 2.0
+                        _bbox_h = max(_all_y) - min(_all_y) + _ctx_pad * 2.0
+                        # Convert action box to minimum crop dimensions
+                        if aspect_ratio > 0:
+                            _needed_crop_w = max(_bbox_w, _bbox_h * aspect_ratio)
+                            _needed_crop_h = _needed_crop_w / max(aspect_ratio, 1e-6)
+                        else:
+                            _needed_crop_w = _bbox_w
+                            _needed_crop_h = _bbox_h
+                        # Zoom ceiling: can't zoom tighter than needed for action box
+                        if _needed_crop_h > 1.0:
+                            _zoom_ceiling = self.height / _needed_crop_h
+                            if _zoom_ceiling < zoom_target:
+                                zoom_target = max(self.zoom_min, _zoom_ceiling)
+                                clamp_flags.append(f"person_ctx={len(_nearby)}")
 
             zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
@@ -7643,6 +7679,25 @@ def run(
                     merged, valid_label_count, len(used_mask),
                 )
 
+    # --- YOLO person detection for player-aware zoom ---
+    person_boxes_by_frame: Optional[dict[int, list[PersonBox]]] = None
+    try:
+        person_boxes_by_frame = run_yolo_person_detection(
+            original_source_path,
+            min_conf=0.30,
+            cache=True,
+        )
+        if person_boxes_by_frame and upscale_factor > 1:
+            for _frame_persons in person_boxes_by_frame.values():
+                for _pb in _frame_persons:
+                    _pb.cx *= upscale_factor
+                    _pb.cy *= upscale_factor
+                    _pb.w *= upscale_factor
+                    _pb.h *= upscale_factor
+    except Exception as _pe:
+        logger.warning("[YOLO] Person detection failed (non-fatal): %s", _pe)
+        person_boxes_by_frame = None
+
     if args.flip180 and len(positions) > 0:
         flipped_positions = positions.copy()
         valid_mask = ~np.isnan(flipped_positions).any(axis=1)
@@ -7787,7 +7842,7 @@ def run(
     fps = render_fps_for_plan
     print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
-    states = planner.plan(positions, used_mask, confidence=fusion_confidence)
+    states = planner.plan(positions, used_mask, confidence=fusion_confidence, person_boxes=person_boxes_by_frame)
 
     # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
     if states and len(states) > 1:
@@ -7820,11 +7875,16 @@ def run(
             f"reversals={_reversals}, "
             f"deadzone_hold={_dz_pct:.0f}%, still={_still_pct:.0f}%"
         )
+        _person_ctx_frames = sum(
+            1 for s in states
+            if any(f.startswith("person_ctx=") for f in (s.clamp_flags or []))
+        )
+        _person_ctx_str = f", person_ctx={_person_ctx_frames}f" if _person_ctx_frames > 0 else ""
         print(
             f"[CAMERA] zoom: range={_zm_range:.2f}, "
             f"max_delta={_zm_max_delta:.4f}/f, "
             f"mean_delta={_zm_mean_delta:.4f}/f, "
-            f"reversals={_zm_reversals}"
+            f"reversals={_zm_reversals}{_person_ctx_str}"
         )
 
     # Compute CameraPlanner-specific ball-in-crop coverage.
