@@ -60,6 +60,18 @@ class BallSample:
         return self.y
 
 
+@dataclass
+class PersonBox:
+    """Single person detection bounding box in source pixel coordinates."""
+
+    frame: int
+    cx: float
+    cy: float
+    w: float
+    h: float
+    conf: float = 0.5
+
+
 # ---------------------------------------------------------------------------
 # Parsing helpers
 
@@ -1169,6 +1181,187 @@ def _load_yolo_cache(path: Path) -> list[BallSample]:
                 t_val = 0.0
             samples.append(BallSample(t=t_val, frame=frame_idx, x=cx, y=cy, conf=conf))
     return samples
+
+
+# ---------------------------------------------------------------------------
+# YOLO person detection — per-frame bounding boxes for player-aware zoom
+# ---------------------------------------------------------------------------
+
+
+def yolo_person_telemetry_path_for_video(video_path) -> str:
+    """Return the canonical YOLO person telemetry cache path."""
+    video_path = Path(video_path)
+    stem = video_path.stem
+    out_dir = Path("out") / "telemetry"
+    return str(out_dir / f"{stem}.yolo_person.jsonl")
+
+
+def _save_person_cache(path: Path, data: dict[int, list[PersonBox]]) -> None:
+    """Write per-frame person detections to JSONL."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    total = 0
+    with path.open("w", encoding="utf-8") as f:
+        for frame_idx in sorted(data.keys()):
+            boxes = data[frame_idx]
+            rec = {
+                "frame": frame_idx,
+                "persons": [
+                    {
+                        "cx": round(p.cx, 1),
+                        "cy": round(p.cy, 1),
+                        "w": round(p.w, 1),
+                        "h": round(p.h, 1),
+                        "conf": round(p.conf, 3),
+                    }
+                    for p in boxes
+                ],
+            }
+            f.write(json.dumps(rec) + "\n")
+            total += len(boxes)
+    print(f"[YOLO] Cached {total} person detections ({len(data)} frames) to {path}")
+
+
+def _load_person_cache(path: Path) -> dict[int, list[PersonBox]]:
+    """Load per-frame person detections from JSONL cache."""
+    result: dict[int, list[PersonBox]] = {}
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            frame_idx = _as_int(rec.get("frame"), 0)
+            persons_raw = rec.get("persons", [])
+            boxes: list[PersonBox] = []
+            for p in persons_raw:
+                cx = _as_float(p.get("cx"))
+                cy = _as_float(p.get("cy"))
+                w = _as_float(p.get("w"))
+                h = _as_float(p.get("h"))
+                conf = _as_float(p.get("conf"))
+                if not (math.isfinite(cx) and math.isfinite(cy)):
+                    continue
+                if not math.isfinite(w):
+                    w = 0.0
+                if not math.isfinite(h):
+                    h = 0.0
+                if not math.isfinite(conf):
+                    conf = 0.5
+                boxes.append(PersonBox(frame=frame_idx, cx=cx, cy=cy, w=w, h=h, conf=conf))
+            if boxes:
+                result[frame_idx] = boxes
+    return result
+
+
+def run_yolo_person_detection(
+    video_path: str | Path,
+    *,
+    min_conf: float = 0.30,
+    cache: bool = True,
+) -> dict[int, list[PersonBox]]:
+    """Run YOLO person detection on every frame, returning per-frame person boxes.
+
+    Results are cached to ``out/telemetry/<stem>.yolo_person.jsonl``.
+    Uses the same yolov8n.pt model as ball detection (COCO class 0 = person).
+    """
+    video_path = Path(video_path)
+    cache_path = Path(yolo_person_telemetry_path_for_video(video_path))
+
+    if cache and cache_path.is_file():
+        result = _load_person_cache(cache_path)
+        if result:
+            total = sum(len(v) for v in result.values())
+            print(f"[YOLO] Loaded {total} cached person detections ({len(result)} frames) from {cache_path}")
+            return result
+
+    try:
+        import cv2 as _cv2
+    except ImportError:
+        print("[YOLO] OpenCV required for person detection")
+        return {}
+
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        print("[YOLO] ultralytics not available for person detection")
+        return {}
+
+    model = YOLO("yolov8n.pt")
+    person_class_id = 0  # COCO class 0 = person
+
+    cap = _cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[YOLO] Could not open video for person detection: {video_path}")
+        return {}
+
+    total_frames = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT) or 0)
+    src_w = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    src_h = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+
+    print(
+        f"[YOLO] Running person detection on {video_path.name} "
+        f"({total_frames} frames, {src_w}x{src_h})"
+    )
+
+    result: dict[int, list[PersonBox]] = {}
+    frame_idx = 0
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+
+            preds = model.predict(
+                frame, conf=min_conf, iou=0.45, imgsz=640, verbose=False, device="cpu",
+            )
+            if preds:
+                boxes = getattr(preds[0], "boxes", None)
+                if boxes is not None:
+                    cls = boxes.cls.detach().cpu().numpy() if hasattr(boxes.cls, "detach") else np.asarray(boxes.cls)
+                    conf = boxes.conf.detach().cpu().numpy() if hasattr(boxes.conf, "detach") else np.asarray(boxes.conf)
+                    xyxy = boxes.xyxy.detach().cpu().numpy() if hasattr(boxes.xyxy, "detach") else np.asarray(boxes.xyxy)
+
+                    frame_persons: list[PersonBox] = []
+                    for cls_id, c_score, box in zip(cls, conf, xyxy):
+                        if int(cls_id) != person_class_id:
+                            continue
+                        if float(c_score) < min_conf:
+                            continue
+                        x0, y0, x1, y1 = map(float, box[:4])
+                        bw = max(0.0, x1 - x0)
+                        bh = max(0.0, y1 - y0)
+                        # Filter out implausibly small or large boxes
+                        if bw < 10 or bh < 20:
+                            continue
+                        if bw > src_w * 0.4 or bh > src_h * 0.8:
+                            continue
+                        frame_persons.append(PersonBox(
+                            frame=frame_idx,
+                            cx=(x0 + x1) / 2.0,
+                            cy=(y0 + y1) / 2.0,
+                            w=bw,
+                            h=bh,
+                            conf=float(c_score),
+                        ))
+                    if frame_persons:
+                        result[frame_idx] = frame_persons
+
+            if frame_idx % 100 == 0 and total_frames > 0:
+                print(f"[YOLO] Person detection: frame {frame_idx}/{total_frames} ({100*frame_idx/total_frames:.0f}%)")
+            frame_idx += 1
+    finally:
+        cap.release()
+
+    total_persons = sum(len(v) for v in result.values())
+    print(f"[YOLO] Person detection complete: {total_persons} detections across {len(result)}/{frame_idx} frames")
+
+    if cache:
+        _save_person_cache(cache_path, result)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

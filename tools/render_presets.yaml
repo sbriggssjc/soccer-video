@@ -2,11 +2,11 @@ cinematic:
   fps: 24                 # fixed social cadence
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
   smoothing: 0.15         # tracking alpha (pre-smoothing caps at 0.12); deadzone creates holds
-  pad: 0.10
+  pad: 0.04               # reduced from 0.10 — preserves more source pixels (1.93x upscale vs 2.22x)
   speed_limit: 200        # ~9 px/frame at 30fps = 2.3% visible width — slow cinematic pan
   post_smooth_sigma: 9.0  # strong Gaussian (~0.30s at 30fps); S-curve acceleration follows
   zoom_min: 1.00
-  zoom_max: 1.90
+  zoom_max: 1.40          # reduced from 1.90 — caps upscale to ~2x, preserves sharpness
   crf: 17                 # higher quality output
   keyint_factor: 4
   follow:
@@ -18,16 +18,16 @@ cinematic:
     keepinview:
       nudge_gain: 0.20      # gentle recenter — rely on post-smooth Gaussian instead
       zoom_gain: 0.20       # minimal zoom-out on keepinview
-      zoom_cap: 1.4         # cap keepinview zoom to prevent jarring scale changes
+      zoom_cap: 1.35        # cap keepinview zoom — matches zoom_max
     speed_zoom:
       enabled: true
       v_lo: 2.0
       v_hi: 12.0
-      zoom_lo: 1.50        # slow motion -> zoom in (tighter frame)
+      zoom_lo: 1.25        # slow motion -> mild zoom (was 1.50 — too tight, cut players)
       zoom_hi: 1.00        # fast motion -> zoom out (wider view)
   portrait:
     size: 1080x1920
-    min_box_px: [486, 864]
+    min_box_px: [540, 960] # raised from [486, 864] — higher quality floor
     horizon_lock: 0.20
 wide_follow:
   fps: 24
