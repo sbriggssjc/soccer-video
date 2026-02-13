@@ -5372,17 +5372,26 @@ class CameraPlanner:
             # radius expands to capture players running onto the ball.
             # Players moving TOWARD the ball get extra weight so the camera
             # anticipates who will interact next.
+            #
+            # Context radius and padding are scaled to the *visible crop
+            # width* (at zoom=1.0), not the full source width.  For portrait
+            # 9:16 the crop is only ~33-56% as wide as the source, so
+            # source-relative sizing would capture players well outside the
+            # frame and force zoom to zoom_min on nearly every frame.
             if person_boxes and has_position:
                 _frame_persons = person_boxes.get(frame_idx)
                 if _frame_persons:
+                    # Base crop width at zoom=1.0 (widest possible portrait crop)
+                    _base_crop_w = self.height * aspect_ratio if aspect_ratio > 0 else self.width
+
                     # Dynamic context radius: expands during ball flight
                     # to capture goal area and nearby defenders during shots.
-                    _ctx_base = self.width * 0.22
+                    _ctx_frac = 0.50  # 50% of crop width at calm
                     _ctx_flight_boost = 0.0
                     if smooth_speed_pf > _flight_speed_thr:
                         _ctx_flight_boost = min(0.25, 0.25 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
-                    _ctx_radius = self.width * (0.22 + _ctx_flight_boost)
-                    _ctx_pad = self.width * 0.08
+                    _ctx_radius = _base_crop_w * (_ctx_frac + _ctx_flight_boost)
+                    _ctx_pad = _base_crop_w * 0.10
 
                     # Find persons within the context radius
                     _nearby = []
@@ -5427,6 +5436,12 @@ class CameraPlanner:
                             _nearby.append(_p)
 
                     if _nearby:
+                        # Cap to 4 nearest players to prevent the bounding
+                        # box from spanning the entire team and forcing zoom
+                        # to zoom_min on every frame.
+                        if len(_nearby) > 4:
+                            _nearby.sort(key=lambda _pp: math.hypot(_pp.cx - bx_used, _pp.cy - by_used))
+                            _nearby = _nearby[:4]
                         _all_x = [bx_used] + [p.cx for p in _nearby]
                         _all_y = [by_used] + [p.cy for p in _nearby]
                         _bbox_w = max(_all_x) - min(_all_x) + _ctx_pad * 2.0
