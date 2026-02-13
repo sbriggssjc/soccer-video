@@ -5136,6 +5136,21 @@ class CameraPlanner:
         prev_by = prev_cy
         _dz_hold_count = 0  # tracking deadzone: frames where camera held still
 
+        # --- Scorer memory state (post-goal snap-back) ---
+        # Track the last player closest to the ball during high-speed
+        # moments (shots).  After the ball decelerates sharply (goal or
+        # save), the camera biases toward the remembered scorer position
+        # to catch the celebration.
+        _scorer_x: Optional[float] = None
+        _scorer_y: Optional[float] = None
+        _scorer_frame: int = -999  # frame when scorer was last updated
+        _goal_event_frame: int = -999  # frame when goal event was detected
+        _goal_snap_active = False
+        _goal_snap_duration = 0  # frames since goal event
+        _goal_snap_max_frames = 0  # max frames for snap-back (set on detection)
+        _prev_smooth_speed = 0.0  # for deceleration detection
+        _high_speed_sustained = 0  # count of consecutive high-speed frames
+
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
             has_position = bool(used_mask[frame_idx]) and not np.isnan(pos).any()
@@ -5186,6 +5201,49 @@ class CameraPlanner:
             accel_zoom_out = float(np.clip(accel_zoom_out, 0.75, 1.0))
             prev_speed_pf = speed_pf
 
+            # --- SCORER MEMORY: track shooter during high-speed ball ---
+            # During shots/passes, remember the closest player to the ball.
+            # When the ball rapidly decelerates (goal, save, out of play),
+            # the camera can snap back to the scorer for the reaction.
+            _shot_speed_thr = 6.0  # px/frame: above this = shot in flight
+            if smooth_speed_pf > _shot_speed_thr:
+                _high_speed_sustained += 1
+                # Update scorer position: nearest person to ball during shot
+                if person_boxes and has_position:
+                    _shot_persons = person_boxes.get(frame_idx)
+                    if _shot_persons:
+                        _best_p = None
+                        _best_p_dist = float("inf")
+                        for _sp in _shot_persons:
+                            _sp_dist = math.hypot(_sp.cx - bx_used, _sp.cy - by_used)
+                            if _sp_dist < _best_p_dist and _sp_dist < self.width * 0.15:
+                                _best_p_dist = _sp_dist
+                                _best_p = _sp
+                        if _best_p is not None:
+                            _scorer_x = _best_p.cx
+                            _scorer_y = _best_p.cy
+                            _scorer_frame = frame_idx
+            else:
+                # Detect goal/deceleration event: ball was fast for >=5 frames,
+                # now suddenly slow.  This triggers the snap-back.
+                if _high_speed_sustained >= 5 and _scorer_x is not None:
+                    _decel = _prev_smooth_speed - smooth_speed_pf
+                    if _decel > 3.0:  # rapid deceleration
+                        _goal_event_frame = frame_idx
+                        _goal_snap_active = True
+                        _goal_snap_duration = 0
+                        # Snap-back lasts 1.5s (e.g., celebration window)
+                        _goal_snap_max_frames = int(render_fps * 1.5)
+                        clamp_flags.append("goal_event")
+                _high_speed_sustained = 0
+            _prev_smooth_speed = smooth_speed_pf
+
+            # Advance goal-snap timer
+            if _goal_snap_active:
+                _goal_snap_duration += 1
+                if _goal_snap_duration > _goal_snap_max_frames:
+                    _goal_snap_active = False
+
             if self.speed_zoom_config:
                 config = self.speed_zoom_config
                 v_lo = config["v_lo"]
@@ -5207,12 +5265,27 @@ class CameraPlanner:
             # Apply acceleration zoom-out on top of speed zoom
             zoom_target = float(np.clip(zoom_target * accel_zoom_out, self.zoom_min, self.zoom_max))
 
-            # Confidence-based zoom: when detection confidence is low,
-            # zoom out to keep more of the field visible.  When
-            # confidence is high, allow the normal (potentially tighter)
-            # zoom.  This makes the camera "hedge its bets" during
-            # uncertain tracking, reducing the chance of losing the ball.
+            # --- BALL-FLIGHT COMMITMENT ---
+            # During shots and passes the ball moves fast but YOLO
+            # confidence often dips (motion blur, small ball).  Without
+            # this guard the confidence-based zoom widens the frame and
+            # the camera loses commitment to the ball flight — the
+            # rendered clip cuts away just as the ball reaches the goal.
+            #
+            # When ball speed is high, we boost effective confidence so
+            # the camera stays committed to the trajectory.  The speed
+            # threshold is tuned to trigger on shots/passes (~6 px/frame)
+            # but not on normal dribbling (~2-3 px/frame).
             frame_conf = float(frame_confidence[frame_idx])
+            _flight_speed_thr = 5.0  # px/frame: above this = shot/pass in flight
+            if smooth_speed_pf > _flight_speed_thr:
+                # Boost confidence floor proportional to speed
+                _flight_frac = min(1.0, (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
+                _flight_conf_floor = 0.50 + 0.30 * _flight_frac  # 0.50 at threshold, 0.80 at 2x threshold
+                if frame_conf < _flight_conf_floor:
+                    frame_conf = _flight_conf_floor
+                    clamp_flags.append(f"flight_commit={_flight_frac:.2f}")
+
             if frame_conf < 0.50:
                 # Map confidence 0..0.5 → zoom scale 0.70..1.0
                 conf_scale = 0.70 + 0.60 * frame_conf  # 0.70 at conf=0, 1.0 at conf=0.5
@@ -5221,20 +5294,66 @@ class CameraPlanner:
                 ))
                 clamp_flags.append(f"conf_zoom={conf_scale:.2f}")
 
-            # --- Player-aware zoom ceiling ---
+            # --- Player-aware zoom ceiling with convergence awareness ---
             # When persons are detected near the ball, cap the zoom so the
             # crop is wide enough to keep both the ball and nearby players
-            # in frame.  This prevents the camera from zooming so tight
-            # that a pass receiver or shooter is cut off.
+            # in frame.  During fast ball motion (passes, shots) the search
+            # radius expands to capture players running onto the ball.
+            # Players moving TOWARD the ball get extra weight so the camera
+            # anticipates who will interact next.
             if person_boxes and has_position:
                 _frame_persons = person_boxes.get(frame_idx)
                 if _frame_persons:
-                    _ctx_radius = self.width * 0.20  # search within 20% of frame width
-                    _ctx_pad = self.width * 0.06  # 6% padding around action box
-                    _nearby = [
-                        p for p in _frame_persons
-                        if math.hypot(p.cx - bx_used, p.cy - by_used) < _ctx_radius
-                    ]
+                    # Dynamic context radius: expands during ball flight
+                    _ctx_base = self.width * 0.20
+                    _ctx_flight_boost = 0.0
+                    if smooth_speed_pf > _flight_speed_thr:
+                        _ctx_flight_boost = min(0.15, 0.15 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
+                    _ctx_radius = self.width * (0.20 + _ctx_flight_boost)
+                    _ctx_pad = self.width * 0.06
+
+                    # Find persons within the context radius
+                    _nearby = []
+                    for _p in _frame_persons:
+                        _pdist = math.hypot(_p.cx - bx_used, _p.cy - by_used)
+                        if _pdist >= _ctx_radius:
+                            continue
+
+                        # Convergence check: is this person moving toward the ball?
+                        # Compare with the same person's previous-frame position
+                        # (nearest-neighbor match in previous frame's detections).
+                        _convergence_bonus = 0.0
+                        if frame_idx > 0 and person_boxes:
+                            _prev_persons = person_boxes.get(frame_idx - 1)
+                            if _prev_persons:
+                                # Find closest person in previous frame (simple nearest-neighbor)
+                                _best_prev_dist = float("inf")
+                                _best_prev = None
+                                for _pp in _prev_persons:
+                                    _pp_dist = math.hypot(_pp.cx - _p.cx, _pp.cy - _p.cy)
+                                    if _pp_dist < _best_prev_dist and _pp_dist < self.width * 0.05:
+                                        _best_prev_dist = _pp_dist
+                                        _best_prev = _pp
+                                if _best_prev is not None:
+                                    # Person velocity
+                                    _pvx = _p.cx - _best_prev.cx
+                                    _pvy = _p.cy - _best_prev.cy
+                                    # Direction from person to ball
+                                    _to_ball_x = bx_used - _p.cx
+                                    _to_ball_y = by_used - _p.cy
+                                    _to_ball_mag = math.hypot(_to_ball_x, _to_ball_y)
+                                    if _to_ball_mag > 1e-6:
+                                        # Dot product: positive = moving toward ball
+                                        _dot = (_pvx * _to_ball_x + _pvy * _to_ball_y) / _to_ball_mag
+                                        if _dot > 1.0:  # moving toward ball at >1px/frame
+                                            _convergence_bonus = min(1.0, _dot / 5.0)  # 0→1 over 1-5 px/frame
+
+                        # Persons converging on the ball are included even if
+                        # slightly outside the base radius (up to 1.3x).
+                        _effective_radius = _ctx_radius * (1.0 + 0.3 * _convergence_bonus)
+                        if _pdist < _effective_radius:
+                            _nearby.append(_p)
+
                     if _nearby:
                         _all_x = [bx_used] + [p.cx for p in _nearby]
                         _all_y = [by_used] + [p.cy for p in _nearby]
@@ -5257,8 +5376,68 @@ class CameraPlanner:
             zoom_step = float(np.clip(zoom_target - prev_zoom, -zoom_slew, zoom_slew))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
+            # --- POST-GOAL SNAP TO SCORER ---
+            # After a goal event, gradually blend the camera target toward
+            # the remembered scorer position.  Uses a fade-in/fade-out
+            # envelope: ramp up over ~0.3s, hold, then fade over ~0.5s.
+            # The ball tracking still runs — this just biases the target
+            # so the camera drifts toward the scorer for the celebration.
+            if _goal_snap_active and _scorer_x is not None:
+                _snap_ramp_frames = int(render_fps * 0.3)
+                _snap_hold_end = _goal_snap_max_frames - int(render_fps * 0.5)
+                if _goal_snap_duration < _snap_ramp_frames:
+                    _snap_blend = float(_goal_snap_duration) / max(_snap_ramp_frames, 1)
+                elif _goal_snap_duration < _snap_hold_end:
+                    _snap_blend = 1.0
+                else:
+                    _snap_fade = float(_goal_snap_duration - _snap_hold_end) / max(
+                        _goal_snap_max_frames - _snap_hold_end, 1
+                    )
+                    _snap_blend = max(0.0, 1.0 - _snap_fade)
+                # Blend strength: scorer gets up to 40% weight (ball keeps 60%)
+                _snap_w = _snap_blend * 0.40
+                bx_used = bx_used * (1.0 - _snap_w) + _scorer_x * _snap_w
+                target_center_y = target_center_y * (1.0 - _snap_w) + _scorer_y * _snap_w
+                if _snap_w > 0.01:
+                    clamp_flags.append(f"goal_snap={_snap_w:.2f}")
+
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
+
+            # --- VELOCITY-BASED PAN LEAD (anticipation) ---
+            # Broadcast cameras lead the action: they point slightly ahead of
+            # the ball in its direction of travel so the viewer sees where the
+            # play is going, not just where it's been.  The lead scales with
+            # ball speed — faster motion gets more anticipation — and is
+            # suppressed when speed is low (to avoid noise-driven drift).
+            #
+            # lead_time_sec controls how far ahead the camera looks.
+            # The post-Gaussian smoothing will round this into an S-curve.
+            _lead_time_sec = 0.20  # seconds of anticipation
+            _lead_speed_floor = 2.0  # px/frame: no lead below this speed
+            _lead_max_px = self.width * 0.08  # cap lead at 8% of frame width
+            if smooth_speed_pf > _lead_speed_floor:
+                # Velocity direction unit vector
+                _vel_mag = math.hypot(vx, vy)
+                if _vel_mag > 1e-6:
+                    _lead_px_x = (vx / _vel_mag) * min(smooth_speed_pf * render_fps * _lead_time_sec, _lead_max_px)
+                    _lead_px_y = (vy / _vel_mag) * min(smooth_speed_pf * render_fps * _lead_time_sec, _lead_max_px) * 0.3
+                else:
+                    _lead_px_x = 0.0
+                    _lead_px_y = 0.0
+                # Scale lead by speed ramp (0 at floor, full at 2x floor)
+                _lead_ramp = min(1.0, (smooth_speed_pf - _lead_speed_floor) / max(_lead_speed_floor, 1e-6))
+                _lead_px_x *= _lead_ramp
+                _lead_px_y *= _lead_ramp
+            else:
+                _lead_px_x = 0.0
+                _lead_px_y = 0.0
+
+            # Apply lead to the tracking target (before EMA smoothing).
+            # The ball itself stays at bx_used for keepinview purposes,
+            # but the camera aims at the led position.
+            _led_bx = float(np.clip(bx_used + _lead_px_x, 0.0, self.width))
+            _led_by = float(np.clip(target_center_y + _lead_px_y, 0.0, self.height))
 
             # --- FOLLOW: EMA smoothing with tracking deadzone ---
             # Broadcast cameras hold still when the action is centered,
@@ -5281,8 +5460,8 @@ class CameraPlanner:
             # Beyond ramp zone: full tracking at center_alpha
             _, _dz_crop_w, _ = _compute_crop_dimensions(zoom)
             _dz_radius = _dz_crop_w * 0.065  # 6.5% of crop width — wider deadzone for broadcast-style pauses
-            _dz_dist = math.hypot(bx_used - prev_cx, target_center_y - prev_cy)
-            _target_delta = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
+            _dz_dist = math.hypot(_led_bx - prev_cx, _led_by - prev_cy)
+            _target_delta = math.hypot(_led_bx - prev_target_x, _led_by - prev_target_y)
             # Position-based thresholds (original)
             _pos_hold = _dz_dist < _dz_radius
             _pos_ramp = _dz_dist < _dz_radius * 3.0
@@ -5309,10 +5488,12 @@ class CameraPlanner:
                 follow_alpha = center_alpha * _dz_ramp
             else:
                 follow_alpha = center_alpha
-            cx_smooth = follow_alpha * bx_used + (1.0 - follow_alpha) * prev_cx
-            cy_smooth = follow_alpha * target_center_y + (1.0 - follow_alpha) * prev_cy
+            cx_smooth = follow_alpha * _led_bx + (1.0 - follow_alpha) * prev_cx
+            cy_smooth = follow_alpha * _led_by + (1.0 - follow_alpha) * prev_cy
 
             # 4) KEEP-IN-VIEW GUARD (DOMINANT)
+            # Uses the actual ball position (not the led position) so the
+            # ball itself is guaranteed to stay in the crop.
             kv_zoom, kv_crop_w, kv_crop_h = _compute_crop_dimensions(zoom)
             kv_zoom = kv_zoom  # kept for clarity; zoom already clamped
             guard_frac = max(0.0, float(self.keepinview_min_band_frac))
@@ -7879,12 +8060,30 @@ def run(
             1 for s in states
             if any(f.startswith("person_ctx=") for f in (s.clamp_flags or []))
         )
-        _person_ctx_str = f", person_ctx={_person_ctx_frames}f" if _person_ctx_frames > 0 else ""
+        _flight_commit_frames = sum(
+            1 for s in states
+            if any(f.startswith("flight_commit=") for f in (s.clamp_flags or []))
+        )
+        _goal_snap_frames = sum(
+            1 for s in states
+            if any(f.startswith("goal_snap=") for f in (s.clamp_flags or []))
+        )
+        _goal_events = sum(
+            1 for s in states
+            if any(f == "goal_event" for f in (s.clamp_flags or []))
+        )
+        _extras = ""
+        if _person_ctx_frames > 0:
+            _extras += f", person_ctx={_person_ctx_frames}f"
+        if _flight_commit_frames > 0:
+            _extras += f", flight={_flight_commit_frames}f"
+        if _goal_events > 0:
+            _extras += f", goals={_goal_events}, snap={_goal_snap_frames}f"
         print(
             f"[CAMERA] zoom: range={_zm_range:.2f}, "
             f"max_delta={_zm_max_delta:.4f}/f, "
             f"mean_delta={_zm_mean_delta:.4f}/f, "
-            f"reversals={_zm_reversals}{_person_ctx_str}"
+            f"reversals={_zm_reversals}{_extras}"
         )
 
     # Compute CameraPlanner-specific ball-in-crop coverage.
