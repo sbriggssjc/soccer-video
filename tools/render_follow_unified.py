@@ -4243,7 +4243,7 @@ DEFAULT_PRESETS = {
         "zoom_max": 1.9,
         "crf": 17,
         "keyint_factor": 4,
-        "post_smooth_sigma": 5.0,
+        "post_smooth_sigma": 8.0,
     },
     "wide_follow": {
         "fps": 24,
@@ -5244,7 +5244,7 @@ class CameraPlanner:
             # Ramp zone:        alpha linearly ramps to full
             # Beyond ramp zone: full tracking at center_alpha
             _, _dz_crop_w, _ = _compute_crop_dimensions(zoom)
-            _dz_radius = _dz_crop_w * 0.045  # 4.5% of crop width
+            _dz_radius = _dz_crop_w * 0.065  # 6.5% of crop width — wider deadzone for broadcast-style pauses
             _dz_dist = math.hypot(bx_used - prev_cx, target_center_y - prev_cy)
             _target_delta = math.hypot(bx_used - prev_target_x, target_center_y - prev_target_y)
             # Position-based thresholds (original)
@@ -7805,6 +7805,13 @@ def run(
         # Count frames where camera is effectively still (delta < 0.3px)
         _still_count = int(np.sum(_cx_deltas < 0.3))
         _still_pct = 100.0 * _still_count / max(len(_cx_deltas), 1)
+        # Zoom diagnostics
+        _zm_arr = np.array([s.zoom for s in states], dtype=np.float64)
+        _zm_deltas = np.abs(np.diff(_zm_arr))
+        _zm_max_delta = float(_zm_deltas.max())
+        _zm_mean_delta = float(_zm_deltas.mean())
+        _zm_range = float(_zm_arr.max() - _zm_arr.min())
+        _zm_reversals = int(np.sum(np.diff(np.sign(np.diff(_zm_arr))) != 0))
         print(
             f"[CAMERA] cx: range={_cx_range:.0f}px, "
             f"max_delta={_cx_max_delta:.1f}px/f, "
@@ -7812,6 +7819,12 @@ def run(
             f"p95_delta={_cx_p95_delta:.1f}px/f, "
             f"reversals={_reversals}, "
             f"deadzone_hold={_dz_pct:.0f}%, still={_still_pct:.0f}%"
+        )
+        print(
+            f"[CAMERA] zoom: range={_zm_range:.2f}, "
+            f"max_delta={_zm_max_delta:.4f}/f, "
+            f"mean_delta={_zm_mean_delta:.4f}/f, "
+            f"reversals={_zm_reversals}"
         )
 
     # Compute CameraPlanner-specific ball-in-crop coverage.
