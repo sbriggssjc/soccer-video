@@ -5314,8 +5314,9 @@ class CameraPlanner:
                         _goal_event_frame = frame_idx
                         _goal_snap_active = True
                         _goal_snap_duration = 0
-                        # Snap-back lasts 1.5s (e.g., celebration window)
-                        _goal_snap_max_frames = int(render_fps * 1.5)
+                        # Snap-back lasts 3.5s — long enough to capture the
+                        # celebration (scorer running, sliding, teammates).
+                        _goal_snap_max_frames = int(render_fps * 3.5)
                         clamp_flags.append("goal_event")
                 _high_speed_sustained = 0
             _prev_smooth_speed = smooth_speed_pf
@@ -5325,6 +5326,35 @@ class CameraPlanner:
                 _goal_snap_duration += 1
                 if _goal_snap_duration > _goal_snap_max_frames:
                     _goal_snap_active = False
+
+            # --- Dynamic scorer tracking during celebration ---
+            # The scorer runs, slides, and gets mobbed by teammates.
+            # Follow them frame-by-frame using nearest-neighbor matching
+            # to the last-known scorer position so the camera tracks
+            # the celebration instead of staring at a fixed point.
+            if _goal_snap_active and _scorer_x is not None and person_boxes:
+                _celeb_persons = person_boxes.get(frame_idx)
+                if _celeb_persons:
+                    _celeb_best = None
+                    _celeb_best_dist = float("inf")
+                    # Max distance the scorer can move per frame — generous
+                    # to handle sprinting celebrations and camera-relative
+                    # motion (closer = faster apparent movement).
+                    _celeb_max_dist = self.width * 0.08
+                    for _cp in _celeb_persons:
+                        _cp_dist = math.hypot(
+                            _cp.cx - _scorer_x, _cp.cy - _scorer_y,
+                        )
+                        if _cp_dist < _celeb_best_dist and _cp_dist < _celeb_max_dist:
+                            _celeb_best_dist = _cp_dist
+                            _celeb_best = _cp
+                    if _celeb_best is not None:
+                        _scorer_x = _celeb_best.cx
+                        _scorer_y = _celeb_best.cy
+
+            # Save pre-pullback ball position for zoom-to-fit later.
+            _pre_pb_bx = bx_used
+            _pre_pb_by = target_center_y
 
             # --- SHOT PULLBACK: widen frame during shots ---
             # During sustained high-speed ball flight (shot / long pass),
@@ -5525,6 +5555,47 @@ class CameraPlanner:
                                 zoom_target = max(self.zoom_min, _zoom_ceiling)
                                 clamp_flags.append(f"person_ctx={len(_nearby)}")
 
+            # --- Shot pullback zoom-to-fit ---
+            # During pullback, cap zoom so both the shot origin and
+            # the current ball position fit inside the crop.  Without
+            # this the position blend helps but the zoom might still
+            # be too tight to show both the shooter and the goal.
+            if _shot_pullback_active:
+                _pb_fit_crop_w = self.height * aspect_ratio if aspect_ratio > 0 else self.width
+                _pb_span_x = abs(_pre_pb_bx - _shot_origin_x)
+                _pb_span_y = abs(_pre_pb_by - _shot_origin_y)
+                if _pb_span_x > _SHOT_PULLBACK_MIN_SPAN * 0.5 or _pb_span_y > _SHOT_PULLBACK_MIN_SPAN * 0.5:
+                    _pb_pad = _pb_fit_crop_w * 0.15
+                    _pb_box_w = _pb_span_x + _pb_pad * 2.0
+                    _pb_box_h = _pb_span_y + _pb_pad * 2.0
+                    if aspect_ratio > 0:
+                        _pb_needed_w = max(_pb_box_w, _pb_box_h * aspect_ratio)
+                        _pb_needed_h = _pb_needed_w / max(aspect_ratio, 1e-6)
+                    else:
+                        _pb_needed_h = _pb_box_h
+                    if _pb_needed_h > 1.0:
+                        _pb_zoom_ceil = self.height / _pb_needed_h
+                        if _pb_zoom_ceil < zoom_target:
+                            zoom_target = max(self.zoom_min, _pb_zoom_ceil)
+                            clamp_flags.append("pb_zfit")
+
+            # --- Celebration zoom-out: keep frame wide after goal ---
+            # After a goal the ball is stationary → speed-zoom wants to
+            # zoom in tight.  Override: push zoom toward zoom_min so the
+            # camera stays wide enough to capture the celebration.
+            if _goal_snap_active:
+                _celeb_zoom_wide = self.zoom_min * 1.05
+                _celeb_zramp = min(
+                    1.0,
+                    float(_goal_snap_duration) / max(int(render_fps * 0.4), 1),
+                )
+                # Blend zoom_target 60% toward wide framing
+                zoom_target = (
+                    zoom_target * (1.0 - _celeb_zramp * 0.60)
+                    + _celeb_zoom_wide * (_celeb_zramp * 0.60)
+                )
+                zoom_target = float(np.clip(zoom_target, self.zoom_min, self.zoom_max))
+
             # Dynamic zoom slew: allow faster zoom transitions during
             # high-speed events (shots, goals) so the frame opens up
             # quickly enough to capture the full action.
@@ -5532,18 +5603,23 @@ class CameraPlanner:
             if smooth_speed_pf > _flight_speed_thr:
                 _slew_boost = min(2.5, 1.0 + 1.5 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
                 _zoom_slew_eff = zoom_slew * _slew_boost
+            elif _goal_snap_active:
+                # Fast slew during celebration — zoom needs to widen
+                # quickly even though ball speed is low.
+                _zoom_slew_eff = zoom_slew * 2.0
             zoom_step = float(np.clip(zoom_target - prev_zoom, -_zoom_slew_eff, _zoom_slew_eff))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
-            # --- POST-GOAL SNAP TO SCORER ---
-            # After a goal event, gradually blend the camera target toward
-            # the remembered scorer position.  Uses a fade-in/fade-out
-            # envelope: ramp up over ~0.3s, hold, then fade over ~0.5s.
-            # The ball tracking still runs — this just biases the target
-            # so the camera drifts toward the scorer for the celebration.
+            # --- POST-GOAL: FOLLOW SCORER THROUGH CELEBRATION ---
+            # After a goal event, the scorer is the subject — not the
+            # ball (sitting in the net).  Blend camera target toward the
+            # scorer with a fade-in / hold / fade-out envelope.  The
+            # scorer position is updated dynamically each frame (see
+            # "Dynamic scorer tracking" above) so the camera follows the
+            # celebration run, slide, and team mob.
             if _goal_snap_active and _scorer_x is not None:
                 _snap_ramp_frames = int(render_fps * 0.3)
-                _snap_hold_end = _goal_snap_max_frames - int(render_fps * 0.5)
+                _snap_hold_end = _goal_snap_max_frames - int(render_fps * 1.0)
                 if _goal_snap_duration < _snap_ramp_frames:
                     _snap_blend = float(_goal_snap_duration) / max(_snap_ramp_frames, 1)
                 elif _goal_snap_duration < _snap_hold_end:
@@ -5553,12 +5629,12 @@ class CameraPlanner:
                         _goal_snap_max_frames - _snap_hold_end, 1
                     )
                     _snap_blend = max(0.0, 1.0 - _snap_fade)
-                # Blend strength: scorer gets up to 40% weight (ball keeps 60%)
-                _snap_w = _snap_blend * 0.40
+                # Scorer gets up to 65% weight — celebration IS the content
+                _snap_w = _snap_blend * 0.65
                 bx_used = bx_used * (1.0 - _snap_w) + _scorer_x * _snap_w
                 target_center_y = target_center_y * (1.0 - _snap_w) + _scorer_y * _snap_w
                 if _snap_w > 0.01:
-                    clamp_flags.append(f"goal_snap={_snap_w:.2f}")
+                    clamp_flags.append(f"celeb={_snap_w:.2f}")
 
             vx = (bx_used - prev_bx) * render_fps if render_fps > 0 else 0.0
             vy = (target_center_y - prev_by) * render_fps if render_fps > 0 else 0.0
