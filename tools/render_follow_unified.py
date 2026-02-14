@@ -5222,6 +5222,17 @@ class CameraPlanner:
         _prev_smooth_speed = 0.0  # for deceleration detection
         _high_speed_sustained = 0  # count of consecutive high-speed frames
 
+        # --- Shot pullback state ---
+        # During shots, pull the camera back to show the full arc from
+        # shooter to goal — like a broadcast operator pulling wide.
+        _shot_pullback_active = False
+        _shot_origin_x = 0.0
+        _shot_origin_y = 0.0
+        _shot_pullback_hold = 0
+        _SHOT_PULLBACK_RAMP = 5  # frames to ramp to full blend
+        _SHOT_PULLBACK_HOLD_MAX = int(render_fps * 0.7)
+        _SHOT_PULLBACK_MIN_SPAN = 40.0  # min px span to activate
+
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
             has_position = bool(used_mask[frame_idx]) and not np.isnan(pos).any()
@@ -5314,6 +5325,60 @@ class CameraPlanner:
                 _goal_snap_duration += 1
                 if _goal_snap_duration > _goal_snap_max_frames:
                     _goal_snap_active = False
+
+            # --- SHOT PULLBACK: widen frame during shots ---
+            # During sustained high-speed ball flight (shot / long pass),
+            # pull the camera target back toward the midpoint between
+            # where the shot originated and where the ball is now.  This
+            # captures the full action arc — run-up → strike → ball
+            # hitting the net — instead of chasing the ball to the goal
+            # and losing the shooter.
+            if _high_speed_sustained == 1:
+                # Ball just entered high speed — record origin
+                _shot_origin_x = bx_used
+                _shot_origin_y = target_center_y
+
+            if _high_speed_sustained >= 3 and not _shot_pullback_active:
+                # Confirmed shot (3+ frames of sustained high speed)
+                _shot_pullback_active = True
+                _shot_pullback_hold = 0
+
+            if _shot_pullback_active:
+                _shot_span = math.hypot(
+                    bx_used - _shot_origin_x,
+                    target_center_y - _shot_origin_y,
+                )
+                _still_fast = smooth_speed_pf > _shot_speed_thr * 0.5
+
+                if _still_fast:
+                    _shot_pullback_hold = 0
+                else:
+                    _shot_pullback_hold += 1
+                    if _shot_pullback_hold > _SHOT_PULLBACK_HOLD_MAX:
+                        _shot_pullback_active = False
+
+                if _shot_pullback_active and _shot_span > _SHOT_PULLBACK_MIN_SPAN:
+                    # Blend strength: ramp up during flight, fade during hold
+                    if _still_fast:
+                        _pb_blend = min(
+                            1.0,
+                            max(0, _high_speed_sustained - 3) / _SHOT_PULLBACK_RAMP,
+                        )
+                    else:
+                        _pb_blend = max(
+                            0.0,
+                            1.0 - _shot_pullback_hold / max(_SHOT_PULLBACK_HOLD_MAX, 1),
+                        )
+
+                    # Midpoint between shot origin and current ball
+                    _mid_x = (_shot_origin_x + bx_used) * 0.5
+                    _mid_y = (_shot_origin_y + target_center_y) * 0.5
+
+                    # Blend: 55% ball (keep tracking it) + 45% midpoint (show arc)
+                    _pb_w = _pb_blend * 0.45
+                    bx_used = bx_used * (1.0 - _pb_w) + _mid_x * _pb_w
+                    target_center_y = target_center_y * (1.0 - _pb_w) + _mid_y * _pb_w
+                    clamp_flags.append(f"shot_pb={_pb_blend:.2f}")
 
             if self.speed_zoom_config:
                 config = self.speed_zoom_config
