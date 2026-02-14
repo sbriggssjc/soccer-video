@@ -5352,6 +5352,10 @@ class CameraPlanner:
                         _scorer_x = _celeb_best.cx
                         _scorer_y = _celeb_best.cy
 
+            # Save pre-pullback ball position for zoom-to-fit later.
+            _pre_pb_bx = bx_used
+            _pre_pb_by = target_center_y
+
             # --- SHOT PULLBACK: widen frame during shots ---
             # During sustained high-speed ball flight (shot / long pass),
             # pull the camera target back toward the midpoint between
@@ -5551,6 +5555,30 @@ class CameraPlanner:
                                 zoom_target = max(self.zoom_min, _zoom_ceiling)
                                 clamp_flags.append(f"person_ctx={len(_nearby)}")
 
+            # --- Shot pullback zoom-to-fit ---
+            # During pullback, cap zoom so both the shot origin and
+            # the current ball position fit inside the crop.  Without
+            # this the position blend helps but the zoom might still
+            # be too tight to show both the shooter and the goal.
+            if _shot_pullback_active:
+                _pb_fit_crop_w = self.height * aspect_ratio if aspect_ratio > 0 else self.width
+                _pb_span_x = abs(_pre_pb_bx - _shot_origin_x)
+                _pb_span_y = abs(_pre_pb_by - _shot_origin_y)
+                if _pb_span_x > _SHOT_PULLBACK_MIN_SPAN * 0.5 or _pb_span_y > _SHOT_PULLBACK_MIN_SPAN * 0.5:
+                    _pb_pad = _pb_fit_crop_w * 0.15
+                    _pb_box_w = _pb_span_x + _pb_pad * 2.0
+                    _pb_box_h = _pb_span_y + _pb_pad * 2.0
+                    if aspect_ratio > 0:
+                        _pb_needed_w = max(_pb_box_w, _pb_box_h * aspect_ratio)
+                        _pb_needed_h = _pb_needed_w / max(aspect_ratio, 1e-6)
+                    else:
+                        _pb_needed_h = _pb_box_h
+                    if _pb_needed_h > 1.0:
+                        _pb_zoom_ceil = self.height / _pb_needed_h
+                        if _pb_zoom_ceil < zoom_target:
+                            zoom_target = max(self.zoom_min, _pb_zoom_ceil)
+                            clamp_flags.append("pb_zfit")
+
             # --- Celebration zoom-out: keep frame wide after goal ---
             # After a goal the ball is stationary → speed-zoom wants to
             # zoom in tight.  Override: push zoom toward zoom_min so the
@@ -5575,6 +5603,10 @@ class CameraPlanner:
             if smooth_speed_pf > _flight_speed_thr:
                 _slew_boost = min(2.5, 1.0 + 1.5 * (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
                 _zoom_slew_eff = zoom_slew * _slew_boost
+            elif _goal_snap_active:
+                # Fast slew during celebration — zoom needs to widen
+                # quickly even though ball speed is low.
+                _zoom_slew_eff = zoom_slew * 2.0
             zoom_step = float(np.clip(zoom_target - prev_zoom, -_zoom_slew_eff, _zoom_slew_eff))
             zoom = float(np.clip(prev_zoom + zoom_step, self.zoom_min, self.zoom_max))
 
