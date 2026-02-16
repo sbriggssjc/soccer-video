@@ -5,7 +5,7 @@ cinematic:
   pad: 0.04               # reduced from 0.10 — preserves more source pixels (1.93x upscale vs 2.22x)
   speed_limit: 550        # ~31 px/frame at 24fps — raised from 200 so virtual camera can follow physical pans
   post_smooth_sigma: 5.0  # moderate Gaussian — lowered from 9.0 to reduce tracking lag
-  zoom_min: 1.00
+  zoom_min: 0.85          # lowered from 1.00 — allows confidence-driven zoom-out when ball position uncertain
   zoom_max: 1.40          # reduced from 1.90 — caps upscale to ~2x, preserves sharpness
   crf: 17                 # higher quality output
   keyint_factor: 4
@@ -24,7 +24,7 @@ cinematic:
       v_lo: 2.0
       v_hi: 12.0
       zoom_lo: 1.25        # slow motion -> mild zoom (was 1.50 — too tight, cut players)
-      zoom_hi: 1.00        # fast motion -> zoom out (wider view)
+      zoom_hi: 0.90        # fast motion -> zoom out (wider view, lowered from 1.00 to use new headroom)
   portrait:
     size: 1080x1920
     min_box_px: [540, 960] # raised from [486, 864] — higher quality floor
