@@ -1508,7 +1508,7 @@ def fuse_yolo_and_centroid(
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
 
-    if len(yolo_frames) >= 2:
+    if len(yolo_frames) >= 1:
         interpolated = 0
         # For each pair of consecutive YOLO frames, fill the gap
         for seg_idx in range(len(yolo_frames) - 1):
@@ -1534,6 +1534,34 @@ def fuse_yolo_and_centroid(
                 source_labels[k] = FUSE_INTERP
                 used_mask[k] = True
                 interpolated += 1
+
+        # --- BACKWARD HOLD: fill leading frames before first YOLO ---
+        # At clip start (e.g., goal kick setup) the ball is often
+        # stationary and YOLO may not detect it for many frames.
+        # Without this, the centroid tracks player positioning (wrong
+        # spot on the field) and the camera starts misframed.
+        # Use a generous limit — 2 seconds at source fps — because
+        # the start of a clip is especially important for framing.
+        LEAD_HOLD_MAX = 60  # ~2s at 30fps — generous start-of-clip allowance
+        first_yolo = yolo_frames[0]
+        if first_yolo > 0:
+            yf = yolo_by_frame[first_yolo]
+            lead_filled = 0
+            for k in range(first_yolo - 1, max(-1, first_yolo - LEAD_HOLD_MAX - 1), -1):
+                if k in yolo_by_frame:
+                    break
+                positions[k, 0] = yf.x
+                positions[k, 1] = yf.y
+                confidence[k] = max(confidence[k], 0.22)
+                source_labels[k] = FUSE_HOLD
+                used_mask[k] = True
+                lead_filled += 1
+            if lead_filled > 0:
+                interpolated += lead_filled
+                print(
+                    f"[FUSION] Backward-hold: filled {lead_filled} leading frames "
+                    f"from first YOLO at frame {first_yolo}"
+                )
 
         # Hold at last YOLO position for trailing frames (up to MAX_INTERP_GAP)
         last_yolo = yolo_frames[-1]
