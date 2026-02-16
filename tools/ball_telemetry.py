@@ -1420,7 +1420,7 @@ def fuse_yolo_and_centroid(
     yolo_used = 0
     centroid_used = 0
     blended = 0
-    conf_threshold = 0.40  # YOLO conf above which we trust it fully
+    conf_threshold = 0.28  # YOLO conf above which we trust it fully (lowered from 0.40)
 
     for i in range(frame_count):
         yolo = yolo_by_frame.get(i)
@@ -1477,8 +1477,8 @@ def fuse_yolo_and_centroid(
     # eliminates the camera oscillation caused by alternating between
     # YOLO (actual ball) and centroid (player activity cluster) which
     # can differ by 50-200px and cause visible camera hunting.
-    MAX_INTERP_GAP = 60  # max gap to interpolate (2s at 30fps)
-    INTERP_CONF = 0.35   # confidence for interpolated frames
+    MAX_INTERP_GAP = 15  # max gap to interpolate (~0.5s at 30fps; was 60)
+    INTERP_CONF = 0.28   # confidence for interpolated frames (lowered from 0.35)
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
