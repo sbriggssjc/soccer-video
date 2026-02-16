@@ -1375,13 +1375,15 @@ def fuse_yolo_and_centroid(
     frame_count: int,
     width: float,
     height: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Merge YOLO ball detections with motion-centroid positions.
 
     Returns:
         positions: (frame_count, 2) float32 array of (x, y) per frame
         used_mask: (frame_count,) bool array — True where a position is available
         confidence: (frame_count,) float32 array in [0, 1] — per-frame confidence
+        source_labels: (frame_count,) uint8 array — per-frame source type:
+            0=none, 1=yolo, 2=centroid, 3=blended, 4=interpolated, 5=hold
 
     Fusion strategy:
         - YOLO detection present + confident (>= 0.4): use YOLO position, high confidence
@@ -1389,9 +1391,17 @@ def fuse_yolo_and_centroid(
         - Only centroid present: use centroid, moderate confidence (0.3)
         - Neither present: NaN position, zero confidence
     """
+    FUSE_NONE = np.uint8(0)
+    FUSE_YOLO = np.uint8(1)
+    FUSE_CENTROID = np.uint8(2)
+    FUSE_BLENDED = np.uint8(3)
+    FUSE_INTERP = np.uint8(4)
+    FUSE_HOLD = np.uint8(5)
+
     positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
     used_mask = np.zeros(frame_count, dtype=bool)
     confidence = np.zeros(frame_count, dtype=np.float32)
+    source_labels = np.zeros(frame_count, dtype=np.uint8)
 
     # Index YOLO samples by frame
     yolo_by_frame: dict[int, BallSample] = {}
@@ -1423,6 +1433,7 @@ def fuse_yolo_and_centroid(
                 positions[i, 0] = yolo.x
                 positions[i, 1] = yolo.y
                 confidence[i] = yolo_conf
+                source_labels[i] = FUSE_YOLO
                 yolo_used += 1
             else:
                 # Low-confidence YOLO: blend with centroid
@@ -1432,6 +1443,7 @@ def fuse_yolo_and_centroid(
                 positions[i, 0] = w_yolo * yolo.x + w_cent * centroid.x
                 positions[i, 1] = w_yolo * yolo.y + w_cent * centroid.y
                 confidence[i] = 0.3 + 0.5 * w_yolo  # 0.3 to 0.8
+                source_labels[i] = FUSE_BLENDED
                 blended += 1
             used_mask[i] = True
         elif yolo is not None:
@@ -1439,6 +1451,7 @@ def fuse_yolo_and_centroid(
             positions[i, 0] = yolo.x
             positions[i, 1] = yolo.y
             confidence[i] = max(0.0, min(1.0, yolo.conf))
+            source_labels[i] = FUSE_YOLO
             used_mask[i] = True
             yolo_used += 1
         elif centroid is not None:
@@ -1446,6 +1459,7 @@ def fuse_yolo_and_centroid(
             positions[i, 0] = centroid.x
             positions[i, 1] = centroid.y
             confidence[i] = 0.30  # centroid-only: moderate confidence
+            source_labels[i] = FUSE_CENTROID
             used_mask[i] = True
             centroid_used += 1
 
@@ -1492,6 +1506,7 @@ def fuse_yolo_and_centroid(
                 positions[k, 0] = interp_x
                 positions[k, 1] = interp_y
                 confidence[k] = INTERP_CONF
+                source_labels[k] = FUSE_INTERP
                 used_mask[k] = True
                 interpolated += 1
 
@@ -1504,6 +1519,7 @@ def fuse_yolo_and_centroid(
             positions[k, 0] = yl.x
             positions[k, 1] = yl.y
             confidence[k] = max(confidence[k], 0.25)
+            source_labels[k] = FUSE_HOLD
             used_mask[k] = True
             interpolated += 1
 
@@ -1513,7 +1529,7 @@ def fuse_yolo_and_centroid(
                 f"(max_gap={MAX_INTERP_GAP})"
             )
 
-    return positions, used_mask, confidence
+    return positions, used_mask, confidence, source_labels
 
 
 __all__ = [

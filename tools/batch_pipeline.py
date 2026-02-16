@@ -194,6 +194,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--scratch-root",
         help="Root directory for scratch artifacts",
     )
+    p.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="Write per-frame diagnostic CSV alongside each render",
+    )
 
     return p.parse_args(argv)
 
@@ -311,7 +316,8 @@ def _output_path_for_clip(clip_path: str, preset: str, portrait: str, out_dir: P
 
 def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
                  *, keep_scratch: bool = False,
-                 scratch_root: str | None = None) -> tuple[bool, str]:
+                 scratch_root: str | None = None,
+                 diagnostics: bool = False) -> tuple[bool, str]:
     """Invoke render_follow_unified.py for a single clip.
 
     Returns (success, error_message).
@@ -327,6 +333,8 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
     ]
     if keep_scratch:
         cmd.append("--keep-scratch")
+    if diagnostics:
+        cmd.append("--diagnostics")
     if scratch_root:
         cmd.extend(["--scratch-root", scratch_root])
 
@@ -571,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
                 clip_path, out_path, args.preset, args.portrait,
                 keep_scratch=args.keep_scratch,
                 scratch_root=args.scratch_root,
+                diagnostics=getattr(args, "diagnostics", False),
             )
 
             if success and out_path.exists():
