@@ -9,11 +9,9 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
-      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\003__2025-04-12__TSC_vs_Route_66__GOAL__t48.50-t58.00__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-13T23:58:49+00:00",
+      "done": false,
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "error": "source not found"
     },
     "upscale": {
       "done": true,
@@ -23,7 +21,13 @@
       "model": "lanczos"
     }
   },
-  "errors": [],
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-16T03:40:30+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
   "master_rel": "out/games/2025-04-12__TSC_vs_Route_66/MASTER.mp4",
   "t_start_s": 48.5,

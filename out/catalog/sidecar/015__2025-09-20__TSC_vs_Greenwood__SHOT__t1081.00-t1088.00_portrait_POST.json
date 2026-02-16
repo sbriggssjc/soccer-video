@@ -9,14 +9,18 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
-      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\015__2025-09-20__TSC_vs_Greenwood__SHOT__t1081.00-t1088.00_portrait_POST__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-14T01:02:17+00:00",
+      "done": false,
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "error": "source not found"
     }
   },
-  "errors": [],
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-16T03:40:31+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
   "t_start_s": 1081.0,

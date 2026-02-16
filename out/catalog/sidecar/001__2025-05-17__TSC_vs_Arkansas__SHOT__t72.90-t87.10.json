@@ -9,14 +9,18 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
-      "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\001__2025-05-17__TSC_vs_Arkansas__SHOT__t72.90-t87.10__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-14T00:08:01+00:00",
+      "done": false,
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "error": "source not found"
     }
   },
-  "errors": [],
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-16T03:40:30+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-05-17__TSC_vs_Arkansas/MASTER.mp4",
   "master_rel": "out/games/2025-05-17__TSC_vs_Arkansas/MASTER.mp4",
   "t_start_s": 72.9,
