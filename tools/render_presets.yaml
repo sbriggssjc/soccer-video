@@ -3,8 +3,8 @@ cinematic:
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
   smoothing: 0.22         # tracking alpha — raised from 0.15 to reduce lag during camera pans
   pad: 0.04               # reduced from 0.10 — preserves more source pixels (1.93x upscale vs 2.22x)
-  speed_limit: 1000       # raised from 800; gives per-frame planner headroom during flight transitions
-  post_smooth_sigma: 3.0  # lowered from 5.0; cuts response lag from ±15 to ±9 frames — EMA+accel limiter still smooth normal tracking
+  speed_limit: 550        # original "fantastic" value — step-function flight interp gives smoothing stack max lead time
+  post_smooth_sigma: 5.0  # original "fantastic" value — heavy Gaussian turns step-function into smooth cinematic pan
   zoom_min: 0.85          # lowered from 1.00 — allows confidence-driven zoom-out when ball position uncertain
   zoom_max: 1.40          # reduced from 1.90 — caps upscale to ~2x, preserves sharpness
   crf: 17                 # higher quality output
