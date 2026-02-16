@@ -120,6 +120,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="append",
         help="Process specific clip path(s) instead of scanning (repeatable)",
     )
+    p.add_argument(
+        "--remap",
+        metavar="OLD=NEW",
+        help=(
+            "Remap clip path prefix from catalog. "
+            "E.g. --remap 'C:/Users/scott/OneDrive/SoccerVideoMedia=D:/Projects/soccer-video'"
+        ),
+    )
 
     # Behavior
     p.add_argument(
@@ -190,6 +198,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _parse_remap(remap_arg: str | None) -> tuple[str, str] | None:
+    """Parse --remap OLD=NEW into (old_prefix, new_prefix)."""
+    if not remap_arg:
+        return None
+    if "=" not in remap_arg:
+        print(f"[ERROR] --remap must be OLD=NEW, got: {remap_arg!r}")
+        return None
+    old, new = remap_arg.split("=", 1)
+    # Normalize to forward slashes for consistent matching
+    return old.replace("\\", "/"), new.replace("\\", "/")
+
+
+def _apply_remap(clip_path: str, remap: tuple[str, str] | None) -> str:
+    """Replace old prefix with new prefix in a clip path."""
+    if not remap:
+        return clip_path
+    old_prefix, new_prefix = remap
+    normalized = clip_path.replace("\\", "/")
+    if normalized.startswith(old_prefix):
+        return new_prefix + normalized[len(old_prefix):]
+    return clip_path
+
+
 def _load_duplicate_set() -> set[str]:
     """Return set of clip_rel paths that are duplicates (not canonical)."""
     dupes = set()
@@ -221,7 +252,8 @@ def _scan_directory(src_dir: str, pattern: str, game_filter: str | None) -> list
     return clips
 
 
-def _clips_from_catalog(src_dir: str, pattern: str, game_filter: str | None) -> list[dict]:
+def _clips_from_catalog(src_dir: str, pattern: str, game_filter: str | None,
+                        remap: tuple[str, str] | None = None) -> list[dict]:
     """Load clips from atomic_index.csv, falling back to directory scan."""
     clips = []
     rows = load_existing_atomic_rows()
@@ -232,6 +264,11 @@ def _clips_from_catalog(src_dir: str, pattern: str, game_filter: str | None) -> 
                 continue
             if game_filter and game_filter.lower() not in rel.lower():
                 continue
+            # Apply path remap if provided
+            if remap:
+                row = dict(row)  # don't mutate the original
+                row["clip_path"] = _apply_remap(row["clip_path"], remap)
+                row["clip_rel"] = _apply_remap(row.get("clip_rel", ""), remap)
             clips.append(row)
         if clips:
             return clips
@@ -364,6 +401,11 @@ def main(argv: list[str] | None = None) -> int:
             f"Hard dupes: {result.hard_dupes} | Soft dupes: {result.soft_dupes}"
         )
 
+    # --- Parse remap ---
+    remap = _parse_remap(getattr(args, "remap", None))
+    if remap:
+        print(f"[REMAP] {remap[0]}  ->  {remap[1]}")
+
     # --- Load clips ---
     if args.clip:
         clips = []
@@ -375,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
                 "clip_stem": p.stem,
             })
     else:
-        clips = _clips_from_catalog(args.src_dir, args.pattern, args.game)
+        clips = _clips_from_catalog(args.src_dir, args.pattern, args.game, remap=remap)
 
     if not clips:
         print("[WARN] No clips found to process.")
