@@ -5442,9 +5442,19 @@ class CameraPlanner:
             # the camera stays committed to the trajectory.  The speed
             # threshold is tuned to trigger on shots/passes (~6 px/frame)
             # but not on normal dribbling (~2-3 px/frame).
+            #
+            # GUARD: Only apply flight commitment when the underlying
+            # data has real YOLO confidence (>= 0.35).  Centroid and
+            # interpolated frames have conf <= 0.30; their apparent
+            # "speed" comes from position noise, not actual ball motion.
+            # Boosting confidence on these frames prevents the
+            # confidence-based zoom-out, keeping a tight crop on a
+            # position that may be completely wrong.
             frame_conf = float(frame_confidence[frame_idx])
+            _raw_conf = float(frame_confidence[frame_idx])  # before any boosting
             _flight_speed_thr = 5.0  # px/frame: above this = shot/pass in flight
-            if smooth_speed_pf > _flight_speed_thr:
+            _flight_min_conf = 0.35  # only commit when data has real detection backing
+            if smooth_speed_pf > _flight_speed_thr and _raw_conf >= _flight_min_conf:
                 # Boost confidence floor proportional to speed
                 _flight_frac = min(1.0, (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
                 _flight_conf_floor = 0.50 + 0.30 * _flight_frac  # 0.50 at threshold, 0.80 at 2x threshold
@@ -5452,9 +5462,11 @@ class CameraPlanner:
                     frame_conf = _flight_conf_floor
                     clamp_flags.append(f"flight_commit={_flight_frac:.2f}")
 
-            if frame_conf < 0.50:
-                # Map confidence 0..0.5 → zoom scale 0.70..1.0
-                conf_scale = 0.70 + 0.60 * frame_conf  # 0.70 at conf=0, 1.0 at conf=0.5
+            if frame_conf < 0.55:
+                # Map confidence 0..0.55 → zoom scale 0.60..1.0
+                # Low-confidence frames (centroid/interp) zoom out to keep
+                # more of the field visible when ball position is uncertain.
+                conf_scale = 0.60 + 0.727 * frame_conf  # 0.60 at conf=0, 1.0 at conf=0.55
                 zoom_target = float(np.clip(
                     zoom_target * conf_scale, self.zoom_min, self.zoom_max
                 ))
