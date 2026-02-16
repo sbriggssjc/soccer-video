@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\012__2025-09-20__TSC_vs_RVFC__BUILD_UP_PLAY_SHOT__t44760.00-t45420.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T05:31:18+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

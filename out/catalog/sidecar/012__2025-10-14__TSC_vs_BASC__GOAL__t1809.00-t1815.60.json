@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\012__2025-10-14__TSC_vs_BASC__GOAL__t1809.00-t1815.60__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T07:01:47+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

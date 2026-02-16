@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T04:17:19+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

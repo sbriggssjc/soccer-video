@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\009__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t36240.00-t37200.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T05:24:08+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

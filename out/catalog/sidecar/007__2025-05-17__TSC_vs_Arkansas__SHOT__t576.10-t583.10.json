@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\007__2025-05-17__TSC_vs_Arkansas__SHOT__t576.10-t583.10__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T04:12:08+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\006__2025-04-12__TSC_vs_Route_66__SHOT__t140.00-t144.50__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T03:54:02+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

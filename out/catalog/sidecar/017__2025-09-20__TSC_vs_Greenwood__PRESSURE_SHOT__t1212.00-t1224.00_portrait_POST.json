@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\017__2025-09-20__TSC_vs_Greenwood__PRESSURE_SHOT__t1212.00-t1224.00_portrait_POST__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-16T04:50:30+00:00",
       "preset": "cinematic",
-      "error": "source not found"
+      "portrait": "1080x1920"
     }
   },
   "errors": [
