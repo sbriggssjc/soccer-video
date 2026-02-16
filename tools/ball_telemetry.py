@@ -1507,15 +1507,6 @@ def fuse_yolo_and_centroid(
     MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
     INTERP_CONF = 0.28       # confidence for interpolated frames (lowered from 0.35)
 
-    # Long-gap easing: no explicit hold — the post-smooth Gaussian already
-    # provides natural inertia (~sigma frames of lag).  Use aggressive ease-out
-    # so that the ball position moves toward the receiver IMMEDIATELY, letting
-    # the Gaussian turn that into a smooth cinematic pan.  The ball position
-    # must lead the camera by enough to overcome the smoothing stack
-    # (EMA alpha=0.22 + Gaussian sigma + accel limiter).
-    HOLD_FRAC = 0.0    # no hold: let Gaussian provide natural inertia
-    EASE_POWER = 3.5    # aggressive ease-out — 50% of travel done by t=0.20
-
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
 
@@ -1548,21 +1539,21 @@ def fuse_yolo_and_centroid(
                 long_interp += gap - 1
 
             for k in range(fi + 1, fj):
-                t = (k - fi) / float(gap)
-
                 if is_long:
-                    # Hold + ease-out: stay near kicker, then rapid pan to
-                    # receiver.  Camera arrives well before the ball.
-                    if t <= HOLD_FRAC:
-                        t_eased = 0.0
-                    else:
-                        t_inner = (t - HOLD_FRAC) / (1.0 - HOLD_FRAC)
-                        t_eased = 1.0 - (1.0 - t_inner) ** EASE_POWER
+                    # Step function: target the receiver for the entire gap.
+                    # The post-smooth Gaussian (sigma=5, ±15 frames) turns
+                    # this into a smooth ~1.25s cinematic pan automatically.
+                    # No easing curves needed — the smoothing stack IS the
+                    # cinematic effect.  This gives the camera maximum lead
+                    # time to arrive at the receiver before the ball.
+                    interp_x = x1
+                    interp_y = y1
                 else:
-                    t_eased = t  # short gaps: linear is fine
+                    # Short gaps: linear interpolation
+                    t = (k - fi) / float(gap)
+                    interp_x = x0 + t * (x1 - x0)
+                    interp_y = y0 + t * (y1 - y0)
 
-                interp_x = x0 + t_eased * (x1 - x0)
-                interp_y = y0 + t_eased * (y1 - y0)
                 positions[k, 0] = interp_x
                 positions[k, 1] = interp_y
                 confidence[k] = INTERP_CONF
