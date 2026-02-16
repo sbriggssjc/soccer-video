@@ -8056,6 +8056,7 @@ def run(
     # out when uncertain to keep more field visible).
     valid_label_count = int(used_mask.sum()) if len(used_mask) > 0 else 0
     fusion_confidence: Optional[np.ndarray] = None
+    fusion_source_labels: Optional[np.ndarray] = None
 
     if valid_label_count < max(1, len(used_mask)) * 0.1:
         # YOLO label files are sparse/absent — run real-time YOLO detection
@@ -8073,7 +8074,7 @@ def run(
 
         if yolo_samples or ball_samples:
             # Fuse YOLO + centroid → merged positions with confidence
-            fused_positions, fused_mask, fusion_confidence = fuse_yolo_and_centroid(
+            fused_positions, fused_mask, fusion_confidence, fusion_source_labels = fuse_yolo_and_centroid(
                 yolo_samples=yolo_samples,
                 centroid_samples=ball_samples,
                 frame_count=len(positions),
@@ -8338,33 +8339,158 @@ def run(
             f"reversals={_zm_reversals}{_extras}"
         )
 
-    # Compute CameraPlanner-specific ball-in-crop coverage.
-    # This measures the ACTUAL camera plan, unlike ball_cam_stats which
-    # measures the EMA path (a different camera system).
-    if states and ball_samples and follow_crop_width > 0:
-        _cp_inside = 0
-        _cp_total = 0
+    # --- Ball-in-crop diagnostic (always printed to stdout for batch visibility) ---
+    _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold"}
+    if states and len(states) > 0 and follow_crop_width > 0:
+        _n_states = len(states)
         _half_pw = float(follow_crop_width) / 2.0
-        for _bs in ball_samples:
-            _fidx = getattr(_bs, "frame", None)
-            _bsx = _safe_float(getattr(_bs, "x", None))
-            if _fidx is None or _bsx is None:
+        _crop_h_est = float(height)  # at zoom=1.0; refined per-frame below
+        _inside_total = 0
+        _outside_total = 0
+        _outside_by_src = {k: 0 for k in _FUSE_LABELS}
+        _inside_by_src = {k: 0 for k in _FUSE_LABELS}
+        _max_outside_dist = 0.0
+        _worst_outside_frames: list[tuple[int, float, int]] = []  # (frame, dist, src)
+        _speed_limited_frames = 0
+        _keepinview_frames = 0
+
+        for _fi in range(_n_states):
+            _st = states[_fi]
+
+            # Count engine flags
+            _flags = _st.clamp_flags or []
+            if any(f == "speed" or f == "final_speed" for f in _flags):
+                _speed_limited_frames += 1
+            if any(f.startswith("keepin_prop=") for f in _flags):
+                _keepinview_frames += 1
+
+            # Get ball position for this frame
+            _bx: Optional[float] = None
+            _by: Optional[float] = None
+            if _st.ball is not None:
+                _bx, _by = float(_st.ball[0]), float(_st.ball[1])
+            elif _fi < len(positions) and used_mask[_fi]:
+                _bx = float(positions[_fi, 0])
+                _by = float(positions[_fi, 1])
+            if _bx is None:
                 continue
-            _fidx = int(_fidx)
-            if 0 <= _fidx < len(states):
-                _cp_total += 1
-                _scx = states[_fidx].cx
-                _crop_left = max(0.0, _scx - _half_pw)
-                if _crop_left + follow_crop_width > width:
-                    _crop_left = max(0.0, width - follow_crop_width)
-                _crop_right = _crop_left + follow_crop_width
-                if _crop_left <= _bsx <= _crop_right:
-                    _cp_inside += 1
-        _cp_pct = 100.0 * _cp_inside / max(1, _cp_total)
-        logger.info(
-            "[CAMERA-PLANNER] ball_in_crop: %.1f%% (%d/%d frames)",
-            _cp_pct, _cp_inside, _cp_total,
+
+            # Source label
+            _src = int(fusion_source_labels[_fi]) if (fusion_source_labels is not None and _fi < len(fusion_source_labels)) else 0
+
+            # Crop rectangle from state
+            _crop_left = max(0.0, _st.cx - _half_pw)
+            if _crop_left + follow_crop_width > width:
+                _crop_left = max(0.0, width - follow_crop_width)
+            _crop_right = _crop_left + follow_crop_width
+            _crop_top = _st.y0 if hasattr(_st, "y0") else max(0.0, _st.cy - _crop_h_est / 2.0)
+            _crop_bottom = _crop_top + (_st.crop_h if hasattr(_st, "crop_h") else _crop_h_est)
+
+            # Distance to nearest crop edge (negative = outside)
+            _dx_left = _bx - _crop_left
+            _dx_right = _crop_right - _bx
+            _dy_top = _by - _crop_top
+            _dy_bottom = _crop_bottom - _by
+            _min_dist = min(_dx_left, _dx_right, _dy_top, _dy_bottom)
+
+            if _min_dist >= 0:
+                _inside_total += 1
+                _inside_by_src[_src] = _inside_by_src.get(_src, 0) + 1
+            else:
+                _outside_total += 1
+                _outside_by_src[_src] = _outside_by_src.get(_src, 0) + 1
+                _out_dist = abs(_min_dist)
+                if _out_dist > _max_outside_dist:
+                    _max_outside_dist = _out_dist
+                _worst_outside_frames.append((_fi, _out_dist, _src))
+
+        _checked = _inside_total + _outside_total
+        _in_pct = 100.0 * _inside_total / max(1, _checked)
+        print(
+            f"[DIAG] Ball in crop: {_inside_total}/{_checked} ({_in_pct:.1f}%) | "
+            f"Outside: {_outside_total} frames | Max escape: {_max_outside_dist:.0f}px"
         )
+        # Source breakdown
+        _src_parts = []
+        for _sk in sorted(_FUSE_LABELS.keys()):
+            _s_in = _inside_by_src.get(_sk, 0)
+            _s_out = _outside_by_src.get(_sk, 0)
+            _s_tot = _s_in + _s_out
+            if _s_tot > 0:
+                _s_pct_out = 100.0 * _s_out / max(1, _s_tot)
+                _src_parts.append(f"{_FUSE_LABELS[_sk]}={_s_tot}({_s_out} out/{_s_pct_out:.0f}%)")
+        if _src_parts:
+            print(f"[DIAG] Source breakdown: {', '.join(_src_parts)}")
+        print(
+            f"[DIAG] Speed-limited: {_speed_limited_frames}f ({100.0 * _speed_limited_frames / max(1, _n_states):.0f}%) | "
+            f"Keepinview: {_keepinview_frames}f ({100.0 * _keepinview_frames / max(1, _n_states):.0f}%)"
+        )
+        # Show worst escape frames
+        if _worst_outside_frames:
+            _worst_outside_frames.sort(key=lambda x: x[1], reverse=True)
+            _top_worst = _worst_outside_frames[:5]
+            _worst_str = ", ".join(
+                f"f{wf[0]}:{wf[1]:.0f}px({_FUSE_LABELS.get(wf[2], '?')})"
+                for wf in _top_worst
+            )
+            print(f"[DIAG] Worst escapes: {_worst_str}")
+
+        # --- Per-frame diagnostics CSV (when --diagnostics is set) ---
+        if getattr(args, "diagnostics", False):
+            _diag_path = output_path.with_suffix(".diag.csv")
+            try:
+                import csv as _csv_mod
+                with open(_diag_path, "w", newline="") as _df:
+                    _dw = _csv_mod.writer(_df)
+                    _dw.writerow([
+                        "frame", "ball_x", "ball_y", "source", "confidence",
+                        "cam_cx", "cam_cy", "crop_x0", "crop_y0", "crop_w", "crop_h",
+                        "ball_in_crop", "dist_to_edge", "speed_limited", "keepinview",
+                        "clamp_flags",
+                    ])
+                    for _fi in range(_n_states):
+                        _st = states[_fi]
+                        _bx_d = ""
+                        _by_d = ""
+                        if _st.ball is not None:
+                            _bx_d, _by_d = f"{_st.ball[0]:.1f}", f"{_st.ball[1]:.1f}"
+                        elif _fi < len(positions) and used_mask[_fi]:
+                            _bx_d = f"{positions[_fi, 0]:.1f}"
+                            _by_d = f"{positions[_fi, 1]:.1f}"
+                        _src_d = _FUSE_LABELS.get(
+                            int(fusion_source_labels[_fi]) if (fusion_source_labels is not None and _fi < len(fusion_source_labels)) else 0,
+                            "none"
+                        )
+                        _conf_d = f"{fusion_confidence[_fi]:.2f}" if (fusion_confidence is not None and _fi < len(fusion_confidence)) else ""
+                        _flags_d = _st.clamp_flags or []
+                        _sl_d = "1" if any(f == "speed" or f == "final_speed" for f in _flags_d) else "0"
+                        _kv_d = "1" if any(f.startswith("keepin_prop=") for f in _flags_d) else "0"
+                        # Ball-in-crop distance
+                        _dist_d = ""
+                        _bic_d = ""
+                        if _bx_d and _by_d:
+                            _bxf = float(_bx_d)
+                            _byf = float(_by_d)
+                            _cl = max(0.0, _st.cx - _half_pw)
+                            if _cl + follow_crop_width > width:
+                                _cl = max(0.0, width - follow_crop_width)
+                            _cr = _cl + follow_crop_width
+                            _ct = _st.y0 if hasattr(_st, "y0") else max(0.0, _st.cy - _crop_h_est / 2.0)
+                            _cb = _ct + (_st.crop_h if hasattr(_st, "crop_h") else _crop_h_est)
+                            _md = min(_bxf - _cl, _cr - _bxf, _byf - _ct, _cb - _byf)
+                            _dist_d = f"{_md:.1f}"
+                            _bic_d = "1" if _md >= 0 else "0"
+                        _dw.writerow([
+                            _fi, _bx_d, _by_d, _src_d, _conf_d,
+                            f"{_st.cx:.1f}", f"{_st.cy:.1f}",
+                            f"{_st.x0:.1f}", f"{_st.y0:.1f}",
+                            f"{_st.crop_w:.1f}", f"{_st.crop_h:.1f}",
+                            _bic_d, _dist_d, _sl_d, _kv_d,
+                            "|".join(_flags_d),
+                        ])
+                print(f"[DIAG] Per-frame CSV: {_diag_path}")
+            except Exception as _diag_exc:
+                print(f"[DIAG] CSV write failed: {_diag_exc}")
 
     temp_root = scratch_root / "autoframe_work"
     temp_dir = temp_root / preset_key / original_source_path.stem
@@ -9049,6 +9175,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-draw-ball",
         action="store_true",
         help="Disable ball overlay even if preset enables it",
+    )
+    parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="Write per-frame diagnostic CSV alongside output (ball position, crop, source, flags)",
     )
     parser.add_argument(
         "--debug-pan-overlay",
