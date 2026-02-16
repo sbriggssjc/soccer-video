@@ -9,7 +9,7 @@
 #>
 
 # --- Your paths ---
-$RosterDir    = "C:\Users\scott\OneDrive\Desktop\Personal\Photos\Kids Games\Claire\Photo Circle\Roster"
+$RosterDir    = "D:\Personal\Photos\Kids Games\Claire\Photo Circle\Roster"
 $OpenerScript = "C:\Users\scott\soccer-video\New-TSCOpeningTitle.ps1"   # the script we built earlier
 $OutRoot      = "C:\Users\scott\soccer-video\out\opener"                # where to save all opener MP4s
 
@@ -65,7 +65,7 @@ Write-Host "Manifest: $csv"
 #>
 
 # --- Your paths ---
-$RosterDir    = "C:\Users\scott\OneDrive\Desktop\Personal\Photos\Kids Games\Claire\Photo Circle\Roster"
+$RosterDir    = "D:\Personal\Photos\Kids Games\Claire\Photo Circle\Roster"
 $OpenerScript = "C:\Users\scott\soccer-video\New-TSCOpeningTitle.ps1"
 $OutRoot      = "C:\Users\scott\soccer-video\out\opener"
 
@@ -118,3 +118,4 @@ $csv = Join-Path $OutRoot "openers_manifest.csv"
 $manifest | Export-Csv -NoTypeInformation -Encoding UTF8 $csv
 Write-Host "`nAll done. Opener files in: $OutRoot"
 Write-Host "Manifest: $csv"
+
