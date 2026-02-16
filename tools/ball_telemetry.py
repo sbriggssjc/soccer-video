@@ -1502,7 +1502,7 @@ def fuse_yolo_and_centroid(
     # eliminates the camera oscillation caused by alternating between
     # YOLO (actual ball) and centroid (player activity cluster) which
     # can differ by 50-200px and cause visible camera hunting.
-    MAX_INTERP_GAP = 15  # max gap to interpolate (~0.5s at 30fps; was 60)
+    MAX_INTERP_GAP = 30  # max gap to interpolate (~1s at 30fps; covers goal kick→receiver passes)
     INTERP_CONF = 0.28   # confidence for interpolated frames (lowered from 0.35)
 
     # Collect frames that have YOLO data (used directly or blended)
