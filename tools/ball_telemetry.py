@@ -22,7 +22,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, Mapping, Sequence, Tuple
+from typing import Iterable, Iterator, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1422,6 +1422,16 @@ def fuse_yolo_and_centroid(
     blended = 0
     conf_threshold = 0.28  # YOLO conf above which we trust it fully (lowered from 0.40)
 
+    # Track last trusted YOLO position for centroid gating.
+    # When centroid-only frames appear far from the last YOLO position,
+    # the centroid is probably tracking a player cluster, not the ball.
+    # In that case we blend toward the YOLO hold to prevent the camera
+    # from snapping to the wrong part of the field.
+    _last_yolo_x: Optional[float] = None
+    _last_yolo_y: Optional[float] = None
+    YOLO_HOLD_DIST = 150.0  # px: centroid beyond this → suspect
+    YOLO_HOLD_BLEND = 0.65  # weight for last YOLO when centroid diverges
+
     for i in range(frame_count):
         yolo = yolo_by_frame.get(i)
         centroid = centroid_by_frame.get(i)
@@ -1435,6 +1445,7 @@ def fuse_yolo_and_centroid(
                 confidence[i] = yolo_conf
                 source_labels[i] = FUSE_YOLO
                 yolo_used += 1
+                _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
             else:
                 # Low-confidence YOLO: blend with centroid
                 # Weight YOLO by its confidence, centroid gets the remainder
@@ -1445,6 +1456,7 @@ def fuse_yolo_and_centroid(
                 confidence[i] = 0.3 + 0.5 * w_yolo  # 0.3 to 0.8
                 source_labels[i] = FUSE_BLENDED
                 blended += 1
+                _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
             used_mask[i] = True
         elif yolo is not None:
             # Only YOLO
@@ -1454,11 +1466,24 @@ def fuse_yolo_and_centroid(
             source_labels[i] = FUSE_YOLO
             used_mask[i] = True
             yolo_used += 1
+            _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
         elif centroid is not None:
-            # Only centroid
-            positions[i, 0] = centroid.x
-            positions[i, 1] = centroid.y
-            confidence[i] = 0.30  # centroid-only: moderate confidence
+            cx, cy = float(centroid.x), float(centroid.y)
+            # Gate centroid against last known YOLO position.
+            if _last_yolo_x is not None:
+                dist = math.hypot(cx - _last_yolo_x, cy - _last_yolo_y)
+                if dist > YOLO_HOLD_DIST:
+                    # Centroid diverged — blend toward last YOLO position.
+                    w = YOLO_HOLD_BLEND
+                    cx = w * _last_yolo_x + (1.0 - w) * cx
+                    cy = w * _last_yolo_y + (1.0 - w) * cy
+                    confidence[i] = 0.22  # lower: uncertain position
+                else:
+                    confidence[i] = 0.30  # centroid agrees with YOLO area
+            else:
+                confidence[i] = 0.30
+            positions[i, 0] = cx
+            positions[i, 1] = cy
             source_labels[i] = FUSE_CENTROID
             used_mask[i] = True
             centroid_used += 1
