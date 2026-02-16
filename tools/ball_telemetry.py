@@ -1507,13 +1507,14 @@ def fuse_yolo_and_centroid(
     MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
     INTERP_CONF = 0.28       # confidence for interpolated frames (lowered from 0.35)
 
-    # Long-gap easing: hold near the kicker, then ease-out to the receiver.
-    # Linear interpolation pans the camera through empty mid-field for seconds.
-    # This hold + ease-out curve keeps the camera near the kicker (showing the
-    # kick), then rapidly transitions to the receiver area so it arrives well
-    # before the ball, catching the 2nd/3rd touches.
-    HOLD_FRAC = 0.20   # hold at start position for first 20% of long gap
-    EASE_POWER = 2.5    # ease-out exponent (higher = faster initial move)
+    # Long-gap easing: no explicit hold — the post-smooth Gaussian already
+    # provides natural inertia (~sigma frames of lag).  Use aggressive ease-out
+    # so that the ball position moves toward the receiver IMMEDIATELY, letting
+    # the Gaussian turn that into a smooth cinematic pan.  The ball position
+    # must lead the camera by enough to overcome the smoothing stack
+    # (EMA alpha=0.22 + Gaussian sigma + accel limiter).
+    HOLD_FRAC = 0.0    # no hold: let Gaussian provide natural inertia
+    EASE_POWER = 3.5    # aggressive ease-out — 50% of travel done by t=0.20
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
