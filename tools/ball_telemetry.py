@@ -1507,6 +1507,14 @@ def fuse_yolo_and_centroid(
     MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
     INTERP_CONF = 0.28       # confidence for interpolated frames (lowered from 0.35)
 
+    # Long-gap easing: hold near the kicker, then ease-out to the receiver.
+    # Linear interpolation pans the camera through empty mid-field for seconds.
+    # This hold + ease-out curve keeps the camera near the kicker (showing the
+    # kick), then rapidly transitions to the receiver area so it arrives well
+    # before the ball, catching the 2nd/3rd touches.
+    HOLD_FRAC = 0.20   # hold at start position for first 20% of long gap
+    EASE_POWER = 2.5    # ease-out exponent (higher = faster initial move)
+
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
 
@@ -1531,7 +1539,8 @@ def fuse_yolo_and_centroid(
             # ball clearly traveled across the field.  This prevents bad
             # interpolation between false-positive YOLO detections that are
             # spatially close but temporally far apart.
-            if gap > SHORT_INTERP_GAP:
+            is_long = gap > SHORT_INTERP_GAP
+            if is_long:
                 dist = math.hypot(x1 - x0, y1 - y0)
                 if dist < MIN_FLIGHT_DIST:
                     continue  # small move: centroid tracking is fine
@@ -1539,8 +1548,20 @@ def fuse_yolo_and_centroid(
 
             for k in range(fi + 1, fj):
                 t = (k - fi) / float(gap)
-                interp_x = x0 + t * (x1 - x0)
-                interp_y = y0 + t * (y1 - y0)
+
+                if is_long:
+                    # Hold + ease-out: stay near kicker, then rapid pan to
+                    # receiver.  Camera arrives well before the ball.
+                    if t <= HOLD_FRAC:
+                        t_eased = 0.0
+                    else:
+                        t_inner = (t - HOLD_FRAC) / (1.0 - HOLD_FRAC)
+                        t_eased = 1.0 - (1.0 - t_inner) ** EASE_POWER
+                else:
+                    t_eased = t  # short gaps: linear is fine
+
+                interp_x = x0 + t_eased * (x1 - x0)
+                interp_y = y0 + t_eased * (y1 - y0)
                 positions[k, 0] = interp_x
                 positions[k, 1] = interp_y
                 confidence[k] = INTERP_CONF
