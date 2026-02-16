@@ -1502,20 +1502,23 @@ def fuse_yolo_and_centroid(
     # eliminates the camera oscillation caused by alternating between
     # YOLO (actual ball) and centroid (player activity cluster) which
     # can differ by 50-200px and cause visible camera hunting.
-    MAX_INTERP_GAP = 15  # max gap to interpolate (~0.5s at 30fps; was 60)
-    INTERP_CONF = 0.28   # confidence for interpolated frames (lowered from 0.35)
+    SHORT_INTERP_GAP = 15   # always interpolate gaps <= this (~0.5s at 30fps)
+    LONG_INTERP_GAP = 90    # max gap for flight interpolation (~3s at 30fps)
+    MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
+    INTERP_CONF = 0.28       # confidence for interpolated frames (lowered from 0.35)
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
 
     if len(yolo_frames) >= 1:
         interpolated = 0
+        long_interp = 0
         # For each pair of consecutive YOLO frames, fill the gap
         for seg_idx in range(len(yolo_frames) - 1):
             fi = yolo_frames[seg_idx]
             fj = yolo_frames[seg_idx + 1]
             gap = fj - fi
-            if gap <= 1 or gap > MAX_INTERP_GAP:
+            if gap <= 1 or gap > LONG_INTERP_GAP:
                 continue  # no gap or too large to interpolate
 
             # YOLO positions at the endpoints
@@ -1523,6 +1526,16 @@ def fuse_yolo_and_centroid(
             yj = yolo_by_frame[fj]
             x0, y0 = float(yi.x), float(yi.y)
             x1, y1 = float(yj.x), float(yj.y)
+
+            # For long gaps (> SHORT_INTERP_GAP), only interpolate if the
+            # ball clearly traveled across the field.  This prevents bad
+            # interpolation between false-positive YOLO detections that are
+            # spatially close but temporally far apart.
+            if gap > SHORT_INTERP_GAP:
+                dist = math.hypot(x1 - x0, y1 - y0)
+                if dist < MIN_FLIGHT_DIST:
+                    continue  # small move: centroid tracking is fine
+                long_interp += gap - 1
 
             for k in range(fi + 1, fj):
                 t = (k - fi) / float(gap)
@@ -1563,10 +1576,10 @@ def fuse_yolo_and_centroid(
                     f"from first YOLO at frame {first_yolo}"
                 )
 
-        # Hold at last YOLO position for trailing frames (up to MAX_INTERP_GAP)
+        # Hold at last YOLO position for trailing frames (up to SHORT_INTERP_GAP)
         last_yolo = yolo_frames[-1]
         yl = yolo_by_frame[last_yolo]
-        for k in range(last_yolo + 1, min(frame_count, last_yolo + MAX_INTERP_GAP)):
+        for k in range(last_yolo + 1, min(frame_count, last_yolo + SHORT_INTERP_GAP)):
             if k in yolo_by_frame:
                 break
             positions[k, 0] = yl.x
@@ -1577,9 +1590,10 @@ def fuse_yolo_and_centroid(
             interpolated += 1
 
         if interpolated > 0:
+            _long_msg = f" (long-flight={long_interp})" if long_interp > 0 else ""
             print(
                 f"[FUSION] Interpolated {interpolated} frames between YOLO detections "
-                f"(max_gap={MAX_INTERP_GAP})"
+                f"(short_gap={SHORT_INTERP_GAP}, long_gap={LONG_INTERP_GAP}){_long_msg}"
             )
 
     return positions, used_mask, confidence, source_labels
