@@ -1,10 +1,10 @@
 cinematic:
   fps: 24                 # fixed social cadence
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
-  smoothing: 0.15         # tracking alpha (pre-smoothing caps at 0.12); deadzone creates holds
+  smoothing: 0.22         # tracking alpha — raised from 0.15 to reduce lag during camera pans
   pad: 0.04               # reduced from 0.10 — preserves more source pixels (1.93x upscale vs 2.22x)
-  speed_limit: 200        # ~9 px/frame at 30fps = 2.3% visible width — slow cinematic pan
-  post_smooth_sigma: 9.0  # strong Gaussian (~0.30s at 30fps); S-curve acceleration follows
+  speed_limit: 550        # ~31 px/frame at 24fps — raised from 200 so virtual camera can follow physical pans
+  post_smooth_sigma: 5.0  # moderate Gaussian — lowered from 9.0 to reduce tracking lag
   zoom_min: 1.00
   zoom_max: 1.40          # reduced from 1.90 — caps upscale to ~2x, preserves sharpness
   crf: 17                 # higher quality output
@@ -13,12 +13,12 @@ cinematic:
     source: ball
     keys: [bx_stab, by_stab]
     smoothing: 0.06
-    lead_time: 0.0           # zero-phase filter handles centering; no lead needed
+    lead_time: 0.10          # 100ms anticipation — keeps ball centered during directional play
     margin_px: 120
     keepinview:
-      nudge_gain: 0.20      # gentle recenter — rely on post-smooth Gaussian instead
-      zoom_gain: 0.20       # minimal zoom-out on keepinview
-      zoom_cap: 1.35        # cap keepinview zoom — matches zoom_max
+      nudge_gain: 0.50      # strong recenter — raised from 0.20 to prevent ball leaving frame
+      zoom_gain: 0.30       # zoom out when ball nears edge — raised from 0.20
+      zoom_cap: 1.40        # cap keepinview zoom — matches zoom_max
     speed_zoom:
       enabled: true
       v_lo: 2.0

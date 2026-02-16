@@ -5648,9 +5648,9 @@ class CameraPlanner:
             #
             # lead_time_sec controls how far ahead the camera looks.
             # The post-Gaussian smoothing will round this into an S-curve.
-            _lead_time_sec = 0.20  # seconds of anticipation
-            _lead_speed_floor = 2.0  # px/frame: no lead below this speed
-            _lead_max_px = self.width * 0.08  # cap lead at 8% of frame width
+            _lead_time_sec = 0.25  # seconds of anticipation (raised from 0.20)
+            _lead_speed_floor = 1.5  # px/frame: no lead below this speed (lowered from 2.0)
+            _lead_max_px = self.width * 0.12  # cap lead at 12% of frame width (raised from 8%)
             if smooth_speed_pf > _lead_speed_floor:
                 # Velocity direction unit vector
                 _vel_mag = math.hypot(vx, vy)
@@ -5791,9 +5791,26 @@ class CameraPlanner:
 
             # Boost pan speed limit during high acceleration so camera
             # can follow fast action instead of falling behind.
-            # Capped at 1.1x — higher values cause visible jerks.
             accel_speed_boost = 1.0 + 0.2 * (1.0 - accel_zoom_out) / 0.25  # up to 1.1x
             accel_speed_boost = min(1.1, accel_speed_boost)
+
+            # Camera-pan-aware speed boost: when the ball's position jumps
+            # significantly between frames (physical camera pan/tilt rather
+            # than ball movement), temporarily allow faster virtual panning
+            # so the crop keeps up with the physical camera.
+            _ball_delta_pf = math.hypot(bx_used - prev_bx, target_center_y - prev_by)
+            _pan_detect_thresh = self.width * 0.015  # 1.5% of frame width/frame
+            if _ball_delta_pf > _pan_detect_thresh:
+                _pan_boost = min(2.5, 1.0 + (_ball_delta_pf / _pan_detect_thresh - 1.0) * 0.8)
+                accel_speed_boost = max(accel_speed_boost, _pan_boost)
+
+            # Keep-in-view speed boost: when the ball is drifting toward
+            # the crop edge, raise the speed cap proportionally so the
+            # safety correction isn't immediately clamped away.
+            if keepinview_override and excess_frac > 0.0:
+                _keepin_boost = 1.0 + 2.0 * excess_frac  # up to 3x at full excess
+                accel_speed_boost = max(accel_speed_boost, _keepin_boost)
+
             cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x * accel_speed_boost)
             cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y * accel_speed_boost)
             speed_limited = x_clamped or y_clamped
