@@ -8224,7 +8224,7 @@ def run(
         _post_max = max(_post_deltas) if _post_deltas else 0.0
 
         logger.info(
-            "[PLANNER] Position smoothing: %d frames, max Δ %.1f→%.1f px/frame",
+            "[PLANNER] Position smoothing: %d frames, max delta %.1f->%.1f px/frame",
             _n_pos, _pre_max, _post_max,
         )
 

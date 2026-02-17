@@ -593,7 +593,7 @@ def run_brand(brand_script: Path, in_path: Path, aspect: str) -> Path:
         aspect,
     ]
 
-    print(f"[INFO] Branding {in_path.name} → {tmp_path.name}")
+    print(f"[INFO] Branding {in_path.name} -> {tmp_path.name}")
     print("[CMD]", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
