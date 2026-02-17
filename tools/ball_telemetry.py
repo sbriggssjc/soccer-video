@@ -1443,10 +1443,17 @@ def fuse_yolo_and_centroid(
     # the centroid is probably tracking a player cluster, not the ball.
     # In that case we blend toward the YOLO hold to prevent the camera
     # from snapping to the wrong part of the field.
+    #
+    # The gating decays over time: as frames pass without a new YOLO,
+    # the reference becomes stale and the centroid (which follows the
+    # source camera's lookahead-smoothed pan) is trusted more.  This
+    # lets the camera lead the play during long ball-flight gaps.
     _last_yolo_x: Optional[float] = None
     _last_yolo_y: Optional[float] = None
+    _last_yolo_frame: int = -999
     YOLO_HOLD_DIST = 200.0  # px: centroid beyond this → suspect
     YOLO_HOLD_BLEND = 0.40  # weight for last YOLO when centroid diverges
+    YOLO_STALE_FRAMES = 30  # decay to zero gating over 1s at 30fps
 
     for i in range(frame_count):
         yolo = yolo_by_frame.get(i)
@@ -1462,6 +1469,7 @@ def fuse_yolo_and_centroid(
                 source_labels[i] = FUSE_YOLO
                 yolo_used += 1
                 _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
+                _last_yolo_frame = i
             else:
                 # Low-confidence YOLO: blend with centroid
                 # Weight YOLO by its confidence, centroid gets the remainder
@@ -1473,6 +1481,7 @@ def fuse_yolo_and_centroid(
                 source_labels[i] = FUSE_BLENDED
                 blended += 1
                 _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
+                _last_yolo_frame = i
             used_mask[i] = True
         elif yolo is not None:
             # Only YOLO
@@ -1483,17 +1492,24 @@ def fuse_yolo_and_centroid(
             used_mask[i] = True
             yolo_used += 1
             _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
+            _last_yolo_frame = i
         elif centroid is not None:
             cx, cy = float(centroid.x), float(centroid.y)
-            # Gate centroid against last known YOLO position.
+            # Gate centroid against last known YOLO position, with
+            # time-based decay so stale YOLO references don't anchor
+            # the camera in the wrong part of the field.
             if _last_yolo_x is not None:
                 dist = math.hypot(cx - _last_yolo_x, cy - _last_yolo_y)
                 if dist > YOLO_HOLD_DIST:
-                    # Centroid diverged — blend toward last YOLO position.
-                    w = YOLO_HOLD_BLEND
-                    cx = w * _last_yolo_x + (1.0 - w) * cx
-                    cy = w * _last_yolo_y + (1.0 - w) * cy
-                    confidence[i] = 0.22  # lower: uncertain position
+                    frames_since = i - _last_yolo_frame
+                    decay = max(0.0, 1.0 - frames_since / YOLO_STALE_FRAMES)
+                    w = YOLO_HOLD_BLEND * decay
+                    if w > 0.01:
+                        cx = w * _last_yolo_x + (1.0 - w) * cx
+                        cy = w * _last_yolo_y + (1.0 - w) * cy
+                        confidence[i] = 0.22 + 0.08 * (1.0 - decay)
+                    else:
+                        confidence[i] = 0.30  # YOLO stale — trust centroid
                 else:
                     confidence[i] = 0.30  # centroid agrees with YOLO area
             else:
