@@ -317,10 +317,11 @@ def _output_path_for_clip(clip_path: str, preset: str, portrait: str, out_dir: P
 def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
                  *, keep_scratch: bool = False,
                  scratch_root: str | None = None,
-                 diagnostics: bool = False) -> tuple[bool, str]:
+                 diagnostics: bool = False) -> tuple[bool, str, dict]:
     """Invoke render_follow_unified.py for a single clip.
 
-    Returns (success, error_message).
+    Returns (success, error_message, fusion_stats).
+    fusion_stats keys: yolo_total, edge_filtered, yolo_used, ball_in_crop_pct
     """
     cmd = [
         sys.executable,
@@ -338,13 +339,43 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
     if scratch_root:
         cmd.extend(["--scratch-root", scratch_root])
 
-    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Pass stdout through so user sees per-clip logs
+    if result.stdout:
+        print(result.stdout, end="")
+
+    # Parse fusion stats from stdout
+    stats: dict = {}
+    if result.stdout:
+        # [YOLO] Loaded 175 cached YOLO detections ...
+        m = re.search(r"\[YOLO\] Loaded (\d+) cached YOLO detections", result.stdout)
+        if m:
+            stats["yolo_total"] = int(m.group(1))
+        # [FUSION] Filtered 19 near-edge YOLO detections (margin=154px)
+        m = re.search(r"\[FUSION\] Filtered (\d+) near-edge YOLO detections", result.stdout)
+        stats["edge_filtered"] = int(m.group(1)) if m else 0
+        # [FUSION] ... yolo=137, centroid=380, blended=19 ...
+        m = re.search(r"yolo=(\d+), centroid=(\d+), blended=(\d+)", result.stdout)
+        if m:
+            stats["yolo_used"] = int(m.group(1))
+            stats["centroid_used"] = int(m.group(2))
+            stats["blended"] = int(m.group(3))
+        # [DIAG] Ball in crop: 536/536 (100.0%)
+        m = re.search(r"Ball in crop: \d+/\d+ \(([0-9.]+)%\)", result.stdout)
+        if m:
+            stats["ball_in_crop_pct"] = float(m.group(1))
+        # [DIAG] ... Outside: N frames | Max escape: Npx
+        m = re.search(r"Outside: (\d+) frames \| Max escape: (\d+)px", result.stdout)
+        if m:
+            stats["ball_outside_frames"] = int(m.group(1))
+            stats["ball_max_escape_px"] = int(m.group(2))
+
     if result.returncode == 0:
-        return True, ""
+        return True, "", stats
     # Extract last non-empty line of stderr for a concise error
     stderr_lines = [ln for ln in (result.stderr or "").strip().splitlines() if ln.strip()]
     err_msg = stderr_lines[-1][:200] if stderr_lines else f"exit code {result.returncode}"
-    return False, err_msg
+    return False, err_msg, stats
 
 
 def _upscale_clip(portrait_path: Path, scale: int, method: str) -> str | None:
@@ -550,6 +581,7 @@ def main(argv: list[str] | None = None) -> int:
     ok = 0
     failed = 0
     upscaled = 0
+    clip_stats: list[tuple[str, dict]] = []  # (clip_name, fusion_stats)
     t_start = time.monotonic()
 
     for i, item in enumerate(work, 1):
@@ -575,12 +607,14 @@ def main(argv: list[str] | None = None) -> int:
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
             print(f"  [RENDER] {clip_path.name} -> {out_path.name}")
-            success, err_msg = _render_clip(
+            success, err_msg, stats = _render_clip(
                 clip_path, out_path, args.preset, args.portrait,
                 keep_scratch=args.keep_scratch,
                 scratch_root=args.scratch_root,
                 diagnostics=getattr(args, "diagnostics", False),
             )
+            if stats:
+                clip_stats.append((clip_path.name, stats))
 
             if success and out_path.exists():
                 mark_rendered(clip_path, out_path, preset=args.preset, portrait=args.portrait)
@@ -623,6 +657,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Upscaled:  {upscaled}")
     print(f"  Time:      {int(elapsed // 60)}m{int(elapsed % 60):02d}s")
     print(f"{'=' * 60}")
+
+    # --- Fusion health summary ---
+    if clip_stats:
+        # Flag clips where edge filter removed >25% of YOLO detections
+        # or ball escaped the crop — these may need spot-checking.
+        flagged: list[tuple[str, str]] = []
+        for name, st in clip_stats:
+            total = st.get("yolo_total", 0)
+            filtered = st.get("edge_filtered", 0)
+            if total > 0 and filtered / total > 0.25:
+                pct = 100.0 * filtered / total
+                flagged.append((name, f"edge-filtered {filtered}/{total} ({pct:.0f}%) YOLO detections"))
+            outside = st.get("ball_outside_frames", 0)
+            if outside > 0:
+                esc = st.get("ball_max_escape_px", 0)
+                flagged.append((name, f"ball outside crop {outside} frames (max {esc}px)"))
+            crop_pct = st.get("ball_in_crop_pct", 100.0)
+            if crop_pct < 95.0:
+                flagged.append((name, f"ball in crop only {crop_pct:.1f}%"))
+        if flagged:
+            print(f"\n{'=' * 60}")
+            print(f"FUSION HEALTH — {len(flagged)} clip(s) flagged for review")
+            print(f"{'=' * 60}")
+            for name, reason in flagged:
+                print(f"  [!] {name}")
+                print(f"      {reason}")
+            print(f"{'=' * 60}")
+        else:
+            print(f"\n[FUSION HEALTH] All {len(clip_stats)} clips OK — no edge-filter or crop issues.")
 
     # --- Cleanup duplicates ---
     if args.cleanup_dupes:
