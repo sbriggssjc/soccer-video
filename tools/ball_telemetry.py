@@ -923,7 +923,7 @@ def _annotate_ball(args: argparse.Namespace) -> int:
     def on_mouse(event, x, y, *_args):
         if event == cv2.EVENT_LBUTTONDOWN:
             clicks[state["current_frame"]] = (float(x), float(y))
-            print(f"[BALL] Frame {state['current_frame']} → ({x}, {y})")
+            print(f"[BALL] Frame {state['current_frame']} -> ({x}, {y})")
 
     cv2.setMouseCallback(window_name, on_mouse)
 
@@ -1582,7 +1582,7 @@ def fuse_yolo_and_centroid(
                    x1 < _edge_px or x1 > width - _edge_px:
                     print(
                         f"[FUSION] Skipping near-edge flight: "
-                        f"frames {fi}→{fj}, ball x={x0:.0f}→{x1:.0f} "
+                        f"frames {fi}->{fj}, ball x={x0:.0f}->{x1:.0f} "
                         f"(edge margin={_edge_px:.0f}px)"
                     )
                     continue
@@ -1668,9 +1668,9 @@ def fuse_yolo_and_centroid(
             _t0 = _fi / _src_fps
             _t1 = _fj / _src_fps
             print(
-                f"[FUSION] Long-flight: frames {_fi}→{_fj} "
-                f"(t={_t0:.1f}s→{_t1:.1f}s, {_fj - _fi} frames), "
-                f"ball x={_x0:.0f}→{_x1:.0f} ({_dist:.0f}px) [{_mode}]"
+                f"[FUSION] Long-flight: frames {_fi}->{_fj} "
+                f"(t={_t0:.1f}s->{_t1:.1f}s, {_fj - _fi} frames), "
+                f"ball x={_x0:.0f}->{_x1:.0f} ({_dist:.0f}px) [{_mode}]"
             )
         # Log ball_x at 1-second intervals for the first ~5 seconds
         _n_pos = len(positions)
