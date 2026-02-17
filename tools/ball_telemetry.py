@@ -1403,12 +1403,28 @@ def fuse_yolo_and_centroid(
     confidence = np.zeros(frame_count, dtype=np.float32)
     source_labels = np.zeros(frame_count, dtype=np.uint8)
 
-    # Index YOLO samples by frame
+    # Edge margin: YOLO detections within this fraction of the frame edge
+    # are almost always false positives (goalposts, shadows, partial views).
+    # Filter them at ingestion time so they don't contaminate the centroid
+    # gating via _last_yolo_x for many subsequent frames.
+    EDGE_MARGIN_FRAC = 0.04  # 4% of frame width ≈ 77px on 1920px source
+
+    # Index YOLO samples by frame, filtering out near-edge detections.
+    _edge_px_ingest = width * EDGE_MARGIN_FRAC if width > 0 else 0
+    _edge_filtered = 0
     yolo_by_frame: dict[int, BallSample] = {}
     for s in yolo_samples:
         fidx = int(s.frame)
         if 0 <= fidx < frame_count and math.isfinite(s.x) and math.isfinite(s.y):
+            if _edge_px_ingest > 0 and (s.x < _edge_px_ingest or s.x > width - _edge_px_ingest):
+                _edge_filtered += 1
+                continue
             yolo_by_frame[fidx] = s
+    if _edge_filtered > 0:
+        print(
+            f"[FUSION] Filtered {_edge_filtered} near-edge YOLO detections "
+            f"(margin={_edge_px_ingest:.0f}px)"
+        )
 
     # Index centroid samples by frame
     centroid_by_frame: dict[int, BallSample] = {}
@@ -1512,12 +1528,6 @@ def fuse_yolo_and_centroid(
     # the camera.  45 frames ≈ 1.5s at 30fps — enough for the camera to
     # arrive and settle at the receiver.
     STEP_THRESHOLD = 45
-    # Edge margin: skip long-flight interpolation when EITHER endpoint is
-    # within this fraction of the frame edge.  Near-edge YOLO detections
-    # are often false positives (goalposts, shadows, partial views) and
-    # interpolating toward them yanks the camera to the frame boundary.
-    # Let centroid data handle those frames instead.
-    EDGE_MARGIN_FRAC = 0.04  # 4% of frame width ≈ 77px on 1920px source
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
