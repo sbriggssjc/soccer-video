@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-05-17__TSC_vs_Arkansas\\003__2025-05-17__TSC_vs_Arkansas__CROSS__t435.80-t443.10.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-05-17__TSC_vs_Arkansas\\003__2025-05-17__TSC_vs_Arkansas__CROSS__t435.80-t443.10.mp4",
   "source_sha1_64": "a23ca3b7ae6a922d",
   "meta": {
     "duration_s": 7.6,
@@ -11,7 +11,7 @@
     "portrait_render": {
       "done": true,
       "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\003__2025-05-17__TSC_vs_Arkansas__CROSS__t435.80-t443.10__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-16T15:01:18+00:00",
+      "at": "2026-02-17T04:29:33+00:00",
       "preset": "cinematic",
       "portrait": "1080x1920"
     }
@@ -21,9 +21,14 @@
       "step": "portrait_render",
       "message": "source not found",
       "at": "2026-02-16T03:40:30+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-17T04:14:55+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-05-17__TSC_vs_Arkansas/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-05-17__TSC_vs_Arkansas/MASTER.mp4",
   "master_rel": "out/games/2025-05-17__TSC_vs_Arkansas/MASTER.mp4",
   "t_start_s": 435.8,
   "t_end_s": 443.1

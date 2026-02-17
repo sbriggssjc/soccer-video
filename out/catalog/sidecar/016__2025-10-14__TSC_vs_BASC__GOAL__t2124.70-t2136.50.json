@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-14__TSC_vs_BASC\\016__2025-10-14__TSC_vs_BASC__GOAL__t2124.70-t2136.50.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-10-14__TSC_vs_BASC\\016__2025-10-14__TSC_vs_BASC__GOAL__t2124.70-t2136.50.mp4",
   "source_sha1_64": "fa50ca31de15f9f7",
   "meta": {
     "duration_s": 12.753,
@@ -9,11 +9,9 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\016__2025-10-14__TSC_vs_BASC__GOAL__t2124.70-t2136.50__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-16T17:34:44+00:00",
+      "done": false,
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 63: character maps to <undefined>"
     }
   },
   "errors": [
@@ -21,9 +19,19 @@
       "step": "portrait_render",
       "message": "source not found",
       "at": "2026-02-16T03:40:32+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-17T04:14:58+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 63: character maps to <undefined>",
+      "at": "2026-02-17T05:58:19+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
   "master_rel": "out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
   "t_start_s": 2124.7,
   "t_end_s": 2136.5

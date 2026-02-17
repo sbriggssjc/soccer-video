@@ -1,1 +1,4 @@
 dup_group_id,canonical_clip_rel,duplicate_clip_rel,reason,overlap_ratio
+D0001,out/atomic_clips/2025-04-12__TSC_vs_Route_66/001__2025-04-12__TSC_vs_Route_66__DRIBBLING__t0.00-t18.00.mp4,out/atomic_clips/2025-04-12__TSC_vs_Route_66/001__2025-04-12__TSC_vs_Route_66__DRIBBLING__t0.00-t18.00__CINEMATIC.mp4,soft,1.000
+D0002,out/atomic_clips/2025-04-12__TSC_vs_Route_66/002__2025-04-12__TSC_vs_Route_66__SHOT__t19.00-t28.00.mp4,out/atomic_clips/2025-04-12__TSC_vs_Route_66/002__2025-04-12__TSC_vs_Route_66__SHOT__t19.00-t28.00__CINEMATIC.mp4,soft,1.000
+D0003,out/atomic_clips/2025-04-12__TSC_vs_Route_66/003__2025-04-12__TSC_vs_Route_66__GOAL__t48.50-t58.00.mp4,out/atomic_clips/2025-04-12__TSC_vs_Route_66/003__2025-04-12__TSC_vs_Route_66__GOAL__t48.50-t58.00__CINEMATIC.mp4,soft,1.000

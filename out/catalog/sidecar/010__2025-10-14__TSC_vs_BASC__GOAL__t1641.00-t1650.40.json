@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-14__TSC_vs_BASC\\010__2025-10-14__TSC_vs_BASC__GOAL__t1641.00-t1650.40.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-10-14__TSC_vs_BASC\\010__2025-10-14__TSC_vs_BASC__GOAL__t1641.00-t1650.40.mp4",
   "source_sha1_64": "da4088f4eab94fdc",
   "meta": {
     "duration_s": 10.085,
@@ -11,7 +11,7 @@
     "portrait_render": {
       "done": true,
       "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\010__2025-10-14__TSC_vs_BASC__GOAL__t1641.00-t1650.40__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-16T17:22:52+00:00",
+      "at": "2026-02-17T05:53:35+00:00",
       "preset": "cinematic",
       "portrait": "1080x1920"
     }
@@ -21,9 +21,14 @@
       "step": "portrait_render",
       "message": "source not found",
       "at": "2026-02-16T03:40:32+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-17T04:14:58+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
   "master_rel": "out/games/2025-10-14__TSC_vs_BASC/MASTER.mp4",
   "t_start_s": 1641.0,
   "t_end_s": 1650.4

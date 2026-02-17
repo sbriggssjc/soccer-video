@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-09-20__TSC_vs_RVFC\\023__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t1316.00-t1329.00_portrait_POST.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_RVFC\\023__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t1316.00-t1329.00_portrait_POST.mp4",
   "source_sha1_64": "175d0656fd54df5c",
   "meta": {
     "duration_s": 13.752,
@@ -9,11 +9,9 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\023__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t1316.00-t1329.00_portrait_POST__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-16T16:51:30+00:00",
+      "done": false,
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 63: character maps to <undefined>"
     }
   },
   "errors": [
@@ -21,9 +19,19 @@
       "step": "portrait_render",
       "message": "source not found",
       "at": "2026-02-16T03:40:32+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-17T04:14:57+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 63: character maps to <undefined>",
+      "at": "2026-02-17T05:37:22+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
   "master_rel": "out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
   "t_start_s": 1316.0,
   "t_end_s": 1329.0

@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-11-23__TSC_vs_BASC\\004__2025-11-23__TSC_vs_BASC__SHOT__t1974.90-t1990.60.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-11-23__TSC_vs_BASC\\004__2025-11-23__TSC_vs_BASC__SHOT__t1974.90-t1990.60.mp4",
   "source_sha1_64": "3593b474b39f0846",
   "meta": {
     "duration_s": 17.867,
@@ -9,11 +9,9 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\004__2025-11-23__TSC_vs_BASC__SHOT__t1974.90-t1990.60__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-17T04:08:29+00:00",
+      "done": false,
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 63: character maps to <undefined>"
     }
   },
   "errors": [
@@ -31,9 +29,24 @@
       "step": "portrait_render",
       "message": "NameError: name 'self' is not defined",
       "at": "2026-02-17T02:31:41+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-17T04:14:59+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "source not found",
+      "at": "2026-02-17T04:15:40+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 63: character maps to <undefined>",
+      "at": "2026-02-17T06:02:19+00:00"
     }
   ],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-23__TSC_vs_BASC/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-11-23__TSC_vs_BASC/MASTER.mp4",
   "master_rel": "out/games/2025-11-23__TSC_vs_BASC/MASTER.mp4",
   "t_start_s": 1974.9,
   "t_end_s": 1990.6
