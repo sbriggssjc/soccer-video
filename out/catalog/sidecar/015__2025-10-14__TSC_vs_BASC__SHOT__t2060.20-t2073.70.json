@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\015__2025-10-14__TSC_vs_BASC__SHOT__t2060.20-t2073.70__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-17T16:05:11+00:00",
       "preset": "cinematic",
-      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 65: character maps to <undefined>"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

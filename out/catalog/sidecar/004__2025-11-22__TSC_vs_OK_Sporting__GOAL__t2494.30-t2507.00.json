@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\004__2025-11-22__TSC_vs_OK_Sporting__GOAL__t2494.30-t2507.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-17T16:16:48+00:00",
       "preset": "cinematic",
-      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 65: character maps to <undefined>"
+      "portrait": "1080x1920"
     }
   },
   "errors": [

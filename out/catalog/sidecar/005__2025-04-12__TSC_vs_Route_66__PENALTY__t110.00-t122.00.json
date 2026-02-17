@@ -9,9 +9,11 @@
   },
   "steps": {
     "portrait_render": {
-      "done": false,
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\005__2025-04-12__TSC_vs_Route_66__PENALTY__t110.00-t122.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-17T12:52:32+00:00",
       "preset": "cinematic",
-      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 65: character maps to <undefined>"
+      "portrait": "1080x1920"
     }
   },
   "errors": [
