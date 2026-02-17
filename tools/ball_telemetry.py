@@ -1506,6 +1506,12 @@ def fuse_yolo_and_centroid(
     LONG_INTERP_GAP = 90    # max gap for flight interpolation (~3s at 30fps)
     MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
     INTERP_CONF = 0.28       # confidence for interpolated frames (lowered from 0.35)
+    # Step-function threshold: only use step (jump to receiver) for gaps
+    # >= this many frames.  Shorter flights use linear interpolation so the
+    # Gaussian can absorb rapid back-and-forth movements without whipsawing
+    # the camera.  45 frames ≈ 1.5s at 30fps — enough for the camera to
+    # arrive and settle at the receiver.
+    STEP_THRESHOLD = 45
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
@@ -1538,19 +1544,23 @@ def fuse_yolo_and_centroid(
                 if dist < MIN_FLIGHT_DIST:
                     continue  # small move: centroid tracking is fine
                 long_interp += gap - 1
-                long_flight_info.append((fi, fj, x0, y0, x1, y1, dist))
+                _interp_mode = "step" if gap >= STEP_THRESHOLD else "linear"
+                long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
 
+            # Use step function only for long-enough gaps where the
+            # camera has time to arrive and settle at the receiver.
+            # For shorter flights, linear interpolation lets the
+            # Gaussian absorb rapid direction changes naturally.
+            use_step = is_long and gap >= STEP_THRESHOLD
             for k in range(fi + 1, fj):
-                if is_long:
+                if use_step:
                     # Step function: target the receiver for the entire gap.
                     # The post-smooth Gaussian (sigma=5, ±15 frames) turns
-                    # this into a smooth cinematic pan.  Combined with a
-                    # higher speed_limit (800), the camera arrives at the
-                    # receiver ~1s into the gap — well before the ball.
+                    # this into a smooth cinematic pan.
                     interp_x = x1
                     interp_y = y1
                 else:
-                    # Short gaps: linear interpolation
+                    # Short/medium gaps: linear interpolation
                     t = (k - fi) / float(gap)
                     interp_x = x0 + t * (x1 - x0)
                     interp_y = y0 + t * (y1 - y0)
@@ -1611,13 +1621,13 @@ def fuse_yolo_and_centroid(
             )
         _src_fps = 30.0  # source clips are always 30fps
         for _lf in long_flight_info:
-            _fi, _fj, _x0, _y0, _x1, _y1, _dist = _lf
+            _fi, _fj, _x0, _y0, _x1, _y1, _dist, _mode = _lf
             _t0 = _fi / _src_fps
             _t1 = _fj / _src_fps
             print(
                 f"[FUSION] Long-flight: frames {_fi}→{_fj} "
                 f"(t={_t0:.1f}s→{_t1:.1f}s, {_fj - _fi} frames), "
-                f"ball x={_x0:.0f}→{_x1:.0f} ({_dist:.0f}px)"
+                f"ball x={_x0:.0f}→{_x1:.0f} ({_dist:.0f}px) [{_mode}]"
             )
         # Log ball_x at 1-second intervals for the first ~5 seconds
         _n_pos = len(positions)
