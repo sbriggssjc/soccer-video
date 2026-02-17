@@ -1540,22 +1540,13 @@ def fuse_yolo_and_centroid(
 
             for k in range(fi + 1, fj):
                 if is_long:
-                    # Delayed step: hold at kicker for the first 25% of
-                    # the gap, then step to receiver.  The hold prevents
-                    # the post-smooth Gaussian (sigma=5, ±15 frames) from
-                    # pre-pulling the camera away from the kicker BEFORE
-                    # the gap starts — so the keeper's passing action is
-                    # fully captured.  After the hold, the step function
-                    # gives the Gaussian maximum lead time to create a
-                    # smooth ~1.25s cinematic pan to the receiver.
-                    HOLD_FRAC = 0.25
-                    t = (k - fi) / float(gap)
-                    if t <= HOLD_FRAC:
-                        interp_x = x0
-                        interp_y = y0
-                    else:
-                        interp_x = x1
-                        interp_y = y1
+                    # Step function: target the receiver for the entire gap.
+                    # The post-smooth Gaussian (sigma=5, ±15 frames) turns
+                    # this into a smooth cinematic pan.  Combined with a
+                    # higher speed_limit (800), the camera arrives at the
+                    # receiver ~1s into the gap — well before the ball.
+                    interp_x = x1
+                    interp_y = y1
                 else:
                     # Short gaps: linear interpolation
                     t = (k - fi) / float(gap)
