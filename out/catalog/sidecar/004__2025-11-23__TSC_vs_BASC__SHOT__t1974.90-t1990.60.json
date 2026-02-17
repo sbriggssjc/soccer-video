@@ -11,7 +11,7 @@
     "portrait_render": {
       "done": false,
       "preset": "cinematic",
-      "error": "NameError: name 'fps' is not defined"
+      "error": "NameError: name 'self' is not defined"
     }
   },
   "errors": [
@@ -24,6 +24,11 @@
       "step": "portrait_render",
       "message": "NameError: name 'fps' is not defined",
       "at": "2026-02-17T02:18:56+00:00"
+    },
+    {
+      "step": "portrait_render",
+      "message": "NameError: name 'self' is not defined",
+      "at": "2026-02-17T02:31:41+00:00"
     }
   ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-23__TSC_vs_BASC/MASTER.mp4",
