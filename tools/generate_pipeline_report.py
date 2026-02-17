@@ -549,7 +549,7 @@ def print_stage_command_map() -> None:
         "Stage_Enhanced": "powershell -File tools\\auto_enhance\\auto_enhance.ps1 -In <source>",
         "Stage_Branded": "powershell -File tools\\tsc_brand.ps1 -In <source> -Out <out\\portrait_reels\\clean\\<ClipID>_portrait_FINAL.mp4> -Aspect 9x16",
     }
-    print("Stage → command map:")
+    print("Stage -> command map:")
     for stage in STAGE_NAMES:
         print(f"  {stage}: {mapping.get(stage, 'N/A')}")
 
