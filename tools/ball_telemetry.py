@@ -1407,7 +1407,7 @@ def fuse_yolo_and_centroid(
     # are almost always false positives (goalposts, shadows, partial views).
     # Filter them at ingestion time so they don't contaminate the centroid
     # gating via _last_yolo_x for many subsequent frames.
-    EDGE_MARGIN_FRAC = 0.04  # 4% of frame width ≈ 77px on 1920px source
+    EDGE_MARGIN_FRAC = 0.12  # 12% of frame width ≈ 154px on 1280px source
 
     # Index YOLO samples by frame, filtering out near-edge detections.
     _edge_px_ingest = width * EDGE_MARGIN_FRAC if width > 0 else 0
@@ -1445,8 +1445,8 @@ def fuse_yolo_and_centroid(
     # from snapping to the wrong part of the field.
     _last_yolo_x: Optional[float] = None
     _last_yolo_y: Optional[float] = None
-    YOLO_HOLD_DIST = 150.0  # px: centroid beyond this → suspect
-    YOLO_HOLD_BLEND = 0.65  # weight for last YOLO when centroid diverges
+    YOLO_HOLD_DIST = 200.0  # px: centroid beyond this → suspect
+    YOLO_HOLD_BLEND = 0.40  # weight for last YOLO when centroid diverges
 
     for i in range(frame_count):
         yolo = yolo_by_frame.get(i)
