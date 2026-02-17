@@ -1609,10 +1609,11 @@ def fuse_yolo_and_centroid(
                 f"[FUSION] Interpolated {interpolated} frames between YOLO detections "
                 f"(short_gap={SHORT_INTERP_GAP}, long_gap={LONG_INTERP_GAP}){_long_msg}"
             )
+        _src_fps = 30.0  # source clips are always 30fps
         for _lf in long_flight_info:
             _fi, _fj, _x0, _y0, _x1, _y1, _dist = _lf
-            _t0 = _fi / fps if fps > 0 else 0
-            _t1 = _fj / fps if fps > 0 else 0
+            _t0 = _fi / _src_fps
+            _t1 = _fj / _src_fps
             print(
                 f"[FUSION] Long-flight: frames {_fi}→{_fj} "
                 f"(t={_t0:.1f}s→{_t1:.1f}s, {_fj - _fi} frames), "
@@ -1620,7 +1621,7 @@ def fuse_yolo_and_centroid(
             )
         # Log ball_x at 1-second intervals for the first ~5 seconds
         _n_pos = len(positions)
-        _step = max(1, int(fps)) if fps > 0 else 30
+        _step = int(_src_fps)
         _sample_frames = list(range(0, min(_n_pos, _step * 6), _step))
         if _sample_frames:
             _parts = [f"f{_sf}={positions[_sf, 0]:.0f}" for _sf in _sample_frames]
