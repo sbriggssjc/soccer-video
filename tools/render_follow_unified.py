@@ -8437,6 +8437,16 @@ def run(
             f"[DIAG] Speed-limited: {_speed_limited_frames}f ({100.0 * _speed_limited_frames / max(1, _n_states):.0f}%) | "
             f"Keepinview: {_keepinview_frames}f ({100.0 * _keepinview_frames / max(1, _n_states):.0f}%)"
         )
+        # Camera cx timeline at 1-second intervals
+        if _n_states >= 2:
+            _render_fps = getattr(self, "_render_fps", 24) or 24
+            _cx_step = max(1, int(_render_fps))
+            _cx_samples = list(range(0, _n_states, _cx_step))
+            if _cx_samples and _cx_samples[-1] != _n_states - 1:
+                _cx_samples.append(_n_states - 1)
+            _cx_parts = [f"f{_cf}={states[_cf].cx:.0f}" for _cf in _cx_samples]
+            print(f"[DIAG] Camera cx timeline (1s): {', '.join(_cx_parts)}")
+
         # Show worst escape frames
         if _worst_outside_frames:
             _worst_outside_frames.sort(key=lambda x: x[1], reverse=True)

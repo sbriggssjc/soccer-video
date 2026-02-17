@@ -1513,6 +1513,7 @@ def fuse_yolo_and_centroid(
     if len(yolo_frames) >= 1:
         interpolated = 0
         long_interp = 0
+        long_flight_info = []  # collect info about long-flight gaps
         # For each pair of consecutive YOLO frames, fill the gap
         for seg_idx in range(len(yolo_frames) - 1):
             fi = yolo_frames[seg_idx]
@@ -1537,6 +1538,7 @@ def fuse_yolo_and_centroid(
                 if dist < MIN_FLIGHT_DIST:
                     continue  # small move: centroid tracking is fine
                 long_interp += gap - 1
+                long_flight_info.append((fi, fj, x0, y0, x1, y1, dist))
 
             for k in range(fi + 1, fj):
                 if is_long:
@@ -1607,6 +1609,22 @@ def fuse_yolo_and_centroid(
                 f"[FUSION] Interpolated {interpolated} frames between YOLO detections "
                 f"(short_gap={SHORT_INTERP_GAP}, long_gap={LONG_INTERP_GAP}){_long_msg}"
             )
+        for _lf in long_flight_info:
+            _fi, _fj, _x0, _y0, _x1, _y1, _dist = _lf
+            _t0 = _fi / fps if fps > 0 else 0
+            _t1 = _fj / fps if fps > 0 else 0
+            print(
+                f"[FUSION] Long-flight: frames {_fi}→{_fj} "
+                f"(t={_t0:.1f}s→{_t1:.1f}s, {_fj - _fi} frames), "
+                f"ball x={_x0:.0f}→{_x1:.0f} ({_dist:.0f}px)"
+            )
+        # Log ball_x at 1-second intervals for the first ~5 seconds
+        _n_pos = len(positions)
+        _step = max(1, int(fps)) if fps > 0 else 30
+        _sample_frames = list(range(0, min(_n_pos, _step * 6), _step))
+        if _sample_frames:
+            _parts = [f"f{_sf}={positions[_sf, 0]:.0f}" for _sf in _sample_frames]
+            print(f"[FUSION] Ball x timeline (1s steps): {', '.join(_parts)}")
 
     return positions, used_mask, confidence, source_labels
 
