@@ -9,14 +9,21 @@
   },
   "steps": {
     "portrait_render": {
-      "done": true,
+      "done": false,
       "out": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\portrait_reels\\clean\\008__BUILD_UP__t2.438.00-t2.442.00__CINEMATIC_portrait_FINAL.mp4",
       "at": "2026-02-12T00:31:35+00:00",
       "preset": "cinematic",
-      "portrait": "1080x1920"
+      "portrait": "1080x1920",
+      "error": "reset: re-render with upscale required"
     }
   },
-  "errors": [],
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "reset: rendered without upscale — needs re-processing",
+      "at": "2026-02-17T17:34:52+00:00"
+    }
+  ],
   "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
   "master_rel": "out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
   "t_start_s": 2438.0,
