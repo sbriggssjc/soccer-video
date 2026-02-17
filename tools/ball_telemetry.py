@@ -1512,6 +1512,12 @@ def fuse_yolo_and_centroid(
     # the camera.  45 frames ≈ 1.5s at 30fps — enough for the camera to
     # arrive and settle at the receiver.
     STEP_THRESHOLD = 45
+    # Edge margin: skip long-flight interpolation when EITHER endpoint is
+    # within this fraction of the frame edge.  Near-edge YOLO detections
+    # are often false positives (goalposts, shadows, partial views) and
+    # interpolating toward them yanks the camera to the frame boundary.
+    # Let centroid data handle those frames instead.
+    EDGE_MARGIN_FRAC = 0.04  # 4% of frame width ≈ 77px on 1920px source
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
@@ -1543,6 +1549,17 @@ def fuse_yolo_and_centroid(
                 dist = math.hypot(x1 - x0, y1 - y0)
                 if dist < MIN_FLIGHT_DIST:
                     continue  # small move: centroid tracking is fine
+                # Skip flights where either endpoint is near the frame
+                # edge — likely a false-positive YOLO detection.
+                _edge_px = width * EDGE_MARGIN_FRAC
+                if x0 < _edge_px or x0 > width - _edge_px or \
+                   x1 < _edge_px or x1 > width - _edge_px:
+                    print(
+                        f"[FUSION] Skipping near-edge flight: "
+                        f"frames {fi}→{fj}, ball x={x0:.0f}→{x1:.0f} "
+                        f"(edge margin={_edge_px:.0f}px)"
+                    )
+                    continue
                 long_interp += gap - 1
                 _interp_mode = "step" if gap >= STEP_THRESHOLD else "linear"
                 long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
