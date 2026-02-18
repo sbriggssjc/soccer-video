@@ -31,6 +31,12 @@ CATALOG_DIR = ROOT / "out" / "catalog"
 SIDECAR_DIR = CATALOG_DIR / "sidecar"
 ATOMIC_INDEX_PATH = CATALOG_DIR / "atomic_index.csv"
 PIPELINE_STATUS_PATH = CATALOG_DIR / "pipeline_status.csv"
+PORTRAIT_REELS_DIR = ROOT / "out" / "portrait_reels" / "clean"
+
+# Regex to strip rendering-variant suffixes from portrait output filenames
+_PORTRAIT_SUFFIX_RE = re.compile(
+    r"__(?:CINEMATIC|DEBUG|OVERLAY)_portrait_(?:FINAL|POST)$"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +197,19 @@ def load_sidecars_for_game(game_key: str) -> dict[str, dict]:
     return result
 
 
+def load_rendered_stems() -> set[str]:
+    """Return clip stems that have rendered portrait outputs on disk."""
+    if not PORTRAIT_REELS_DIR.exists():
+        return set()
+    stems: set[str] = set()
+    for f in PORTRAIT_REELS_DIR.iterdir():
+        if f.suffix.lower() not in {".mp4", ".mov"}:
+            continue
+        stem = _PORTRAIT_SUFFIX_RE.sub("", f.stem)
+        stems.add(stem)
+    return stems
+
+
 # ---------------------------------------------------------------------------
 # Matching logic
 # ---------------------------------------------------------------------------
@@ -241,7 +260,8 @@ def find_matching_sidecar(expected: ExpectedClip, sidecars: dict[str, dict]) -> 
 # Per-game audit
 # ---------------------------------------------------------------------------
 
-def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) -> Optional[GameAudit]:
+def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict,
+               rendered_stems: set[str] | None = None) -> Optional[GameAudit]:
     """Audit a single game directory against the pipeline state."""
     game_folder = game_dir.name
     # Extract date from folder name
@@ -292,6 +312,15 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
                 )
             if steps.get("portrait_render", {}).get("done"):
                 audit.portrait_rendered += 1
+            elif rendered_stems:
+                # Fallback: check if rendered output file exists on disk
+                clip_stem = Path(sidecar.get("clip_path", "")).stem
+                if clip_stem and clip_stem in rendered_stems:
+                    audit.portrait_rendered += 1
+                else:
+                    audit.missing_portrait.append(
+                        f"#{clip.clip_num:03d} {clip.label}"
+                    )
             else:
                 audit.missing_portrait.append(
                     f"#{clip.clip_num:03d} {clip.label}"
@@ -314,8 +343,17 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
                     f"#{clip.clip_num:03d} {clip.label}"
                 )
 
-    # Count errors from pipeline_status (skip resolved & variant entries)
+    # Build set of clip filenames with successful renders for this game
     _VARIANT_TAGS = ("__CINEMATIC", "__DEBUG", "__OVERLAY", "portrait_POST", "portrait_FINAL")
+    rendered_filenames: set[str] = set()
+    for cp, status in pipeline_status.items():
+        if game_folder not in cp:
+            continue
+        if status.get("portrait_path", "").strip() and status.get("render_done_at", "").strip():
+            fname = cp.replace("\\", "/").rsplit("/", 1)[-1]
+            rendered_filenames.add(fname)
+
+    # Count errors from pipeline_status (skip resolved & variant entries)
     for cp, status in pipeline_status.items():
         if game_folder not in cp:
             continue
@@ -328,9 +366,17 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
         # Skip stale errors — render succeeded after the error was logged
         if status.get("portrait_path", "").strip() and status.get("render_done_at", "").strip():
             continue
+        # Skip stale errors — same clip rendered via a different path
+        clip_fname = cp.replace("\\", "/").rsplit("/", 1)[-1]
+        if clip_fname in rendered_filenames:
+            continue
+        # Skip stale errors — output file exists on disk
+        if rendered_stems:
+            clip_stem = Path(clip_fname).stem
+            if clip_stem in rendered_stems:
+                continue
         audit.errors += 1
-        clip_name = cp.split("\\")[-1] if "\\" in cp else cp.split("/")[-1]
-        audit.error_details.append(f"{clip_name[:60]}: {err}")
+        audit.error_details.append(f"{clip_fname[:60]}: {err}")
 
     return audit
 
@@ -494,6 +540,76 @@ def to_json(audits: list[GameAudit]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Reconcile sidecars from output files
+# ---------------------------------------------------------------------------
+
+def _reconcile(rendered_stems: set[str], dry_run: bool = False) -> int:
+    """Update sidecars for clips with output files but missing render status."""
+    import datetime as _dt
+
+    if not PORTRAIT_REELS_DIR.exists():
+        print("No portrait reels directory found — nothing to reconcile.")
+        return 0
+
+    # Build mapping: stem -> output file path
+    output_map: dict[str, Path] = {}
+    for f in PORTRAIT_REELS_DIR.iterdir():
+        if f.suffix.lower() not in {".mp4", ".mov"}:
+            continue
+        stem = _PORTRAIT_SUFFIX_RE.sub("", f.stem)
+        output_map[stem] = f
+
+    if not SIDECAR_DIR.exists():
+        print("No sidecar directory found — nothing to reconcile.")
+        return 0
+
+    updated = 0
+    for sidecar_file in sorted(SIDECAR_DIR.iterdir()):
+        if sidecar_file.suffix != ".json":
+            continue
+        stem = sidecar_file.stem
+        # Skip rendering variants
+        if any(tag in stem for tag in ("__CINEMATIC", "__DEBUG", "__OVERLAY",
+                                       "portrait_POST", "portrait_FINAL")):
+            continue
+        if stem not in output_map:
+            continue
+
+        try:
+            data = json.loads(sidecar_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        steps = data.get("steps", {})
+        if steps.get("portrait_render", {}).get("done"):
+            continue  # Already marked
+
+        output_file = output_map[stem]
+        if dry_run:
+            print(f"  [DRY-RUN] Would mark rendered: {stem}")
+        else:
+            steps["portrait_render"] = {
+                "done": True,
+                "out": str(output_file),
+                "at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                "preset": "cinematic",
+                "portrait": "1080x1920",
+                "reconciled": True,
+            }
+            data["steps"] = steps
+            sidecar_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            print(f"  [OK] Marked rendered: {stem}")
+        updated += 1
+
+    if updated == 0:
+        print("All sidecars are up to date — nothing to reconcile.")
+    else:
+        verb = "Would update" if dry_run else "Updated"
+        print(f"\n{verb} {updated} sidecar(s).")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -501,11 +617,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Cross-game pipeline audit.")
     parser.add_argument("--game", help="Filter to games matching this substring")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument("--reconcile", action="store_true",
+                        help="Update sidecars for clips with rendered outputs but missing sidecar status")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="With --reconcile, show what would change without writing")
     args = parser.parse_args(argv)
 
     if not GAMES_DIR.exists():
         print(f"Games directory not found: {GAMES_DIR}", file=sys.stderr)
         return 1
+
+    rendered_stems = load_rendered_stems()
+
+    if args.reconcile:
+        return _reconcile(rendered_stems, dry_run=args.dry_run)
 
     atomic_by_master = load_atomic_index()
     pipeline_status = load_pipeline_status()
@@ -516,7 +641,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if args.game and args.game.upper() not in game_dir.name.upper():
             continue
-        audit = audit_game(game_dir, atomic_by_master, pipeline_status)
+        audit = audit_game(game_dir, atomic_by_master, pipeline_status, rendered_stems)
         if audit is not None:
             audits.append(audit)
 
