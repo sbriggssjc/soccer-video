@@ -301,6 +301,8 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict,
 
         # Check sidecars (broader search including old naming)
         sidecar = find_matching_sidecar(clip, sidecars)
+        rendered = False
+
         if sidecar:
             audit.has_sidecar += 1
             steps = sidecar.get("steps", {})
@@ -311,37 +313,40 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict,
                     f"#{clip.clip_num:03d} {clip.label}"
                 )
             if steps.get("portrait_render", {}).get("done"):
-                audit.portrait_rendered += 1
+                rendered = True
             elif rendered_stems:
                 # Fallback: check if rendered output file exists on disk
                 clip_stem = Path(sidecar.get("clip_path", "")).stem
                 if clip_stem and clip_stem in rendered_stems:
-                    audit.portrait_rendered += 1
-                else:
-                    audit.missing_portrait.append(
-                        f"#{clip.clip_num:03d} {clip.label}"
-                    )
-            else:
-                audit.missing_portrait.append(
-                    f"#{clip.clip_num:03d} {clip.label}"
-                )
-        else:
-            # Also check pipeline_status for any matching entries
-            found_in_pipeline = False
+                    rendered = True
+
+        # Pipeline-status fallback — works whether sidecar found or not,
+        # handles clips renamed after rendering (different label, same timestamps)
+        if not rendered:
+            ts_tag = f"t{clip.start_s:.0f}"
             for cp, status in pipeline_status.items():
-                if game_folder in cp:
-                    # Rough timestamp match from filename
-                    if status.get("portrait_path") and f"t{clip.start_s:.0f}" in cp:
-                        found_in_pipeline = True
-                        audit.portrait_rendered += 1
-                        break
-            if not found_in_pipeline:
-                audit.missing_upscale.append(
-                    f"#{clip.clip_num:03d} {clip.label}"
-                )
-                audit.missing_portrait.append(
-                    f"#{clip.clip_num:03d} {clip.label}"
-                )
+                if game_folder not in cp:
+                    continue
+                if any(tag in cp for tag in ("__CINEMATIC", "__DEBUG", "__OVERLAY",
+                                             "portrait_POST", "portrait_FINAL")):
+                    continue
+                if status.get("portrait_path") and ts_tag in cp:
+                    rendered = True
+                    break
+
+        if rendered:
+            audit.portrait_rendered += 1
+        elif sidecar:
+            audit.missing_portrait.append(
+                f"#{clip.clip_num:03d} {clip.label}"
+            )
+        else:
+            audit.missing_upscale.append(
+                f"#{clip.clip_num:03d} {clip.label}"
+            )
+            audit.missing_portrait.append(
+                f"#{clip.clip_num:03d} {clip.label}"
+            )
 
     # Build set of clip filenames with successful renders for this game
     _VARIANT_TAGS = ("__CINEMATIC", "__DEBUG", "__OVERLAY", "portrait_POST", "portrait_FINAL")
@@ -544,20 +549,36 @@ def to_json(audits: list[GameAudit]) -> str:
 # ---------------------------------------------------------------------------
 
 def _reconcile(rendered_stems: set[str], dry_run: bool = False) -> int:
-    """Update sidecars for clips with output files but missing render status."""
+    """Update sidecars for clips with output files but missing render status.
+
+    Matches by exact stem first, then falls back to matching by game folder
+    + clip number + timestamps (handles clips renamed after rendering).
+    """
     import datetime as _dt
 
     if not PORTRAIT_REELS_DIR.exists():
         print("No portrait reels directory found — nothing to reconcile.")
         return 0
 
-    # Build mapping: stem -> output file path
-    output_map: dict[str, Path] = {}
+    # Build two indexes for output files:
+    # 1. Exact stem match (fast path)
+    # 2. (game_folder, clip_num, timestamps) match (handles renames)
+    output_by_stem: dict[str, Path] = {}
+    output_by_id: dict[tuple[str, str, str], Path] = {}
+    _ts_re = re.compile(r"__t([\d.]+)-t?([\d.]+)")
+    _num_re = re.compile(r"^(\d+)__(\d{4}-\d{2}-\d{2}__[^_]+(?:_[^_]+)*?)__")
+
     for f in PORTRAIT_REELS_DIR.iterdir():
         if f.suffix.lower() not in {".mp4", ".mov"}:
             continue
         stem = _PORTRAIT_SUFFIX_RE.sub("", f.stem)
-        output_map[stem] = f
+        output_by_stem[stem] = f
+        # Parse (game_folder, clip_num, timestamps)
+        ts_m = _ts_re.search(stem)
+        num_m = _num_re.match(stem)
+        if ts_m and num_m:
+            key = (num_m.group(2), num_m.group(1), f"t{ts_m.group(1)}-t{ts_m.group(2)}")
+            output_by_id[key] = f
 
     if not SIDECAR_DIR.exists():
         print("No sidecar directory found — nothing to reconcile.")
@@ -572,8 +593,6 @@ def _reconcile(rendered_stems: set[str], dry_run: bool = False) -> int:
         if any(tag in stem for tag in ("__CINEMATIC", "__DEBUG", "__OVERLAY",
                                        "portrait_POST", "portrait_FINAL")):
             continue
-        if stem not in output_map:
-            continue
 
         try:
             data = json.loads(sidecar_file.read_text(encoding="utf-8"))
@@ -584,9 +603,21 @@ def _reconcile(rendered_stems: set[str], dry_run: bool = False) -> int:
         if steps.get("portrait_render", {}).get("done"):
             continue  # Already marked
 
-        output_file = output_map[stem]
+        # Try exact stem match first
+        output_file = output_by_stem.get(stem)
+        if not output_file:
+            # Fallback: match by game_folder + clip_num + timestamps
+            ts_m = _ts_re.search(stem)
+            num_m = _num_re.match(stem)
+            if ts_m and num_m:
+                key = (num_m.group(2), num_m.group(1), f"t{ts_m.group(1)}-t{ts_m.group(2)}")
+                output_file = output_by_id.get(key)
+        if not output_file:
+            continue
+
         if dry_run:
             print(f"  [DRY-RUN] Would mark rendered: {stem}")
+            print(f"            Output: {output_file.name}")
         else:
             steps["portrait_render"] = {
                 "done": True,
