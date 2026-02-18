@@ -22,6 +22,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -29,15 +31,63 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
+PIPELINE_STATUS_PATH = ROOT / "out" / "catalog" / "pipeline_status.csv"
 
-# Games that are fully rendered but missing the upscale step (Tier 1)
-TIER1_GAMES = [
-    "Route_66",
-    "Arkansas",
-    "2025-10-14__TSC_vs_BASC",
-    "OK_Sporting",
-    "2025-11-23__TSC_vs_BASC",
-]
+# Rendering-variant tags to skip when scanning pipeline_status
+_VARIANT_TAGS = ("__CINEMATIC", "__DEBUG", "__OVERLAY", "portrait_POST", "portrait_FINAL")
+
+# Game folder pattern: "2025-04-12__TSC_vs_Route_66"
+_GAME_FOLDER_RE = re.compile(r"((?:\d{4}-\d{2}-\d{2}__)?[A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*)")
+
+
+def detect_tier1_games() -> list[str]:
+    """Scan pipeline_status.csv for games rendered without upscale.
+
+    A game qualifies for Tier 1 re-render when it has clips with
+    portrait_path set but upscaled_path empty.
+    """
+    if not PIPELINE_STATUS_PATH.exists():
+        return []
+
+    # Track per-game: how many clips rendered, how many upscaled
+    rendered: dict[str, int] = {}
+    upscaled: dict[str, int] = {}
+
+    with PIPELINE_STATUS_PATH.open("r", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            cp = row.get("clip_path", "")
+            # Skip rendering variants
+            if any(tag in cp for tag in _VARIANT_TAGS):
+                continue
+
+            # Extract game folder from the clip path
+            # Paths look like: .../out/atomic_clips/GAME_FOLDER/NNN__GAME_FOLDER__...
+            parts = cp.replace("\\", "/").split("/")
+            game = None
+            for i, part in enumerate(parts):
+                if part == "atomic_clips" and i + 1 < len(parts):
+                    game = parts[i + 1]
+                    break
+            if not game:
+                continue
+
+            has_portrait = bool(row.get("portrait_path", "").strip())
+            has_upscale = bool(row.get("upscaled_path", "").strip())
+
+            if has_portrait:
+                rendered[game] = rendered.get(game, 0) + 1
+                if has_upscale:
+                    upscaled[game] = upscaled.get(game, 0) + 1
+
+    # Games where most clips are rendered but few are upscaled
+    tier1 = []
+    for game, n_rendered in sorted(rendered.items()):
+        n_upscaled = upscaled.get(game, 0)
+        if n_rendered > 0 and n_upscaled < n_rendered:
+            tier1.append(game)
+
+    return tier1
 
 
 def run(cmd: list[str], *, dry_run: bool, label: str) -> int:
@@ -60,13 +110,15 @@ def tier1_rerender_with_upscale(*, dry_run: bool, game_filter: str | None) -> No
     print("  TIER 1: Re-render completed games with 2x upscale")
     print("=" * 78)
 
-    games = TIER1_GAMES
+    games = detect_tier1_games()
     if game_filter:
         games = [g for g in games if game_filter.upper() in g.upper()]
 
     if not games:
-        print("  (no Tier 1 games match filter)")
+        print("  (no Tier 1 games need upscale re-render)")
         return
+
+    print(f"  Detected {len(games)} game(s) with renders missing upscale")
 
     for game in games:
         print(f"\n  --- {game} ---")
