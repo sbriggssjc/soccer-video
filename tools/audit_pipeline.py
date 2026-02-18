@@ -327,9 +327,6 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict,
             for cp, status in pipeline_status.items():
                 if game_folder not in cp:
                     continue
-                if any(tag in cp for tag in ("__CINEMATIC", "__DEBUG", "__OVERLAY",
-                                             "portrait_POST", "portrait_FINAL")):
-                    continue
                 if status.get("portrait_path") and ts_tag in cp:
                     rendered = True
                     break
