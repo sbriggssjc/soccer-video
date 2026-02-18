@@ -69,9 +69,19 @@ class GameAudit:
 # Timestamp parsing helpers
 # ---------------------------------------------------------------------------
 
-_HMS_RE = re.compile(r"^(\d+):(\d+):(\d+(?:\.\d+)?)$")   # H:MM:SS or H:MM:SS.f
-_MS_RE = re.compile(r"^(\d+):(\d+(?:\.\d+)?)$")           # MM:SS.f
-_SEC_RE = re.compile(r"^[\d,]+(?:\.\d+)?$")                 # plain seconds (with commas)
+_THREE_PART_RE = re.compile(r"^(\d+):(\d+):(\d+(?:\.\d+)?)$")  # A:B:C
+_MS_RE = re.compile(r"^(\d+):(\d+(?:\.\d+)?)$")                 # MM:SS.f
+_SEC_RE = re.compile(r"^[\d,]+(?:\.\d+)?$")                       # plain seconds (with commas)
+
+
+def _parse_three_part_as_mmss_cs(a: float, b: float, c: float) -> float:
+    """Interpret A:B:C as MM:SS:centiseconds (e.g., "2:02:00" = 2m 2s)."""
+    return a * 60 + b + c / 100
+
+
+def _parse_three_part_as_hmmss(a: float, b: float, c: float) -> float:
+    """Interpret A:B:C as H:MM:SS (e.g., "0:06:37" = 0h 6m 37s)."""
+    return a * 3600 + b * 60 + c
 
 
 def parse_time_to_seconds(raw: str) -> Optional[float]:
@@ -80,11 +90,11 @@ def parse_time_to_seconds(raw: str) -> Optional[float]:
     if not raw:
         return None
 
-    # H:MM:SS or H:MM:SS.f
-    m = _HMS_RE.match(raw)
+    # Three-part: default to MM:SS:cs; pair-level disambiguation overrides
+    m = _THREE_PART_RE.match(raw)
     if m:
-        h, mn, s = float(m.group(1)), float(m.group(2)), float(m.group(3))
-        return h * 3600 + mn * 60 + s
+        a, b, c = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return _parse_three_part_as_mmss_cs(a, b, c)
 
     # MM:SS.f
     m = _MS_RE.match(raw)
@@ -100,18 +110,41 @@ def parse_time_to_seconds(raw: str) -> Optional[float]:
     return None
 
 
-def normalize_timestamp(val: float) -> float:
-    """Correct timestamps stored in non-standard units (60x, 1440x)."""
-    MAX_PLAUSIBLE = 10800.0  # 3 hours
-    if abs(val) <= MAX_PLAUSIBLE:
-        return val
-    v60 = val / 60
-    if abs(v60) <= MAX_PLAUSIBLE:
-        return v60
-    v1440 = val / 1440
-    if abs(v1440) <= MAX_PLAUSIBLE:
-        return v1440
-    return val
+def parse_time_pair(raw_start: str, raw_end: str) -> tuple[Optional[float], Optional[float]]:
+    """Parse a start/end timestamp pair, disambiguating three-part formats.
+
+    When both timestamps match A:B:C, tries MM:SS:cs first.  If that gives
+    a clip shorter than 2 seconds, retries as H:MM:SS (needed for TSC Navy
+    timestamps like "0:06:37" = 6 min 37 sec, not 6.37 sec).
+    """
+    raw_start = (raw_start or "").strip().strip('"')
+    raw_end = (raw_end or "").strip().strip('"')
+    if not raw_start or not raw_end:
+        return None, None
+
+    ms = _THREE_PART_RE.match(raw_start)
+    me = _THREE_PART_RE.match(raw_end)
+
+    if ms and me:
+        sa, sb, sc = float(ms.group(1)), float(ms.group(2)), float(ms.group(3))
+        ea, eb, ec = float(me.group(1)), float(me.group(2)), float(me.group(3))
+
+        t0_mmss = _parse_three_part_as_mmss_cs(sa, sb, sc)
+        t1_mmss = _parse_three_part_as_mmss_cs(ea, eb, ec)
+        t0_hms = _parse_three_part_as_hmmss(sa, sb, sc)
+        t1_hms = _parse_three_part_as_hmmss(ea, eb, ec)
+
+        dur_mmss = t1_mmss - t0_mmss
+        dur_hms = t1_hms - t0_hms
+
+        # If MM:SS:cs gives a clip < 2 seconds but H:MM:SS gives a reasonable
+        # duration, use H:MM:SS  (handles Navy-style "0:06:37-0:07:10")
+        if dur_mmss < 2.0 and dur_hms >= 2.0:
+            return t0_hms, t1_hms
+        return t0_mmss, t1_mmss
+
+    # Fall back to individual parsing
+    return parse_time_to_seconds(raw_start), parse_time_to_seconds(raw_end)
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +165,7 @@ def load_clip_index_csv(path: Path) -> list[ExpectedClip]:
             except ValueError:
                 continue
             label = row.get("description", "").strip()
-            start = parse_time_to_seconds(row.get("start", ""))
-            end = parse_time_to_seconds(row.get("end", ""))
+            start, end = parse_time_pair(row.get("start", ""), row.get("end", ""))
             if start is None or end is None:
                 continue
             clips.append(ExpectedClip(
@@ -159,12 +191,11 @@ def load_plays_manual_csv(path: Path) -> list[ExpectedClip]:
             except ValueError:
                 continue
             label = row.get("label", "").strip().strip('"')
-            start = parse_time_to_seconds(row.get("master_start", ""))
-            end = parse_time_to_seconds(row.get("master_end", ""))
+            start, end = parse_time_pair(
+                row.get("master_start", ""), row.get("master_end", ""),
+            )
             if start is None or end is None:
                 continue
-            start = normalize_timestamp(start)
-            end = normalize_timestamp(end)
             clips.append(ExpectedClip(
                 clip_num=num,
                 label=label.upper().replace(" ", "_").replace("&", "").replace("__", "_").strip("_"),
