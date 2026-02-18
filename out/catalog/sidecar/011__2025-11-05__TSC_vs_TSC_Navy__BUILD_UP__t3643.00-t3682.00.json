@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-11-05__TSC_vs_TSC_Navy\\011__2025-11-05__TSC_vs_TSC_Navy__BUILD_UP__t3643.00-t3682.00.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-11-05__TSC_vs_TSC_Navy\\011__2025-11-05__TSC_vs_TSC_Navy__BUILD_UP__t3643.00-t3682.00.mp4",
   "source_sha1_64": "772353f43105dd7f",
   "meta": {
     "duration_s": 39.338,
@@ -7,9 +7,17 @@
     "height": 1080,
     "fps": "24/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\011__2025-11-05__TSC_vs_TSC_Navy__BUILD_UP__t3643.00-t3682.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-18T05:51:42+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
   "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
   "t_start_s": 3643.0,
   "t_end_s": 3682.0

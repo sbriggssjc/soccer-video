@@ -1,5 +1,5 @@
 {
-  "clip_path": "C:\\Users\\scott\\OneDrive\\SoccerVideoMedia\\out\\atomic_clips\\2025-10-12__TSC_vs_SLSG\\004__2025-10-12__TSC_vs_SLSG__PRESSURE__t640.00-t663.00.mp4",
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-10-12__TSC_vs_SLSG\\004__2025-10-12__TSC_vs_SLSG__PRESSURE__t640.00-t663.00.mp4",
   "source_sha1_64": "9395fd0513fe00e4",
   "meta": {
     "duration_s": 23.877,
@@ -7,9 +7,17 @@
     "height": 1080,
     "fps": "24/1"
   },
-  "steps": {},
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\004__2025-10-12__TSC_vs_SLSG__PRESSURE__t640.00-t663.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-18T04:32:18+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
   "errors": [],
-  "master_path": "C:/Users/scott/soccer-video/out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
+  "master_path": "D:/Projects/soccer-video/out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
   "master_rel": "out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
   "t_start_s": 640.0,
   "t_end_s": 663.0
