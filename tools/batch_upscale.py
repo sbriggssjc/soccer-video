@@ -16,6 +16,7 @@ Usage:
     python tools/batch_upscale.py --limit 5           # test with 5 clips
     python tools/batch_upscale.py --method realesrgan # use AI upscaler
     python tools/batch_upscale.py --remap "C:/Users/scott/OneDrive/SoccerVideoMedia=D:/Projects/soccer-video"
+    python tools/batch_upscale.py --repair-sidecars   # fix tracking after prior run
 """
 
 from __future__ import annotations
@@ -38,6 +39,9 @@ _VARIANT_TAGS = ("__CINEMATIC", "__DEBUG", "__OVERLAY", "portrait_POST",
                  "portrait_FINAL", "nonexistent")
 
 
+UPSCALE_OUT_DIR = REPO_ROOT / "out" / "upscaled"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Batch upscale portrait renders missing upscale output.",
@@ -57,6 +61,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Re-upscale even if output already exists")
     p.add_argument("--remap", metavar="OLD=NEW",
                    help="Remap portrait path prefix (e.g. 'C:/old/path=D:/new/path')")
+    p.add_argument("--repair-sidecars", action="store_true",
+                   help="Fix upscale tracking: scan upscaled/ for existing output and "
+                        "record in the correct atomic-clip sidecars and pipeline_status")
     return p.parse_args(argv)
 
 
@@ -207,8 +214,88 @@ def _extract_game(clip_path: str) -> str:
     return ""
 
 
+def _repair_sidecars(args: argparse.Namespace) -> int:
+    """Scan upscaled/ for output files and record upscale status against the
+    correct atomic clip_path in sidecars and pipeline_status.
+
+    This fixes tracking from a prior batch_upscale run where upscale_video()
+    was called with track=True (recording against the portrait stem instead
+    of the atomic clip stem).
+    """
+    import re
+    from tools.catalog import mark_upscaled
+
+    if not UPSCALE_OUT_DIR.exists():
+        print(f"[ERROR] Upscale output directory not found: {UPSCALE_OUT_DIR}")
+        return 1
+
+    # Build a map: portrait_stem -> upscale output path
+    # Upscale filenames follow: {portrait_stem}__x{scale}__{method}.mp4
+    upscale_re = re.compile(r"^(.+)__x(\d+)__(\w+)\.mp4$")
+    upscale_files: dict[str, Path] = {}
+    for f in sorted(UPSCALE_OUT_DIR.iterdir()):
+        m = upscale_re.match(f.name)
+        if m:
+            upscale_files[m.group(1)] = f
+
+    if not upscale_files:
+        print("[OK] No upscale output files found.")
+        return 0
+
+    print(f"[REPAIR] Found {len(upscale_files)} upscale output file(s)")
+
+    # Build a map: portrait_stem -> original clip_path from pipeline_status
+    portrait_to_clip: dict[str, str] = {}
+    if PIPELINE_STATUS_PATH.exists():
+        with PIPELINE_STATUS_PATH.open("r", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                cp = row.get("clip_path", "")
+                if any(tag in cp for tag in _VARIANT_TAGS):
+                    continue
+                portrait = row.get("portrait_path", "").strip()
+                if not portrait:
+                    continue
+                p_stem = _portrait_stem(portrait)
+                # Prefer entries that look like atomic clip paths (not portrait)
+                if p_stem not in portrait_to_clip or "atomic_clips" in cp:
+                    portrait_to_clip[p_stem] = cp
+
+    updated = 0
+    skipped = 0
+
+    for portrait_stem, upscale_path in sorted(upscale_files.items()):
+        clip_path_str = portrait_to_clip.get(portrait_stem)
+        if not clip_path_str:
+            if not args.dry_run:
+                print(f"  [SKIP] No clip_path found for {portrait_stem}")
+            skipped += 1
+            continue
+
+        clip_path = Path(clip_path_str)
+        if args.game and args.game.lower() not in clip_path_str.lower():
+            continue
+
+        if args.dry_run:
+            print(f"  [DRY-RUN] {clip_path.stem[:50]} <- {upscale_path.name}")
+        else:
+            mark_upscaled(clip_path, upscale_path,
+                          scale=args.scale, model="lanczos")
+            updated += 1
+
+    print()
+    if args.dry_run:
+        print(f"[DRY-RUN] Would update {updated + len(upscale_files) - skipped} sidecar(s)")
+    else:
+        print(f"[REPAIR] Updated {updated} sidecar(s), skipped {skipped}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    if args.repair_sidecars:
+        return _repair_sidecars(args)
+
     work = load_upscale_work(args)
 
     if args.limit and args.limit > 0:
@@ -247,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Import upscale here so dry-run works without ffmpeg
     from tools.upscale import upscale_video
+    from tools.catalog import mark_upscaled
 
     ok = 0
     failed = 0
@@ -255,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for i, item in enumerate(work, 1):
         portrait_path = Path(item["portrait_path"])
+        clip_path = Path(item["clip_path"])
         elapsed = time.monotonic() - t_start
         eta = ""
         if i > 1 and (ok + failed) > 0:
@@ -270,13 +359,19 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         try:
+            # track=False: we handle tracking ourselves against the original
+            # atomic clip_path so the audit finds the upscale status in the
+            # correct sidecar (keyed by atomic clip stem, not portrait stem).
             result = upscale_video(
                 str(portrait_path),
                 scale=args.scale,
                 method=args.method,
                 force=args.force,
-                track=True,
+                track=False,
             )
+            model = args.method if args.method == "realesrgan" else "lanczos"
+            mark_upscaled(clip_path, Path(result),
+                          scale=args.scale, model=model)
             print(f"  [OK] {Path(result).name}")
             ok += 1
         except Exception as exc:
