@@ -34,6 +34,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from timestamp_parse import parse_timestamp_pair
+
 ROOT = Path(__file__).resolve().parents[1]
 GAMES_DIR = ROOT / "out" / "games"
 CATALOG_DIR = ROOT / "out" / "catalog"
@@ -187,6 +189,10 @@ def parse_clip_csv(path: Path) -> List[dict]:
     """Parse a clip_index.csv file and return list of clip dicts.
 
     Expected columns: clip_num, description, start, end
+
+    Uses ``parse_timestamp_pair`` for MM:SS:cs vs H:MM:SS disambiguation
+    when both start and end are three-part timestamps.  Falls back to
+    ``_ts_to_seconds`` for underscore-format timestamps (H_MM_SS).
     """
     clips = []
     with path.open("r", encoding="utf-8-sig") as f:
@@ -196,8 +202,15 @@ def parse_clip_csv(path: Path) -> List[dict]:
             end_raw = row.get("end", "").strip()
             if not start_raw or not end_raw:
                 continue
-            t_start = _ts_to_seconds(start_raw)
-            t_end = _ts_to_seconds(end_raw)
+
+            # Underscore format (H_MM_SS) is filename-specific; handle locally
+            if "_" in start_raw or "_" in end_raw:
+                t_start = _ts_to_seconds(start_raw)
+                t_end = _ts_to_seconds(end_raw)
+            else:
+                # Use shared module for colon/plain-seconds disambiguation
+                t_start, t_end = parse_timestamp_pair(start_raw, end_raw)
+
             if t_start is None or t_end is None:
                 continue
 
