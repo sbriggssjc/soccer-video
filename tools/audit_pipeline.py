@@ -393,7 +393,7 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
                     f"#{clip.clip_num:03d} {clip.label}"
                 )
 
-    # Count errors from pipeline_status (skip CINEMATIC cascade artifacts)
+    # Count errors from pipeline_status (skip resolved & variant entries)
     _VARIANT_TAGS = ("__CINEMATIC", "__DEBUG", "__OVERLAY", "portrait_POST", "portrait_FINAL")
     for cp, status in pipeline_status.items():
         if game_folder not in cp:
@@ -402,10 +402,14 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
         if any(tag in cp for tag in _VARIANT_TAGS):
             continue
         err = status.get("last_error", "").strip()
-        if err:
-            audit.errors += 1
-            clip_name = cp.split("\\")[-1] if "\\" in cp else cp.split("/")[-1]
-            audit.error_details.append(f"{clip_name[:60]}: {err}")
+        if not err:
+            continue
+        # Skip stale errors — render succeeded after the error was logged
+        if status.get("portrait_path", "").strip() and status.get("render_done_at", "").strip():
+            continue
+        audit.errors += 1
+        clip_name = cp.split("\\")[-1] if "\\" in cp else cp.split("/")[-1]
+        audit.error_details.append(f"{clip_name[:60]}: {err}")
 
     return audit
 
