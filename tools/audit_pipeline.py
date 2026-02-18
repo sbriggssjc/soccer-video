@@ -379,7 +379,7 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
             # Also check pipeline_status for any matching entries
             found_in_pipeline = False
             for cp, status in pipeline_status.items():
-                if game_key.replace("TSC_vs_", "") in cp or game_folder in cp:
+                if game_folder in cp:
                     # Rough timestamp match from filename
                     if status.get("portrait_path") and f"t{clip.start_s:.0f}" in cp:
                         found_in_pipeline = True
@@ -393,14 +393,19 @@ def audit_game(game_dir: Path, atomic_by_master: dict, pipeline_status: dict) ->
                     f"#{clip.clip_num:03d} {clip.label}"
                 )
 
-    # Count errors from pipeline_status
+    # Count errors from pipeline_status (skip CINEMATIC cascade artifacts)
+    _VARIANT_TAGS = ("__CINEMATIC", "__DEBUG", "__OVERLAY", "portrait_POST", "portrait_FINAL")
     for cp, status in pipeline_status.items():
-        if game_key.replace("TSC_vs_", "") in cp or game_folder in cp:
-            err = status.get("last_error", "").strip()
-            if err:
-                audit.errors += 1
-                clip_name = cp.split("\\")[-1] if "\\" in cp else cp.split("/")[-1]
-                audit.error_details.append(f"{clip_name[:60]}: {err}")
+        if game_folder not in cp:
+            continue
+        # Skip rendering-variant paths (same filter as sidecar loader)
+        if any(tag in cp for tag in _VARIANT_TAGS):
+            continue
+        err = status.get("last_error", "").strip()
+        if err:
+            audit.errors += 1
+            clip_name = cp.split("\\")[-1] if "\\" in cp else cp.split("/")[-1]
+            audit.error_details.append(f"{clip_name[:60]}: {err}")
 
     return audit
 
