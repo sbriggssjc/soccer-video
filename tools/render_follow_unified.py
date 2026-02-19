@@ -7292,7 +7292,11 @@ def _resolve_output_path(
         return p, True
     return _default_output_path(input_path, preset), False
 
-def _default_output_path(input_path: Path, preset: str) -> Path:
+def _default_output_path(
+    input_path: Path,
+    preset: str,
+    portrait: bool = False,
+) -> Path:
     name = build_output_name(
         input_path=str(input_path),
         preset=preset,
@@ -7301,6 +7305,13 @@ def _default_output_path(input_path: Path, preset: str) -> Path:
         is_final=False,
         extra_tags=[],
     )
+    if portrait:
+        # Single output tree: out/portrait/{match_subdir}/
+        # Keeps rendered clips separate from source atomic_clips and
+        # ensures re-runs always overwrite in one location.
+        out_dir = Path("out/portrait").resolve() / input_path.parent.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir / name
     return input_path.with_name(name)
 
 
@@ -7490,9 +7501,10 @@ def run(
         setattr(args, "use_ball_telemetry", True)
         # Lower the sanity threshold so high-coverage motion-centroid
         # telemetry isn't rejected when YOLO detections are sparse.
-        # The default 0.50 causes good data (239/239 frames, 0.98 conf)
-        # to be discarded when YOLO only has a handful of detections.
-        if not getattr(args, "ball_min_sanity", None):
+        # The CLI default is 0.6 which causes good motion-centroid
+        # data (239/239 frames, 0.98 conf) to be discarded when YOLO
+        # only has a handful of detections.
+        if getattr(args, "ball_min_sanity", None) is None:
             setattr(args, "ball_min_sanity", 0.10)
         # Ensure follow.adaptive.enabled is set
         follow_raw = preset_config.get("follow")
@@ -7820,7 +7832,7 @@ def run(
         normalized_name = normalize_tags_in_stem(requested_output.stem)
         output_path = requested_output.with_name(f"{normalized_name}{requested_output.suffix}")
     else:
-        output_path = _default_output_path(original_source_path, preset_key)
+        output_path = _default_output_path(original_source_path, preset_key, portrait=bool(portrait))
     output_path = output_path.expanduser().resolve()
     if getattr(args, "no_clobber", False):
         if output_path.exists() and output_path.stat().st_size > 0:
@@ -8004,7 +8016,7 @@ def run(
                 preset_name=preset_key,
                 in_path=input_path,
                 out_path=output_path,
-                min_sanity=float(getattr(args, "ball_min_sanity", 0.50)),
+                min_sanity=float(getattr(args, "ball_min_sanity", None) or 0.60),
                 use_red_fallback=use_red_fallback,
                 scratch_root=scratch_root,
             )
@@ -9256,8 +9268,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ball-min-sanity",
         type=float,
-        default=0.6,
-        help="Minimum sanity score required to trust ball telemetry.",
+        default=None,
+        help="Minimum sanity score required to trust ball telemetry (default: 0.6, auto preset: 0.10).",
     )
     _add_argument_once(
         parser,
