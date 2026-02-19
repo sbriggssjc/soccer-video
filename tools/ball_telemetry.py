@@ -1390,6 +1390,8 @@ def fuse_yolo_and_centroid(
         - YOLO present but low confidence: blend YOLO + centroid weighted by YOLO conf
         - Only centroid present: use centroid, moderate confidence (0.3)
         - Neither present: NaN position, zero confidence
+
+    Handles degenerate cases: zero frames, empty inputs, single-sample clips.
     """
     FUSE_NONE = np.uint8(0)
     FUSE_YOLO = np.uint8(1)
@@ -1398,10 +1400,31 @@ def fuse_yolo_and_centroid(
     FUSE_INTERP = np.uint8(4)
     FUSE_HOLD = np.uint8(5)
 
+    # Guard: zero-frame or negative frame_count
+    if frame_count <= 0:
+        print("[FUSION] frame_count <= 0; returning empty arrays")
+        return (
+            np.empty((0, 2), dtype=np.float32),
+            np.empty(0, dtype=bool),
+            np.empty(0, dtype=np.float32),
+            np.empty(0, dtype=np.uint8),
+        )
+
     positions = np.full((frame_count, 2), np.nan, dtype=np.float32)
     used_mask = np.zeros(frame_count, dtype=bool)
     confidence = np.zeros(frame_count, dtype=np.float32)
     source_labels = np.zeros(frame_count, dtype=np.uint8)
+
+    # Guard: both inputs empty — return centred default position so camera
+    # holds at frame centre rather than producing all-NaN.
+    if not yolo_samples and not centroid_samples:
+        print("[FUSION] No YOLO or centroid samples; holding at frame centre")
+        positions[:, 0] = width * 0.5
+        positions[:, 1] = height * 0.5
+        confidence[:] = 0.10
+        used_mask[:] = True
+        source_labels[:] = FUSE_HOLD
+        return positions, used_mask, confidence, source_labels
 
     # Edge margin: YOLO detections within this fraction of the frame edge
     # are almost always false positives (goalposts, shadows, partial views).
@@ -1922,6 +1945,36 @@ def fuse_yolo_and_centroid(
         if _sample_frames:
             _parts = [f"f{_sf}={positions[_sf, 0]:.0f}" for _sf in _sample_frames]
             print(f"[FUSION] Ball x timeline (1s steps): {', '.join(_parts)}")
+
+    # --- Final safety net: fill any remaining all-NaN frames ---
+    # After all fusion passes, some frames may still have NaN positions
+    # (e.g., very short clips where neither YOLO nor centroid had data).
+    # Fill them with frame centre so the camera always has a valid target
+    # and downstream code (planner, renderer) never encounters NaN.
+    _nan_mask = np.isnan(positions[:, 0])
+    _nan_count = int(_nan_mask.sum())
+    if _nan_count > 0 and _nan_count == frame_count:
+        # All frames are NaN — hold at frame centre
+        print(f"[FUSION] All {frame_count} frames are NaN after fusion; holding at frame centre")
+        positions[:, 0] = width * 0.5
+        positions[:, 1] = height * 0.5
+        confidence[:] = 0.10
+        used_mask[:] = True
+        source_labels[:] = FUSE_HOLD
+    elif _nan_count > 0:
+        # Partial NaN — forward-fill from nearest valid frame
+        _last_x, _last_y = width * 0.5, height * 0.5
+        for _fi in range(frame_count):
+            if not _nan_mask[_fi]:
+                _last_x = float(positions[_fi, 0])
+                _last_y = float(positions[_fi, 1])
+            else:
+                positions[_fi, 0] = _last_x
+                positions[_fi, 1] = _last_y
+                used_mask[_fi] = True
+                confidence[_fi] = max(confidence[_fi], 0.10)
+                if source_labels[_fi] == FUSE_NONE:
+                    source_labels[_fi] = FUSE_HOLD
 
     return positions, used_mask, confidence, source_labels
 
