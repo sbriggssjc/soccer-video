@@ -13,13 +13,21 @@ ball + carrier hints. Each line matches the schema::
       "carrier_y": 520.7,
       "carrier_conf": 0.88,
       "source": "ball",         # or "carrier" / "players"
-      "is_valid": true
+      "is_valid": true,
+      "cam_motion": 3.2
     }
 
 The builder favors direct ball detections, then short-term carrier holds, and
-finally motion-based fallbacks when the ball disappears. Downstream consumers
-can safely fall back to reactive follow when ``is_valid`` is ``false`` or
-confidence drops.
+finally motion-based fallbacks when the ball disappears.  Camera motion is
+estimated each frame via sparse optical-flow + RANSAC affine so that:
+
+  * carrier-hold positions are warped to compensate for camera pans,
+  * ball detection runs on a motion-compensated frame (less blur),
+  * the motion-centroid fallback uses a stabilized diff (global motion
+    subtracted), so it finds the *ball* motion, not the *camera* motion.
+
+Downstream consumers can safely fall back to reactive follow when
+``is_valid`` is ``false`` or confidence drops.
 """
 
 from __future__ import annotations
@@ -29,13 +37,91 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from tools.ball_telemetry import telemetry_path_for_video
 
+# --- Camera-motion estimation ------------------------------------------------
+
+# Carrier hold is normally 12 frames; during fast camera motion we extend to 24.
+_CARRIER_HOLD_BASE = 12
+_CARRIER_HOLD_EXTENDED = 24
+# Camera motion (in pixels) above which we consider the camera "panning fast".
+_CAM_MOTION_FAST_THRESH = 6.0
+
+
+def _estimate_camera_motion(
+    prev_gray: np.ndarray, cur_gray: np.ndarray
+) -> Tuple[np.ndarray, float]:
+    """Return (2×3 affine warp matrix, motion magnitude in px).
+
+    The affine maps *current* frame pixels back to *previous* frame space,
+    effectively undoing the camera movement.  ``motion_mag`` is the
+    translational component magnitude (useful as a scalar "how much did the
+    camera move" signal).
+    """
+    p0 = cv2.goodFeaturesToTrack(
+        prev_gray,
+        maxCorners=800,
+        qualityLevel=0.01,
+        minDistance=10,
+        blockSize=7,
+    )
+    identity = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
+    if p0 is None or len(p0) < 12:
+        return identity, 0.0
+
+    p1, st, _ = cv2.calcOpticalFlowPyrLK(
+        prev_gray, cur_gray, p0, None, winSize=(21, 21), maxLevel=3
+    )
+    if p1 is None or st is None:
+        return identity, 0.0
+
+    good_prev = p0[st == 1].reshape(-1, 2)
+    good_cur = p1[st == 1].reshape(-1, 2)
+    if len(good_prev) < 12:
+        return identity, 0.0
+
+    M, _inliers = cv2.estimateAffinePartial2D(
+        good_cur, good_prev, method=cv2.RANSAC, ransacReprojThreshold=3.0
+    )
+    if M is None:
+        return identity, 0.0
+
+    # Translation component = the displacement of the frame centre.
+    tx, ty = float(M[0, 2]), float(M[1, 2])
+    motion_mag = math.hypot(tx, ty)
+    return M, motion_mag
+
+
+def _warp_point(
+    x: float, y: float, M: np.ndarray, width: int, height: int
+) -> Tuple[float, float]:
+    """Apply 2×3 affine *inverse* to a point (prev-frame coords → cur-frame coords)."""
+    # M maps cur→prev.  We need prev→cur, so invert.
+    try:
+        M_inv = cv2.invertAffineTransform(M)
+    except cv2.error:
+        return x, y
+    nx = float(M_inv[0, 0] * x + M_inv[0, 1] * y + M_inv[0, 2])
+    ny = float(M_inv[1, 0] * x + M_inv[1, 1] * y + M_inv[1, 2])
+    return max(0.0, min(float(width), nx)), max(0.0, min(float(height), ny))
+
+
+def _stabilize_frame(
+    frame: np.ndarray, M: np.ndarray
+) -> np.ndarray:
+    """Warp *frame* so that it aligns with the previous frame (undo camera motion)."""
+    h, w = frame.shape[:2]
+    return cv2.warpAffine(
+        frame, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+    )
+
+
+# --- Detection helpers --------------------------------------------------------
 
 @dataclass
 class Detection:
@@ -97,6 +183,12 @@ def _motion_centroid(
     *,
     hint: tuple[float, float] | None = None,
 ) -> Detection | None:
+    """Find the largest motion blob.
+
+    When *prev_gray* and *gray* are already stabilized (camera motion removed),
+    the diff isolates object motion (the ball, players) rather than the global
+    camera pan.
+    """
     diff = cv2.absdiff(gray, prev_gray)
     blur = cv2.GaussianBlur(diff, (5, 5), 0)
     _, thresh = cv2.threshold(blur, 20, 255, cv2.THRESH_BINARY)
@@ -164,6 +256,7 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
     print(f"[TELEMETRY] Building ball/carrier telemetry for {video_path} ({total_frames} frames @ {fps:.2f}fps)")
 
     prev_gray: np.ndarray | None = None
+    prev_stab_gray: np.ndarray | None = None
     last_ball: tuple[float, float, int, float] | None = None
     carried_frames = 0
     valid_rows = 0
@@ -173,14 +266,75 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
     with out_path.open("w", encoding="utf-8") as handle:
         for frame_idx, frame in _iter_frames(cap):
             t_val = frame_idx / fps if fps > 0 else 0.0
-            detection = _white_ball_detector(frame, width, height)
-
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            motion_hint = (last_ball[0], last_ball[1]) if last_ball else None
-            motion_det = None
-            if prev_gray is not None:
-                motion_det = _motion_centroid(prev_gray, frame_gray, (height, width), hint=motion_hint)
 
+            # --- Camera motion estimation ---
+            cam_motion_mag = 0.0
+            cam_M = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
+            if prev_gray is not None:
+                cam_M, cam_motion_mag = _estimate_camera_motion(prev_gray, frame_gray)
+
+            camera_is_moving = cam_motion_mag >= _CAM_MOTION_FAST_THRESH
+
+            # --- Stabilized frame for detection ---
+            # Warp current frame to align with previous frame's coordinate
+            # system.  This reduces motion blur artefacts during camera pans
+            # and makes the white-ball detector's circularity scoring more
+            # reliable.
+            if camera_is_moving and prev_gray is not None:
+                stab_frame = _stabilize_frame(frame, cam_M)
+                stab_gray = cv2.cvtColor(stab_frame, cv2.COLOR_BGR2GRAY)
+            else:
+                stab_frame = frame
+                stab_gray = frame_gray
+
+            # --- Ball detection (try stabilized frame first, raw as fallback) ---
+            detection = _white_ball_detector(stab_frame, width, height)
+            det_in_stab_space = True
+            if detection is None and camera_is_moving:
+                # Stabilized frame didn't help; try raw frame too.
+                detection = _white_ball_detector(frame, width, height)
+                det_in_stab_space = False
+
+            # If detection was in stabilized space, map coords back to raw.
+            if detection is not None and det_in_stab_space and camera_is_moving:
+                rx, ry = _warp_point(detection.x, detection.y, cam_M, width, height)
+                detection = Detection(x=rx, y=ry, conf=detection.conf, source=detection.source)
+
+            # --- Motion centroid (use stabilized diff to subtract camera motion) ---
+            motion_hint = (last_ball[0], last_ball[1]) if last_ball else None
+            # Warp hint to current frame if camera moved.
+            if motion_hint is not None and camera_is_moving:
+                motion_hint = _warp_point(
+                    motion_hint[0], motion_hint[1], cam_M, width, height
+                )
+
+            motion_det = None
+            if prev_stab_gray is not None:
+                motion_det = _motion_centroid(
+                    prev_stab_gray, stab_gray, (height, width), hint=motion_hint
+                )
+                # Map back to raw pixel space.
+                if motion_det is not None and camera_is_moving:
+                    rx, ry = _warp_point(
+                        motion_det.x, motion_det.y, cam_M, width, height
+                    )
+                    motion_det = Detection(
+                        x=rx, y=ry, conf=motion_det.conf, source=motion_det.source
+                    )
+
+            # --- Carrier hold: warp last-known position by camera motion ---
+            if last_ball is not None and camera_is_moving:
+                wx, wy = _warp_point(
+                    last_ball[0], last_ball[1], cam_M, width, height
+                )
+                last_ball = (wx, wy, last_ball[2], last_ball[3])
+
+            # Dynamic hold limit: extend during camera pans so we bridge the
+            # detection gap caused by motion blur.
+            max_hold = _CARRIER_HOLD_EXTENDED if camera_is_moving else _CARRIER_HOLD_BASE
+
+            # --- Decision cascade ---
             source = "players"
             ball_x = ball_y = float("nan")
             carrier_x = carrier_y = float("nan")
@@ -194,7 +348,7 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
                 is_valid = True
                 last_ball = (ball_x, ball_y, frame_idx, ball_conf)
                 carried_frames = 0
-            elif last_ball and frame_idx - last_ball[2] <= 12:
+            elif last_ball and frame_idx - last_ball[2] <= max_hold:
                 decay = 0.85 ** float(frame_idx - last_ball[2])
                 ball_x, ball_y = last_ball[0], last_ball[1]
                 carrier_x, carrier_y = ball_x, ball_y
@@ -228,6 +382,7 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
                 "carrier_conf": float(carrier_conf),
                 "source": source,
                 "is_valid": bool(is_valid),
+                "cam_motion": round(cam_motion_mag, 2),
             }
             handle.write(json.dumps(row) + "\n")
 
@@ -235,6 +390,7 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
                 valid_rows += 1
 
             prev_gray = frame_gray
+            prev_stab_gray = stab_gray
             processed_frames += 1
 
     cap.release()
