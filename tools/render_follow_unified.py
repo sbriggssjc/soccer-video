@@ -7488,6 +7488,12 @@ def run(
     # so the pipeline works end-to-end without extra flags.
     if auto_tune_enabled:
         setattr(args, "use_ball_telemetry", True)
+        # Lower the sanity threshold so high-coverage motion-centroid
+        # telemetry isn't rejected when YOLO detections are sparse.
+        # The default 0.50 causes good data (239/239 frames, 0.98 conf)
+        # to be discarded when YOLO only has a handful of detections.
+        if not getattr(args, "ball_min_sanity", None):
+            setattr(args, "ball_min_sanity", 0.10)
         # Ensure follow.adaptive.enabled is set
         follow_raw = preset_config.get("follow")
         if isinstance(follow_raw, dict):
