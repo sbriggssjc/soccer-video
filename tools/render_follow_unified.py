@@ -1189,6 +1189,7 @@ from tools.ball_telemetry import (
 from tools.offline_portrait_planner import (
     OfflinePortraitPlanner,
     PlannerConfig,
+    analyze_ball_positions,
     keyframes_to_arrays,
     load_plan,
     plan_ball_portrait_crop,
@@ -3907,6 +3908,7 @@ def plan_camera_from_ball(
     lead_px_override: Optional[float] = None,
     adaptive: bool = False,
     adaptive_config: Optional[dict] = None,
+    auto_tune: bool = False,
 ):
     """Plan a portrait crop using the offline cinematic planner."""
 
@@ -3914,42 +3916,63 @@ def plan_camera_from_ball(
         raise ValueError("Frame dimensions must be positive")
 
     fps = FPS if FPS > 0 else 30.0
-    smooth_window = max(3, int(round((1.0 - float(np.clip(pan_alpha, 0.01, 0.95))) * 12.0)) | 1)
-    headroom_frac = 0.5 - float(np.clip(center_frac, 0.0, 1.0))
-    default_headroom = max(0.08, min(0.20, headroom_frac))
-    lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
-    max_step_x = max(12.0, frame_w * 0.012)
-    max_step_y = max(8.0, frame_h * 0.008)
-    passes = 3 if pan_alpha < 0.3 else 2
+    crop_aspect = float(target_aspect) if target_aspect > 0 else (9.0 / 16.0)
 
-    margin_value = max(bounds_pad, 90.0)
+    # ------------------------------------------------------------------
+    # Auto-tune: analyse the ball trajectory and let PlannerConfig pick
+    # optimal step/accel/margin/lead values for this specific clip.
+    # ------------------------------------------------------------------
+    if auto_tune:
+        cfg = PlannerConfig.auto_from_telemetry(
+            bx, by,
+            frame_size=(float(frame_w), float(frame_h)),
+            fps=float(fps),
+            crop_aspect=crop_aspect,
+        )
+        # Honour explicit overrides even in auto mode.
+        if margin_px_override is not None:
+            cfg.margin_px = max(0.0, float(margin_px_override))
+        if headroom_frac_override is not None:
+            cfg.headroom_frac = float(np.clip(headroom_frac_override, -0.2, 0.4))
+        if lead_px_override is not None:
+            cfg.lead_px = max(0.0, float(lead_px_override))
+    else:
+        smooth_window = max(3, int(round((1.0 - float(np.clip(pan_alpha, 0.01, 0.95))) * 12.0)) | 1)
+        headroom_frac = 0.5 - float(np.clip(center_frac, 0.0, 1.0))
+        default_headroom = max(0.08, min(0.20, headroom_frac))
+        lead_px = max(frame_w * 0.05, float(lead) * fps * 40.0)
+        max_step_x = max(12.0, frame_w * 0.012)
+        max_step_y = max(8.0, frame_h * 0.008)
+        passes = 3 if pan_alpha < 0.3 else 2
 
-    adaptive_kwargs: dict = {}
-    if adaptive:
-        adaptive_kwargs["adaptive"] = True
-        if adaptive_config and isinstance(adaptive_config, dict):
-            for key in ("adaptive_v_lo", "adaptive_v_hi",
-                        "adaptive_margin_scale", "adaptive_lead_scale",
-                        "adaptive_step_scale"):
-                if key in adaptive_config:
-                    adaptive_kwargs[key] = float(adaptive_config[key])
+        margin_value = max(bounds_pad, 90.0)
 
-    cfg = PlannerConfig(
-        frame_size=(float(frame_w), float(frame_h)),
-        crop_aspect=float(target_aspect) if target_aspect > 0 else (9.0 / 16.0),
-        fps=float(fps),
-        margin_px=float(margin_value),
-        headroom_frac=float(default_headroom),
-        lead_px=float(lead_px),
-        smooth_window=int(smooth_window),
-        max_step_x=float(max_step_x),
-        max_step_y=float(max_step_y),
-        accel_limit_x=float(max_step_x * 0.35),
-        accel_limit_y=float(max_step_y * 0.35),
-        smoothing_passes=passes,
-        portrait_pad=float(bounds_pad),
-        **adaptive_kwargs,
-    )
+        adaptive_kwargs: dict = {}
+        if adaptive:
+            adaptive_kwargs["adaptive"] = True
+            if adaptive_config and isinstance(adaptive_config, dict):
+                for key in ("adaptive_v_lo", "adaptive_v_hi",
+                            "adaptive_margin_scale", "adaptive_lead_scale",
+                            "adaptive_step_scale"):
+                    if key in adaptive_config:
+                        adaptive_kwargs[key] = float(adaptive_config[key])
+
+        cfg = PlannerConfig(
+            frame_size=(float(frame_w), float(frame_h)),
+            crop_aspect=crop_aspect,
+            fps=float(fps),
+            margin_px=float(margin_value),
+            headroom_frac=float(default_headroom),
+            lead_px=float(lead_px),
+            smooth_window=int(smooth_window),
+            max_step_x=float(max_step_x),
+            max_step_y=float(max_step_y),
+            accel_limit_x=float(max_step_x * 0.35),
+            accel_limit_y=float(max_step_y * 0.35),
+            smoothing_passes=passes,
+            portrait_pad=float(bounds_pad),
+            **adaptive_kwargs,
+        )
 
     planner = OfflinePortraitPlanner(cfg)
     plan = planner.plan(bx, by)
@@ -6250,6 +6273,7 @@ class Renderer:
         portrait_plan_lead_px: Optional[float] = None,
         adaptive_tracking: bool = False,
         adaptive_tracking_config: Optional[dict] = None,
+        auto_tune: bool = False,
         plan_override_data: Optional[dict[str, np.ndarray]] = None,
         plan_override_len: int = 0,
         ball_samples: Optional[List[BallSample]] = None,
@@ -6338,6 +6362,7 @@ class Renderer:
         self.portrait_plan_lead_px = _coerce_float(portrait_plan_lead_px)
         self.adaptive_tracking = bool(adaptive_tracking)
         self.adaptive_tracking_config = adaptive_tracking_config or {}
+        self.auto_tune = bool(auto_tune)
         self.plan_override_data = plan_override_data
         self.plan_override_len = int(plan_override_len or 0)
         self.ball_samples = ball_samples or []
@@ -7033,6 +7058,7 @@ class Renderer:
                         lead_px_override=self.portrait_plan_lead_px,
                         adaptive=self.adaptive_tracking,
                         adaptive_config=self.adaptive_tracking_config,
+                        auto_tune=self.auto_tune,
                     )
 
                     offline_plan_len = len(plan_x0)
@@ -7453,6 +7479,23 @@ def run(
         raise ValueError(f"Preset '{preset_key}' not found in {PRESETS_PATH}")
 
     preset_config = presets[preset_key]
+
+    # Auto-tune: when enabled the planner analyses the ball trajectory
+    # per-clip and picks optimal step/accel/margin/lead parameters.
+    auto_tune_enabled = bool(preset_config.get("auto_tune", False))
+
+    # In auto mode, always enable ball telemetry and adaptive tracking
+    # so the pipeline works end-to-end without extra flags.
+    if auto_tune_enabled:
+        setattr(args, "use_ball_telemetry", True)
+        # Ensure follow.adaptive.enabled is set
+        follow_raw = preset_config.get("follow")
+        if isinstance(follow_raw, dict):
+            adaptive_block = follow_raw.get("adaptive")
+            if isinstance(adaptive_block, dict):
+                adaptive_block.setdefault("enabled", True)
+            elif adaptive_block is None:
+                follow_raw["adaptive"] = {"enabled": True}
 
     if getattr(args, "no_draw_ball", False):
         setattr(args, "draw_ball", False)
@@ -8663,6 +8706,7 @@ def run(
         portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
         adaptive_tracking=adaptive_tracking_enabled,
         adaptive_tracking_config=adaptive_tracking_cfg,
+        auto_tune=auto_tune_enabled,
         plan_override_data=plan_override_data,
         plan_override_len=plan_override_len,
         ball_samples=ball_samples,

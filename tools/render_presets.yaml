@@ -226,6 +226,49 @@ adaptive-action:
     size: 1080x1920
     min_box_px: [540, 960]
     horizon_lock: 0.20
+auto:
+  # One-command preset: analyses each clip's ball trajectory and auto-tunes
+  # the planner's step/accel/margin/lead parameters per-clip.  Always uses
+  # adaptive per-frame scaling on top of the auto-tuned base.  No manual
+  # preset selection required — works for slow set-pieces and fast counters.
+  fps: 24
+  lookahead: 0
+  smoothing: 0.22
+  pad: 0.04
+  speed_limit: 1400            # generous — auto-tune handles the planner layer
+  post_smooth_sigma: 2.5       # responsive enough for fast play, smooth for slow
+  zoom_min: 0.85
+  zoom_max: 1.50
+  crf: 17
+  keyint_factor: 4
+  auto_tune: true              # triggers per-clip telemetry analysis
+  follow:
+    source: ball
+    keys: [bx_stab, by_stab]
+    smoothing: 0.06
+    lead_time: 0.15            # base; auto-tune may override in planner
+    margin_px: 90              # base; auto-tune may override in planner
+    keepinview:
+      nudge_gain: 0.65
+      zoom_gain: 0.40
+      zoom_cap: 1.50
+    speed_zoom:
+      enabled: true
+      v_lo: 2.0
+      v_hi: 12.0
+      zoom_lo: 1.35
+      zoom_hi: 0.92
+    adaptive:
+      enabled: true
+      adaptive_v_lo: 1.5
+      adaptive_v_hi: 10.0       # auto-tune recalibrates in planner
+      adaptive_margin_scale: 2.0
+      adaptive_lead_scale: 2.0
+      adaptive_step_scale: 2.5  # auto-tune recalibrates in planner
+  portrait:
+    size: 1080x1920
+    min_box_px: [540, 960]
+    horizon_lock: 0.20
 burst-catch:
   fps: 24
   lookahead: 6

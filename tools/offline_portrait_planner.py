@@ -355,6 +355,119 @@ class PlannerConfig:
         self.min_zoom = max(1.0, float(self.min_zoom))
         self.max_zoom = max(self.min_zoom, float(self.max_zoom))
 
+    # ------------------------------------------------------------------
+    # Auto-tuning from telemetry
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def auto_from_telemetry(
+        cls,
+        bx: Sequence[float],
+        by: Sequence[float],
+        frame_size: Tuple[float, float],
+        fps: float = 24.0,
+        crop_aspect: float = 9.0 / 16.0,
+    ) -> "PlannerConfig":
+        """Create an auto-tuned config by analyzing a ball trajectory.
+
+        Computes per-clip velocity/acceleration statistics and sets planner
+        parameters so the virtual camera can keep up with the fastest action
+        in the clip while staying smooth during slow play.
+        """
+        stats = analyze_ball_positions(bx, by, fps=fps)
+
+        peak_x = stats["peak_speed_x"]
+        peak_y = stats["peak_speed_y"]
+        p95 = stats["p95_speed"]
+        p95_accel = stats["p95_accel"]
+
+        # Base step: comfortably above the 95th-percentile speed so only
+        # the most extreme 1-frame spikes need adaptive scaling.
+        base_step_x = max(32.0, p95 * 1.4, peak_x * 1.15)
+        base_step_y = max(18.0, p95 * 0.8, peak_y * 1.15)
+
+        # Acceleration limits: handle direction reversals.
+        base_accel_x = max(3.5, p95_accel * 0.50)
+        base_accel_y = max(2.0, p95_accel * 0.30)
+
+        # Adaptive step scale: ensure even the absolute peak is reachable
+        # when the adaptive ramp is fully engaged.
+        peak_total = stats["peak_speed"]
+        step_scale = max(2.0, min(4.0, (peak_total * 1.3) / max(base_step_x, 1.0)))
+
+        # Lead: more anticipation for faster clips.
+        speed_factor = min(1.0, p95 / 10.0)
+        lead_px = 120.0 + 80.0 * speed_factor          # 120→200 px
+
+        # Margin: tighter base for faster clips (adaptive will widen on
+        # slow play to give a looser, cinematic feel).
+        margin_px = 90.0 - 30.0 * speed_factor          # 90→60 px
+
+        # Adaptive v_hi: calibrate to the clip's own speed distribution
+        # so the ramp reaches 1.0 near the clip's fast-play threshold.
+        adaptive_v_hi = max(8.0, p95 * 0.9)
+
+        return cls(
+            frame_size=frame_size,
+            crop_aspect=crop_aspect,
+            fps=fps,
+            margin_px=margin_px,
+            lead_px=lead_px,
+            max_step_x=base_step_x,
+            max_step_y=base_step_y,
+            accel_limit_x=base_accel_x,
+            accel_limit_y=base_accel_y,
+            adaptive=True,
+            adaptive_v_lo=1.5,
+            adaptive_v_hi=adaptive_v_hi,
+            adaptive_margin_scale=2.0,
+            adaptive_lead_scale=2.0,
+            adaptive_step_scale=step_scale,
+        )
+
+
+def analyze_ball_positions(
+    bx: Sequence[float],
+    by: Sequence[float],
+    fps: float = 24.0,
+) -> dict:
+    """Compute velocity/acceleration statistics from a ball trajectory.
+
+    Returns a dict with keys: peak_speed, p95_speed, median_speed,
+    peak_speed_x, peak_speed_y, peak_accel, p95_accel,
+    horizontal_range, vertical_range, fps.
+    """
+    bx_arr = np.asarray(bx, dtype=float)
+    by_arr = np.asarray(by, dtype=float)
+    if bx_arr.size < 2:
+        return {
+            "peak_speed": 0.0, "p95_speed": 0.0, "median_speed": 0.0,
+            "peak_speed_x": 0.0, "peak_speed_y": 0.0,
+            "peak_accel": 0.0, "p95_accel": 0.0,
+            "horizontal_range": 0.0, "vertical_range": 0.0, "fps": fps,
+        }
+
+    dx = np.diff(bx_arr)
+    dy = np.diff(by_arr)
+    speed = np.hypot(dx, dy)
+
+    ax = np.diff(dx)
+    ay = np.diff(dy)
+    accel = np.hypot(ax, ay) if ax.size > 0 else np.array([0.0])
+
+    return {
+        "peak_speed": float(np.max(speed)),
+        "p95_speed": float(np.percentile(speed, 95)),
+        "median_speed": float(np.median(speed)),
+        "peak_speed_x": float(np.max(np.abs(dx))),
+        "peak_speed_y": float(np.max(np.abs(dy))),
+        "peak_accel": float(np.max(accel)),
+        "p95_accel": float(np.percentile(accel, 95)),
+        "horizontal_range": float(np.ptp(bx_arr)),
+        "vertical_range": float(np.ptp(by_arr)),
+        "fps": fps,
+    }
+
 
 def _nan_to_default(arr: np.ndarray, default: float) -> np.ndarray:
     out = arr.copy()

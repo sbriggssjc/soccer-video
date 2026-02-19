@@ -3,20 +3,23 @@
 
 Usage examples:
 
+    # Render all clips with auto-tuning (default — one command, no tuning needed)
+    python tools/batch_pipeline.py
+
     # Dry run — show what would be processed (no rendering)
     python tools/batch_pipeline.py --dry-run
 
-    # Render all canonical clips with cinematic preset
+    # Render with a specific preset instead of auto
     python tools/batch_pipeline.py --preset cinematic
 
     # Render + upscale with progress tracking
-    python tools/batch_pipeline.py --preset cinematic --upscale
+    python tools/batch_pipeline.py --upscale
 
     # Limit to first 5 clips for testing
-    python tools/batch_pipeline.py --preset cinematic --limit 5
+    python tools/batch_pipeline.py --limit 5
 
     # Rebuild catalog, detect duplicates, and clean up before rendering
-    python tools/batch_pipeline.py --preset cinematic --rebuild-catalog --cleanup-dupes
+    python tools/batch_pipeline.py --rebuild-catalog --cleanup-dupes
 
     # Generate status report only
     python tools/batch_pipeline.py --report
@@ -63,8 +66,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Pipeline steps
     p.add_argument(
         "--preset",
-        default="cinematic",
-        help="Render preset (default: cinematic)",
+        default="auto",
+        help="Render preset (default: auto — analyses each clip and auto-tunes)",
     )
     p.add_argument(
         "--portrait",
