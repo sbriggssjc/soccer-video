@@ -5498,11 +5498,13 @@ class CameraPlanner:
                     frame_conf = _flight_conf_floor
                     clamp_flags.append(f"flight_commit={_flight_frac:.2f}")
 
-            if frame_conf < 0.55:
-                # Map confidence 0..0.55 → zoom scale 0.60..1.0
-                # Low-confidence frames (centroid/interp) zoom out to keep
-                # more of the field visible when ball position is uncertain.
-                conf_scale = 0.60 + 0.727 * frame_conf  # 0.60 at conf=0, 1.0 at conf=0.55
+            if frame_conf < 0.60:
+                # Map confidence 0..0.60 → zoom scale 0.45..1.0
+                # Low-confidence frames (centroid/interp) zoom out more aggressively
+                # to keep the ball visible when position is uncertain.  The lower
+                # floor (0.45 vs 0.60) gives ~25% wider FOV during sparse-YOLO
+                # stretches where centroid may track player clusters.
+                conf_scale = 0.45 + 0.917 * frame_conf  # 0.45 at conf=0, 1.0 at conf=0.60
                 zoom_target = float(np.clip(
                     zoom_target * conf_scale, self.zoom_min, self.zoom_max
                 ))
@@ -5862,11 +5864,12 @@ class CameraPlanner:
             # Confidence-based speed damping: when the ball position is
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
-            # At full confidence (>=0.55) no damping; at zero confidence the
-            # camera moves at 60% of normal speed.
+            # At full confidence (>=0.60) no damping; at zero confidence the
+            # camera moves at 72% of normal speed.  Floor raised from 0.60 to
+            # 0.72 so the camera can still recover when tracking drifts.
             _conf_speed_scale = 1.0
-            if frame_conf < 0.55:
-                _conf_speed_scale = 0.60 + 0.727 * frame_conf  # 0.60 at 0, 1.0 at 0.55
+            if frame_conf < 0.60:
+                _conf_speed_scale = 0.72 + 0.467 * frame_conf  # 0.72 at 0, 1.0 at 0.60
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
             _eff_speed_boost = accel_speed_boost * _conf_speed_scale
@@ -8290,7 +8293,7 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = min(0.12, smoothing)  # scale with preset (cinematic=0.06); dampens YOLO-centroid switches
+        _pos_alpha = min(0.18, smoothing)  # raised from 0.12: lets YOLO corrections propagate faster through centroid-dominated stretches
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []

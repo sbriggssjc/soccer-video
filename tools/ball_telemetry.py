@@ -1407,7 +1407,7 @@ def fuse_yolo_and_centroid(
     # are almost always false positives (goalposts, shadows, partial views).
     # Filter them at ingestion time so they don't contaminate the centroid
     # gating via _last_yolo_x for many subsequent frames.
-    EDGE_MARGIN_FRAC = 0.12  # 12% of frame width ≈ 154px on 1280px source
+    EDGE_MARGIN_FRAC = 0.06  # 6% of frame width — recover more sparse YOLO detections near edges
 
     # Index YOLO samples by frame, filtering out near-edge detections.
     _edge_px_ingest = width * EDGE_MARGIN_FRAC if width > 0 else 0
