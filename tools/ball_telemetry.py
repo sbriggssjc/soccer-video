@@ -1702,7 +1702,16 @@ def fuse_yolo_and_centroid(
         if _yolo_density < 0.15 and len(yolo_frames) >= 2:
             ANCHOR_RANGE = 90       # max frames from nearest YOLO to still anchor
             ANCHOR_BLEND_MAX = 0.55  # peak blend weight toward YOLO-interpolated pos
+            # Cap the maximum pixel displacement the anchor can apply.
+            # When the centroid tracks genuine ball movement that diverges
+            # from the YOLO-interpolated trajectory (e.g., ball lingers on
+            # the right while YOLO endpoints are on the left), an uncapped
+            # blend drags the position hundreds of pixels away from the
+            # actual ball.  Capping at ~1/3 of portrait crop width prevents
+            # the anchor from overriding a plausibly-correct centroid.
+            MAX_ANCHOR_DISP = 200.0  # px: max displacement per axis
             _anchored = 0
+            _capped = 0
             for i in range(frame_count):
                 if source_labels[i] != FUSE_CENTROID:
                     continue  # only process centroid-only frames
@@ -1725,9 +1734,7 @@ def fuse_yolo_and_centroid(
                     _yn = yolo_by_frame[_next_yf]
                     _interp_x = float(_yp.x) + _t * (float(_yn.x) - float(_yp.x))
                     _interp_y = float(_yp.y) + _t * (float(_yn.y) - float(_yp.y))
-                    # Blend weight: strongest at midpoint between YOLOs,
-                    # decays toward the edges (where hold/interp already
-                    # provides coverage).  Also decays with gap size.
+                    # Blend weight: strongest near YOLOs, decays with distance.
                     _nearest_dist = min(i - _prev_yf, _next_yf - i)
                     if _nearest_dist > ANCHOR_RANGE:
                         continue
@@ -1757,15 +1764,33 @@ def fuse_yolo_and_centroid(
                     continue
 
                 if _w > 0.01:
-                    positions[i, 0] = _w * _interp_x + (1.0 - _w) * positions[i, 0]
-                    positions[i, 1] = _w * _interp_y + (1.0 - _w) * positions[i, 1]
+                    _cx = float(positions[i, 0])
+                    _cy = float(positions[i, 1])
+                    _blended_x = _w * _interp_x + (1.0 - _w) * _cx
+                    _blended_y = _w * _interp_y + (1.0 - _w) * _cy
+                    # Cap displacement: don't drag the position more than
+                    # MAX_ANCHOR_DISP from the original centroid.  This
+                    # prevents the anchor from overriding the centroid when
+                    # the ball genuinely moved away from the YOLO trajectory.
+                    _dx = _blended_x - _cx
+                    _dy = _blended_y - _cy
+                    _disp = math.hypot(_dx, _dy)
+                    if _disp > MAX_ANCHOR_DISP:
+                        _scale = MAX_ANCHOR_DISP / _disp
+                        _blended_x = _cx + _dx * _scale
+                        _blended_y = _cy + _dy * _scale
+                        _capped += 1
+                    positions[i, 0] = _blended_x
+                    positions[i, 1] = _blended_y
                     confidence[i] = max(confidence[i], 0.22 + 0.13 * _decay)
                     _anchored += 1
 
             if _anchored > 0:
+                _cap_msg = f", capped={_capped}" if _capped > 0 else ""
                 print(
                     f"[FUSION] YOLO-anchor blend: adjusted {_anchored} centroid frames "
-                    f"(density={_yolo_density:.1%}, range={ANCHOR_RANGE}f)"
+                    f"(density={_yolo_density:.1%}, range={ANCHOR_RANGE}f, "
+                    f"max_disp={MAX_ANCHOR_DISP:.0f}px{_cap_msg})"
                 )
 
         _src_fps = 30.0  # source clips are always 30fps

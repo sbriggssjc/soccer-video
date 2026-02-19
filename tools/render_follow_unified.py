@@ -5863,10 +5863,10 @@ class CameraPlanner:
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
             # At full confidence (>=0.55) no damping; at zero confidence the
-            # camera moves at 40% of normal speed.
+            # camera moves at 60% of normal speed.
             _conf_speed_scale = 1.0
             if frame_conf < 0.55:
-                _conf_speed_scale = 0.40 + 1.09 * frame_conf  # 0.40 at 0, 1.0 at 0.55
+                _conf_speed_scale = 0.60 + 0.727 * frame_conf  # 0.60 at 0, 1.0 at 0.55
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
             _eff_speed_boost = accel_speed_boost * _conf_speed_scale
