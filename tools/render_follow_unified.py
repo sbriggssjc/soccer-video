@@ -5865,11 +5865,10 @@ class CameraPlanner:
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
             # At full confidence (>=0.60) no damping; at zero confidence the
-            # camera moves at 72% of normal speed.  Floor raised from 0.60 to
-            # 0.72 so the camera can still recover when tracking drifts.
+            # camera moves at 50% of normal speed.
             _conf_speed_scale = 1.0
             if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.05):
-                _conf_speed_scale = 0.72 + 0.467 * frame_conf  # 0.72 at 0, 1.0 at 0.60
+                _conf_speed_scale = 0.50 + 0.833 * frame_conf  # 0.50 at 0, 1.0 at 0.60
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
             _eff_speed_boost = accel_speed_boost * _conf_speed_scale
@@ -6145,7 +6144,7 @@ class CameraPlanner:
                 # full speed, producing visibly smooth acceleration.
                 _max_spd_x = pxpf_x  # pre-computed speed limit px/frame
                 _max_spd_y = pxpf_y
-                _ramp_s = 0.22  # seconds to reach full speed (reduced from 0.30 for faster direction reversals)
+                _ramp_s = 0.28  # seconds to reach full speed
                 _ramp_frames = max(1.0, _ramp_s * render_fps)
                 _max_accel_x = _max_spd_x / _ramp_frames
                 _max_accel_y = _max_spd_y / _ramp_frames
@@ -6271,6 +6270,37 @@ class CameraPlanner:
                 " (margin=%.0fpx)",
                 _bic_count, len(states), _bic_margin,
             )
+
+            # Light Gaussian smooth after BIC corrections to prevent the
+            # discrete per-frame shifts from creating visible jitter.
+            _bic_sigma = 2.5
+            _bic_r = int(_bic_sigma * 3.0 + 0.5)
+            _bic_r = min(_bic_r, len(states) // 2)
+            if _bic_r >= 1 and len(states) > 2 * _bic_r:
+                _bic_cx = np.array([s.cx for s in states], dtype=np.float64)
+                _bic_cy = np.array([s.cy for s in states], dtype=np.float64)
+                _bic_x = np.arange(-_bic_r, _bic_r + 1, dtype=np.float64)
+                _bic_k = np.exp(-0.5 * (_bic_x / _bic_sigma) ** 2)
+                _bic_k /= _bic_k.sum()
+                _bic_cx_p = np.pad(_bic_cx, _bic_r, mode="edge")
+                _bic_cy_p = np.pad(_bic_cy, _bic_r, mode="edge")
+                _bic_cx_s = np.convolve(_bic_cx_p, _bic_k, mode="valid")
+                _bic_cy_s = np.convolve(_bic_cy_p, _bic_k, mode="valid")
+                for _bi, _bs in enumerate(states):
+                    _bs.cx = float(_bic_cx_s[_bi])
+                    _bs.cy = float(_bic_cy_s[_bi])
+                    _hw = _bs.crop_w * 0.5
+                    _hh = _bs.crop_h * 0.5
+                    _bs.x0 = float(np.clip(
+                        _bs.cx - _hw, 0.0,
+                        max(0.0, self.width - _bs.crop_w),
+                    ))
+                    _bs.y0 = float(np.clip(
+                        _bs.cy - _hh, 0.0,
+                        max(0.0, self.height - _bs.crop_h),
+                    ))
+                    _bs.cx = _bs.x0 + _hw
+                    _bs.cy = _bs.y0 + _hh
 
         return states
 
@@ -7341,6 +7371,7 @@ def _resolve_output_path(
     explicit_out: Optional[str],
     input_path: Path,
     preset: str,
+    portrait: bool = False,
 ) -> Tuple[Path, bool]:
     """Return (output_path, is_explicit_file).
 
@@ -7362,7 +7393,7 @@ def _resolve_output_path(
             )
             return p / name, False
         return p, True
-    return _default_output_path(input_path, preset), False
+    return _default_output_path(input_path, preset, portrait=portrait), False
 
 def _default_output_path(
     input_path: Path,
@@ -7850,18 +7881,6 @@ def run(
     follow_zoom_edge_frac = 0.80
     if getattr(args, "zoom_edge_frac", None) is not None:
         follow_zoom_edge_frac = float(args.zoom_edge_frac)
-    # Deterministic naming: reruns overwrite.
-    output_path, output_is_file = _resolve_output_path(
-        args.out,
-        original_source_path,
-        preset_key,
-    )
-    output_path = output_path.expanduser().resolve()
-    if args.out:
-        if output_is_file:
-            logger.info("[OUT] Using explicit output file: %s", output_path)
-        else:
-            logger.info("[OUT] Using output directory: %s", output_path.parent)
     lost_use_motion = bool(getattr(args, "lost_use_motion", False))
     lost_hold_ms = getattr(args, "lost_hold_ms", 500)
     lost_pan_ms = getattr(args, "lost_pan_ms", 1200)
@@ -8351,7 +8370,7 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = min(0.18, smoothing)  # raised from 0.12: lets YOLO corrections propagate faster through centroid-dominated stretches
+        _pos_alpha = min(0.13, smoothing)  # heavier smoothing to suppress centroid-YOLO source switching jitter
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
