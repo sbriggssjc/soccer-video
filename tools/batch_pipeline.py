@@ -317,6 +317,51 @@ def _output_path_for_clip(clip_path: str, preset: str, portrait: str, out_dir: P
     return out_dir / output_name
 
 
+def _probe_clip(clip_path: Path) -> tuple[bool, str]:
+    """Quick pre-render validation: check clip is a readable video file.
+
+    Returns (ok, error_message).
+    """
+    if not clip_path.exists():
+        return False, "file not found"
+    if clip_path.stat().st_size < 1024:
+        return False, f"file too small ({clip_path.stat().st_size} bytes)"
+    try:
+        probe_cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,nb_frames,duration",
+            "-of", "csv=p=0",
+            str(clip_path),
+        ]
+        probe = subprocess.run(
+            probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=15,
+        )
+        if probe.returncode != 0:
+            stderr = (probe.stderr or "").strip()
+            return False, f"ffprobe failed: {stderr[:120]}"
+        parts = (probe.stdout or "").strip().split(",")
+        if len(parts) < 2:
+            return False, "ffprobe returned no video stream info"
+        w, h = int(parts[0]), int(parts[1])
+        if w < 32 or h < 32:
+            return False, f"video too small ({w}x{h})"
+    except FileNotFoundError:
+        # ffprobe not installed — skip validation, let render attempt proceed
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "ffprobe timed out (clip may be corrupt)"
+    except Exception as exc:
+        return False, f"probe error: {exc}"
+    return True, ""
+
+
+# Per-clip render timeout: 10 minutes. Any clip taking longer is almost
+# certainly hung (corrupt muxing, infinite decode loop, etc.).
+_RENDER_TIMEOUT_S = 600
+
+
 def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
                  *, keep_scratch: bool = False,
                  scratch_root: str | None = None,
@@ -342,7 +387,14 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
     if scratch_root:
         cmd.extend(["--scratch-root", scratch_root])
 
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=_RENDER_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"render timed out after {_RENDER_TIMEOUT_S}s", {}
+
     # Pass stdout through so user sees per-clip logs
     if result.stdout:
         print(result.stdout, end="")
@@ -354,6 +406,11 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
         m = re.search(r"\[YOLO\] Loaded (\d+) cached YOLO detections", result.stdout)
         if m:
             stats["yolo_total"] = int(m.group(1))
+        # [YOLO] Detection complete: N/M frames (P%)
+        m = re.search(r"\[YOLO\] Detection complete: (\d+)/(\d+) frames", result.stdout)
+        if m:
+            stats["yolo_total"] = int(m.group(1))
+            stats["yolo_total_frames"] = int(m.group(2))
         # [FUSION] Filtered 19 near-edge YOLO detections (margin=154px)
         m = re.search(r"\[FUSION\] Filtered (\d+) near-edge YOLO detections", result.stdout)
         stats["edge_filtered"] = int(m.group(1)) if m else 0
@@ -363,6 +420,15 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
             stats["yolo_used"] = int(m.group(1))
             stats["centroid_used"] = int(m.group(2))
             stats["blended"] = int(m.group(3))
+        # [FUSION] ... avg_conf=0.58
+        m = re.search(r"avg_conf=([0-9.]+)", result.stdout)
+        if m:
+            stats["avg_conf"] = float(m.group(1))
+        # [FUSION] Sparse YOLO (N%): ...
+        m = re.search(r"\[FUSION\] Sparse YOLO \(([0-9.]+)%\)", result.stdout)
+        if m:
+            stats["sparse_yolo"] = True
+            stats["yolo_density_pct"] = float(m.group(1))
         # [DIAG] Ball in crop: 536/536 (100.0%)
         m = re.search(r"Ball in crop: \d+/\d+ \(([0-9.]+)%\)", result.stdout)
         if m:
@@ -602,10 +668,12 @@ def main(argv: list[str] | None = None) -> int:
 
         # --- Render ---
         if not item["already_rendered"]:
-            if not clip_path.exists():
-                print(f"  [SKIP] Source not found: {clip_path}")
+            # Pre-render validation: quick probe to catch corrupt/unreadable clips
+            probe_ok, probe_err = _probe_clip(clip_path)
+            if not probe_ok:
+                print(f"  [SKIP] Pre-render probe failed: {probe_err}")
                 failed += 1
-                mark_rendered(clip_path, None, preset=args.preset, error="source not found")
+                mark_rendered(clip_path, None, preset=args.preset, error=f"probe: {probe_err}")
                 continue
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -616,6 +684,22 @@ def main(argv: list[str] | None = None) -> int:
                 scratch_root=args.scratch_root,
                 diagnostics=getattr(args, "diagnostics", False),
             )
+
+            # Retry once on transient failures (timeout, OOM, ffmpeg crash)
+            # but not on deterministic errors (missing deps, bad config).
+            if not success and err_msg and any(
+                kw in err_msg.lower()
+                for kw in ("timeout", "killed", "segfault", "memory", "errno")
+            ):
+                print(f"  [RETRY] Transient failure detected, retrying once...")
+                time.sleep(2)
+                success, err_msg, stats = _render_clip(
+                    clip_path, out_path, args.preset, args.portrait,
+                    keep_scratch=args.keep_scratch,
+                    scratch_root=args.scratch_root,
+                    diagnostics=getattr(args, "diagnostics", False),
+                )
+
             if stats:
                 clip_stats.append((clip_path.name, stats))
 
@@ -666,29 +750,56 @@ def main(argv: list[str] | None = None) -> int:
         # Flag clips where edge filter removed >25% of YOLO detections
         # or ball escaped the crop — these may need spot-checking.
         flagged: list[tuple[str, str]] = []
+        sparse_count = 0
+        zero_yolo_count = 0
+        avg_confs: list[float] = []
+        crop_pcts: list[float] = []
+
         for name, st in clip_stats:
             total = st.get("yolo_total", 0)
             filtered = st.get("edge_filtered", 0)
             if total > 0 and filtered / total > 0.25:
                 pct = 100.0 * filtered / total
                 flagged.append((name, f"edge-filtered {filtered}/{total} ({pct:.0f}%) YOLO detections"))
+            if total == 0:
+                zero_yolo_count += 1
+                flagged.append((name, "zero YOLO detections — centroid-only tracking"))
             outside = st.get("ball_outside_frames", 0)
             if outside > 0:
                 esc = st.get("ball_max_escape_px", 0)
                 flagged.append((name, f"ball outside crop {outside} frames (max {esc}px)"))
             crop_pct = st.get("ball_in_crop_pct", 100.0)
+            crop_pcts.append(crop_pct)
             if crop_pct < 95.0:
                 flagged.append((name, f"ball in crop only {crop_pct:.1f}%"))
+            if st.get("sparse_yolo"):
+                sparse_count += 1
+            if "avg_conf" in st:
+                avg_confs.append(st["avg_conf"])
+                if st["avg_conf"] < 0.20:
+                    flagged.append((name, f"low fusion confidence ({st['avg_conf']:.2f})"))
+
+        # Summary statistics
+        print(f"\n{'=' * 60}")
+        print(f"FUSION HEALTH SUMMARY — {len(clip_stats)} clips processed")
+        print(f"{'=' * 60}")
+        if avg_confs:
+            print(f"  Avg fusion confidence:  {sum(avg_confs)/len(avg_confs):.2f} "
+                  f"(min={min(avg_confs):.2f}, max={max(avg_confs):.2f})")
+        if crop_pcts:
+            print(f"  Ball-in-crop:           {sum(crop_pcts)/len(crop_pcts):.1f}% avg "
+                  f"(min={min(crop_pcts):.1f}%, max={max(crop_pcts):.1f}%)")
+        print(f"  Sparse YOLO clips:      {sparse_count}/{len(clip_stats)}")
+        print(f"  Zero YOLO clips:        {zero_yolo_count}/{len(clip_stats)}")
+
         if flagged:
-            print(f"\n{'=' * 60}")
-            print(f"FUSION HEALTH — {len(flagged)} clip(s) flagged for review")
-            print(f"{'=' * 60}")
+            print(f"\n  {len(flagged)} issue(s) flagged for review:")
             for name, reason in flagged:
-                print(f"  [!] {name}")
-                print(f"      {reason}")
-            print(f"{'=' * 60}")
+                print(f"    [!] {name}")
+                print(f"        {reason}")
         else:
-            print(f"\n[FUSION HEALTH] All {len(clip_stats)} clips OK — no edge-filter or crop issues.")
+            print(f"\n  All clips OK — no edge-filter, crop, or confidence issues.")
+        print(f"{'=' * 60}")
 
     # --- Cleanup duplicates ---
     if args.cleanup_dupes:

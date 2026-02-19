@@ -93,7 +93,7 @@ def pipeline_env(tmp_path, monkeypatch):
 class TestParseArgs:
     def test_defaults(self):
         args = parse_args([])
-        assert args.preset == "cinematic"
+        assert args.preset == "auto"
         assert args.portrait == "1080x1920"
         assert args.limit == 0
         assert not args.upscale
