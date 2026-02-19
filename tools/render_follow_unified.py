@@ -5859,8 +5859,19 @@ class CameraPlanner:
                 _keepin_boost = 1.0 + 2.0 * excess_frac  # up to 3x at full excess
                 accel_speed_boost = max(accel_speed_boost, _keepin_boost)
 
-            cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x * accel_speed_boost)
-            cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y * accel_speed_boost)
+            # Confidence-based speed damping: when the ball position is
+            # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
+            # limit so the camera doesn't chase noise across the field.
+            # At full confidence (>=0.55) no damping; at zero confidence the
+            # camera moves at 40% of normal speed.
+            _conf_speed_scale = 1.0
+            if frame_conf < 0.55:
+                _conf_speed_scale = 0.40 + 1.09 * frame_conf  # 0.40 at 0, 1.0 at 0.55
+                clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
+
+            _eff_speed_boost = accel_speed_boost * _conf_speed_scale
+            cx, x_clamped = _clamp_axis(prev_cx, cx, pxpf_x * _eff_speed_boost)
+            cy, y_clamped = _clamp_axis(prev_cy, cy, pxpf_y * _eff_speed_boost)
             speed_limited = x_clamped or y_clamped
             if speed_limited:
                 clamp_flags.append("speed")
@@ -8515,6 +8526,8 @@ def run(
         )
         # Source breakdown
         _src_parts = []
+        _yolo_confirmed_total = 0
+        _centroid_only_total = 0
         for _sk in sorted(_FUSE_LABELS.keys()):
             _s_in = _inside_by_src.get(_sk, 0)
             _s_out = _outside_by_src.get(_sk, 0)
@@ -8522,8 +8535,25 @@ def run(
             if _s_tot > 0:
                 _s_pct_out = 100.0 * _s_out / max(1, _s_tot)
                 _src_parts.append(f"{_FUSE_LABELS[_sk]}={_s_tot}({_s_out} out/{_s_pct_out:.0f}%)")
+            if _sk in (1, 3):  # yolo, blended
+                _yolo_confirmed_total += _s_tot
+            elif _sk == 2:  # centroid
+                _centroid_only_total += _s_tot
         if _src_parts:
             print(f"[DIAG] Source breakdown: {', '.join(_src_parts)}")
+        # Warn when centroid dominates — the "ball in crop" metric is self-
+        # referential for centroid frames (camera follows the centroid
+        # estimate, so the estimate is always "in crop").  The actual ball
+        # may be elsewhere.
+        if _checked > 0 and _centroid_only_total > _checked * 0.50:
+            _yolo_pct = 100.0 * _yolo_confirmed_total / max(1, _checked)
+            print(
+                f"[DIAG] WARNING: {_centroid_only_total}/{_checked} frames "
+                f"({100.0 * _centroid_only_total / _checked:.0f}%) use centroid-only "
+                f"tracking (YOLO-confirmed: {_yolo_pct:.0f}%). "
+                f"Ball-in-crop metric is unreliable for centroid frames — "
+                f"actual ball may be outside the crop."
+            )
         print(
             f"[DIAG] Speed-limited: {_speed_limited_frames}f ({100.0 * _speed_limited_frames / max(1, _n_states):.0f}%) | "
             f"Keepinview: {_keepinview_frames}f ({100.0 * _keepinview_frames / max(1, _n_states):.0f}%)"

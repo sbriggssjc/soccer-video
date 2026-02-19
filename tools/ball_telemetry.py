@@ -1455,6 +1455,21 @@ def fuse_yolo_and_centroid(
     YOLO_HOLD_BLEND = 0.40  # weight for last YOLO when centroid diverges
     YOLO_STALE_FRAMES = 30  # decay to zero gating over 1s at 30fps
 
+    # Adaptive gating: when YOLO density is very low (sparse detections),
+    # increase gating strength so centroid can't freely wander to track
+    # player clusters instead of the ball.
+    _yolo_density = len(yolo_by_frame) / max(frame_count, 1)
+    if _yolo_density < 0.15:
+        # Scale stale frames inversely with density: fewer YOLO → trust centroid
+        # less for longer after each YOLO detection.
+        # At 5% density → 72 frames (~2.4s); at 15% density → 30 frames (unchanged)
+        YOLO_STALE_FRAMES = int(30 + 42 * (1.0 - _yolo_density / 0.15))
+        YOLO_HOLD_BLEND = min(0.65, 0.40 + 0.25 * (1.0 - _yolo_density / 0.15))
+        print(
+            f"[FUSION] Sparse YOLO ({_yolo_density:.1%}): "
+            f"gating stale_frames={YOLO_STALE_FRAMES}, hold_blend={YOLO_HOLD_BLEND:.2f}"
+        )
+
     for i in range(frame_count):
         yolo = yolo_by_frame.get(i)
         centroid = centroid_by_frame.get(i)
@@ -1643,10 +1658,17 @@ def fuse_yolo_and_centroid(
                     f"from first YOLO at frame {first_yolo}"
                 )
 
-        # Hold at last YOLO position for trailing frames (up to SHORT_INTERP_GAP)
+        # Hold at last YOLO position for trailing frames.
+        # When YOLO is sparse, the trailing hold is extended so the camera
+        # doesn't revert to centroid (which tracks player clusters) for the
+        # entire tail of the clip.
+        _trailing_hold_max = SHORT_INTERP_GAP
+        if _yolo_density < 0.15:
+            # At 5% density → 90 frames (~3s); at 15% → 15 frames (unchanged)
+            _trailing_hold_max = int(SHORT_INTERP_GAP + 75 * (1.0 - _yolo_density / 0.15))
         last_yolo = yolo_frames[-1]
         yl = yolo_by_frame[last_yolo]
-        for k in range(last_yolo + 1, min(frame_count, last_yolo + SHORT_INTERP_GAP)):
+        for k in range(last_yolo + 1, min(frame_count, last_yolo + _trailing_hold_max)):
             if k in yolo_by_frame:
                 break
             positions[k, 0] = yl.x
@@ -1662,6 +1684,90 @@ def fuse_yolo_and_centroid(
                 f"[FUSION] Interpolated {interpolated} frames between YOLO detections "
                 f"(short_gap={SHORT_INTERP_GAP}, long_gap={LONG_INTERP_GAP}){_long_msg}"
             )
+
+        # --- SOFT YOLO-INTERPOLATION ANCHOR BLEND ---
+        # After hard interpolation and hold passes, remaining centroid-only
+        # frames can still wander freely — the centroid tracks the largest
+        # motion region (player clusters), not the ball.  This causes the
+        # camera to chase players while the ball drifts out of frame.
+        #
+        # For each remaining centroid-only frame that sits between two YOLO
+        # detections, compute the YOLO-interpolated position and blend the
+        # centroid toward it.  The blend weight decays with temporal distance
+        # from the nearest YOLO, so frames close to a YOLO are strongly
+        # anchored while distant frames still allow some centroid influence.
+        #
+        # This is a soft version of the hard interpolation above — it doesn't
+        # replace centroid, just pulls it toward the YOLO-derived trajectory.
+        if _yolo_density < 0.15 and len(yolo_frames) >= 2:
+            ANCHOR_RANGE = 90       # max frames from nearest YOLO to still anchor
+            ANCHOR_BLEND_MAX = 0.55  # peak blend weight toward YOLO-interpolated pos
+            _anchored = 0
+            for i in range(frame_count):
+                if source_labels[i] != FUSE_CENTROID:
+                    continue  # only process centroid-only frames
+
+                # Find the flanking YOLO frames (prev_yolo <= i <= next_yolo)
+                _prev_yf = -1
+                _next_yf = -1
+                for yf in yolo_frames:
+                    if yf <= i:
+                        _prev_yf = yf
+                    if yf >= i and _next_yf < 0:
+                        _next_yf = yf
+                        break
+
+                if _prev_yf >= 0 and _next_yf >= 0 and _prev_yf != _next_yf:
+                    # Interpolate between flanking YOLO detections
+                    _gap = _next_yf - _prev_yf
+                    _t = (i - _prev_yf) / float(_gap)
+                    _yp = yolo_by_frame[_prev_yf]
+                    _yn = yolo_by_frame[_next_yf]
+                    _interp_x = float(_yp.x) + _t * (float(_yn.x) - float(_yp.x))
+                    _interp_y = float(_yp.y) + _t * (float(_yn.y) - float(_yp.y))
+                    # Blend weight: strongest at midpoint between YOLOs,
+                    # decays toward the edges (where hold/interp already
+                    # provides coverage).  Also decays with gap size.
+                    _nearest_dist = min(i - _prev_yf, _next_yf - i)
+                    if _nearest_dist > ANCHOR_RANGE:
+                        continue
+                    _decay = 1.0 - _nearest_dist / ANCHOR_RANGE
+                    _w = ANCHOR_BLEND_MAX * _decay
+                elif _prev_yf >= 0 and _next_yf < 0:
+                    # After last YOLO — anchor toward last YOLO
+                    _dist = i - _prev_yf
+                    if _dist > ANCHOR_RANGE:
+                        continue
+                    _yp = yolo_by_frame[_prev_yf]
+                    _interp_x = float(_yp.x)
+                    _interp_y = float(_yp.y)
+                    _decay = 1.0 - _dist / ANCHOR_RANGE
+                    _w = ANCHOR_BLEND_MAX * 0.7 * _decay  # weaker for trailing
+                elif _next_yf >= 0 and _prev_yf < 0:
+                    # Before first YOLO — anchor toward first YOLO
+                    _dist = _next_yf - i
+                    if _dist > ANCHOR_RANGE:
+                        continue
+                    _yn = yolo_by_frame[_next_yf]
+                    _interp_x = float(_yn.x)
+                    _interp_y = float(_yn.y)
+                    _decay = 1.0 - _dist / ANCHOR_RANGE
+                    _w = ANCHOR_BLEND_MAX * 0.7 * _decay
+                else:
+                    continue
+
+                if _w > 0.01:
+                    positions[i, 0] = _w * _interp_x + (1.0 - _w) * positions[i, 0]
+                    positions[i, 1] = _w * _interp_y + (1.0 - _w) * positions[i, 1]
+                    confidence[i] = max(confidence[i], 0.22 + 0.13 * _decay)
+                    _anchored += 1
+
+            if _anchored > 0:
+                print(
+                    f"[FUSION] YOLO-anchor blend: adjusted {_anchored} centroid frames "
+                    f"(density={_yolo_density:.1%}, range={ANCHOR_RANGE}f)"
+                )
+
         _src_fps = 30.0  # source clips are always 30fps
         for _lf in long_flight_info:
             _fi, _fj, _x0, _y0, _x1, _y1, _dist, _mode = _lf
