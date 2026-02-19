@@ -247,8 +247,8 @@ def main(argv: list[str] | None = None) -> int:
     print("  Compare side-by-side by opening pairs:")
     for clip in clips[:3]:
         stem = clip["stem"][:45]
-        print(f"    {stem}__cinematic.mp4")
-        print(f"    {stem}__tight-action.mp4")
+        print(f"    {stem}__{args.preset_a}.mp4")
+        print(f"    {stem}__{args.preset_b}.mp4")
         if clip != clips[min(2, len(clips) - 1)]:
             print()
     print("=" * 65)

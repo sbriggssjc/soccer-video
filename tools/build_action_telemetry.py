@@ -56,6 +56,26 @@ except ModuleNotFoundError:
         sys.path.insert(0, ROOT)
     from tools.ball_telemetry import telemetry_path_for_video
 
+# Camera-motion helpers (shared with telemetry_builder.py)
+try:
+    from telemetry_builder import (
+        _CAM_MOTION_FAST_THRESH,
+        _CARRIER_HOLD_BASE,
+        _CARRIER_HOLD_EXTENDED,
+        _estimate_camera_motion,
+        _stabilize_frame,
+        _warp_point,
+    )
+except ModuleNotFoundError:
+    from tools.telemetry_builder import (
+        _CAM_MOTION_FAST_THRESH,
+        _CARRIER_HOLD_BASE,
+        _CARRIER_HOLD_EXTENDED,
+        _estimate_camera_motion,
+        _stabilize_frame,
+        _warp_point,
+    )
+
 
 @dataclass
 class Detection:
@@ -206,6 +226,7 @@ def build_action_telemetry(
     )
 
     prev_gray: np.ndarray | None = None
+    prev_stab_gray: np.ndarray | None = None
     last_ball: tuple[float, float, int, float] | None = None
     carried_frames = 0
 
@@ -216,13 +237,53 @@ def build_action_telemetry(
     with out_path.open("w", encoding="utf-8") as handle:
         for frame_idx, frame in _iter_frames(cap):
             t_val = frame_idx / fps if fps > 0 else 0.0
-            detection = _white_ball_detector(frame, width, height)
-
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            motion_hint = (last_ball[0], last_ball[1]) if last_ball else None
-            motion_det = None
+
+            # --- Camera motion estimation ---
+            cam_motion_mag = 0.0
+            cam_M = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
             if prev_gray is not None:
-                motion_det = _motion_centroid(prev_gray, frame_gray, (height, width), hint=motion_hint)
+                cam_M, cam_motion_mag = _estimate_camera_motion(prev_gray, frame_gray)
+
+            camera_is_moving = cam_motion_mag >= _CAM_MOTION_FAST_THRESH
+
+            # Stabilized frame for detection (undo camera pan)
+            if camera_is_moving and prev_gray is not None:
+                stab_frame = _stabilize_frame(frame, cam_M)
+                stab_gray = cv2.cvtColor(stab_frame, cv2.COLOR_BGR2GRAY)
+            else:
+                stab_frame = frame
+                stab_gray = frame_gray
+
+            # Ball detection: try stabilized first, raw as fallback
+            detection = _white_ball_detector(stab_frame, width, height)
+            det_in_stab_space = True
+            if detection is None and camera_is_moving:
+                detection = _white_ball_detector(frame, width, height)
+                det_in_stab_space = False
+
+            if detection is not None and det_in_stab_space and camera_is_moving:
+                rx, ry = _warp_point(detection.x, detection.y, cam_M, width, height)
+                detection = Detection(x=rx, y=ry, conf=detection.conf, source=detection.source)
+
+            # Motion centroid on stabilized diff (subtracts camera motion)
+            motion_hint = (last_ball[0], last_ball[1]) if last_ball else None
+            if motion_hint is not None and camera_is_moving:
+                motion_hint = _warp_point(motion_hint[0], motion_hint[1], cam_M, width, height)
+
+            motion_det = None
+            if prev_stab_gray is not None:
+                motion_det = _motion_centroid(prev_stab_gray, stab_gray, (height, width), hint=motion_hint)
+                if motion_det is not None and camera_is_moving:
+                    rx, ry = _warp_point(motion_det.x, motion_det.y, cam_M, width, height)
+                    motion_det = Detection(x=rx, y=ry, conf=motion_det.conf, source=motion_det.source)
+
+            # Carrier hold: warp last-known position by camera motion
+            if last_ball is not None and camera_is_moving:
+                wx, wy = _warp_point(last_ball[0], last_ball[1], cam_M, width, height)
+                last_ball = (wx, wy, last_ball[2], last_ball[3])
+
+            max_hold = _CARRIER_HOLD_EXTENDED if camera_is_moving else _CARRIER_HOLD_BASE
 
             source = "players"
             ball_x = ball_y = float("nan")
@@ -237,7 +298,7 @@ def build_action_telemetry(
                 is_valid = True
                 last_ball = (ball_x, ball_y, frame_idx, ball_conf)
                 carried_frames = 0
-            elif last_ball and frame_idx - last_ball[2] <= 12:
+            elif last_ball and frame_idx - last_ball[2] <= max_hold:
                 decay = 0.85 ** float(frame_idx - last_ball[2])
                 ball_x, ball_y = last_ball[0], last_ball[1]
                 carrier_x, carrier_y = ball_x, ball_y
@@ -283,10 +344,12 @@ def build_action_telemetry(
                 "carrier_x": None if not math.isfinite(carrier_x) else float(carrier_x),
                 "carrier_y": None if not math.isfinite(carrier_y) else float(carrier_y),
                 "carrier_conf": float(carrier_conf),
+                "cam_motion": round(cam_motion_mag, 2),
             }
             handle.write(json.dumps(row) + "\n")
 
             prev_gray = frame_gray
+            prev_stab_gray = stab_gray
             processed_frames += 1
 
     cap.release()
