@@ -5868,7 +5868,7 @@ class CameraPlanner:
             # camera moves at 72% of normal speed.  Floor raised from 0.60 to
             # 0.72 so the camera can still recover when tracking drifts.
             _conf_speed_scale = 1.0
-            if frame_conf < 0.60:
+            if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.05):
                 _conf_speed_scale = 0.72 + 0.467 * frame_conf  # 0.72 at 0, 1.0 at 0.60
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
@@ -6145,7 +6145,7 @@ class CameraPlanner:
                 # full speed, producing visibly smooth acceleration.
                 _max_spd_x = pxpf_x  # pre-computed speed limit px/frame
                 _max_spd_y = pxpf_y
-                _ramp_s = 0.30  # seconds to reach full speed
+                _ramp_s = 0.22  # seconds to reach full speed (reduced from 0.30 for faster direction reversals)
                 _ramp_frames = max(1.0, _ramp_s * render_fps)
                 _max_accel_x = _max_spd_x / _ramp_frames
                 _max_accel_y = _max_spd_y / _ramp_frames
@@ -6213,6 +6213,64 @@ class CameraPlanner:
                     # Recompute x0/y0 from smoothed center.
                     st.x0 = float(np.clip(st.cx - c_w / 2.0, 0.0, max(0.0, self.width - c_w)))
                     st.y0 = float(np.clip(st.cy - c_h / 2.0, 0.0, max(0.0, self.height - c_h)))
+
+        # --- POST-SMOOTH BALL-IN-CROP GUARANTEE ---
+        # Gaussian + acceleration-limiter smoothing can cause the camera
+        # to under-shoot direction changes (the smoothing averages the
+        # pre-peak and post-peak positions, reducing peak amplitude).
+        # This lets the ball drift toward — or past — the crop edge
+        # for several frames during fast pans with direction reversals.
+        #
+        # Fix: a final forward pass that applies the minimum camera
+        # shift needed to keep the ball inside a safety margin.  The
+        # corrections are naturally smooth because both ball and camera
+        # positions change smoothly frame-to-frame.
+        _bic_margin = max(20.0, self.margin_px * 0.5)
+        _bic_count = 0
+        for _bic_st in states:
+            if _bic_st.ball is None:
+                continue
+            _bx, _by = _bic_st.ball
+            _hw = _bic_st.crop_w * 0.5
+            _hh = _bic_st.crop_h * 0.5
+
+            _need_x = 0.0
+            _left_d = _bx - (_bic_st.cx - _hw + _bic_margin)
+            _right_d = (_bic_st.cx + _hw - _bic_margin) - _bx
+            if _left_d < 0.0:
+                _need_x = _left_d
+            elif _right_d < 0.0:
+                _need_x = -_right_d
+
+            _need_y = 0.0
+            _top_d = _by - (_bic_st.cy - _hh + _bic_margin)
+            _bot_d = (_bic_st.cy + _hh - _bic_margin) - _by
+            if _top_d < 0.0:
+                _need_y = _top_d
+            elif _bot_d < 0.0:
+                _need_y = -_bot_d
+
+            if abs(_need_x) > 0.5 or abs(_need_y) > 0.5:
+                _bic_st.cx += _need_x
+                _bic_st.cy += _need_y
+                _bic_st.x0 = float(np.clip(
+                    _bic_st.cx - _hw, 0.0,
+                    max(0.0, self.width - _bic_st.crop_w),
+                ))
+                _bic_st.y0 = float(np.clip(
+                    _bic_st.cy - _hh, 0.0,
+                    max(0.0, self.height - _bic_st.crop_h),
+                ))
+                _bic_st.cx = _bic_st.x0 + _hw
+                _bic_st.cy = _bic_st.y0 + _hh
+                _bic_count += 1
+
+        if _bic_count > 0:
+            logger.info(
+                "[POST-SMOOTH] Ball-in-crop guarantee: adjusted %d/%d frames"
+                " (margin=%.0fpx)",
+                _bic_count, len(states), _bic_margin,
+            )
 
         return states
 
