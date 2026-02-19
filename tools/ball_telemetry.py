@@ -1614,7 +1614,7 @@ def fuse_yolo_and_centroid(
                     continue
                 long_interp += gap - 1
                 _interp_mode = "step" if (STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP) else "linear"
-                long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
+                # (long_flight_info appended after centroid-guide setup below)
 
             # Use step function only for moderate-length gaps where the
             # camera has time to arrive and settle at the receiver.
@@ -1624,6 +1624,81 @@ def fuse_yolo_and_centroid(
             # so the camera gradually follows the ball across the field
             # instead of holding at the receiver for the entire gap.
             use_step = is_long and gap >= STEP_THRESHOLD and gap <= _BASE_LONG_INTERP_GAP
+
+            # --- Centroid-guided interpolation for very long linear gaps ---
+            # Pure linear interpolation assumes constant ball speed, which
+            # diverges from reality during shots/passes where the ball
+            # decelerates, curves, or bounces.  For gaps beyond the base
+            # LONG_INTERP_GAP (enabled by the sparse-YOLO extension), extract
+            # the centroid tracker's motion shape (deviation from the centroid's
+            # own linear trend) and add it to the YOLO linear path.  This
+            # preserves YOLO endpoint anchoring while curving the interpolated
+            # path to follow on-field motion patterns.
+            _cg_offsets: dict[int, float] = {}
+            if is_long and not use_step and gap > _BASE_LONG_INTERP_GAP:
+                _CG_BLEND = 0.40      # fraction of centroid residual to apply
+                _CG_MAX_PX = 200.0    # max offset per frame (px)
+                _CG_MIN_COV = 0.50    # min centroid coverage to enable guiding
+                _CG_SMOOTH = 7        # smoothing window (frames)
+
+                # Collect raw centroid x-positions for frames in this gap
+                _cg_raw: dict[int, float] = {}
+                for k in range(fi + 1, fj):
+                    cs = centroid_by_frame.get(k)
+                    if cs is not None and math.isfinite(cs.x):
+                        _cg_raw[k] = float(cs.x)
+
+                _cg_cov = len(_cg_raw) / max(1, gap - 1)
+                if _cg_cov >= _CG_MIN_COV and len(_cg_raw) >= 3:
+                    # Smooth centroid x to reduce frame-to-frame jitter
+                    _cg_keys = sorted(_cg_raw.keys())
+                    _cg_sm: dict[int, float] = {}
+                    _hw = _CG_SMOOTH // 2
+                    for k in _cg_keys:
+                        _nbrs = [
+                            _cg_raw[j]
+                            for j in range(k - _hw, k + _hw + 1)
+                            if j in _cg_raw
+                        ]
+                        _cg_sm[k] = sum(_nbrs) / len(_nbrs)
+
+                    # Centroid's own linear trend (first to last smoothed)
+                    _cs0 = _cg_sm[_cg_keys[0]]
+                    _cs1 = _cg_sm[_cg_keys[-1]]
+                    _cspan = float(_cg_keys[-1] - _cg_keys[0])
+
+                    # Safety: only apply if centroid moves in the same
+                    # general direction as the ball.  Avoids following
+                    # player clusters moving opposite to ball flight.
+                    _yolo_dir = x1 - x0
+                    _cent_dir = _cs1 - _cs0
+
+                    if _cspan > 0 and _yolo_dir * _cent_dir >= 0:
+                        for k in _cg_keys:
+                            ct = (k - _cg_keys[0]) / _cspan
+                            _cl = _cs0 + ct * (_cs1 - _cs0)
+                            residual = _cg_sm[k] - _cl
+
+                            # Taper: 0 at gap endpoints, 1.0 in middle
+                            t = (k - fi) / float(gap)
+                            taper = min(t, 1.0 - t) * 2.0
+
+                            off = _CG_BLEND * taper * residual
+                            off = max(-_CG_MAX_PX, min(_CG_MAX_PX, off))
+                            _cg_offsets[k] = off
+
+                        _interp_mode = "linear+cguide"
+                        _cg_max = max(abs(v) for v in _cg_offsets.values())
+                        _cg_mean = sum(abs(v) for v in _cg_offsets.values()) / len(_cg_offsets)
+                        print(
+                            f"[FUSION] Centroid-guide: frames {fi}->{fj}, "
+                            f"{len(_cg_offsets)} frames guided, "
+                            f"max_offset={_cg_max:.0f}px, mean_offset={_cg_mean:.0f}px"
+                        )
+
+            if is_long:
+                long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
+
             for k in range(fi + 1, fj):
                 if use_step:
                     # Step function: target the receiver for the entire gap.
@@ -1636,6 +1711,10 @@ def fuse_yolo_and_centroid(
                     t = (k - fi) / float(gap)
                     interp_x = x0 + t * (x1 - x0)
                     interp_y = y0 + t * (y1 - y0)
+
+                    # Apply centroid-guided offset for long gaps
+                    if k in _cg_offsets:
+                        interp_x += _cg_offsets[k]
 
                 positions[k, 0] = interp_x
                 positions[k, 1] = interp_y
