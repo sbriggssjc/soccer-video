@@ -308,6 +308,18 @@ class PlannerConfig:
     keep_in_frame_frac_y: Tuple[float, float] = (0.4, 0.6)
     min_zoom: float = 1.0
     max_zoom: float = 2.0
+    # Adaptive tracking: when True, margin_px / lead_px / max_step are
+    # modulated per-frame based on ball speed.  The cfg values become the
+    # *base* (slow-play) values; during fast play the planner tightens
+    # margin, increases lead, and raises the speed limit automatically.
+    adaptive: bool = False
+    # Speed thresholds (px/frame) for the adaptive ramp.
+    adaptive_v_lo: float = 1.5
+    adaptive_v_hi: float = 10.0
+    # Per-parameter scale at max speed (multiplied against the base value).
+    adaptive_margin_scale: float = 2.0   # 2x base margin at full speed (tighter)
+    adaptive_lead_scale: float = 2.0     # 2x base lead at full speed
+    adaptive_step_scale: float = 2.5     # 2.5x base max_step at full speed
 
     def __post_init__(self) -> None:
         w, h = self.frame_size
@@ -387,25 +399,39 @@ def _moving_average(arr: np.ndarray, window: int) -> np.ndarray:
     return smoothed.astype(float)
 
 
-def _speed_limit(series: np.ndarray, mins: np.ndarray, maxs: np.ndarray, max_step: float, accel_limit: float, passes: int) -> np.ndarray:
+def _speed_limit(series: np.ndarray, mins: np.ndarray, maxs: np.ndarray,
+                  max_step, accel_limit, passes: int) -> np.ndarray:
+    """Clamp per-frame deltas.
+
+    ``max_step`` and ``accel_limit`` may be scalars **or** per-frame arrays
+    (same length as *series*).  When arrays are provided the limit varies
+    per-frame, enabling adaptive tracking responsiveness.
+    """
     out = series.copy()
     n = len(out)
+    step_arr = np.broadcast_to(np.asarray(max_step, dtype=float), (n,))
+    accel_arr = np.broadcast_to(np.asarray(accel_limit, dtype=float), (n,))
     for _ in range(passes):
         for idx in range(1, n):
             delta = out[idx] - out[idx - 1]
-            if abs(delta) > max_step:
-                out[idx] = out[idx - 1] + math.copysign(max_step, delta)
+            ms = step_arr[idx]
+            if abs(delta) > ms:
+                out[idx] = out[idx - 1] + math.copysign(ms, delta)
             out[idx] = np.clip(out[idx], mins[idx], maxs[idx])
         for idx in range(n - 2, -1, -1):
             delta = out[idx] - out[idx + 1]
-            if abs(delta) > max_step:
-                out[idx] = out[idx + 1] + math.copysign(max_step, delta)
+            ms = step_arr[idx]
+            if abs(delta) > ms:
+                out[idx] = out[idx + 1] + math.copysign(ms, delta)
             out[idx] = np.clip(out[idx], mins[idx], maxs[idx])
-        if accel_limit > 0 and n >= 3:
+        if n >= 3:
             for idx in range(1, n - 1):
+                al = accel_arr[idx]
+                if al <= 0:
+                    continue
                 jerk = out[idx + 1] - 2 * out[idx] + out[idx - 1]
-                if abs(jerk) > accel_limit:
-                    adjust = 0.5 * (abs(jerk) - accel_limit)
+                if abs(jerk) > al:
+                    adjust = 0.5 * (abs(jerk) - al)
                     out[idx] += math.copysign(adjust, jerk)
                     out[idx] = np.clip(out[idx], mins[idx], maxs[idx])
     return out
@@ -597,6 +623,20 @@ class OfflinePortraitPlanner:
         arr = _moving_average(arr, cfg.smooth_window)
         return arr
 
+    def _adaptive_ramp(self, speed: np.ndarray) -> np.ndarray:
+        """Return a 0-1 ramp based on ball speed (px/frame).
+
+        0 = slow (at or below ``adaptive_v_lo``),
+        1 = fast (at or above ``adaptive_v_hi``).
+        The ramp is smoothed with a short moving average so parameter
+        transitions don't cause visible jitter.
+        """
+        cfg = self.cfg
+        denom = max(cfg.adaptive_v_hi - cfg.adaptive_v_lo, 1e-6)
+        raw = np.clip((speed - cfg.adaptive_v_lo) / denom, 0.0, 1.0)
+        # Smooth the ramp with a 7-frame window to prevent flicker
+        return _moving_average(raw, max(3, cfg.smooth_window))
+
     def plan(self, bx: Sequence[float], by: Sequence[float]) -> dict[str, np.ndarray]:
         bx_arr = np.asarray(bx, dtype=float)
         by_arr = np.asarray(by, dtype=float)
@@ -609,20 +649,42 @@ class OfflinePortraitPlanner:
         vy = np.gradient(by_clean)
         speed = np.hypot(vx, vy)
         norm = np.maximum(speed, 1e-6)
-        lead_scale = self.cfg.lead_px
+
+        cfg = self.cfg
+
+        if cfg.adaptive:
+            # Per-frame ramp: 0 at slow play, 1 at fast play
+            t = self._adaptive_ramp(speed)
+            # Lead increases with speed (want more anticipation on fast balls)
+            lead_scale = cfg.lead_px * (1.0 + (cfg.adaptive_lead_scale - 1.0) * t)
+            # Margin shrinks with speed (tighter tracking on fast balls)
+            margin_base = cfg.margin_px * (1.0 + (cfg.adaptive_margin_scale - 1.0) * t)
+            # Speed limit increases with speed (camera allowed to pan faster)
+            max_step_x = cfg.max_step_x * (1.0 + (cfg.adaptive_step_scale - 1.0) * t)
+            max_step_y = cfg.max_step_y * (1.0 + (cfg.adaptive_step_scale - 1.0) * t)
+            accel_x = cfg.accel_limit_x * (1.0 + (cfg.adaptive_step_scale - 1.0) * t)
+            accel_y = cfg.accel_limit_y * (1.0 + (cfg.adaptive_step_scale - 1.0) * t)
+        else:
+            lead_scale = cfg.lead_px
+            margin_base = cfg.margin_px
+            max_step_x = cfg.max_step_x
+            max_step_y = cfg.max_step_y
+            accel_x = cfg.accel_limit_x
+            accel_y = cfg.accel_limit_y
+
         lead_x = lead_scale * (vx / norm)
         lead_y = lead_scale * (vy / norm)
-        headroom = self.cfg.headroom_frac * self.crop_h
+        headroom = cfg.headroom_frac * self.crop_h
 
         ideal_cx = bx_clean + lead_x
         ideal_cy = by_clean + headroom + lead_y * 0.1
 
         half_w = self.crop_w / 2.0
         half_h = self.crop_h / 2.0
-        margin_x = min(half_w - 4.0, self.cfg.margin_px)
-        margin_y = min(half_h - 4.0, self.cfg.margin_px * 1.35)
-        margin_x = max(0.0, margin_x)
-        margin_y = max(0.0, margin_y)
+        margin_x = np.minimum(half_w - 4.0, margin_base)
+        margin_y = np.minimum(half_h - 4.0, margin_base * 1.35)
+        margin_x = np.maximum(0.0, margin_x)
+        margin_y = np.maximum(0.0, margin_y)
 
         cx_min = np.maximum(self.cx_bounds[0], bx_clean - (half_w - margin_x))
         cx_max = np.minimum(self.cx_bounds[1], bx_clean + (half_w - margin_x))
@@ -639,17 +701,17 @@ class OfflinePortraitPlanner:
             target_cx,
             cx_min,
             cx_max,
-            self.cfg.max_step_x,
-            self.cfg.accel_limit_x,
-            self.cfg.smoothing_passes,
+            max_step_x,
+            accel_x,
+            cfg.smoothing_passes,
         )
         cy = _speed_limit(
             target_cy,
             cy_min,
             cy_max,
-            self.cfg.max_step_y,
-            self.cfg.accel_limit_y,
-            self.cfg.smoothing_passes,
+            max_step_y,
+            accel_y,
+            cfg.smoothing_passes,
         )
 
         x0 = np.clip(cx - half_w, 0.0, max(0.0, self.frame_w - self.crop_w))

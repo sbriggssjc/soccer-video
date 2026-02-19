@@ -3905,6 +3905,8 @@ def plan_camera_from_ball(
     margin_px_override: Optional[float] = None,
     headroom_frac_override: Optional[float] = None,
     lead_px_override: Optional[float] = None,
+    adaptive: bool = False,
+    adaptive_config: Optional[dict] = None,
 ):
     """Plan a portrait crop using the offline cinematic planner."""
 
@@ -3922,6 +3924,16 @@ def plan_camera_from_ball(
 
     margin_value = max(bounds_pad, 90.0)
 
+    adaptive_kwargs: dict = {}
+    if adaptive:
+        adaptive_kwargs["adaptive"] = True
+        if adaptive_config and isinstance(adaptive_config, dict):
+            for key in ("adaptive_v_lo", "adaptive_v_hi",
+                        "adaptive_margin_scale", "adaptive_lead_scale",
+                        "adaptive_step_scale"):
+                if key in adaptive_config:
+                    adaptive_kwargs[key] = float(adaptive_config[key])
+
     cfg = PlannerConfig(
         frame_size=(float(frame_w), float(frame_h)),
         crop_aspect=float(target_aspect) if target_aspect > 0 else (9.0 / 16.0),
@@ -3936,6 +3948,7 @@ def plan_camera_from_ball(
         accel_limit_y=float(max_step_y * 0.35),
         smoothing_passes=passes,
         portrait_pad=float(bounds_pad),
+        **adaptive_kwargs,
     )
 
     planner = OfflinePortraitPlanner(cfg)
@@ -6235,6 +6248,8 @@ class Renderer:
         portrait_plan_margin_px: Optional[float] = None,
         portrait_plan_headroom: Optional[float] = None,
         portrait_plan_lead_px: Optional[float] = None,
+        adaptive_tracking: bool = False,
+        adaptive_tracking_config: Optional[dict] = None,
         plan_override_data: Optional[dict[str, np.ndarray]] = None,
         plan_override_len: int = 0,
         ball_samples: Optional[List[BallSample]] = None,
@@ -6321,6 +6336,8 @@ class Renderer:
         self.portrait_plan_margin_px = _coerce_float(portrait_plan_margin_px)
         self.portrait_plan_headroom_frac = _coerce_float(portrait_plan_headroom)
         self.portrait_plan_lead_px = _coerce_float(portrait_plan_lead_px)
+        self.adaptive_tracking = bool(adaptive_tracking)
+        self.adaptive_tracking_config = adaptive_tracking_config or {}
         self.plan_override_data = plan_override_data
         self.plan_override_len = int(plan_override_len or 0)
         self.ball_samples = ball_samples or []
@@ -7014,6 +7031,8 @@ class Renderer:
                         margin_px_override=self.portrait_plan_margin_px,
                         headroom_frac_override=self.portrait_plan_headroom_frac,
                         lead_px_override=self.portrait_plan_lead_px,
+                        adaptive=self.adaptive_tracking,
+                        adaptive_config=self.adaptive_tracking_config,
                     )
 
                     offline_plan_len = len(plan_x0)
@@ -7725,6 +7744,17 @@ def run(
 
     speed_zoom_value = follow_config.get("speed_zoom") if follow_config else None
     speed_zoom_config = speed_zoom_value if isinstance(speed_zoom_value, Mapping) else None
+
+    # Adaptive tracking: per-frame modulation of margin/lead/speed based on
+    # ball velocity.  Enabled via follow.adaptive.enabled in preset YAML.
+    adaptive_raw = follow_config.get("adaptive") if follow_config else None
+    adaptive_tracking_enabled = False
+    adaptive_tracking_cfg: dict = {}
+    if isinstance(adaptive_raw, Mapping):
+        adaptive_tracking_enabled = bool(adaptive_raw.get("enabled", False))
+        adaptive_tracking_cfg = dict(adaptive_raw)
+    elif isinstance(adaptive_raw, bool):
+        adaptive_tracking_enabled = adaptive_raw
 
     default_ball_key_x = "bx_stab"
     default_ball_key_y = "by_stab"
@@ -8631,6 +8661,8 @@ def run(
         portrait_plan_margin_px=getattr(args, "portrait_plan_margin", None),
         portrait_plan_headroom=getattr(args, "portrait_plan_headroom", None),
         portrait_plan_lead_px=getattr(args, "portrait_plan_lead", None),
+        adaptive_tracking=adaptive_tracking_enabled,
+        adaptive_tracking_config=adaptive_tracking_cfg,
         plan_override_data=plan_override_data,
         plan_override_len=plan_override_len,
         ball_samples=ball_samples,
