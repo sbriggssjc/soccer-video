@@ -62,6 +62,7 @@ try:
         _CAM_MOTION_FAST_THRESH,
         _CARRIER_HOLD_BASE,
         _CARRIER_HOLD_EXTENDED,
+        _VelocityState,
         _estimate_camera_motion,
         _stabilize_frame,
         _warp_point,
@@ -71,6 +72,7 @@ except ModuleNotFoundError:
         _CAM_MOTION_FAST_THRESH,
         _CARRIER_HOLD_BASE,
         _CARRIER_HOLD_EXTENDED,
+        _VelocityState,
         _estimate_camera_motion,
         _stabilize_frame,
         _warp_point,
@@ -229,6 +231,7 @@ def build_action_telemetry(
     prev_stab_gray: np.ndarray | None = None
     last_ball: tuple[float, float, int, float] | None = None
     carried_frames = 0
+    vel = _VelocityState()
 
     valid_rows = 0
     ball_conf_frames = 0
@@ -296,11 +299,16 @@ def build_action_telemetry(
                 carrier_x, carrier_y, carrier_conf = ball_x, ball_y, max(ball_conf, 0.6)
                 source = detection.source
                 is_valid = True
+                vel.update(ball_x, ball_y, frame_idx)
                 last_ball = (ball_x, ball_y, frame_idx, ball_conf)
                 carried_frames = 0
             elif last_ball and frame_idx - last_ball[2] <= max_hold:
-                decay = 0.85 ** float(frame_idx - last_ball[2])
-                ball_x, ball_y = last_ball[0], last_ball[1]
+                gap = frame_idx - last_ball[2]
+                decay = 0.85 ** float(gap)
+                # Predict position using velocity instead of static hold.
+                ball_x, ball_y = vel.predict(
+                    last_ball[0], last_ball[1], gap, width, height
+                )
                 carrier_x, carrier_y = ball_x, ball_y
                 ball_conf = max(0.0, min(1.0, last_ball[3] * decay))
                 carrier_conf = max(0.2, ball_conf * 0.8)

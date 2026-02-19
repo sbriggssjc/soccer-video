@@ -44,6 +44,67 @@ import numpy as np
 
 from tools.ball_telemetry import telemetry_path_for_video
 
+# --- Velocity-predicted carrier hold ------------------------------------------
+
+# When detection fails, instead of holding a static position we advance the
+# ball along its recent velocity vector.  This keeps the virtual camera
+# tracking the ball's likely trajectory during detection gaps (especially
+# camera pans where motion blur kills the detector for several frames).
+
+_VEL_EMA_ALPHA = 0.35          # EMA weight for velocity update (higher = more reactive)
+_VEL_MAX_PX_PER_FRAME = 30.0   # cap per-frame prediction to avoid runaway drift
+_VEL_DECAY_PER_FRAME = 0.92    # velocity decays each predicted frame so we coast to a stop
+_VEL_MIN_DETECTIONS = 2        # need at least 2 detections to estimate velocity
+
+
+@dataclass
+class _VelocityState:
+    """Running estimate of ball velocity in raw-pixel space."""
+
+    vx: float = 0.0
+    vy: float = 0.0
+    prev_x: float = 0.0
+    prev_y: float = 0.0
+    prev_frame: int = -1
+    n_detections: int = 0
+
+    def update(self, x: float, y: float, frame_idx: int) -> None:
+        """Feed a confirmed detection to update the velocity estimate."""
+        if self.prev_frame >= 0 and frame_idx > self.prev_frame:
+            dt = frame_idx - self.prev_frame
+            raw_vx = (x - self.prev_x) / dt
+            raw_vy = (y - self.prev_y) / dt
+            self.vx += _VEL_EMA_ALPHA * (raw_vx - self.vx)
+            self.vy += _VEL_EMA_ALPHA * (raw_vy - self.vy)
+        self.prev_x = x
+        self.prev_y = y
+        self.prev_frame = frame_idx
+        self.n_detections += 1
+
+    def predict(
+        self, x: float, y: float, frames_ahead: int, width: int, height: int
+    ) -> Tuple[float, float]:
+        """Extrapolate (x, y) forward using the current velocity estimate."""
+        if self.n_detections < _VEL_MIN_DETECTIONS:
+            return x, y
+        vx = self.vx
+        vy = self.vy
+        speed = math.hypot(vx, vy)
+        if speed > _VEL_MAX_PX_PER_FRAME:
+            scale = _VEL_MAX_PX_PER_FRAME / speed
+            vx *= scale
+            vy *= scale
+        px, py = x, y
+        for _ in range(frames_ahead):
+            px += vx
+            py += vy
+            vx *= _VEL_DECAY_PER_FRAME
+            vy *= _VEL_DECAY_PER_FRAME
+        px = max(0.0, min(float(width), px))
+        py = max(0.0, min(float(height), py))
+        return px, py
+
+
 # --- Camera-motion estimation ------------------------------------------------
 
 # Carrier hold is normally 12 frames; during fast camera motion we extend to 24.
@@ -260,6 +321,7 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
     last_ball: tuple[float, float, int, float] | None = None
     carried_frames = 0
     valid_rows = 0
+    vel = _VelocityState()
 
     processed_frames = 0
 
@@ -346,11 +408,16 @@ def build_telemetry(video_path: Path, out_path: Path) -> None:
                 carrier_x, carrier_y, carrier_conf = ball_x, ball_y, max(ball_conf, 0.6)
                 source = detection.source
                 is_valid = True
+                vel.update(ball_x, ball_y, frame_idx)
                 last_ball = (ball_x, ball_y, frame_idx, ball_conf)
                 carried_frames = 0
             elif last_ball and frame_idx - last_ball[2] <= max_hold:
-                decay = 0.85 ** float(frame_idx - last_ball[2])
-                ball_x, ball_y = last_ball[0], last_ball[1]
+                gap = frame_idx - last_ball[2]
+                decay = 0.85 ** float(gap)
+                # Predict position using velocity instead of static hold.
+                ball_x, ball_y = vel.predict(
+                    last_ball[0], last_ball[1], gap, width, height
+                )
                 carrier_x, carrier_y = ball_x, ball_y
                 ball_conf = max(0.0, min(1.0, last_ball[3] * decay))
                 carrier_conf = max(0.2, ball_conf * 0.8)
