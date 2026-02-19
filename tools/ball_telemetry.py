@@ -1462,9 +1462,9 @@ def fuse_yolo_and_centroid(
     if _yolo_density < 0.15:
         # Scale stale frames inversely with density: fewer YOLO → trust centroid
         # less for longer after each YOLO detection.
-        # At 5% density → 72 frames (~2.4s); at 15% density → 30 frames (unchanged)
-        YOLO_STALE_FRAMES = int(30 + 42 * (1.0 - _yolo_density / 0.15))
-        YOLO_HOLD_BLEND = min(0.65, 0.40 + 0.25 * (1.0 - _yolo_density / 0.15))
+        # At 5% density → 90 frames (~3s); at 15% density → 30 frames (unchanged)
+        YOLO_STALE_FRAMES = int(30 + 60 * (1.0 - _yolo_density / 0.15))
+        YOLO_HOLD_BLEND = min(0.70, 0.40 + 0.30 * (1.0 - _yolo_density / 0.15))
         print(
             f"[FUSION] Sparse YOLO ({_yolo_density:.1%}): "
             f"gating stale_frames={YOLO_STALE_FRAMES}, hold_blend={YOLO_HOLD_BLEND:.2f}"
@@ -1559,6 +1559,17 @@ def fuse_yolo_and_centroid(
     # the camera.  45 frames ≈ 1.5s at 30fps — enough for the camera to
     # arrive and settle at the receiver.
     STEP_THRESHOLD = 45
+    # Adaptive: when YOLO is sparse, allow longer interpolation gaps so the
+    # camera interpolates between known ball positions instead of relying on
+    # centroid tracking (which follows player clusters, not the ball).
+    # At 5% density → 180 frames (~7.5s); at 15% density → 90 (unchanged).
+    _BASE_LONG_INTERP_GAP = LONG_INTERP_GAP
+    if _yolo_density < 0.15:
+        LONG_INTERP_GAP = int(90 + 90 * (1.0 - _yolo_density / 0.15))
+        print(
+            f"[FUSION] Sparse YOLO: extended LONG_INTERP_GAP "
+            f"{_BASE_LONG_INTERP_GAP}->{LONG_INTERP_GAP} frames"
+        )
 
     # Collect frames that have YOLO data (used directly or blended)
     yolo_frames = sorted(yolo_by_frame.keys())
@@ -1602,14 +1613,17 @@ def fuse_yolo_and_centroid(
                     )
                     continue
                 long_interp += gap - 1
-                _interp_mode = "step" if gap >= STEP_THRESHOLD else "linear"
+                _interp_mode = "step" if (STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP) else "linear"
                 long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
 
-            # Use step function only for long-enough gaps where the
+            # Use step function only for moderate-length gaps where the
             # camera has time to arrive and settle at the receiver.
             # For shorter flights, linear interpolation lets the
             # Gaussian absorb rapid direction changes naturally.
-            use_step = is_long and gap >= STEP_THRESHOLD
+            # For very long gaps (> base 90 frames), revert to linear
+            # so the camera gradually follows the ball across the field
+            # instead of holding at the receiver for the entire gap.
+            use_step = is_long and gap >= STEP_THRESHOLD and gap <= _BASE_LONG_INTERP_GAP
             for k in range(fi + 1, fj):
                 if use_step:
                     # Step function: target the receiver for the entire gap.
