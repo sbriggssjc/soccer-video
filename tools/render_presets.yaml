@@ -157,6 +157,37 @@ realzoom:
   zoom_max: 2.4
   crf: 19
   keyint_factor: 4
+tight-action:
+  fps: 24                 # match cinematic cadence for A/B comparison
+  lookahead: 0
+  smoothing: 0.22
+  pad: 0.04               # same source-pixel preservation as cinematic
+  speed_limit: 1200        # raised from 800 — allows faster pans for through-balls/counters
+  post_smooth_sigma: 2.5   # halved from 5.0 — less lag, still smooth enough for social
+  zoom_min: 0.85
+  zoom_max: 1.50           # raised from 1.40 — allows tighter zoom on slow play
+  crf: 17
+  keyint_factor: 4
+  follow:
+    source: ball
+    keys: [bx_stab, by_stab]
+    smoothing: 0.06
+    lead_time: 0.20          # doubled from 0.10 — 200ms anticipation, camera arrives before ball
+    margin_px: 60            # halved from 120 — ball stays much closer to crop center
+    keepinview:
+      nudge_gain: 0.75      # raised from 0.50 — stronger pull when ball drifts toward edge
+      zoom_gain: 0.45       # raised from 0.30 — more aggressive zoom-out fallback
+      zoom_cap: 1.50        # matches zoom_max
+    speed_zoom:
+      enabled: true
+      v_lo: 2.0
+      v_hi: 12.0
+      zoom_lo: 1.40        # raised from 1.25 — tighter on slow play (set pieces, 1v1 dribbles)
+      zoom_hi: 0.95         # raised from 0.90 — slightly less zoom-out on fast play
+  portrait:
+    size: 1080x1920
+    min_box_px: [540, 960]
+    horizon_lock: 0.20
 burst-catch:
   fps: 24
   lookahead: 6
