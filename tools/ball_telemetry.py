@@ -1407,7 +1407,21 @@ def fuse_yolo_and_centroid(
     # are almost always false positives (goalposts, shadows, partial views).
     # Filter them at ingestion time so they don't contaminate the centroid
     # gating via _last_yolo_x for many subsequent frames.
-    EDGE_MARGIN_FRAC = 0.06  # 6% of frame width — recover more sparse YOLO detections near edges
+    #
+    # Adaptive: when YOLO detections are sparse, every detection is critical
+    # for anchoring the ball path.  Reduce the margin so near-edge detections
+    # (which are often the ball at the edge of the field, not goalposts) are
+    # kept.  At 5% density the margin shrinks to ~2.5%; at 15%+ it stays 6%.
+    EDGE_MARGIN_FRAC = 0.06  # base: 6% of frame width
+    _raw_yolo_count = sum(
+        1 for s in yolo_samples
+        if 0 <= int(s.frame) < frame_count
+        and math.isfinite(s.x) and math.isfinite(s.y)
+    )
+    _raw_density = _raw_yolo_count / max(frame_count, 1)
+    if _raw_density < 0.15 and _raw_yolo_count > 0:
+        # Scale margin down: at 5% density → 0.025, at 15% → 0.06
+        EDGE_MARGIN_FRAC = max(0.02, 0.06 * (_raw_density / 0.15))
 
     # Index YOLO samples by frame, filtering out near-edge detections.
     _edge_px_ingest = width * EDGE_MARGIN_FRAC if width > 0 else 0
@@ -1754,11 +1768,14 @@ def fuse_yolo_and_centroid(
         # Hold at last YOLO position for trailing frames.
         # When YOLO is sparse, the trailing hold is extended so the camera
         # doesn't revert to centroid (which tracks player clusters) for the
-        # entire tail of the clip.
+        # entire tail of the clip.  At very low density the hold covers
+        # up to 5 seconds (120 frames at 24fps) — long enough for the
+        # bidirectional EMA smoothing to not bleed centroid contamination
+        # backward into the held region.
         _trailing_hold_max = SHORT_INTERP_GAP
         if _yolo_density < 0.15:
-            # At 5% density → 90 frames (~3s); at 15% → 15 frames (unchanged)
-            _trailing_hold_max = int(SHORT_INTERP_GAP + 75 * (1.0 - _yolo_density / 0.15))
+            # At 5% density → 105 frames (~4s); at 15% → 15 frames (unchanged)
+            _trailing_hold_max = int(SHORT_INTERP_GAP + 105 * (1.0 - _yolo_density / 0.15))
         last_yolo = yolo_frames[-1]
         yl = yolo_by_frame[last_yolo]
         for k in range(last_yolo + 1, min(frame_count, last_yolo + _trailing_hold_max)):
@@ -1896,10 +1913,12 @@ def fuse_yolo_and_centroid(
                 f"(t={_t0:.1f}s->{_t1:.1f}s, {_fj - _fi} frames), "
                 f"ball x={_x0:.0f}->{_x1:.0f} ({_dist:.0f}px) [{_mode}]"
             )
-        # Log ball_x at 1-second intervals for the first ~5 seconds
+        # Log ball_x at 1-second intervals for the full clip
         _n_pos = len(positions)
         _step = int(_src_fps)
-        _sample_frames = list(range(0, min(_n_pos, _step * 6), _step))
+        _sample_frames = list(range(0, _n_pos, _step))
+        if _sample_frames and _sample_frames[-1] != _n_pos - 1:
+            _sample_frames.append(_n_pos - 1)
         if _sample_frames:
             _parts = [f"f{_sf}={positions[_sf, 0]:.0f}" for _sf in _sample_frames]
             print(f"[FUSION] Ball x timeline (1s steps): {', '.join(_parts)}")
