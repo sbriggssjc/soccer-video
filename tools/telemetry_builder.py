@@ -39,10 +39,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
+import os
+import sys
+
 import cv2
 import numpy as np
 
-from tools.ball_telemetry import telemetry_path_for_video
+# Ensure we can import ball_telemetry whether we're run as
+# "python tools/telemetry_builder.py" from repo root
+# or from within the tools directory.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+try:
+    from ball_telemetry import telemetry_path_for_video
+except ModuleNotFoundError:
+    _ROOT = os.path.dirname(_HERE)
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+    from tools.ball_telemetry import telemetry_path_for_video
 
 # --- Velocity-predicted carrier hold ------------------------------------------
 
