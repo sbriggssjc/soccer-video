@@ -1907,6 +1907,161 @@ def fuse_yolo_and_centroid(
                 f"(short_gap={SHORT_INTERP_GAP}, long_gap={LONG_INTERP_GAP}){_long_msg}"
             )
 
+        # --- VELOCITY EXTRAPOLATION FOR SHOT GAPS ---
+        # When the ball is moving fast at the end of a YOLO segment (shot/pass)
+        # and then YOLO drops out (motion blur), the centroid fallback tracks
+        # player clusters — not the ball.  The camera stays on the shooter
+        # while the ball flies into the net, missing the goal entirely.
+        #
+        # Fix: detect high-speed YOLO segments and extrapolate the ball's
+        # trajectory forward with deceleration for centroid-only frames that
+        # follow.  This keeps the camera following the ball flight path toward
+        # the goal instead of snapping back to the player group.
+        _EXTRAP_SPEED_THR = 4.0   # px/frame: min speed to trigger extrapolation
+        _EXTRAP_MAX_FRAMES = 45   # max frames to extrapolate (~1.5s at 30fps)
+        _EXTRAP_DECEL = 0.92      # per-frame velocity decay (ball decelerates)
+        _EXTRAP_CONF = 0.32       # confidence for extrapolated frames
+        _EXTRAP_MIN_YOLO = 3      # need at least 3 YOLO frames to estimate velocity
+        _extrap_count = 0
+
+        for seg_idx in range(len(yolo_frames) - 1):
+            fi = yolo_frames[seg_idx]
+            fj = yolo_frames[seg_idx + 1]
+            gap = fj - fi
+            if gap <= SHORT_INTERP_GAP:
+                continue  # already handled by linear interpolation above
+
+            # Compute velocity at the end of the YOLO segment (fi).
+            # Use the last few YOLO frames before fi to get a stable estimate.
+            _vel_frames = []
+            for _vi in range(seg_idx, max(seg_idx - _EXTRAP_MIN_YOLO, -1), -1):
+                _vf = yolo_frames[_vi]
+                if _vf < fi - 10:
+                    break
+                _vel_frames.append(_vf)
+            _vel_frames.reverse()
+
+            if len(_vel_frames) < 2:
+                continue
+
+            # Average velocity over the last few YOLO frames
+            _vx_sum = 0.0
+            _vy_sum = 0.0
+            _vpairs = 0
+            for _vk in range(1, len(_vel_frames)):
+                _va = yolo_by_frame[_vel_frames[_vk - 1]]
+                _vb = yolo_by_frame[_vel_frames[_vk]]
+                _vdt = _vel_frames[_vk] - _vel_frames[_vk - 1]
+                if _vdt > 0:
+                    _vx_sum += (float(_vb.x) - float(_va.x)) / _vdt
+                    _vy_sum += (float(_vb.y) - float(_va.y)) / _vdt
+                    _vpairs += 1
+
+            if _vpairs == 0:
+                continue
+
+            _vx = _vx_sum / _vpairs
+            _vy = _vy_sum / _vpairs
+            _speed = math.hypot(_vx, _vy)
+
+            if _speed < _EXTRAP_SPEED_THR:
+                continue  # not a shot — skip
+
+            # Extrapolate forward from fi with decelerating velocity.
+            # Only overwrite centroid-only frames (don't touch YOLO or
+            # already-interpolated frames).
+            _yi = yolo_by_frame[fi]
+            _ex = float(_yi.x)
+            _ey = float(_yi.y)
+            _evx = _vx
+            _evy = _vy
+            _seg_extrap = 0
+            for k in range(fi + 1, min(fj, fi + _EXTRAP_MAX_FRAMES + 1)):
+                if source_labels[k] == FUSE_INTERP:
+                    break  # already interpolated — don't override
+                if k in yolo_by_frame:
+                    break  # YOLO available — don't override
+
+                _ex += _evx
+                _ey += _evy
+                _evx *= _EXTRAP_DECEL
+                _evy *= _EXTRAP_DECEL
+
+                # Clamp to frame bounds
+                _ex_clamped = max(0.0, min(width, _ex))
+                _ey_clamped = max(0.0, min(height, _ey))
+
+                # Only overwrite if centroid position is farther from
+                # the extrapolated trajectory than 100px (centroid is
+                # tracking something else, likely players).
+                _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_clamped
+                _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_clamped
+                _extrap_dist = math.hypot(_ex_clamped - _cx_cur, _ey_clamped - _cy_cur)
+                if _extrap_dist > 100.0 or not used_mask[k]:
+                    positions[k, 0] = _ex_clamped
+                    positions[k, 1] = _ey_clamped
+                    confidence[k] = max(confidence[k], _EXTRAP_CONF)
+                    source_labels[k] = FUSE_INTERP
+                    used_mask[k] = True
+                    _seg_extrap += 1
+
+            if _seg_extrap > 0:
+                _extrap_count += _seg_extrap
+
+        # Also extrapolate past the LAST YOLO frame if the ball was
+        # moving fast (shot toward goal at end of clip).
+        if len(yolo_frames) >= _EXTRAP_MIN_YOLO:
+            _last_fi = yolo_frames[-1]
+            _vel_frames = yolo_frames[max(0, len(yolo_frames) - _EXTRAP_MIN_YOLO - 1):]
+            if len(_vel_frames) >= 2:
+                _vx_sum = 0.0
+                _vy_sum = 0.0
+                _vpairs = 0
+                for _vk in range(1, len(_vel_frames)):
+                    _va = yolo_by_frame[_vel_frames[_vk - 1]]
+                    _vb = yolo_by_frame[_vel_frames[_vk]]
+                    _vdt = _vel_frames[_vk] - _vel_frames[_vk - 1]
+                    if _vdt > 0:
+                        _vx_sum += (float(_vb.x) - float(_va.x)) / _vdt
+                        _vy_sum += (float(_vb.y) - float(_va.y)) / _vdt
+                        _vpairs += 1
+                if _vpairs > 0:
+                    _vx = _vx_sum / _vpairs
+                    _vy = _vy_sum / _vpairs
+                    _speed = math.hypot(_vx, _vy)
+                    if _speed >= _EXTRAP_SPEED_THR:
+                        _yl = yolo_by_frame[_last_fi]
+                        _ex = float(_yl.x)
+                        _ey = float(_yl.y)
+                        _evx = _vx
+                        _evy = _vy
+                        for k in range(_last_fi + 1, min(frame_count, _last_fi + _EXTRAP_MAX_FRAMES + 1)):
+                            if k in yolo_by_frame:
+                                break
+                            _ex += _evx
+                            _ey += _evy
+                            _evx *= _EXTRAP_DECEL
+                            _evy *= _EXTRAP_DECEL
+                            _ex_c = max(0.0, min(width, _ex))
+                            _ey_c = max(0.0, min(height, _ey))
+                            _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_c
+                            _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_c
+                            _d = math.hypot(_ex_c - _cx_cur, _ey_c - _cy_cur)
+                            if _d > 100.0 or not used_mask[k]:
+                                positions[k, 0] = _ex_c
+                                positions[k, 1] = _ey_c
+                                confidence[k] = max(confidence[k], _EXTRAP_CONF)
+                                source_labels[k] = FUSE_INTERP
+                                used_mask[k] = True
+                                _extrap_count += 1
+
+        if _extrap_count > 0:
+            print(
+                f"[FUSION] Velocity extrapolation: filled {_extrap_count} frames "
+                f"during high-speed ball flight (speed_thr={_EXTRAP_SPEED_THR:.0f} px/f, "
+                f"decel={_EXTRAP_DECEL})"
+            )
+
         # --- SOFT YOLO-INTERPOLATION ANCHOR BLEND ---
         # After hard interpolation and hold passes, remaining centroid-only
         # frames can still wander freely — the centroid tracks the largest

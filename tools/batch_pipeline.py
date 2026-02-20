@@ -357,9 +357,28 @@ def _probe_clip(clip_path: Path) -> tuple[bool, str]:
     return True, ""
 
 
-# Per-clip render timeout: 10 minutes. Any clip taking longer is almost
-# certainly hung (corrupt muxing, infinite decode loop, etc.).
-_RENDER_TIMEOUT_S = 600
+# Per-clip render timeout.  Base of 10 minutes plus 15 seconds per second
+# of clip duration.  A 46-second clip at 30fps requires YOLO ball + person
+# detection on ~1 380 frames (CPU-bound at ~0.5 s/frame) before rendering
+# even starts, so a flat 600 s is routinely too short for clips > 20 s.
+_RENDER_TIMEOUT_BASE_S = 600
+_RENDER_TIMEOUT_PER_CLIP_S = 15  # extra seconds per second of clip
+
+
+def _clip_duration_s(clip_path: Path) -> float:
+    """Return clip duration in seconds via ffprobe, or 0.0 on failure."""
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(clip_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=10,
+        )
+        if probe.returncode == 0 and probe.stdout.strip():
+            return float(probe.stdout.strip())
+    except Exception:
+        pass
+    return 0.0
 
 
 def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
@@ -400,13 +419,17 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
             cmd.extend(["--yolo-exclude", str(_excl_path)])
             break
 
+    # Scale timeout: base + per-second allowance for YOLO detection overhead.
+    clip_dur = _clip_duration_s(clip_path)
+    timeout_s = _RENDER_TIMEOUT_BASE_S + int(clip_dur * _RENDER_TIMEOUT_PER_CLIP_S)
+
     try:
         result = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, timeout=_RENDER_TIMEOUT_S,
+            text=True, timeout=timeout_s,
         )
     except subprocess.TimeoutExpired:
-        return False, f"render timed out after {_RENDER_TIMEOUT_S}s", {}
+        return False, f"render timed out after {timeout_s}s", {}
 
     # Pass stdout through so user sees per-clip logs
     if result.stdout:
