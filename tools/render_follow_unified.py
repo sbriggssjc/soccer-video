@@ -5491,7 +5491,12 @@ class CameraPlanner:
             frame_conf = float(frame_confidence[frame_idx])
             _raw_conf = float(frame_confidence[frame_idx])  # before any boosting
             _flight_speed_thr = 5.0  # px/frame: above this = shot/pass in flight
-            _flight_min_conf = 0.35  # only commit when data has real detection backing
+            # Allow flight commitment on velocity-extrapolated frames (conf ~0.32)
+            # and interpolated frames (conf ~0.28) during shots, not just YOLO
+            # frames.  The previous threshold of 0.35 prevented commitment on
+            # centroid/interpolated frames whose apparent speed came from the
+            # extrapolation — which IS real ball motion, not position noise.
+            _flight_min_conf = 0.27
             if smooth_speed_pf > _flight_speed_thr and _raw_conf >= _flight_min_conf:
                 # Boost confidence floor proportional to speed
                 _flight_frac = min(1.0, (smooth_speed_pf - _flight_speed_thr) / max(_flight_speed_thr, 1e-6))
@@ -8403,7 +8408,7 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = min(0.13, smoothing)  # heavier smoothing to suppress centroid-YOLO source switching jitter
+        _pos_alpha = min(0.20, smoothing)  # suppress centroid-YOLO jitter without over-attenuating fast ball movement
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
