@@ -17,8 +17,8 @@
     },
     "upscale": {
       "done": true,
-      "out": "C:\\Users\\scott\\soccer-video\\out\\upscaled\\002__2025-04-12__TSC_vs_Route_66__SHOT__t19.00-t28.00__x2__lanczos.mp4",
-      "at": "2026-02-12T12:52:49+00:00",
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\002__2025-04-12__TSC_vs_Route_66__SHOT__t19.00-t28.00__x2__lanczos.mp4",
+      "at": "2026-02-20T12:51:45+00:00",
       "scale": 2,
       "model": "lanczos"
     }
