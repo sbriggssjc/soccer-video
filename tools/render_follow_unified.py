@@ -8824,6 +8824,25 @@ def run(
                 f"Ball-in-crop metric is unreliable for centroid frames — "
                 f"actual ball may be outside the crop."
             )
+        # YOLO-only ball-in-crop: the ground-truth metric.  Only counts
+        # frames where the ball position comes from actual YOLO detection
+        # (source 1=yolo or 3=blended).  Interpolated/centroid/hold frames
+        # are excluded because the camera follows those positions by
+        # construction — they are always "in crop" but may not reflect
+        # where the real ball is.
+        if _yolo_confirmed_total > 0:
+            _yolo_in = _inside_by_src.get(1, 0) + _inside_by_src.get(3, 0)
+            _yolo_out = _outside_by_src.get(1, 0) + _outside_by_src.get(3, 0)
+            _yolo_crop_pct = 100.0 * _yolo_in / max(1, _yolo_confirmed_total)
+            _interp_total = sum(
+                _inside_by_src.get(k, 0) + _outside_by_src.get(k, 0)
+                for k in (4, 5)  # interp + hold
+            )
+            print(
+                f"[DIAG] YOLO-only ball in crop: {_yolo_in}/{_yolo_confirmed_total} "
+                f"({_yolo_crop_pct:.1f}%) | "
+                f"Interpolated/held frames (not checked): {_interp_total}"
+            )
         print(
             f"[DIAG] Speed-limited: {_speed_limited_frames}f ({100.0 * _speed_limited_frames / max(1, _n_states):.0f}%) | "
             f"Keepinview: {_keepinview_frames}f ({100.0 * _keepinview_frames / max(1, _n_states):.0f}%)"
