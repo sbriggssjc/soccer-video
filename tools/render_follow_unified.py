@@ -5310,7 +5310,7 @@ class CameraPlanner:
         # to the coach/sideline when the source camera pans.
         _goal_origin_x: Optional[float] = None
         _goal_origin_y: Optional[float] = None
-        _SCORER_MAX_DRIFT = self.width * 0.20  # max 20% of frame from goal origin
+        _SCORER_MAX_DRIFT = self.width * 0.12  # max 12% of frame from goal origin (tighter to prevent coach)
 
         # --- Shot pullback state ---
         # During shots, pull the camera back to show the full arc from
@@ -5404,9 +5404,9 @@ class CameraPlanner:
                         _goal_event_frame = frame_idx
                         _goal_snap_active = True
                         _goal_snap_duration = 0
-                        # Snap-back lasts 3.5s — long enough to capture the
-                        # celebration (scorer running, sliding, teammates).
-                        _goal_snap_max_frames = int(render_fps * 3.5)
+                        # Snap-back lasts 2.0s — captures initial celebration
+                        # without following all the way to the kickoff restart.
+                        _goal_snap_max_frames = int(render_fps * 2.0)
                         # Remember goal origin for drift capping — prevents
                         # the tracker from migrating to the coach/sideline.
                         _goal_origin_x = _scorer_x
@@ -5442,9 +5442,9 @@ class CameraPlanner:
                 if _celeb_persons:
                     _celeb_best = None
                     _celeb_best_dist = float("inf")
-                    # Tightened from 0.08 → 0.05 to prevent latching onto
-                    # the coach or ball-boy when the source camera pans.
-                    _celeb_max_dist = self.width * 0.05
+                    # Tightened to 0.03 to prevent latching onto the coach
+                    # or ball-boy when the source camera pans to sideline.
+                    _celeb_max_dist = self.width * 0.03
                     for _cp in _celeb_persons:
                         _cp_dist = math.hypot(
                             _cp.cx - _scorer_x, _cp.cy - _scorer_y,
@@ -5773,10 +5773,10 @@ class CameraPlanner:
                         _goal_snap_max_frames - _snap_hold_end, 1
                     )
                     _snap_blend = max(0.0, 1.0 - _snap_fade)
-                # Scorer gets up to 55% weight (reduced from 65%) — still
-                # celebration-heavy but less aggressive, reducing jolts when
-                # the tracker briefly mis-identifies a nearby person.
-                _snap_w = _snap_blend * 0.55
+                # Scorer gets up to 40% weight — enough to catch celebration
+                # but not so much that mis-identified persons (coach, ball-boy)
+                # pull the camera off the action.
+                _snap_w = _snap_blend * 0.40
                 # Use EMA-smoothed + drift-capped scorer position instead
                 # of raw nearest-neighbor position.
                 bx_used = bx_used * (1.0 - _snap_w) + _scorer_smooth_x * _snap_w
@@ -6242,7 +6242,7 @@ class CameraPlanner:
                 # full speed, producing visibly smooth acceleration.
                 _max_spd_x = pxpf_x  # pre-computed speed limit px/frame
                 _max_spd_y = pxpf_y
-                _ramp_s = 0.28  # seconds to reach full speed
+                _ramp_s = 0.35  # seconds to reach full speed (longer ramp = smoother starts/stops)
                 _ramp_frames = max(1.0, _ramp_s * render_fps)
                 _max_accel_x = _max_spd_x / _ramp_frames
                 _max_accel_y = _max_spd_y / _ramp_frames
@@ -6275,7 +6275,7 @@ class CameraPlanner:
 
                     # Light final Gaussian to remove any remaining kinks
                     # from the acceleration clamping.
-                    _final_sigma = min(3.0, sigma_frames * 0.4)
+                    _final_sigma = min(4.0, sigma_frames * 0.5)
                     if _final_sigma >= 0.5:
                         _fr = int(_final_sigma * 3.0 + 0.5)
                         _fr = min(_fr, n // 2)
@@ -8661,6 +8661,39 @@ def run(
             f"mean_delta={_zm_mean_delta:.4f}/f, "
             f"reversals={_zm_reversals}{_extras}"
         )
+
+    # --- POST-GOAL TAIL TRIM ---
+    # For clips tagged as GOAL (BUILD_UP_AND_GOAL, etc.), detect the goal
+    # event in the camera plan and trim the output to avoid following the
+    # celebration all the way back to the kickoff restart.
+    _POST_GOAL_TAIL_S = 3.0  # seconds of footage to keep after goal event
+    _clip_stem_upper = original_source_path.stem.upper()
+    if states and "GOAL" in _clip_stem_upper:
+        _last_goal_frame = -1
+        for _gi, _gs in enumerate(states):
+            if _gs.clamp_flags and "goal_event" in _gs.clamp_flags:
+                _last_goal_frame = _gi
+        if _last_goal_frame >= 0:
+            _render_fps_trim = float(fps_in if fps_in > 0 else fps_out or 30.0)
+            _trim_end = _last_goal_frame + int(_POST_GOAL_TAIL_S * _render_fps_trim)
+            if _trim_end < len(states) - 1:
+                _trimmed_count = len(states) - _trim_end
+                states = states[:_trim_end]
+                # Also trim fusion arrays to match
+                if positions is not None and len(positions) > _trim_end:
+                    positions = positions[:_trim_end]
+                if used_mask is not None and len(used_mask) > _trim_end:
+                    used_mask = used_mask[:_trim_end]
+                if fusion_confidence is not None and len(fusion_confidence) > _trim_end:
+                    fusion_confidence = fusion_confidence[:_trim_end]
+                if fusion_source_labels is not None and len(fusion_source_labels) > _trim_end:
+                    fusion_source_labels = fusion_source_labels[:_trim_end]
+                frame_count = len(states)
+                print(
+                    f"[TRIM] Goal clip: trimmed {_trimmed_count} frames after goal "
+                    f"(goal@f{_last_goal_frame}, kept {_POST_GOAL_TAIL_S:.1f}s tail, "
+                    f"new length={len(states)}f/{len(states)/_render_fps_trim:.1f}s)"
+                )
 
     # --- Ball-in-crop diagnostic (always printed to stdout for batch visibility) ---
     _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold"}
