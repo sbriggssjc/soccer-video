@@ -1176,11 +1176,13 @@ BALL_CAM_CONFIG: dict[str, object] = {
 
 from tools.ball_telemetry import (
     BallSample,
+    ExcludeZone,
     PersonBox,
     fuse_yolo_and_centroid,
     load_and_interpolate_telemetry,
     load_ball_telemetry,
     load_ball_telemetry_for_clip,
+    load_exclude_zones,
     run_yolo_ball_detection,
     run_yolo_person_detection,
     set_telemetry_frame_bounds,
@@ -8289,6 +8291,14 @@ def run(
                 _ys.y *= upscale_factor
 
         if yolo_samples or ball_samples:
+            # Load exclusion zones if provided via CLI
+            _exclude_zones: list[ExcludeZone] | None = None
+            _yolo_exclude_path = getattr(args, "yolo_exclude", None)
+            if _yolo_exclude_path:
+                _exclude_zones = load_exclude_zones(_yolo_exclude_path)
+                if _exclude_zones:
+                    print(f"[FUSION] Loaded {len(_exclude_zones)} exclusion zone(s) from {_yolo_exclude_path}")
+
             # Fuse YOLO + centroid → merged positions with confidence
             fused_positions, fused_mask, fusion_confidence, fusion_source_labels = fuse_yolo_and_centroid(
                 yolo_samples=yolo_samples,
@@ -8296,6 +8306,7 @@ def run(
                 frame_count=len(positions),
                 width=float(width),
                 height=float(height),
+                exclude_zones=_exclude_zones,
             )
             # Replace positions/mask with fused result
             positions = fused_positions
@@ -9424,6 +9435,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-draw-ball",
         action="store_true",
         help="Disable ball overlay even if preset enables it",
+    )
+    parser.add_argument(
+        "--yolo-exclude",
+        dest="yolo_exclude",
+        type=str,
+        default=None,
+        help=(
+            "Path to a JSON file defining YOLO exclusion zones. "
+            "Each zone is a rectangle (x_min/x_max/y_min/y_max in pixels) "
+            "with optional frame_start/frame_end bounds. Detections inside "
+            "any zone are dropped before fusion. Useful for suppressing "
+            "stray balls on sidelines or adjacent fields."
+        ),
     )
     parser.add_argument(
         "--diagnostics",

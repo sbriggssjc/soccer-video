@@ -1369,12 +1369,78 @@ def run_yolo_person_detection(
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ExcludeZone:
+    """Rectangular region + optional frame range where YOLO detections are suppressed.
+
+    Coordinates are in source pixels.  Any YOLO detection whose (x, y) falls
+    inside the rectangle AND whose frame index is within [frame_start, frame_end)
+    is dropped before fusion.  Omit frame bounds to apply the zone to the entire
+    clip.
+
+    Typical use-cases:
+      - Spare ball on the sideline (fixed region, entire clip)
+      - Ball on an adjacent field visible only late in the clip
+    """
+
+    x_min: float = 0.0
+    x_max: float = float("inf")
+    y_min: float = 0.0
+    y_max: float = float("inf")
+    frame_start: int = 0
+    frame_end: int = int(2**31)
+
+    def contains(self, x: float, y: float, frame: int) -> bool:
+        return (
+            self.x_min <= x <= self.x_max
+            and self.y_min <= y <= self.y_max
+            and self.frame_start <= frame < self.frame_end
+        )
+
+
+def load_exclude_zones(path: str | Path) -> list[ExcludeZone]:
+    """Load exclusion zones from a JSON file.
+
+    Expected format — a JSON array of zone objects::
+
+        [
+          {"x_min": 0, "x_max": 400, "y_min": 0, "y_max": 1080,
+           "frame_start": 1100, "frame_end": 1500,
+           "note": "adjacent field ball visible late in clip"},
+          {"x_min": 1500, "x_max": 1920, "y_min": 800, "y_max": 1080,
+           "note": "spare ball on sideline"}
+        ]
+
+    Unrecognised keys (like ``note``) are silently ignored.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return []
+    with path.open("r", encoding="utf-8") as f:
+        raw = json.load(f)
+    if not isinstance(raw, list):
+        raw = [raw]
+    zones: list[ExcludeZone] = []
+    for entry in raw:
+        zones.append(ExcludeZone(
+            x_min=float(entry.get("x_min", 0)),
+            x_max=float(entry.get("x_max", float("inf"))),
+            y_min=float(entry.get("y_min", 0)),
+            y_max=float(entry.get("y_max", float("inf"))),
+            frame_start=int(entry.get("frame_start", 0)),
+            frame_end=int(entry.get("frame_end", 2**31)),
+        ))
+    return zones
+
+
 def fuse_yolo_and_centroid(
     yolo_samples: list[BallSample],
     centroid_samples: list[BallSample],
     frame_count: int,
     width: float,
     height: float,
+    *,
+    exclude_zones: list[ExcludeZone] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Merge YOLO ball detections with motion-centroid positions.
 
@@ -1390,6 +1456,11 @@ def fuse_yolo_and_centroid(
         - YOLO present but low confidence: blend YOLO + centroid weighted by YOLO conf
         - Only centroid present: use centroid, moderate confidence (0.3)
         - Neither present: NaN position, zero confidence
+
+    *exclude_zones*: optional list of :class:`ExcludeZone` regions.  Any YOLO
+    detection falling inside an exclusion zone is dropped before fusion, which
+    prevents the camera from tracking stray balls (sideline spares, adjacent
+    fields, etc.).
 
     Handles degenerate cases: zero frames, empty inputs, single-sample clips.
     """
@@ -1462,6 +1533,24 @@ def fuse_yolo_and_centroid(
             f"[FUSION] Filtered {_edge_filtered} near-edge YOLO detections "
             f"(margin={_edge_px_ingest:.0f}px)"
         )
+
+    # --- Exclusion-zone filtering ---
+    # Drop YOLO detections that fall inside any caller-supplied exclusion
+    # rectangle (e.g. spare ball on the sideline, ball on an adjacent field).
+    _zone_filtered = 0
+    if exclude_zones:
+        surviving: dict[int, BallSample] = {}
+        for fidx, s in yolo_by_frame.items():
+            if any(z.contains(s.x, s.y, fidx) for z in exclude_zones):
+                _zone_filtered += 1
+            else:
+                surviving[fidx] = s
+        yolo_by_frame = surviving
+        if _zone_filtered > 0:
+            print(
+                f"[FUSION] Excluded {_zone_filtered} YOLO detections in "
+                f"{len(exclude_zones)} exclusion zone(s)"
+            )
 
     # Index centroid samples by frame
     centroid_by_frame: dict[int, BallSample] = {}
@@ -1981,6 +2070,8 @@ def fuse_yolo_and_centroid(
 
 __all__ = [
     "BallSample",
+    "ExcludeZone",
+    "load_exclude_zones",
     "load_ball_telemetry",
     "load_ball_telemetry_for_clip",
     "telemetry_path_for_video",
