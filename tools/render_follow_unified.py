@@ -5300,6 +5300,17 @@ class CameraPlanner:
         _goal_snap_max_frames = 0  # max frames for snap-back (set on detection)
         _prev_smooth_speed = 0.0  # for deceleration detection
         _high_speed_sustained = 0  # count of consecutive high-speed frames
+        # Smoothed scorer position (EMA) to prevent jitter from
+        # frame-to-frame nearest-neighbor jumps between players.
+        _scorer_smooth_x: Optional[float] = None
+        _scorer_smooth_y: Optional[float] = None
+        _SCORER_EMA_ALPHA = 0.35  # 35% new, 65% previous — smooth but responsive
+        # Goal origin: where the scorer was when the goal was detected.
+        # Used to cap total drift — prevents the tracker from migrating
+        # to the coach/sideline when the source camera pans.
+        _goal_origin_x: Optional[float] = None
+        _goal_origin_y: Optional[float] = None
+        _SCORER_MAX_DRIFT = self.width * 0.20  # max 20% of frame from goal origin
 
         # --- Shot pullback state ---
         # During shots, pull the camera back to show the full arc from
@@ -5396,6 +5407,12 @@ class CameraPlanner:
                         # Snap-back lasts 3.5s — long enough to capture the
                         # celebration (scorer running, sliding, teammates).
                         _goal_snap_max_frames = int(render_fps * 3.5)
+                        # Remember goal origin for drift capping — prevents
+                        # the tracker from migrating to the coach/sideline.
+                        _goal_origin_x = _scorer_x
+                        _goal_origin_y = _scorer_y
+                        _scorer_smooth_x = _scorer_x
+                        _scorer_smooth_y = _scorer_y
                         clamp_flags.append("goal_event")
                 _high_speed_sustained = 0
             _prev_smooth_speed = smooth_speed_pf
@@ -5411,15 +5428,23 @@ class CameraPlanner:
             # Follow them frame-by-frame using nearest-neighbor matching
             # to the last-known scorer position so the camera tracks
             # the celebration instead of staring at a fixed point.
+            #
+            # Stabilisation:
+            #  1) Tighter matching radius (5% of width) prevents jumping
+            #     to the coach when the source camera pans to the sideline.
+            #  2) EMA smoothing on the scorer position eliminates jitter
+            #     from frame-to-frame nearest-neighbor jumps.
+            #  3) Drift cap: the smoothed scorer position cannot migrate
+            #     more than 20% of frame width from the goal-event origin,
+            #     keeping the camera on the celebration, not the bench.
             if _goal_snap_active and _scorer_x is not None and person_boxes:
                 _celeb_persons = person_boxes.get(frame_idx)
                 if _celeb_persons:
                     _celeb_best = None
                     _celeb_best_dist = float("inf")
-                    # Max distance the scorer can move per frame — generous
-                    # to handle sprinting celebrations and camera-relative
-                    # motion (closer = faster apparent movement).
-                    _celeb_max_dist = self.width * 0.08
+                    # Tightened from 0.08 → 0.05 to prevent latching onto
+                    # the coach or ball-boy when the source camera pans.
+                    _celeb_max_dist = self.width * 0.05
                     for _cp in _celeb_persons:
                         _cp_dist = math.hypot(
                             _cp.cx - _scorer_x, _cp.cy - _scorer_y,
@@ -5430,6 +5455,27 @@ class CameraPlanner:
                     if _celeb_best is not None:
                         _scorer_x = _celeb_best.cx
                         _scorer_y = _celeb_best.cy
+
+                # EMA-smooth the scorer position to prevent jitter from
+                # frame-to-frame jumps between different detected persons.
+                if _scorer_smooth_x is not None and _scorer_x is not None:
+                    _scorer_smooth_x += _SCORER_EMA_ALPHA * (_scorer_x - _scorer_smooth_x)
+                    _scorer_smooth_y += _SCORER_EMA_ALPHA * (_scorer_y - _scorer_smooth_y)
+                elif _scorer_x is not None:
+                    _scorer_smooth_x = _scorer_x
+                    _scorer_smooth_y = _scorer_y
+
+                # Drift cap: clamp smoothed position within max drift of
+                # the goal-event origin.  Prevents migrating to the coach.
+                if _scorer_smooth_x is not None and _goal_origin_x is not None:
+                    _drift = math.hypot(
+                        _scorer_smooth_x - _goal_origin_x,
+                        _scorer_smooth_y - _goal_origin_y,
+                    )
+                    if _drift > _SCORER_MAX_DRIFT:
+                        _drift_scale = _SCORER_MAX_DRIFT / _drift
+                        _scorer_smooth_x = _goal_origin_x + (_scorer_smooth_x - _goal_origin_x) * _drift_scale
+                        _scorer_smooth_y = _goal_origin_y + (_scorer_smooth_y - _goal_origin_y) * _drift_scale
 
             # Save pre-pullback ball position for zoom-to-fit later.
             _pre_pb_bx = bx_used
@@ -5715,7 +5761,7 @@ class CameraPlanner:
             # scorer position is updated dynamically each frame (see
             # "Dynamic scorer tracking" above) so the camera follows the
             # celebration run, slide, and team mob.
-            if _goal_snap_active and _scorer_x is not None:
+            if _goal_snap_active and _scorer_smooth_x is not None:
                 _snap_ramp_frames = int(render_fps * 0.3)
                 _snap_hold_end = _goal_snap_max_frames - int(render_fps * 1.0)
                 if _goal_snap_duration < _snap_ramp_frames:
@@ -5727,10 +5773,14 @@ class CameraPlanner:
                         _goal_snap_max_frames - _snap_hold_end, 1
                     )
                     _snap_blend = max(0.0, 1.0 - _snap_fade)
-                # Scorer gets up to 65% weight — celebration IS the content
-                _snap_w = _snap_blend * 0.65
-                bx_used = bx_used * (1.0 - _snap_w) + _scorer_x * _snap_w
-                target_center_y = target_center_y * (1.0 - _snap_w) + _scorer_y * _snap_w
+                # Scorer gets up to 55% weight (reduced from 65%) — still
+                # celebration-heavy but less aggressive, reducing jolts when
+                # the tracker briefly mis-identifies a nearby person.
+                _snap_w = _snap_blend * 0.55
+                # Use EMA-smoothed + drift-capped scorer position instead
+                # of raw nearest-neighbor position.
+                bx_used = bx_used * (1.0 - _snap_w) + _scorer_smooth_x * _snap_w
+                target_center_y = target_center_y * (1.0 - _snap_w) + _scorer_smooth_y * _snap_w
                 if _snap_w > 0.01:
                     clamp_flags.append(f"celeb={_snap_w:.2f}")
 
