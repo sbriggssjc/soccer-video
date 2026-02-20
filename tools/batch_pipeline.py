@@ -493,6 +493,10 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
         if m:
             stats["ball_outside_frames"] = int(m.group(1))
             stats["ball_max_escape_px"] = int(m.group(2))
+        # [DIAG] YOLO-only ball in crop: N/M (P%)
+        m = re.search(r"YOLO-only ball in crop: \d+/\d+ \(([0-9.]+)%\)", result.stdout)
+        if m:
+            stats["yolo_ball_in_crop_pct"] = float(m.group(1))
 
     if result.returncode == 0:
         return True, "", stats
@@ -828,6 +832,7 @@ def main(argv: list[str] | None = None) -> int:
         zero_yolo_count = 0
         avg_confs: list[float] = []
         crop_pcts: list[float] = []
+        yolo_crop_pcts: list[float] = []
 
         for name, st in clip_stats:
             total = st.get("yolo_total", 0)
@@ -846,6 +851,11 @@ def main(argv: list[str] | None = None) -> int:
             crop_pcts.append(crop_pct)
             if crop_pct < 95.0:
                 flagged.append((name, f"ball in crop only {crop_pct:.1f}%"))
+            yolo_crop_pct = st.get("yolo_ball_in_crop_pct")
+            if yolo_crop_pct is not None:
+                yolo_crop_pcts.append(yolo_crop_pct)
+                if yolo_crop_pct < 90.0:
+                    flagged.append((name, f"YOLO-verified ball in crop only {yolo_crop_pct:.1f}%"))
             if st.get("sparse_yolo"):
                 sparse_count += 1
             if "avg_conf" in st:
@@ -861,8 +871,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Avg fusion confidence:  {sum(avg_confs)/len(avg_confs):.2f} "
                   f"(min={min(avg_confs):.2f}, max={max(avg_confs):.2f})")
         if crop_pcts:
-            print(f"  Ball-in-crop:           {sum(crop_pcts)/len(crop_pcts):.1f}% avg "
+            print(f"  Ball-in-crop (all):     {sum(crop_pcts)/len(crop_pcts):.1f}% avg "
                   f"(min={min(crop_pcts):.1f}%, max={max(crop_pcts):.1f}%)")
+        if yolo_crop_pcts:
+            print(f"  Ball-in-crop (YOLO):    {sum(yolo_crop_pcts)/len(yolo_crop_pcts):.1f}% avg "
+                  f"(min={min(yolo_crop_pcts):.1f}%, max={max(yolo_crop_pcts):.1f}%)")
         print(f"  Sparse YOLO clips:      {sparse_count}/{len(clip_stats)}")
         print(f"  Zero YOLO clips:        {zero_yolo_count}/{len(clip_stats)}")
 
