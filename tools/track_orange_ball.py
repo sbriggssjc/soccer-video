@@ -28,7 +28,7 @@ alpha_pos = 0.35
 alpha_vel = 0.25
 
 px, py, vx, vy = None, None, 0.0, 0.0
-radius_px_min, radius_px_max = 5, 40   # tune if ball size differs in source
+radius_px_min, radius_px_max = 4, 50   # widened for motion-blurred ball on windy days
 keyframes = []
 
 frame_idx = 0
@@ -60,8 +60,9 @@ while True:
         if rad < radius_px_min or rad > radius_px_max: continue
         perim = cv.arcLength(c, True)
         circ = 0.0 if perim == 0 else 4*math.pi*area/(perim*perim)
-        # Reject flat/long blobs
-        if circ < 0.6: continue
+        # Reject flat/long blobs — lowered from 0.6 to 0.4 so motion-blurred
+        # oval shapes (wind/camera shake) can still be detected.
+        if circ < 0.4: continue
         # Score: circularity * size (favor stable balls)
         score = circ * min(1.0, rad/20.0)
         if score > best_score:
@@ -81,8 +82,9 @@ while True:
         px = (1-alpha_pos)*px + alpha_pos*cx
         py = (1-alpha_pos)*py + alpha_pos*cy
     else:
-        # no detection: gentle dead-reckon/decay
-        vx *= 0.90; vy *= 0.90
+        # no detection: gentle dead-reckon/decay — 0.95 coasts longer through
+        # wind-induced detection gaps
+        vx *= 0.95; vy *= 0.95
         if px is not None:
             px += vx; py += vy
 

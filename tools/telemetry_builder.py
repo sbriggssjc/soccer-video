@@ -69,7 +69,8 @@ except ModuleNotFoundError:
 
 _VEL_EMA_ALPHA = 0.35          # EMA weight for velocity update (higher = more reactive)
 _VEL_MAX_PX_PER_FRAME = 30.0   # cap per-frame prediction to avoid runaway drift
-_VEL_DECAY_PER_FRAME = 0.92    # velocity decays each predicted frame so we coast to a stop
+_VEL_DECAY_PER_FRAME = 0.95    # velocity decays each predicted frame — coasts longer
+                                # through windy/shaky footage where detection gaps widen
 _VEL_MIN_DETECTIONS = 2        # need at least 2 detections to estimate velocity
 
 
@@ -123,11 +124,13 @@ class _VelocityState:
 
 # --- Camera-motion estimation ------------------------------------------------
 
-# Carrier hold is normally 12 frames; during fast camera motion we extend to 24.
-_CARRIER_HOLD_BASE = 12
-_CARRIER_HOLD_EXTENDED = 24
+# Carrier hold frames: extended to survive longer detection gaps during
+# wind-induced camera shake where motion blur kills detections for stretches.
+_CARRIER_HOLD_BASE = 18
+_CARRIER_HOLD_EXTENDED = 36
 # Camera motion (in pixels) above which we consider the camera "panning fast".
-_CAM_MOTION_FAST_THRESH = 6.0
+# Lowered from 6.0 to catch the smaller jitter from wind gusts.
+_CAM_MOTION_FAST_THRESH = 4.0
 
 
 def _estimate_camera_motion(
@@ -140,15 +143,19 @@ def _estimate_camera_motion(
     translational component magnitude (useful as a scalar "how much did the
     camera move" signal).
     """
+    # Lower qualityLevel to find more corners on shaky/blurry frames;
+    # increase maxCorners and reduce minDistance for denser feature coverage.
     p0 = cv2.goodFeaturesToTrack(
         prev_gray,
-        maxCorners=800,
-        qualityLevel=0.01,
-        minDistance=10,
+        maxCorners=1200,
+        qualityLevel=0.005,
+        minDistance=7,
         blockSize=7,
     )
     identity = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
-    if p0 is None or len(p0) < 12:
+    # Lowered from 12 to 6 — wind-induced blur can reduce trackable corners
+    # sharply; partial-2D affine only needs 3 points, so 6 is still robust.
+    if p0 is None or len(p0) < 6:
         return identity, 0.0
 
     p1, st, _ = cv2.calcOpticalFlowPyrLK(
@@ -159,7 +166,7 @@ def _estimate_camera_motion(
 
     good_prev = p0[st == 1].reshape(-1, 2)
     good_cur = p1[st == 1].reshape(-1, 2)
-    if len(good_prev) < 12:
+    if len(good_prev) < 6:
         return identity, 0.0
 
     M, _inliers = cv2.estimateAffinePartial2D(
@@ -234,6 +241,10 @@ def _white_ball_detector(frame: np.ndarray, width: int, height: int) -> Detectio
             continue
         peri = cv2.arcLength(c, True)
         circularity = 0.0 if peri <= 0 else 4 * math.pi * area / (peri * peri)
+        # Accept more oval shapes from motion blur — wind/shake stretches the
+        # ball along the motion axis.  0.35 still rejects lines and long blobs.
+        if circularity < 0.35:
+            continue
         M = cv2.moments(c)
         if M["m00"] <= 0:
             continue

@@ -81,12 +81,19 @@ def parse_timestamp(raw: str) -> Optional[float]:
 def parse_timestamp_pair(
     raw_start: str,
     raw_end: str,
+    *,
+    master_duration: Optional[float] = None,
 ) -> tuple[Optional[float], Optional[float]]:
     """Parse a start/end timestamp pair, disambiguating three-part formats.
 
     When both timestamps match A:B:C, tries MM:SS:cs first.  If that gives
     a clip shorter than ``MIN_MMSS_CS_DURATION`` seconds, retries as H:MM:SS
     (needed for TSC Navy timestamps like "0:06:37" = 6 min 37 sec, not 6.37 sec).
+
+    When *master_duration* is provided (seconds), an additional guard rejects
+    any interpretation whose end timestamp exceeds the master length — this
+    catches the common "5:40:00" mis-parse where MM:SS:00 is read as HH:MM:SS
+    producing 20400 s against a 3000 s master.
     """
     raw_start = (raw_start or "").strip().strip('"')
     raw_end = (raw_end or "").strip().strip('"')
@@ -112,6 +119,19 @@ def parse_timestamp_pair(
         # duration, use H:MM:SS  (handles Navy-style "0:06:37-0:07:10")
         if dur_mmss < MIN_MMSS_CS_DURATION and dur_hms >= MIN_MMSS_CS_DURATION:
             return t0_hms, t1_hms
+
+        # Master-duration guard: if MM:SS:cs end exceeds the master length,
+        # the H:MM:SS interpretation was likely wrong (e.g. "5:40:00" should
+        # be 340 s not 20400 s).  Already-selected MM:SS:cs is fine — but if
+        # *that* also exceeds the master, something is very wrong; return it
+        # anyway and let downstream handle it.
+        if master_duration is not None:
+            if t1_mmss <= master_duration:
+                return t0_mmss, t1_mmss
+            if t1_hms <= master_duration:
+                return t0_hms, t1_hms
+            # Both exceed — fall through with the default (mmss) interpretation
+
         return t0_mmss, t1_mmss
 
     # Fall back to individual parsing
