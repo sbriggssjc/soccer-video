@@ -1506,6 +1506,11 @@ def fuse_yolo_and_centroid(
     # for anchoring the ball path.  Reduce the margin so near-edge detections
     # (which are often the ball at the edge of the field, not goalposts) are
     # kept.  At 5% density the margin shrinks to ~2.5%; at 15%+ it stays 6%.
+    #
+    # Two-pass: if the first pass discards more than 25% of detections the
+    # margin is likely too aggressive (ball genuinely near the goalmouth or
+    # sideline).  Halve the margin and re-filter so we keep those critical
+    # near-edge detections while still removing obvious false positives.
     EDGE_MARGIN_FRAC = 0.06  # base: 6% of frame width
     _raw_yolo_count = sum(
         1 for s in yolo_samples
@@ -1517,17 +1522,41 @@ def fuse_yolo_and_centroid(
         # Scale margin down: at 5% density → 0.025, at 15% → 0.06
         EDGE_MARGIN_FRAC = max(0.02, 0.06 * (_raw_density / 0.15))
 
-    # Index YOLO samples by frame, filtering out near-edge detections.
-    _edge_px_ingest = width * EDGE_MARGIN_FRAC if width > 0 else 0
-    _edge_filtered = 0
-    yolo_by_frame: dict[int, BallSample] = {}
-    for s in yolo_samples:
-        fidx = int(s.frame)
-        if 0 <= fidx < frame_count and math.isfinite(s.x) and math.isfinite(s.y):
-            if _edge_px_ingest > 0 and (s.x < _edge_px_ingest or s.x > width - _edge_px_ingest):
-                _edge_filtered += 1
-                continue
-            yolo_by_frame[fidx] = s
+    _EDGE_REFILTER_THRESH = 0.25  # re-filter if >25% of detections removed
+
+    def _edge_filter_pass(samples, fcount, w, margin_frac):
+        """Filter near-edge YOLO detections. Returns (by_frame dict, n_filtered)."""
+        edge_px = w * margin_frac if w > 0 else 0
+        by_frame: dict[int, BallSample] = {}
+        n_filt = 0
+        for s in samples:
+            fidx = int(s.frame)
+            if 0 <= fidx < fcount and math.isfinite(s.x) and math.isfinite(s.y):
+                if edge_px > 0 and (s.x < edge_px or s.x > w - edge_px):
+                    n_filt += 1
+                    continue
+                by_frame[fidx] = s
+        return by_frame, n_filt, edge_px
+
+    # First pass with the base margin.
+    yolo_by_frame, _edge_filtered, _edge_px_ingest = _edge_filter_pass(
+        yolo_samples, frame_count, width, EDGE_MARGIN_FRAC)
+
+    # Second pass: if we discarded too many, halve the margin and retry.
+    if (_edge_filtered > 0
+            and _raw_yolo_count > 0
+            and _edge_filtered / _raw_yolo_count > _EDGE_REFILTER_THRESH):
+        _reduced_frac = EDGE_MARGIN_FRAC * 0.5
+        yolo_by_frame, _edge_filtered_2, _edge_px_ingest = _edge_filter_pass(
+            yolo_samples, frame_count, width, _reduced_frac)
+        print(
+            f"[FUSION] Edge re-filter: {_edge_filtered}/{_raw_yolo_count} "
+            f"({_edge_filtered/_raw_yolo_count:.0%}) exceeded {_EDGE_REFILTER_THRESH:.0%} threshold; "
+            f"reduced margin {width * EDGE_MARGIN_FRAC:.0f}px -> {_edge_px_ingest:.0f}px, "
+            f"now filtered {_edge_filtered_2}"
+        )
+        _edge_filtered = _edge_filtered_2
+
     if _edge_filtered > 0:
         print(
             f"[FUSION] Filtered {_edge_filtered} near-edge YOLO detections "
