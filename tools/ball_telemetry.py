@@ -1771,16 +1771,17 @@ def fuse_yolo_and_centroid(
                     )
                     continue
                 long_interp += gap - 1
-                _interp_mode = "step" if (STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP) else "linear"
+                _interp_mode = "smoothstep" if (STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP) else "linear"
                 # (long_flight_info appended after centroid-guide setup below)
 
-            # Use step function only for moderate-length gaps where the
+            # Use smoothstep ease for moderate-length gaps where the
             # camera has time to arrive and settle at the receiver.
+            # The smoothstep holds near the origin for the first portion
+            # (keeping shots on goal visible) then eases to the endpoint.
             # For shorter flights, linear interpolation lets the
             # Gaussian absorb rapid direction changes naturally.
             # For very long gaps (> base 90 frames), revert to linear
-            # so the camera gradually follows the ball across the field
-            # instead of holding at the receiver for the entire gap.
+            # so the camera gradually follows the ball across the field.
             use_step = is_long and gap >= STEP_THRESHOLD and gap <= _BASE_LONG_INTERP_GAP
 
             # --- Centroid-guided interpolation for very long linear gaps ---
@@ -1859,11 +1860,15 @@ def fuse_yolo_and_centroid(
 
             for k in range(fi + 1, fj):
                 if use_step:
-                    # Step function: target the receiver for the entire gap.
-                    # The post-smooth Gaussian (sigma=5, ±15 frames) turns
-                    # this into a smooth cinematic pan.
-                    interp_x = x1
-                    interp_y = y1
+                    # Smoothstep ease from origin to endpoint over the gap.
+                    # Keeps the camera near the shot/pass origin for the
+                    # first portion so shots on goal stay visible, then
+                    # smoothly pans toward the receiver.  The post-smooth
+                    # Gaussian (sigma=5) further softens the transition.
+                    t = (k - fi) / float(gap)
+                    ease = t * t * (3.0 - 2.0 * t)  # smoothstep: S-curve 0→1
+                    interp_x = x0 + ease * (x1 - x0)
+                    interp_y = y0 + ease * (y1 - y0)
                 else:
                     # Short/medium gaps: linear interpolation
                     t = (k - fi) / float(gap)
