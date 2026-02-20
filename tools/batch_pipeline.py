@@ -419,6 +419,25 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
             cmd.extend(["--yolo-exclude", str(_excl_path)])
             break
 
+    # Auto-discover per-clip overrides (e.g. max_duration_s).
+    # Convention: <clip_stem>.clip_override.json in any of these locations:
+    #   1. Next to the clip file
+    #   2. out/telemetry/
+    #   3. configs/clip_overrides/
+    import json as _json
+    _ovr_beside = clip_path.with_suffix(".clip_override.json")
+    _ovr_telemetry = REPO_ROOT / "out" / "telemetry" / f"{clip_path.stem}.clip_override.json"
+    _ovr_config = REPO_ROOT / "configs" / "clip_overrides" / f"{clip_path.stem}.clip_override.json"
+    for _ovr_path in (_ovr_beside, _ovr_telemetry, _ovr_config):
+        if _ovr_path.is_file():
+            try:
+                _ovr = _json.loads(_ovr_path.read_text(encoding="utf-8"))
+                if "max_duration_s" in _ovr:
+                    cmd.extend(["--max-duration", str(_ovr["max_duration_s"])])
+            except Exception:
+                pass
+            break
+
     # Scale timeout: base + per-second allowance for YOLO detection overhead.
     clip_dur = _clip_duration_s(clip_path)
     timeout_s = _RENDER_TIMEOUT_BASE_S + int(clip_dur * _RENDER_TIMEOUT_PER_CLIP_S)
