@@ -10,9 +10,9 @@
   "steps": {
     "portrait_render": {
       "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\002__2025-04-12__TSC_vs_Route_66__SHOT__t19.00-t28.00__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-18T16:00:53+00:00",
-      "preset": "cinematic",
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\002__2025-04-12__TSC_vs_Route_66__SHOT__t19.00-t28.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-19T23:49:33+00:00",
+      "preset": "auto",
       "portrait": "1080x1920"
     },
     "upscale": {
