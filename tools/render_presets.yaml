@@ -236,7 +236,7 @@ auto:
   smoothing: 0.22
   pad: 0.04
   speed_limit: 1400            # generous — auto-tune handles the planner layer
-  post_smooth_sigma: 2.5       # responsive enough for fast play, smooth for slow
+  post_smooth_sigma: 3.5       # heavier smoothing to reduce end-of-clip jitter
   zoom_min: 0.85
   zoom_max: 1.50
   crf: 17
