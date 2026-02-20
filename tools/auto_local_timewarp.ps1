@@ -1,5 +1,5 @@
 # --- CONFIG ---
-$Proj = "C:\Users\scott\soccer-video"
+$Proj = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Stem = "004__PRESSURE__t640.00-t663.00"
 $Clip = Join-Path $Proj "out\atomic_clips\2025-10-12__TSC_SLSG_FallFestival\$Stem.mp4"
 $Work = Join-Path $Proj "out\follow_diag\$Stem\auto_refine"

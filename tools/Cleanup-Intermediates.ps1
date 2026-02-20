@@ -1,5 +1,5 @@
 param(
-  [string]$Root = "C:\Users\scott\soccer-video",
+  [string]$Root = (Split-Path -Parent $PSScriptRoot),
   [switch]$WhatIf
 )
 

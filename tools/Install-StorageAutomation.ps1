@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-  [string]$RepoRoot = "C:\Users\scott\soccer-video",
+  [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
   [string]$VaultRoot = "C:\Users\scott\OneDrive\SoccerVideoMedia",
   [int]$Days = 14,
   [string]$TaskName = "SoccerVideo_OneDrive_Offload"

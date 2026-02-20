@@ -8,10 +8,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$OpenerPath = 'C:\Users\scott\soccer-video\out\opener\opener_v1.mp4'
-$SourceRoot = 'C:\Users\scott\soccer-video\out\postables\in'
-$OutputRoot = 'C:\Users\scott\soccer-video\out\postables\with_opener'
-$TempRoot = 'C:\Users\scott\soccer-video\out\postables\_tmp_conformed'
+$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$OpenerPath = Join-Path $RepoRoot 'out\opener\opener_v1.mp4'
+$SourceRoot = Join-Path $RepoRoot 'out\postables\in'
+$OutputRoot = Join-Path $RepoRoot 'out\postables\with_opener'
+$TempRoot = Join-Path $RepoRoot 'out\postables\_tmp_conformed'
 
 $SupportedExtensions = @('*.mp4', '*.mov', '*.m4v')
 $TargetFrameWidth = 1080

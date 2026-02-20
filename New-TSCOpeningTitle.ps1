@@ -5,7 +5,7 @@ param(
   [Parameter(Mandatory=$true)] [string]$PlayerNo,
   [string]$ReelIn,
   [string]$ReelOut,
-  [string]$OutOpener = "C:\Users\scott\soccer-video\out\opener\TSC_Opener__${PlayerNo}_${PlayerName}.mp4",
+  [string]$OutOpener,
   [int]$FPS = 30,
   [double]$Dur = 3.5,
   [int]$BadgeSize = 900,
@@ -18,9 +18,12 @@ param(
 # If FaceBox wasn't passed, match the badge size by default
 if (-not $PSBoundParameters.ContainsKey('FaceBox')) { $FaceBox = $BadgeSize }
 
+$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $OutOpener) { $OutOpener = Join-Path $RepoRoot "out\opener\TSC_Opener__${PlayerNo}_${PlayerName}.mp4" }
+
 # Brand assets
-$BG    = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
-$Badge = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
+$BG    = Join-Path $RepoRoot "brand\tsc\end_card_1080x1920.png"
+$Badge = Join-Path $RepoRoot "brand\tsc\badge_clean.png"
 
 # Fonts (Montserrat ExtraBold preferred; fallback Arial Bold)
 $BoldFontFF = (Join-Path $env:WINDIR 'Fonts\Montserrat-ExtraBold.ttf')

@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory=$true)]
   [string]$SrcDir,                             # Folder containing raw MP4s
-  [string]$RepoRoot = "C:\Users\scott\soccer-video",
+  [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
   [string]$Brand   = "tsc",                    # for inventory tags
   [string]$GameLabel = $null,                  # Optional: override game slug / title
   [switch]$Force

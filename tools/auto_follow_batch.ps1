@@ -98,7 +98,7 @@ foreach ($Clip in $clipList) {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Proj   = "C:\Users\scott\soccer-video"
+$Proj   = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $OutDir = Join-Path $Proj "out"
 $Report = Join-Path $OutDir "coverage_report.csv"
 

@@ -4,23 +4,26 @@ param(
   [string]$Portrait = "1080x1920",
   [string]$Preset = "cinematic",
   [string]$LogsDir = "out\render_logs",
-  [string]$BrandOverlay = "C:\Users\scott\soccer-video\brand\tsc\title_ribbon_1080x1920.png",
-  [string]$EndCard = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png",
+  [string]$BrandOverlay,
+  [string]$EndCard,
   [switch]$ListOnly  # just list what would run
 )
 
 $ErrorActionPreference = 'Stop'
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+if (-not $BrandOverlay) { $BrandOverlay = Join-Path $RepoRoot "brand\tsc\title_ribbon_1080x1920.png" }
+if (-not $EndCard)      { $EndCard      = Join-Path $RepoRoot "brand\tsc\end_card_1080x1920.png" }
 if (-not (Test-Path -LiteralPath $Index)) { throw "Index not found: $Index" }
 
 Write-Host "Using index: $Index"
 
 # --- Real-ESRGAN config ---
-$RealESRGANExe   = "C:\\Users\\scott\\soccer-video\\tools\\realesrgan\\realesrgan-ncnn-vulkan.exe"
+$RealESRGANExe   = Join-Path $RepoRoot "tools\realesrgan\realesrgan-ncnn-vulkan.exe"
 $UpscaleEnabled  = $true    # master switch; set $false to bypass upscaling
 $UpscaleScale    = 2        # 2x is usually enough before portrait crops; 4x = heavier
 $UpscaleModel    = "realesrgan-x4plus"  # solid general model
-$UpscaleTmpRoot  = "C:\\Users\\scott\\soccer-video\\out\\_tmp\\upscale_frames"
-$UpscaleOutRoot  = "C:\\Users\\scott\\soccer-video\\out\\upscaled"
+$UpscaleTmpRoot  = Join-Path $RepoRoot "out\_tmp\upscale_frames"
+$UpscaleOutRoot  = Join-Path $RepoRoot "out\upscaled"
 
 # Make sure output dirs exist
 New-Item -ItemType Directory -Force $UpscaleTmpRoot  | Out-Null
