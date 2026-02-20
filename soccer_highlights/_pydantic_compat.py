@@ -34,9 +34,17 @@ except Exception:  # pragma: no cover
             field_types: Dict[str, Any] = {}
             validators: Dict[str, Any] = {}
             for key, value in list(namespace.items()):
-                if callable(value) and hasattr(value, "_validator_field"):
-                    validators[value._validator_field] = value
+                raw = value
+                if isinstance(raw, classmethod):
+                    raw = raw.__func__
+                if callable(raw) and hasattr(raw, "_validator_field"):
+                    validators[raw._validator_field] = raw
+                elif hasattr(value, "_validator_field"):
+                    # classmethod descriptors aren't callable in Python 3.11+
+                    validators[value._validator_field] = raw
             for key, anno in annotations.items():
+                if key.startswith("__") and key.endswith("__"):
+                    continue
                 field_types[key] = anno
                 default = namespace.get(key, ...)
                 if isinstance(default, FieldInfo):
@@ -49,7 +57,18 @@ except Exception:  # pragma: no cover
             namespace["__field_definitions__"] = field_defs
             namespace["__field_types__"] = field_types
             namespace["__validators__"] = validators
-            return super().__new__(mcls, name, bases, namespace)
+            cls = super().__new__(mcls, name, bases, namespace)
+            # Resolve string annotations (from __future__ annotations)
+            try:
+                import typing as _typing
+                hints = _typing.get_type_hints(cls)
+                resolved: Dict[str, Any] = {}
+                for k in field_types:
+                    resolved[k] = hints.get(k, field_types[k])
+                cls.__field_types__ = resolved
+            except Exception:
+                pass
+            return cls
 
     class BaseModel(metaclass=BaseModelMeta):
         __field_definitions__: Dict[str, FieldInfo]
