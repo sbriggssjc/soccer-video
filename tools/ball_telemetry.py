@@ -1560,6 +1560,24 @@ def fuse_yolo_and_centroid(
         EDGE_MARGIN_FRAC = _reduced_frac
         _edge_filtered = _edge_filtered_2
 
+        # Third pass: if we're STILL discarding >20% after halving, the
+        # ball genuinely lives near the edge (source-camera panning,
+        # corner kicks, goalmouth action).  Drop to a minimal 1% margin
+        # that only catches obvious false positives at the very frame
+        # boundary — not real ball detections during pans.
+        if (_edge_filtered_2 > 0
+                and _edge_filtered_2 / _raw_yolo_count > _EDGE_REFILTER_THRESH):
+            _minimal_frac = 0.01  # ~19px on 1920-wide frame
+            yolo_by_frame, _edge_filtered_3, _edge_px_ingest = _edge_filter_pass(
+                yolo_samples, frame_count, width, _minimal_frac)
+            print(
+                f"[FUSION] Edge triple-filter: still {_edge_filtered_2}/{_raw_yolo_count} "
+                f"({_edge_filtered_2/_raw_yolo_count:.0%}); "
+                f"reduced to minimal {_edge_px_ingest:.0f}px, now filtered {_edge_filtered_3}"
+            )
+            EDGE_MARGIN_FRAC = _minimal_frac
+            _edge_filtered = _edge_filtered_3
+
     if _edge_filtered > 0:
         print(
             f"[FUSION] Filtered {_edge_filtered} near-edge YOLO detections "
@@ -1710,7 +1728,9 @@ def fuse_yolo_and_centroid(
     SHORT_INTERP_GAP = 15   # always interpolate gaps <= this (~0.5s at 30fps)
     LONG_INTERP_GAP = 90    # max gap for flight interpolation (~3s at 30fps)
     MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
-    INTERP_CONF = 0.28       # confidence for interpolated frames (lowered from 0.35)
+    INTERP_CONF = 0.38       # confidence for YOLO-interpolated frames (raised from
+                             # 0.28 — these are anchored between two real YOLO
+                             # detections and deserve higher trust than raw centroid)
     # Step-function threshold: only use step (jump to receiver) for gaps
     # >= this many frames.  Shorter flights use linear interpolation so the
     # Gaussian can absorb rapid back-and-forth movements without whipsawing
@@ -1771,18 +1791,34 @@ def fuse_yolo_and_centroid(
                     )
                     continue
                 long_interp += gap - 1
-                _interp_mode = "smoothstep" if (STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP) else "linear"
+                # Distance-aware mode selection: smoothstep holds near origin
+                # which works for short-distance flights (the ball stays
+                # nearby), but for large-distance passes/crosses (>500px)
+                # the camera MUST follow immediately or it falls behind and
+                # the ball leaves the crop.  Always use linear for big moves.
+                _LARGE_DIST_PX = 500.0  # ~quarter-field on 1920px
+                if dist > _LARGE_DIST_PX:
+                    _interp_mode = "linear"
+                elif STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP:
+                    _interp_mode = "smoothstep"
+                else:
+                    _interp_mode = "linear"
                 # (long_flight_info appended after centroid-guide setup below)
 
-            # Use smoothstep ease for moderate-length gaps where the
-            # camera has time to arrive and settle at the receiver.
-            # The smoothstep holds near the origin for the first portion
-            # (keeping shots on goal visible) then eases to the endpoint.
+            # Use smoothstep ease for moderate-length gaps where the ball
+            # stays nearby and the camera has time to settle.
             # For shorter flights, linear interpolation lets the
             # Gaussian absorb rapid direction changes naturally.
             # For very long gaps (> base 90 frames), revert to linear
             # so the camera gradually follows the ball across the field.
-            use_step = is_long and gap >= STEP_THRESHOLD and gap <= _BASE_LONG_INTERP_GAP
+            # CRITICAL: for large-distance flights (>500px), always use
+            # linear — smoothstep's hold-at-origin causes the camera to
+            # lag behind the ball during fast passes and crosses.
+            _flight_dist = math.hypot(x1 - x0, y1 - y0) if is_long else 0.0
+            use_step = (is_long
+                        and gap >= STEP_THRESHOLD
+                        and gap <= _BASE_LONG_INTERP_GAP
+                        and _flight_dist <= 500.0)
 
             # --- Centroid-guided interpolation for very long linear gaps ---
             # Pure linear interpolation assumes constant ball speed, which
