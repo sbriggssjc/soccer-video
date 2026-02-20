@@ -1555,6 +1555,9 @@ def fuse_yolo_and_centroid(
             f"reduced margin {width * EDGE_MARGIN_FRAC:.0f}px -> {_edge_px_ingest:.0f}px, "
             f"now filtered {_edge_filtered_2}"
         )
+        # Update EDGE_MARGIN_FRAC so downstream checks (near-edge flight
+        # skip) use the same margin that survived the re-filter pass.
+        EDGE_MARGIN_FRAC = _reduced_frac
         _edge_filtered = _edge_filtered_2
 
     if _edge_filtered > 0:
@@ -2039,7 +2042,15 @@ def fuse_yolo_and_centroid(
                 _evx *= _EXTRAP_DECEL
                 _evy *= _EXTRAP_DECEL
 
-                # Clamp to frame bounds
+                # Stop extrapolating if the trajectory has left the
+                # visible frame — the ball is off-screen and continuing
+                # would just clamp at the edge, dragging the camera to
+                # the sideline / coach area.
+                _EXTRAP_EDGE_PX = width * 0.03  # small inset
+                if _ex <= _EXTRAP_EDGE_PX or _ex >= width - _EXTRAP_EDGE_PX:
+                    break
+
+                # Clamp to frame bounds (safety)
                 _ex_clamped = max(0.0, min(width, _ex))
                 _ey_clamped = max(0.0, min(height, _ey))
 
@@ -2094,6 +2105,10 @@ def fuse_yolo_and_centroid(
                             _ey += _evy
                             _evx *= _EXTRAP_DECEL
                             _evy *= _EXTRAP_DECEL
+                            # Stop if trajectory exits visible frame
+                            _EXTRAP_EDGE_PX_T = width * 0.03
+                            if _ex <= _EXTRAP_EDGE_PX_T or _ex >= width - _EXTRAP_EDGE_PX_T:
+                                break
                             _ex_c = max(0.0, min(width, _ex))
                             _ey_c = max(0.0, min(height, _ey))
                             _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_c
