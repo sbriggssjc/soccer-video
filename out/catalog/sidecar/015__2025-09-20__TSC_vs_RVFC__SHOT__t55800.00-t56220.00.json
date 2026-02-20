@@ -10,9 +10,9 @@
   "steps": {
     "portrait_render": {
       "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\015__2025-09-20__TSC_vs_RVFC__SHOT__t55800.00-t56220.00__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-17T14:46:30+00:00",
-      "preset": "cinematic",
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\015__2025-09-20__TSC_vs_RVFC__SHOT__t55800.00-t56220.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-20T05:13:05+00:00",
+      "preset": "auto",
       "portrait": "1080x1920"
     }
   },

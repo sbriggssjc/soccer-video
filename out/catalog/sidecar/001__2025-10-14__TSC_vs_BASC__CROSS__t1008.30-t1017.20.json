@@ -10,9 +10,9 @@
   "steps": {
     "portrait_render": {
       "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\001__2025-10-14__TSC_vs_BASC__CROSS__t1008.30-t1017.20__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-18T16:41:53+00:00",
-      "preset": "cinematic",
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\001__2025-10-14__TSC_vs_BASC__CROSS__t1008.30-t1017.20__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-20T07:32:16+00:00",
+      "preset": "auto",
       "portrait": "1080x1920"
     }
   },
