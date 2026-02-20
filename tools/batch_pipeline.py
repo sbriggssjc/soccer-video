@@ -552,16 +552,24 @@ def main(argv: list[str] | None = None) -> int:
     skipped_output = 0
     preset_upper = args.preset.strip().upper()
     # Detect rendered outputs: stem contains dot-prefixed preset tag like .__CINEMATIC
+    # Also catches stacked tags like .__CINEMATIC.__CINEMATIC.__CINEMATIC
     _output_tag_re = re.compile(
         rf"\.__{re.escape(preset_upper)}(?:\b|__|\.|$)",
         flags=re.IGNORECASE,
     )
+    # Matches any suffix that looks like a portrait render output
+    _portrait_final_re = re.compile(r"_portrait_FINAL", flags=re.IGNORECASE)
     for row in clips:
         clip_rel = row.get("clip_rel", "")
         clip_path_str = row.get("clip_path", "")
 
-        # Skip clips that are rendered outputs (stacked preset tags from previous runs)
-        if _output_tag_re.search(Path(clip_path_str).stem):
+        stem = Path(clip_path_str).stem
+        # Skip clips that are rendered outputs (single or stacked preset tags)
+        if _output_tag_re.search(stem):
+            skipped_output += 1
+            continue
+        # Also skip anything with _portrait_FINAL — these are final renders
+        if _portrait_final_re.search(stem):
             skipped_output += 1
             continue
 

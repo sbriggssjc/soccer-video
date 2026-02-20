@@ -82,7 +82,16 @@ def build_output_name(
     stem = _TRAILING_PORTRAIT_FINAL_RE.sub("", path.stem)
 
     if preset_label:
-        stem = re.sub(fr"(?:__{re.escape(preset_label)})+", "", stem, flags=re.IGNORECASE)
+        # Strip all occurrences of the preset tag — including stacked ones like
+        # .__CINEMATIC.__CINEMATIC.__CINEMATIC from previous failed runs.
+        stem = re.sub(
+            rf"(?:\.__{re.escape(preset_label)})+",
+            "", stem, flags=re.IGNORECASE,
+        )
+        stem = re.sub(
+            rf"(?:__{re.escape(preset_label)})+",
+            "", stem, flags=re.IGNORECASE,
+        )
 
     tags: List[str] = []
     seen: set[str] = set()
