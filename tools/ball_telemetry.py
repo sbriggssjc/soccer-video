@@ -1885,25 +1885,48 @@ def fuse_yolo_and_centroid(
         # spot on the field) and the camera starts misframed.
         # Use a generous limit — 2 seconds at source fps — because
         # the start of a clip is especially important for framing.
+        #
+        # However: if centroid already placed a position near the first
+        # YOLO (within LEAD_HOLD_AGREE px), the centroid is probably
+        # tracking real action (e.g. defensive build-up) — keep it
+        # so the camera follows that play instead of being parked at
+        # the YOLO hold point for the first second.
         LEAD_HOLD_MAX = 60  # ~2s at 30fps — generous start-of-clip allowance
+        LEAD_HOLD_AGREE = 300.0  # px: centroid within this of YOLO = "agrees"
         first_yolo = yolo_frames[0]
         if first_yolo > 0:
             yf = yolo_by_frame[first_yolo]
             lead_filled = 0
+            lead_kept = 0
             for k in range(first_yolo - 1, max(-1, first_yolo - LEAD_HOLD_MAX - 1), -1):
                 if k in yolo_by_frame:
                     break
+                # If centroid already filled this frame, check whether it
+                # agrees with the first YOLO position.  If it does, the
+                # centroid is tracking the right area — preserve it so the
+                # camera follows the actual play (defensive work, build-up).
+                if source_labels[k] == FUSE_CENTROID and used_mask[k]:
+                    _cx_k = float(positions[k, 0])
+                    _cy_k = float(positions[k, 1])
+                    _hold_dist = math.hypot(_cx_k - float(yf.x), _cy_k - float(yf.y))
+                    if _hold_dist <= LEAD_HOLD_AGREE:
+                        # Centroid is nearby — trust it; just bump confidence
+                        # slightly so downstream smoothing doesn't discount it.
+                        confidence[k] = max(confidence[k], 0.25)
+                        lead_kept += 1
+                        continue
                 positions[k, 0] = yf.x
                 positions[k, 1] = yf.y
                 confidence[k] = max(confidence[k], 0.22)
                 source_labels[k] = FUSE_HOLD
                 used_mask[k] = True
                 lead_filled += 1
-            if lead_filled > 0:
+            if lead_filled > 0 or lead_kept > 0:
                 interpolated += lead_filled
+                _kept_msg = f" (kept {lead_kept} centroid frames)" if lead_kept > 0 else ""
                 print(
                     f"[FUSION] Backward-hold: filled {lead_filled} leading frames "
-                    f"from first YOLO at frame {first_yolo}"
+                    f"from first YOLO at frame {first_yolo}{_kept_msg}"
                 )
 
         # Hold at last YOLO position for trailing frames.
