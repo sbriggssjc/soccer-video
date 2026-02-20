@@ -1511,7 +1511,7 @@ def fuse_yolo_and_centroid(
     # margin is likely too aggressive (ball genuinely near the goalmouth or
     # sideline).  Halve the margin and re-filter so we keep those critical
     # near-edge detections while still removing obvious false positives.
-    EDGE_MARGIN_FRAC = 0.06  # base: 6% of frame width
+    EDGE_MARGIN_FRAC = 0.045  # base: 4.5% of frame width (reduced to keep more near-goal YOLO)
     _raw_yolo_count = sum(
         1 for s in yolo_samples
         if 0 <= int(s.frame) < frame_count
@@ -1519,10 +1519,10 @@ def fuse_yolo_and_centroid(
     )
     _raw_density = _raw_yolo_count / max(frame_count, 1)
     if _raw_density < 0.15 and _raw_yolo_count > 0:
-        # Scale margin down: at 5% density → 0.025, at 15% → 0.06
-        EDGE_MARGIN_FRAC = max(0.02, 0.06 * (_raw_density / 0.15))
+        # Scale margin down: at 5% density → 0.02, at 15% → 0.045
+        EDGE_MARGIN_FRAC = max(0.02, 0.045 * (_raw_density / 0.15))
 
-    _EDGE_REFILTER_THRESH = 0.25  # re-filter if >25% of detections removed
+    _EDGE_REFILTER_THRESH = 0.20  # re-filter if >20% of detections removed (more aggressive halving)
 
     def _edge_filter_pass(samples, fcount, w, margin_frac):
         """Filter near-edge YOLO detections. Returns (by_frame dict, n_filtered)."""
