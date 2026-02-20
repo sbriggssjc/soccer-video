@@ -8405,6 +8405,7 @@ def run(
                 frame_count=len(positions),
                 width=float(width),
                 height=float(height),
+                fps=float(render_fps_for_plan),
                 exclude_zones=_exclude_zones,
             )
             # Replace positions/mask with fused result

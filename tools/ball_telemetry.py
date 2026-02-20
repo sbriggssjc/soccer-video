@@ -1440,6 +1440,7 @@ def fuse_yolo_and_centroid(
     width: float,
     height: float,
     *,
+    fps: float = 30.0,
     exclude_zones: list[ExcludeZone] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Merge YOLO ball detections with motion-centroid positions.
@@ -1485,6 +1486,13 @@ def fuse_yolo_and_centroid(
     used_mask = np.zeros(frame_count, dtype=bool)
     confidence = np.zeros(frame_count, dtype=np.float32)
     source_labels = np.zeros(frame_count, dtype=np.uint8)
+
+    # FPS-aware temporal scaling: all frame-count constants below were
+    # originally tuned for 30fps.  Scale them so time-based durations
+    # (stale gating, interpolation gaps, extrapolation windows) stay
+    # correct at any frame rate.
+    _fps = max(fps, 1.0)
+    _fps_scale = _fps / 30.0
 
     # Guard: both inputs empty — return centred default position so camera
     # holds at frame centre rather than producing all-NaN.
@@ -1629,7 +1637,7 @@ def fuse_yolo_and_centroid(
     _last_yolo_frame: int = -999
     YOLO_HOLD_DIST = 200.0  # px: centroid beyond this → suspect
     YOLO_HOLD_BLEND = 0.40  # weight for last YOLO when centroid diverges
-    YOLO_STALE_FRAMES = 30  # decay to zero gating over 1s at 30fps
+    YOLO_STALE_FRAMES = max(1, int(30 * _fps_scale))  # ~1s at any fps
 
     # Adaptive gating: when YOLO density is very low (sparse detections),
     # increase gating strength so centroid can't freely wander to track
@@ -1638,8 +1646,8 @@ def fuse_yolo_and_centroid(
     if _yolo_density < 0.15:
         # Scale stale frames inversely with density: fewer YOLO → trust centroid
         # less for longer after each YOLO detection.
-        # At 5% density → 90 frames (~3s); at 15% density → 30 frames (unchanged)
-        YOLO_STALE_FRAMES = int(30 + 60 * (1.0 - _yolo_density / 0.15))
+        # At 5% density → ~3s; at 15% density → ~1s (unchanged)
+        YOLO_STALE_FRAMES = max(1, int((30 + 60 * (1.0 - _yolo_density / 0.15)) * _fps_scale))
         YOLO_HOLD_BLEND = min(0.70, 0.40 + 0.30 * (1.0 - _yolo_density / 0.15))
         print(
             f"[FUSION] Sparse YOLO ({_yolo_density:.1%}): "
@@ -1725,8 +1733,8 @@ def fuse_yolo_and_centroid(
     # eliminates the camera oscillation caused by alternating between
     # YOLO (actual ball) and centroid (player activity cluster) which
     # can differ by 50-200px and cause visible camera hunting.
-    SHORT_INTERP_GAP = 15   # always interpolate gaps <= this (~0.5s at 30fps)
-    LONG_INTERP_GAP = 90    # max gap for flight interpolation (~3s at 30fps)
+    SHORT_INTERP_GAP = max(1, int(15 * _fps_scale))   # ~0.5s at any fps
+    LONG_INTERP_GAP = max(1, int(90 * _fps_scale))    # ~3s at any fps
     MIN_FLIGHT_DIST = 100.0  # px: long gaps only interpolated if ball clearly traveled
     INTERP_CONF = 0.38       # confidence for YOLO-interpolated frames (raised from
                              # 0.28 — these are anchored between two real YOLO
@@ -1738,16 +1746,16 @@ def fuse_yolo_and_centroid(
     # Step-function threshold: only use step (jump to receiver) for gaps
     # >= this many frames.  Shorter flights use linear interpolation so the
     # Gaussian can absorb rapid back-and-forth movements without whipsawing
-    # the camera.  45 frames ≈ 1.5s at 30fps — enough for the camera to
-    # arrive and settle at the receiver.
-    STEP_THRESHOLD = 45
+    # the camera.  ~1.5s — enough for the camera to arrive and settle at
+    # the receiver.
+    STEP_THRESHOLD = max(1, int(45 * _fps_scale))
     # Adaptive: when YOLO is sparse, allow longer interpolation gaps so the
     # camera interpolates between known ball positions instead of relying on
     # centroid tracking (which follows player clusters, not the ball).
-    # At 5% density → 180 frames (~7.5s); at 15% density → 90 (unchanged).
+    # At 5% density → ~6s; at 15% density → ~3s (unchanged).
     _BASE_LONG_INTERP_GAP = LONG_INTERP_GAP
     if _yolo_density < 0.15:
-        LONG_INTERP_GAP = int(90 + 90 * (1.0 - _yolo_density / 0.15))
+        LONG_INTERP_GAP = max(1, int((90 + 90 * (1.0 - _yolo_density / 0.15)) * _fps_scale))
         print(
             f"[FUSION] Sparse YOLO: extended LONG_INTERP_GAP "
             f"{_BASE_LONG_INTERP_GAP}->{LONG_INTERP_GAP} frames"
@@ -1841,7 +1849,7 @@ def fuse_yolo_and_centroid(
                 _CG_BLEND = 0.40      # fraction of centroid residual to apply
                 _CG_MAX_PX = 200.0    # max offset per frame (px)
                 _CG_MIN_COV = 0.50    # min centroid coverage to enable guiding
-                _CG_SMOOTH = 7        # smoothing window (frames)
+                _CG_SMOOTH = max(3, int(7 * _fps_scale))  # smoothing window (~0.23s)
 
                 # Collect raw centroid x-positions for frames in this gap
                 _cg_raw: dict[int, float] = {}
@@ -1998,10 +2006,10 @@ def fuse_yolo_and_centroid(
         # up to 5 seconds (120 frames at 24fps) — long enough for the
         # bidirectional EMA smoothing to not bleed centroid contamination
         # backward into the held region.
-        _trailing_hold_max = SHORT_INTERP_GAP
+        _trailing_hold_max = SHORT_INTERP_GAP  # already fps-scaled
         if _yolo_density < 0.15:
-            # At 5% density → 105 frames (~4s); at 15% → 15 frames (unchanged)
-            _trailing_hold_max = int(SHORT_INTERP_GAP + 105 * (1.0 - _yolo_density / 0.15))
+            # At 5% density → ~4s; at 15% → ~0.5s (unchanged)
+            _trailing_hold_max = int(SHORT_INTERP_GAP + 105 * (1.0 - _yolo_density / 0.15) * _fps_scale)
         last_yolo = yolo_frames[-1]
         yl = yolo_by_frame[last_yolo]
         for k in range(last_yolo + 1, min(frame_count, last_yolo + _trailing_hold_max)):
@@ -2031,9 +2039,9 @@ def fuse_yolo_and_centroid(
         # trajectory forward with deceleration for centroid-only frames that
         # follow.  This keeps the camera following the ball flight path toward
         # the goal instead of snapping back to the player group.
-        _EXTRAP_SPEED_THR = 4.0   # px/frame: min speed to trigger extrapolation
-        _EXTRAP_MAX_FRAMES = 45   # max frames to extrapolate (~1.5s at 30fps)
-        _EXTRAP_DECEL = 0.92      # per-frame velocity decay (ball decelerates)
+        _EXTRAP_SPEED_THR = 4.0 * (30.0 / _fps)  # px/frame: fps-corrected speed threshold
+        _EXTRAP_MAX_FRAMES = max(1, int(45 * _fps_scale))  # ~1.5s at any fps
+        _EXTRAP_DECEL = 0.92 ** (30.0 / _fps)  # per-frame velocity decay (fps-corrected)
         _EXTRAP_CONF = 0.32       # confidence for extrapolated frames
         _EXTRAP_MIN_YOLO = 3      # need at least 3 YOLO frames to estimate velocity
         _extrap_count = 0
@@ -2188,8 +2196,8 @@ def fuse_yolo_and_centroid(
         if _extrap_count > 0:
             print(
                 f"[FUSION] Velocity extrapolation: filled {_extrap_count} frames "
-                f"during high-speed ball flight (speed_thr={_EXTRAP_SPEED_THR:.0f} px/f, "
-                f"decel={_EXTRAP_DECEL})"
+                f"during high-speed ball flight (speed_thr={_EXTRAP_SPEED_THR:.1f} px/f, "
+                f"decel={_EXTRAP_DECEL:.3f}, fps_scale={_fps_scale:.2f})"
             )
 
         # --- SOFT YOLO-INTERPOLATION ANCHOR BLEND ---
