@@ -1,0 +1,20 @@
+[
+  {
+    "x_min": 0,
+    "x_max": 400,
+    "y_min": 0,
+    "y_max": 1080,
+    "frame_start": 1100,
+    "frame_end": 1600,
+    "note": "Ball on adjacent field visible in the far-left of frame during final third of clip"
+  },
+  {
+    "x_min": 1550,
+    "x_max": 1920,
+    "y_min": 700,
+    "y_max": 1080,
+    "frame_start": 0,
+    "frame_end": 350,
+    "note": "Spare ball on sideline (bottom-right) causing early tracking confusion"
+  }
+]

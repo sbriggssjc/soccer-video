@@ -387,6 +387,19 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
     if scratch_root:
         cmd.extend(["--scratch-root", scratch_root])
 
+    # Auto-discover per-clip YOLO exclusion zones.
+    # Convention: <clip_stem>.yolo_exclude.json in any of these locations:
+    #   1. Next to the clip file
+    #   2. out/telemetry/
+    #   3. configs/yolo_exclude/
+    _excl_beside = clip_path.with_suffix(".yolo_exclude.json")
+    _excl_telemetry = REPO_ROOT / "out" / "telemetry" / f"{clip_path.stem}.yolo_exclude.json"
+    _excl_config = REPO_ROOT / "configs" / "yolo_exclude" / f"{clip_path.stem}.yolo_exclude.json"
+    for _excl_path in (_excl_beside, _excl_telemetry, _excl_config):
+        if _excl_path.is_file():
+            cmd.extend(["--yolo-exclude", str(_excl_path)])
+            break
+
     try:
         result = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
