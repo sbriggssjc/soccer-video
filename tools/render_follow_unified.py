@@ -286,11 +286,21 @@ def compute_predictive_follow_centers(
     H = float(horizon_s)
     predicted = ball_x + v * H + 0.5 * a * H * H
 
-    # --- 2.3: EMA smoothing over the predicted path -----------------------
-    smooth = np.empty_like(predicted)
-    smooth[0] = predicted[0]
+    # --- 2.3: Bidirectional EMA over the predicted path -------------------
+    # Forward + backward EMA averaged together so the end of the clip is as
+    # smooth as the start.  A forward-only EMA lags at the end, causing the
+    # camera to chase ball jumps reactively during goal celebrations etc.
+    fwd = np.empty_like(predicted)
+    fwd[0] = predicted[0]
     for i in range(1, len(predicted)):
-        smooth[i] = alpha * smooth[i - 1] + (1.0 - alpha) * predicted[i]
+        fwd[i] = alpha * fwd[i - 1] + (1.0 - alpha) * predicted[i]
+
+    bwd = np.empty_like(predicted)
+    bwd[-1] = predicted[-1]
+    for i in range(len(predicted) - 2, -1, -1):
+        bwd[i] = alpha * bwd[i + 1] + (1.0 - alpha) * predicted[i]
+
+    smooth = 0.5 * (fwd + bwd)
 
     # --- 2.4: convert to camera centers with window + max speed ----------
     centers = np.empty_like(smooth)
@@ -1594,9 +1604,13 @@ def smooth_and_limit_camera_path(
     alpha: float = BALL_FOLLOW_ALPHA,
 ) -> tuple[list[float], list[float]]:
     """
-    Given per-frame crop centers (cx_path, cy_path), apply exponential
-    smoothing followed by a per-frame slew-rate clamp to keep the virtual
-    camera feeling human-operated instead of snapping.
+    Given per-frame crop centers (cx_path, cy_path), apply bidirectional
+    exponential smoothing followed by a per-frame slew-rate clamp to keep
+    the virtual camera feeling human-operated instead of snapping.
+
+    Uses a forward+backward EMA averaged together so both the start *and*
+    end of the clip receive equal smoothing (a forward-only EMA is smooth
+    at the start but reactive/jittery at the end).
 
     - ``alpha`` controls responsiveness. Higher values react faster but can
       jitter; lower values are smoother.
@@ -1604,14 +1618,31 @@ def smooth_and_limit_camera_path(
       softened.
     """
 
-    cx_s = list(cx_path)
-    cy_s = list(cy_path)
+    n = len(cx_path)
+    if n == 0:
+        return list(cx_path), list(cy_path)
 
-    for i in range(1, len(cx_s)):
-        cx_s[i] = alpha * cx_s[i] + (1.0 - alpha) * cx_s[i - 1]
-        cy_s[i] = alpha * cy_s[i] + (1.0 - alpha) * cy_s[i - 1]
+    cx_f = list(cx_path)
+    cy_f = list(cy_path)
+    cx_b = list(cx_path)
+    cy_b = list(cy_path)
 
-    for i in range(1, len(cx_s)):
+    # Forward EMA pass
+    for i in range(1, n):
+        cx_f[i] = alpha * cx_f[i] + (1.0 - alpha) * cx_f[i - 1]
+        cy_f[i] = alpha * cy_f[i] + (1.0 - alpha) * cy_f[i - 1]
+
+    # Backward EMA pass
+    for i in range(n - 2, -1, -1):
+        cx_b[i] = alpha * cx_b[i] + (1.0 - alpha) * cx_b[i + 1]
+        cy_b[i] = alpha * cy_b[i] + (1.0 - alpha) * cy_b[i + 1]
+
+    # Average forward and backward for symmetric smoothing
+    cx_s = [0.5 * (cx_f[i] + cx_b[i]) for i in range(n)]
+    cy_s = [0.5 * (cy_f[i] + cy_b[i]) for i in range(n)]
+
+    # Slew-rate clamp: forward pass
+    for i in range(1, n):
         dx = cx_s[i] - cx_s[i - 1]
         dy = cy_s[i] - cy_s[i - 1]
 
@@ -1619,6 +1650,16 @@ def smooth_and_limit_camera_path(
             cx_s[i] = cx_s[i - 1] + math.copysign(max_dx, dx)
         if abs(dy) > max_dy:
             cy_s[i] = cy_s[i - 1] + math.copysign(max_dy, dy)
+
+    # Slew-rate clamp: backward pass to prevent end-of-clip jitter
+    for i in range(n - 2, -1, -1):
+        dx = cx_s[i] - cx_s[i + 1]
+        dy = cy_s[i] - cy_s[i + 1]
+
+        if abs(dx) > max_dx:
+            cx_s[i] = cx_s[i + 1] + math.copysign(max_dx, dx)
+        if abs(dy) > max_dy:
+            cy_s[i] = cy_s[i + 1] + math.copysign(max_dy, dy)
 
     return cx_s, cy_s
 
