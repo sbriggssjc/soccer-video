@@ -8695,6 +8695,30 @@ def run(
                     f"new length={len(states)}f/{len(states)/_render_fps_trim:.1f}s)"
                 )
 
+    # --- HARD MAX-DURATION TRIM ---
+    # Per-clip override: discard frames beyond --max-duration seconds.
+    _max_dur_s = getattr(args, "max_duration_s", None)
+    if _max_dur_s is not None and states:
+        _render_fps_md = float(fps_in if fps_in > 0 else fps_out or 30.0)
+        _max_frames = int(round(_max_dur_s * _render_fps_md))
+        if _max_frames < len(states):
+            _trimmed_md = len(states) - _max_frames
+            states = states[:_max_frames]
+            if positions is not None and len(positions) > _max_frames:
+                positions = positions[:_max_frames]
+            if used_mask is not None and len(used_mask) > _max_frames:
+                used_mask = used_mask[:_max_frames]
+            if fusion_confidence is not None and len(fusion_confidence) > _max_frames:
+                fusion_confidence = fusion_confidence[:_max_frames]
+            if fusion_source_labels is not None and len(fusion_source_labels) > _max_frames:
+                fusion_source_labels = fusion_source_labels[:_max_frames]
+            frame_count = len(states)
+            print(
+                f"[TRIM] Max-duration override: trimmed {_trimmed_md} frames "
+                f"(cap={_max_dur_s:.1f}s, new length={len(states)}f/"
+                f"{len(states)/_render_fps_md:.1f}s)"
+            )
+
     # --- Ball-in-crop diagnostic (always printed to stdout for batch visibility) ---
     _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold"}
     if states and len(states) > 0 and follow_crop_width > 0:
@@ -9634,6 +9658,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--ball-path",
         dest="ball_path",
         help="JSONL from ball_path_planner_v2.py",
+    )
+    parser.add_argument(
+        "--max-duration",
+        dest="max_duration_s",
+        type=float,
+        default=None,
+        help="Hard cap on output duration in seconds. Frames beyond this are discarded.",
     )
     parser.add_argument(
         "--follow-override",
