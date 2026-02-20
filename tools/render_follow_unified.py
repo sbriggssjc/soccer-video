@@ -5963,10 +5963,13 @@ class CameraPlanner:
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
             # At full confidence (>=0.60) no damping; at zero confidence the
-            # camera moves at 50% of normal speed.
+            # camera moves at 70% of normal speed.  (Raised from 50% floor —
+            # the old value caused the camera to lag behind on centroid-heavy
+            # clips, triggering constant keepinview corrections instead of
+            # smooth proactive tracking.)
             _conf_speed_scale = 1.0
             if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.05):
-                _conf_speed_scale = 0.50 + 0.833 * frame_conf  # 0.50 at 0, 1.0 at 0.60
+                _conf_speed_scale = 0.70 + 0.50 * frame_conf  # 0.70 at 0, 1.0 at 0.60
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
             _eff_speed_boost = accel_speed_boost * _conf_speed_scale
