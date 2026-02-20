@@ -4,7 +4,7 @@ param(
   [int]$Days = 14,
   [int]$SkipModifiedHours = 24,
   [string[]]$Extensions = @("mp4","mov","mxf","mkv","avi","wav","mp3"),
-  [string]$RepoRoot = "C:\Users\scott\soccer-video"
+  [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = "Continue"

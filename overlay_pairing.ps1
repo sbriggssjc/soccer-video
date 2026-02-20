@@ -6,7 +6,7 @@ param(
   [string]$Mode = "final"  # "final" = portrait + final.jsonl, "source" = atomic + ball.jsonl
 )
 
-$ProjRoot  = "C:\Users\scott\soccer-video"
+$ProjRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AtomicDir = Join-Path $ProjRoot "out\atomic_clips\2025-10-12__TSC_SLSG_FallFestival"
 $OutDir    = Join-Path $ProjRoot "out\portrait_reels\clean"
 $LogsDir   = Join-Path $ProjRoot "out\render_logs"

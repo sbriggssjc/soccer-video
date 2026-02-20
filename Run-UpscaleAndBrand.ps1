@@ -1,12 +1,15 @@
 param(
   [int]    $Scale   = 2,
-  [string] $OutDir  = "C:\Users\scott\soccer-video\out\portrait_reels\clean",
+  [string] $OutDir,
   # Optional: pass your overlay/endcard (leave blank to omit)
-  [string] $BrandOverlay = "C:\Users\scott\soccer-video\brand\tsc\title_ribbon_1080x1920.png",
-  [string] $Endcard      = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
+  [string] $BrandOverlay,
+  [string] $Endcard
 )
 
-$RepoRoot  = "C:\Users\scott\soccer-video"
+$RepoRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $OutDir)       { $OutDir       = Join-Path $RepoRoot "out\portrait_reels\clean" }
+if (-not $BrandOverlay) { $BrandOverlay = Join-Path $RepoRoot "brand\tsc\title_ribbon_1080x1920.png" }
+if (-not $Endcard)      { $Endcard      = Join-Path $RepoRoot "brand\tsc\end_card_1080x1920.png" }
 $AtomicDir = Join-Path $RepoRoot "out\atomic_clips"
 $Renderer  = Join-Path $RepoRoot "tools\render_follow_unified.py"
 

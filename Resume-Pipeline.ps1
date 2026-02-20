@@ -85,7 +85,7 @@ foreach ($row in $rows) {
         $brand = $sidecar.steps.follow_crop_brand.brand
     }
 
-    $outDir = 'C:\Users\scott\soccer-video\out\portrait_reels\clean'
+    $outDir = Join-Path $root 'out\portrait_reels\clean'
     if ($row.branded_path) {
         $outDir = Split-Path $row.branded_path
     } elseif ($sidecar -and $sidecar.steps -and $sidecar.steps.follow_crop_brand -and $sidecar.steps.follow_crop_brand.out) {

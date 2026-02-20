@@ -9,9 +9,10 @@
 #>
 
 # --- Your paths ---
+$RepoRoot     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RosterDir    = "D:\Personal\Photos\Kids Games\Claire\Photo Circle\Roster"
-$OpenerScript = "C:\Users\scott\soccer-video\New-TSCOpeningTitle.ps1"   # the script we built earlier
-$OutRoot      = "C:\Users\scott\soccer-video\out\opener"                # where to save all opener MP4s
+$OpenerScript = Join-Path $RepoRoot "New-TSCOpeningTitle.ps1"            # the script we built earlier
+$OutRoot      = Join-Path $RepoRoot "out\opener"                         # where to save all opener MP4s
 
 # --- Prep ---
 if (!(Test-Path $RosterDir))    { throw "Roster folder not found: $RosterDir" }
@@ -66,8 +67,8 @@ Write-Host "Manifest: $csv"
 
 # --- Your paths ---
 $RosterDir    = "D:\Personal\Photos\Kids Games\Claire\Photo Circle\Roster"
-$OpenerScript = "C:\Users\scott\soccer-video\New-TSCOpeningTitle.ps1"
-$OutRoot      = "C:\Users\scott\soccer-video\out\opener"
+$OpenerScript = Join-Path $RepoRoot "New-TSCOpeningTitle.ps1"
+$OutRoot      = Join-Path $RepoRoot "out\opener"
 
 # --- Prep ---
 if (!(Test-Path $RosterDir))    { throw "Roster folder not found: $RosterDir" }
@@ -75,7 +76,7 @@ if (!(Test-Path $OpenerScript)) { throw "Opener script not found: $OpenerScript"
 $null = New-Item -ItemType Directory -Force -Path $OutRoot
 
 # Accept hyphen, en dash, em dash, minus, etc.
-# Example matches: "Claire Briggs - 14.jpg" / "Claire Briggs – 14.JPG"
+# Example matches: "Claire Briggs - 14.jpg" / "Claire Briggs ï¿½ 14.JPG"
 $regex = '^(?<name>.+?)\s*[\p{Pd}]\s*(?<num>\d+)\.(jpg|jpeg|png)$'
 $manifest = @()
 

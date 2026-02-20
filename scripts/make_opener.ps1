@@ -7,9 +7,9 @@ param(
     # NEW: optional explicit output file path
     [string] $OutFile,
 
-    [string]$BGPath = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png",
-    [string]$BadgeSolidPath = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png",
-    [string]$BadgeHolePath = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png",
+    [string]$BGPath,
+    [string]$BadgeSolidPath,
+    [string]$BadgeHolePath,
 
     [int]$FPS = 30,
     [double]$DUR = 6.0,
@@ -29,6 +29,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+if (-not $BGPath)        { $BGPath        = Join-Path $RepoRoot "brand\tsc\end_card_1080x1920.png" }
+if (-not $BadgeSolidPath){ $BadgeSolidPath = Join-Path $RepoRoot "brand\tsc\badge_clean.png" }
+if (-not $BadgeHolePath) { $BadgeHolePath  = Join-Path $RepoRoot "brand\tsc\badge_hole.png" }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 if (-not $OutFile -or $OutFile.Trim() -eq "") {

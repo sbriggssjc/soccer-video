@@ -8,9 +8,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ---- Paths you already standardized ----
-$BG          = "C:\Users\scott\soccer-video\brand\tsc\end_card_1080x1920.png"
-$BADGE_SOL   = "C:\Users\scott\soccer-video\brand\tsc\badge_clean.png"
-$BADGE_HOLE  = "C:\Users\scott\soccer-video\brand\tsc\badge_hole.png"
+$RepoRoot    = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BG          = Join-Path $RepoRoot "brand\tsc\end_card_1080x1920.png"
+$BADGE_SOL   = Join-Path $RepoRoot "brand\tsc\badge_clean.png"
+$BADGE_HOLE  = Join-Path $RepoRoot "brand\tsc\badge_hole.png"
 $FontName    = "Arial Bold"   # use the font family instead of a file path
 $FontPath    = "C\:/Windows/Fonts/arialbd.ttf"
 

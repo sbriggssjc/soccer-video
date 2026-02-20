@@ -1,5 +1,5 @@
 ﻿<#
-OutTidyAndReport.ps1  —  tidy + report for C:\Users\scott\soccer-video\out
+OutTidyAndReport.ps1  —  tidy + report for the repo's out\ directory
 - Top-level size rollup (skips junctions to avoid double counting)
 - Largest files
 - Portrait junction insights (largest + ext breakdown)
@@ -7,7 +7,7 @@ OutTidyAndReport.ps1  —  tidy + report for C:\Users\scott\soccer-video\out
 - _tmp duplicate cleanup by SHA256 (only deletes with -Commit)
 #>
 param(
-  [string]$OutRoot = "C:\Users\scott\soccer-video\out",
+  [string]$OutRoot = (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "out"),
   [int]$Top = 25,
   [switch]$Commit
 )
