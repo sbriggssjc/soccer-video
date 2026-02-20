@@ -10,9 +10,9 @@
   "steps": {
     "portrait_render": {
       "done": true,
-      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\019__2025-09-20__TSC_vs_Greenwood__PRESSURE_SHOT__t1369.00-t1383.00_portrait_POST__CINEMATIC_portrait_FINAL.mp4",
-      "at": "2026-02-17T14:09:16+00:00",
-      "preset": "cinematic",
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\019__2025-09-20__TSC_vs_Greenwood__PRESSURE_SHOT__t1369.00-t1383.00_portrait_POST__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-20T01:27:38+00:00",
+      "preset": "auto",
       "portrait": "1080x1920"
     }
   },
