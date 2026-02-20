@@ -769,6 +769,12 @@ def update_sidecar_from_record(record: ClipRecord) -> None:
     save_sidecar(record.clip_path, data)
 
 
+_RENDERED_OUTPUT_RE = re.compile(
+    r"_portrait_FINAL|\.?__(?:CINEMATIC|WIDE|SEGMENT_SMOOTH|GENTLE|REALZOOM|AUTO)(?:\b|__|\.|$)",
+    flags=re.IGNORECASE,
+)
+
+
 def scan_atomic_clips() -> tuple[list[ClipRecord], Dict[Path, MasterRecord], int]:
     ensure_catalog_dirs()
     master_cache: Dict[Path, MasterRecord] = {}
@@ -777,6 +783,8 @@ def scan_atomic_clips() -> tuple[list[ClipRecord], Dict[Path, MasterRecord], int
     probe_failures = 0
 
     clip_paths = sorted(ATOMIC_DIR.rglob("*.mp4")) if ATOMIC_DIR.exists() else []
+    # Filter out rendered outputs that ended up in the atomic clips directory
+    clip_paths = [p for p in clip_paths if not _RENDERED_OUTPUT_RE.search(p.stem)]
     for clip_path in clip_paths:
         clip_rel = to_repo_relative(clip_path)
         existing = existing_rows.get(clip_rel)

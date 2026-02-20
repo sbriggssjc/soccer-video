@@ -551,10 +551,11 @@ def main(argv: list[str] | None = None) -> int:
     skipped_done = 0
     skipped_output = 0
     preset_upper = args.preset.strip().upper()
-    # Detect rendered outputs: stem contains dot-prefixed preset tag like .__CINEMATIC
-    # Also catches stacked tags like .__CINEMATIC.__CINEMATIC.__CINEMATIC
+    # Detect rendered outputs: stem contains a preset tag like __CINEMATIC
+    # (with or without a leading dot).  Also catches stacked tags like
+    # .__CINEMATIC.__CINEMATIC or __CINEMATIC__CINEMATIC from reruns.
     _output_tag_re = re.compile(
-        rf"\.__{re.escape(preset_upper)}(?:\b|__|\.|$)",
+        rf"\.?__{re.escape(preset_upper)}(?:\b|__|\.|$)",
         flags=re.IGNORECASE,
     )
     # Matches any suffix that looks like a portrait render output
@@ -572,6 +573,16 @@ def main(argv: list[str] | None = None) -> int:
         if _portrait_final_re.search(stem):
             skipped_output += 1
             continue
+        # Skip clips that are already portrait (height > width) — these are
+        # rendered outputs that were indexed by mistake.
+        try:
+            w = int(row.get("width") or 0)
+            h = int(row.get("height") or 0)
+            if w > 0 and h > 0 and h > w:
+                skipped_output += 1
+                continue
+        except (ValueError, TypeError):
+            pass
 
         # Skip duplicates
         if clip_rel in dup_set:
