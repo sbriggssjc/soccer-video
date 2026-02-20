@@ -1731,6 +1731,10 @@ def fuse_yolo_and_centroid(
     INTERP_CONF = 0.38       # confidence for YOLO-interpolated frames (raised from
                              # 0.28 — these are anchored between two real YOLO
                              # detections and deserve higher trust than raw centroid)
+    EASE_OUT_CONF = 0.50     # higher confidence for ease-out interpolated frames:
+                             # the deceleration curve closely matches kicked-ball
+                             # physics, so the camera should trust these positions
+                             # and respond at near-full speed (reduces EMA lag)
     # Step-function threshold: only use step (jump to receiver) for gaps
     # >= this many frames.  Shorter flights use linear interpolation so the
     # Gaussian can absorb rapid back-and-forth movements without whipsawing
@@ -1795,10 +1799,13 @@ def fuse_yolo_and_centroid(
                 # which works for short-distance flights (the ball stays
                 # nearby), but for large-distance passes/crosses (>500px)
                 # the camera MUST follow immediately or it falls behind and
-                # the ball leaves the crop.  Always use linear for big moves.
+                # the ball leaves the crop.  Use ease-out (quadratic
+                # deceleration) for big moves — this front-loads the ball
+                # motion to match kicked-ball physics (fast start, gradual
+                # deceleration) instead of spreading motion evenly (linear).
                 _LARGE_DIST_PX = 500.0  # ~quarter-field on 1920px
                 if dist > _LARGE_DIST_PX:
-                    _interp_mode = "linear"
+                    _interp_mode = "ease_out"
                 elif STEP_THRESHOLD <= gap <= _BASE_LONG_INTERP_GAP:
                     _interp_mode = "smoothstep"
                 else:
@@ -1811,14 +1818,14 @@ def fuse_yolo_and_centroid(
             # Gaussian absorb rapid direction changes naturally.
             # For very long gaps (> base 90 frames), revert to linear
             # so the camera gradually follows the ball across the field.
-            # CRITICAL: for large-distance flights (>500px), always use
-            # linear — smoothstep's hold-at-origin causes the camera to
-            # lag behind the ball during fast passes and crosses.
+            # For large-distance flights (>500px), use ease-out to match
+            # kicked-ball physics (fast start, deceleration).
             _flight_dist = math.hypot(x1 - x0, y1 - y0) if is_long else 0.0
             use_step = (is_long
                         and gap >= STEP_THRESHOLD
                         and gap <= _BASE_LONG_INTERP_GAP
                         and _flight_dist <= 500.0)
+            use_ease_out = (is_long and _flight_dist > 500.0)
 
             # --- Centroid-guided interpolation for very long linear gaps ---
             # Pure linear interpolation assumes constant ball speed, which
@@ -1905,6 +1912,17 @@ def fuse_yolo_and_centroid(
                     ease = t * t * (3.0 - 2.0 * t)  # smoothstep: S-curve 0→1
                     interp_x = x0 + ease * (x1 - x0)
                     interp_y = y0 + ease * (y1 - y0)
+                elif use_ease_out:
+                    # Ease-out (quadratic deceleration) for large-distance
+                    # flights (>500px).  A kicked ball moves fast initially
+                    # and decelerates — front-loading ~75% of motion into
+                    # the first half of the gap.  This prevents the camera
+                    # from falling behind the real ball during shots/passes.
+                    # Preserves YOLO endpoint anchoring (ease=1.0 at t=1.0).
+                    t = (k - fi) / float(gap)
+                    ease = 1.0 - (1.0 - t) * (1.0 - t)  # quadratic ease-out
+                    interp_x = x0 + ease * (x1 - x0)
+                    interp_y = y0 + ease * (y1 - y0)
                 else:
                     # Short/medium gaps: linear interpolation
                     t = (k - fi) / float(gap)
@@ -1917,7 +1935,7 @@ def fuse_yolo_and_centroid(
 
                 positions[k, 0] = interp_x
                 positions[k, 1] = interp_y
-                confidence[k] = INTERP_CONF
+                confidence[k] = EASE_OUT_CONF if use_ease_out else INTERP_CONF
                 source_labels[k] = FUSE_INTERP
                 used_mask[k] = True
                 interpolated += 1
@@ -2064,8 +2082,11 @@ def fuse_yolo_and_centroid(
                 continue  # not a shot — skip
 
             # Extrapolate forward from fi with decelerating velocity.
-            # Only overwrite centroid-only frames (don't touch YOLO or
-            # already-interpolated frames).
+            # Override centroid AND interpolated frames when the
+            # physics-based extrapolation diverges significantly
+            # from the existing position.  The measured velocity at
+            # the gap boundary is more accurate than ease-out's
+            # assumed curve shape for the first few frames.
             _yi = yolo_by_frame[fi]
             _ex = float(_yi.x)
             _ey = float(_yi.y)
@@ -2073,8 +2094,6 @@ def fuse_yolo_and_centroid(
             _evy = _vy
             _seg_extrap = 0
             for k in range(fi + 1, min(fj, fi + _EXTRAP_MAX_FRAMES + 1)):
-                if source_labels[k] == FUSE_INTERP:
-                    break  # already interpolated — don't override
                 if k in yolo_by_frame:
                     break  # YOLO available — don't override
 
@@ -2095,9 +2114,12 @@ def fuse_yolo_and_centroid(
                 _ex_clamped = max(0.0, min(width, _ex))
                 _ey_clamped = max(0.0, min(height, _ey))
 
-                # Only overwrite if centroid position is farther from
-                # the extrapolated trajectory than 100px (centroid is
-                # tracking something else, likely players).
+                # Override existing position if the extrapolation
+                # diverges by >100px (position is tracking something
+                # else) OR the frame has no data.  For interpolated
+                # frames, also override when velocity-based position
+                # is further along the trajectory (ball ahead of
+                # interpolation estimate).
                 _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_clamped
                 _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_clamped
                 _extrap_dist = math.hypot(_ex_clamped - _cx_cur, _ey_clamped - _cy_cur)
