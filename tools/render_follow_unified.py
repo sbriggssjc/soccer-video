@@ -6221,48 +6221,61 @@ class CameraPlanner:
         # for several frames during fast pans with direction reversals.
         #
         # Fix: a final forward pass that applies the minimum camera
-        # shift needed to keep the ball inside a safety margin.  The
-        # corrections are naturally smooth because both ball and camera
-        # positions change smoothly frame-to-frame.
+        # shift needed to keep the ball inside a safety margin.
+        # Uses CLAMPED crop bounds (x0/y0) rather than centered (cx-hw)
+        # so the guarantee holds even when the crop is pushed against
+        # the frame edge.
         _bic_margin = max(20.0, self.margin_px * 0.5)
-        _bic_count = 0
-        for _bic_st in states:
-            if _bic_st.ball is None:
-                continue
-            _bx, _by = _bic_st.ball
-            _hw = _bic_st.crop_w * 0.5
-            _hh = _bic_st.crop_h * 0.5
 
-            _need_x = 0.0
-            _left_d = _bx - (_bic_st.cx - _hw + _bic_margin)
-            _right_d = (_bic_st.cx + _hw - _bic_margin) - _bx
-            if _left_d < 0.0:
-                _need_x = _left_d
-            elif _right_d < 0.0:
-                _need_x = -_right_d
+        def _apply_bic(states_list, margin, fw, fh):
+            """Apply ball-in-crop guarantee using actual clamped crop bounds.
+            Returns number of corrected frames."""
+            _count = 0
+            for _s in states_list:
+                if _s.ball is None:
+                    continue
+                _bx, _by = _s.ball
+                _hw = _s.crop_w * 0.5
+                _hh = _s.crop_h * 0.5
+                # Use clamped bounds (x0/y0), not centered (cx - hw)
+                _cl = _s.x0
+                _cr = _s.x0 + _s.crop_w
+                _ct = _s.y0
+                _cb = _s.y0 + _s.crop_h
 
-            _need_y = 0.0
-            _top_d = _by - (_bic_st.cy - _hh + _bic_margin)
-            _bot_d = (_bic_st.cy + _hh - _bic_margin) - _by
-            if _top_d < 0.0:
-                _need_y = _top_d
-            elif _bot_d < 0.0:
-                _need_y = -_bot_d
+                _need_x = 0.0
+                _ld = _bx - (_cl + margin)
+                _rd = (_cr - margin) - _bx
+                if _ld < 0.0:
+                    _need_x = _ld
+                elif _rd < 0.0:
+                    _need_x = -_rd
 
-            if abs(_need_x) > 0.5 or abs(_need_y) > 0.5:
-                _bic_st.cx += _need_x
-                _bic_st.cy += _need_y
-                _bic_st.x0 = float(np.clip(
-                    _bic_st.cx - _hw, 0.0,
-                    max(0.0, self.width - _bic_st.crop_w),
-                ))
-                _bic_st.y0 = float(np.clip(
-                    _bic_st.cy - _hh, 0.0,
-                    max(0.0, self.height - _bic_st.crop_h),
-                ))
-                _bic_st.cx = _bic_st.x0 + _hw
-                _bic_st.cy = _bic_st.y0 + _hh
-                _bic_count += 1
+                _need_y = 0.0
+                _td = _by - (_ct + margin)
+                _bd = (_cb - margin) - _by
+                if _td < 0.0:
+                    _need_y = _td
+                elif _bd < 0.0:
+                    _need_y = -_bd
+
+                if abs(_need_x) > 0.5 or abs(_need_y) > 0.5:
+                    _s.cx += _need_x
+                    _s.cy += _need_y
+                    _s.x0 = float(np.clip(
+                        _s.cx - _hw, 0.0,
+                        max(0.0, fw - _s.crop_w),
+                    ))
+                    _s.y0 = float(np.clip(
+                        _s.cy - _hh, 0.0,
+                        max(0.0, fh - _s.crop_h),
+                    ))
+                    _s.cx = _s.x0 + _hw
+                    _s.cy = _s.y0 + _hh
+                    _count += 1
+            return _count
+
+        _bic_count = _apply_bic(states, _bic_margin, self.width, self.height)
 
         if _bic_count > 0:
             logger.info(
@@ -6301,6 +6314,15 @@ class CameraPlanner:
                     ))
                     _bs.cx = _bs.x0 + _hw
                     _bs.cy = _bs.y0 + _hh
+
+            # Re-apply BIC after smoothing — the Gaussian can undo
+            # corrections by averaging toward uncorrected neighbors.
+            _bic2 = _apply_bic(states, _bic_margin, self.width, self.height)
+            if _bic2 > 0:
+                logger.info(
+                    "[POST-SMOOTH] BIC re-applied after smooth: %d frames",
+                    _bic2,
+                )
 
         return states
 
@@ -8572,13 +8594,14 @@ def run(
             # Source label
             _src = int(fusion_source_labels[_fi]) if (fusion_source_labels is not None and _fi < len(fusion_source_labels)) else 0
 
-            # Crop rectangle from state
-            _crop_left = max(0.0, _st.cx - _half_pw)
-            if _crop_left + follow_crop_width > width:
-                _crop_left = max(0.0, width - follow_crop_width)
-            _crop_right = _crop_left + follow_crop_width
-            _crop_top = _st.y0 if hasattr(_st, "y0") else max(0.0, _st.cy - _crop_h_est / 2.0)
-            _crop_bottom = _crop_top + (_st.crop_h if hasattr(_st, "crop_h") else _crop_h_est)
+            # Crop rectangle from state — use per-frame x0/crop_w (clamped
+            # bounds that match rendering) rather than follow_crop_width.
+            _st_cw = _st.crop_w if hasattr(_st, "crop_w") and _st.crop_w > 0 else follow_crop_width
+            _st_ch = _st.crop_h if hasattr(_st, "crop_h") and _st.crop_h > 0 else _crop_h_est
+            _crop_left = _st.x0 if hasattr(_st, "x0") else max(0.0, _st.cx - _st_cw / 2.0)
+            _crop_right = _crop_left + _st_cw
+            _crop_top = _st.y0 if hasattr(_st, "y0") else max(0.0, _st.cy - _st_ch / 2.0)
+            _crop_bottom = _crop_top + _st_ch
 
             # Distance to nearest crop edge (negative = outside)
             _dx_left = _bx - _crop_left
