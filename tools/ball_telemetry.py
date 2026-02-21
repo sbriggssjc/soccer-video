@@ -1621,6 +1621,19 @@ def fuse_yolo_and_centroid(
     centroid_used = 0
     blended = 0
     conf_threshold = 0.28  # YOLO conf above which we trust it fully (lowered from 0.40)
+    # Adaptive conf threshold: when YOLO is sparse, lower the threshold
+    # further so we accept more marginal detections.  At 5% density the
+    # threshold drops to 0.18, recovering ~30-50% more detections that
+    # were being discarded as "low confidence" even though they were
+    # correct ball positions.
+    _yolo_density_pre = len(yolo_by_frame) / max(frame_count, 1)
+    if _yolo_density_pre < 0.15:
+        _density_ratio = _yolo_density_pre / 0.15
+        conf_threshold = max(0.15, conf_threshold * (0.65 + 0.35 * _density_ratio))
+        print(
+            f"[FUSION] Sparse YOLO ({_yolo_density_pre:.1%}): "
+            f"lowered conf_threshold to {conf_threshold:.2f}"
+        )
 
     # Track last trusted YOLO position for centroid gating.
     # When centroid-only frames appear far from the last YOLO position,
@@ -1639,6 +1652,14 @@ def fuse_yolo_and_centroid(
     YOLO_HOLD_BLEND = 0.40  # weight for last YOLO when centroid diverges
     YOLO_STALE_FRAMES = max(1, int(30 * _fps_scale))  # ~1s at any fps
 
+    # Velocity-based prediction: maintain a short history of the last
+    # 2-3 YOLO detections so we can predict where the ball *should* be
+    # now, rather than gating centroid against a single stale position.
+    # This prevents the "gravity well" effect where a stale YOLO anchor
+    # holds the camera in place while the ball has moved on.
+    _yolo_history: list[tuple[int, float, float]] = []  # (frame, x, y)
+    _YOLO_HISTORY_MAX = 3
+
     # Adaptive gating: when YOLO density is very low (sparse detections),
     # increase gating strength so centroid can't freely wander to track
     # player clusters instead of the ball.
@@ -1654,6 +1675,41 @@ def fuse_yolo_and_centroid(
             f"gating stale_frames={YOLO_STALE_FRAMES}, hold_blend={YOLO_HOLD_BLEND:.2f}"
         )
 
+    def _update_yolo_history(frame_idx: int, x: float, y: float) -> None:
+        """Append to YOLO history, keeping only the last N entries."""
+        nonlocal _last_yolo_x, _last_yolo_y, _last_yolo_frame
+        _last_yolo_x, _last_yolo_y = x, y
+        _last_yolo_frame = frame_idx
+        _yolo_history.append((frame_idx, x, y))
+        if len(_yolo_history) > _YOLO_HISTORY_MAX:
+            _yolo_history.pop(0)
+
+    def _predict_ball_position(at_frame: int) -> tuple[float, float]:
+        """Predict ball position at *at_frame* using velocity from YOLO history.
+
+        With 2+ history points we compute a velocity vector and extrapolate.
+        With only 1 point we fall back to the static last-YOLO position.
+        The prediction is clamped to the frame so it doesn't fly off-screen.
+        """
+        if len(_yolo_history) < 2:
+            return float(_last_yolo_x), float(_last_yolo_y)  # type: ignore[arg-type]
+        # Use the two most recent YOLO detections for velocity
+        f0, x0, y0 = _yolo_history[-2]
+        f1, x1, y1 = _yolo_history[-1]
+        dt = max(1, f1 - f0)
+        vx = (x1 - x0) / dt
+        vy = (y1 - y0) / dt
+        elapsed = at_frame - f1
+        # Decelerate prediction: ball slows down over time (drag model)
+        # Use sqrt decay so prediction doesn't overshoot on long gaps
+        eff_elapsed = math.sqrt(max(0, elapsed)) * math.sqrt(max(1, dt))
+        pred_x = x1 + vx * eff_elapsed
+        pred_y = y1 + vy * eff_elapsed
+        # Clamp to frame bounds
+        pred_x = max(0.0, min(float(width), pred_x))
+        pred_y = max(0.0, min(float(height), pred_y))
+        return pred_x, pred_y
+
     for i in range(frame_count):
         yolo = yolo_by_frame.get(i)
         centroid = centroid_by_frame.get(i)
@@ -1667,8 +1723,7 @@ def fuse_yolo_and_centroid(
                 confidence[i] = yolo_conf
                 source_labels[i] = FUSE_YOLO
                 yolo_used += 1
-                _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
-                _last_yolo_frame = i
+                _update_yolo_history(i, float(yolo.x), float(yolo.y))
             else:
                 # Low-confidence YOLO: blend with centroid
                 # Weight YOLO by its confidence, centroid gets the remainder
@@ -1679,8 +1734,7 @@ def fuse_yolo_and_centroid(
                 confidence[i] = 0.3 + 0.5 * w_yolo  # 0.3 to 0.8
                 source_labels[i] = FUSE_BLENDED
                 blended += 1
-                _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
-                _last_yolo_frame = i
+                _update_yolo_history(i, float(yolo.x), float(yolo.y))
             used_mask[i] = True
         elif yolo is not None:
             # Only YOLO
@@ -1690,27 +1744,30 @@ def fuse_yolo_and_centroid(
             source_labels[i] = FUSE_YOLO
             used_mask[i] = True
             yolo_used += 1
-            _last_yolo_x, _last_yolo_y = float(yolo.x), float(yolo.y)
-            _last_yolo_frame = i
+            _update_yolo_history(i, float(yolo.x), float(yolo.y))
         elif centroid is not None:
             cx, cy = float(centroid.x), float(centroid.y)
-            # Gate centroid against last known YOLO position, with
+            # Gate centroid against predicted YOLO position, with
             # time-based decay so stale YOLO references don't anchor
-            # the camera in the wrong part of the field.
+            # the camera in the wrong part of the field.  Uses velocity-
+            # based prediction from last 2-3 YOLO detections instead of
+            # a static last-seen position, preventing the "gravity well"
+            # effect on sparse clips.
             if _last_yolo_x is not None:
-                dist = math.hypot(cx - _last_yolo_x, cy - _last_yolo_y)
+                pred_x, pred_y = _predict_ball_position(i)
+                dist = math.hypot(cx - pred_x, cy - pred_y)
                 if dist > YOLO_HOLD_DIST:
                     frames_since = i - _last_yolo_frame
                     decay = max(0.0, 1.0 - frames_since / YOLO_STALE_FRAMES)
                     w = YOLO_HOLD_BLEND * decay
                     if w > 0.01:
-                        cx = w * _last_yolo_x + (1.0 - w) * cx
-                        cy = w * _last_yolo_y + (1.0 - w) * cy
+                        cx = w * pred_x + (1.0 - w) * cx
+                        cy = w * pred_y + (1.0 - w) * cy
                         confidence[i] = 0.22 + 0.08 * (1.0 - decay)
                     else:
                         confidence[i] = 0.30  # YOLO stale — trust centroid
                 else:
-                    confidence[i] = 0.30  # centroid agrees with YOLO area
+                    confidence[i] = 0.30  # centroid agrees with predicted area
             else:
                 confidence[i] = 0.30
             positions[i, 0] = cx

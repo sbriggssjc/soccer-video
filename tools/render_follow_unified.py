@@ -5055,6 +5055,7 @@ class CameraPlanner:
         keepinview_zoom_out_max: float = 1.6,
         center_frac: float = 0.5,
         post_smooth_sigma: float = 0.0,
+        event_type: Optional[str] = None,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -5085,6 +5086,27 @@ class CameraPlanner:
         self.keepinview_min_band_frac = 0.15
         self.keepinview_max_band_frac = 0.85
         self._post_smooth_sigma = max(0.0, float(post_smooth_sigma))
+
+        # Event-type-aware parameter adjustments.
+        # Different event types have fundamentally different ball dynamics
+        # and require different camera behavior.
+        self.event_type = (event_type or "").upper().strip()
+        if self.event_type == "GOAL":
+            # GOAL: the ball entering the net is the money shot.  Raise
+            # speed limit 25% so the camera doesn't lag, tighten keepinview
+            # margin 25% so the ball stays well-centered, and increase
+            # nudge gain so corrections are snappier.
+            self.speed_limit *= 1.25
+            self.keepinview_margin_px *= 0.75
+            self.keepinview_nudge_gain = min(1.0, self.keepinview_nudge_gain * 1.2)
+            self.keepinview_min_band_frac = 0.18  # tighter vertical band
+        elif self.event_type == "CROSS":
+            # CROSS: fast horizontal ball movement (40-60+ px/frame).
+            # Need much higher lateral speed limit and wider keepinview
+            # margin during the flight phase.
+            self.speed_limit *= 1.40
+            self.keepinview_margin_px *= 0.85
+            self.keepinview_nudge_gain = min(1.0, self.keepinview_nudge_gain * 1.15)
 
         if not math.isfinite(center_frac):
             center_frac = 0.5
@@ -5293,6 +5315,16 @@ class CameraPlanner:
         prev_bx = prev_cx
         prev_by = prev_cy
         _dz_hold_count = 0  # tracking deadzone: frames where camera held still
+
+        # Flight-phase detector: when the ball sustains high speed over
+        # multiple frames (a cross, a long pass, or a shot in flight),
+        # boost the speed limit so the camera can actually keep up.
+        # We track a short rolling window of per-frame ball deltas.
+        _flight_window_size = max(3, int(0.25 * render_fps))  # ~0.25s window
+        _flight_delta_history: list[float] = []
+        _flight_speed_thresh = self.width * 0.012 * _fps_ratio  # 1.2% of frame/frame
+        _flight_boost_active = False
+        _avg_delta = 0.0
 
         # --- Scorer memory state (post-goal snap-back) ---
         # Track the last player closest to the ball during high-speed
@@ -5961,23 +5993,42 @@ class CameraPlanner:
                 _pan_boost = min(2.5, 1.0 + (_ball_delta_pf / _pan_detect_thresh - 1.0) * 0.8)
                 accel_speed_boost = max(accel_speed_boost, _pan_boost)
 
+            # Flight-phase speed boost: when the ball sustains high speed
+            # over a short window (~0.25s), boost the speed limit so the
+            # camera can track fast crosses/shots instead of lagging behind.
+            _flight_delta_history.append(_ball_delta_pf)
+            if len(_flight_delta_history) > _flight_window_size:
+                _flight_delta_history.pop(0)
+            if len(_flight_delta_history) >= _flight_window_size:
+                _avg_delta = sum(_flight_delta_history) / len(_flight_delta_history)
+                _flight_boost_active = _avg_delta > _flight_speed_thresh
+            if _flight_boost_active:
+                _flight_boost = min(2.0, 1.0 + (_avg_delta / _flight_speed_thresh - 1.0) * 0.6)
+                accel_speed_boost = max(accel_speed_boost, _flight_boost)
+                if not any(f.startswith("flight_boost") for f in clamp_flags):
+                    clamp_flags.append(f"flight_boost={_flight_boost:.2f}")
+
             # Keep-in-view speed boost: when the ball is drifting toward
             # the crop edge, raise the speed cap proportionally so the
-            # safety correction isn't immediately clamped away.
+            # safety correction isn't immediately clamped away.  The boost
+            # is steeper than linear so that moderate excess (0.3-0.5)
+            # already provides meaningful speed headroom, preventing the
+            # destructive cycle of keepinview→clamp→keepinview jitter.
             if keepinview_override and excess_frac > 0.0:
-                _keepin_boost = 1.0 + 2.0 * excess_frac  # up to 3x at full excess
+                _keepin_boost = 1.0 + 3.5 * excess_frac  # up to 4.5x at full excess
                 accel_speed_boost = max(accel_speed_boost, _keepin_boost)
 
             # Confidence-based speed damping: when the ball position is
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
             # At full confidence (>=0.60) no damping; at zero confidence the
-            # camera moves at 70% of normal speed.  (Raised from 50% floor —
-            # the old value caused the camera to lag behind on centroid-heavy
-            # clips, triggering constant keepinview corrections instead of
-            # smooth proactive tracking.)
+            # camera moves at 70% of normal speed.
+            # Completely bypass confidence damping when keepinview is active
+            # with meaningful excess — the camera must reach the ball even
+            # if confidence is low, otherwise keepinview and speed-limit
+            # fight each other every frame.
             _conf_speed_scale = 1.0
-            if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.05):
+            if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.02):
                 _conf_speed_scale = 0.70 + 0.50 * frame_conf  # 0.70 at 0, 1.0 at 0.60
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
@@ -8598,6 +8649,7 @@ def run(
         keepinview_zoom_out_max=keepinview_zoom_cap,
         center_frac=cy_frac,
         post_smooth_sigma=float(preset_config.get("post_smooth_sigma", 0.0)),
+        event_type=getattr(args, "event_type", None),
     )
     if not ball_samples:
         ball_samples = load_ball_telemetry_for_clip(str(original_source_path))
@@ -8857,6 +8909,58 @@ def run(
             f"[DIAG] Speed-limited: {_speed_limited_frames}f ({100.0 * _speed_limited_frames / max(1, _n_states):.0f}%) | "
             f"Keepinview: {_keepinview_frames}f ({100.0 * _keepinview_frames / max(1, _n_states):.0f}%)"
         )
+
+        # Confidence-weighted ball-in-crop: a single number that reflects
+        # how trustworthy the "ball in crop" metric is by weighting each
+        # frame by source reliability:
+        #   YOLO (source 1, 3): weight 1.0
+        #   Centroid within 100px of recent YOLO: weight 0.5
+        #   All other centroid/interp/hold: weight 0.0
+        _cw_weighted_in = 0.0
+        _cw_total_weight = 0.0
+        for _fi in range(_n_states):
+            if _fi >= len(positions) or not used_mask[_fi]:
+                continue
+            _src = int(fusion_source_labels[_fi]) if (fusion_source_labels is not None and _fi < len(fusion_source_labels)) else 0
+            if _src in (1, 3):  # yolo, blended
+                _w = 1.0
+            elif _src == 2:  # centroid
+                # Weight centroid frames by proximity to nearest YOLO frame
+                _nearest_yolo_dist = float('inf')
+                if fusion_source_labels is not None:
+                    for _yd in range(max(0, _fi - 30), min(len(fusion_source_labels), _fi + 31)):
+                        if int(fusion_source_labels[_yd]) in (1, 3):
+                            _d = abs(_yd - _fi)
+                            if _d < _nearest_yolo_dist:
+                                _nearest_yolo_dist = _d
+                _w = 0.5 if _nearest_yolo_dist <= 15 else 0.0
+            else:
+                _w = 0.0
+            if _w > 0:
+                _cw_total_weight += _w
+                _st_cw2 = states[_fi].crop_w if hasattr(states[_fi], "crop_w") and states[_fi].crop_w > 0 else follow_crop_width
+                _st_ch2 = states[_fi].crop_h if hasattr(states[_fi], "crop_h") and states[_fi].crop_h > 0 else _crop_h_est
+                _cl2 = states[_fi].x0 if hasattr(states[_fi], "x0") else max(0.0, states[_fi].cx - _st_cw2 / 2.0)
+                _cr2 = _cl2 + _st_cw2
+                _ct2 = states[_fi].y0 if hasattr(states[_fi], "y0") else max(0.0, states[_fi].cy - _st_ch2 / 2.0)
+                _cb2 = _ct2 + _st_ch2
+                _bx2 = float(positions[_fi, 0])
+                _by2 = float(positions[_fi, 1])
+                _in2 = (_bx2 >= _cl2 and _bx2 <= _cr2 and _by2 >= _ct2 and _by2 <= _cb2)
+                if _in2:
+                    _cw_weighted_in += _w
+        _cw_pct = 100.0 * _cw_weighted_in / max(1e-6, _cw_total_weight) if _cw_total_weight > 0 else 0.0
+        print(
+            f"[DIAG] Confidence-weighted ball-in-crop: {_cw_pct:.1f}% "
+            f"(weighted frames: {_cw_total_weight:.0f}/{_checked})"
+        )
+        if _cw_total_weight < _checked * 0.15:
+            print(
+                f"[DIAG] WARNING: Only {_cw_total_weight:.0f} frames have "
+                f"trustworthy ball position data — framing quality cannot "
+                f"be reliably assessed for this clip."
+            )
+
         # Camera cx timeline at 1-second intervals
         if _n_states >= 2:
             _render_fps = fps if fps > 0 else 24
@@ -9711,6 +9815,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["option_c"],
         default="option_c",
         help="Portrait follow mode (option_c: segment + smoothing + anticipation).",
+    )
+    parser.add_argument(
+        "--event-type",
+        dest="event_type",
+        default=None,
+        help="Event type for this clip (GOAL, SHOT, CROSS). Adjusts camera "
+             "speed limits and keepinview parameters for the event dynamics.",
     )
     return parser
 
