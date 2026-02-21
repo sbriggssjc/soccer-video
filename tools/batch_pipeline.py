@@ -381,6 +381,20 @@ def _clip_duration_s(clip_path: Path) -> float:
     return 0.0
 
 
+def _detect_event_type(clip_path: Path) -> str | None:
+    """Infer event type (GOAL, SHOT, CROSS, etc.) from clip filename.
+
+    Looks for common patterns like ``clip_004_GOAL``, ``highlight_CROSS_03``,
+    or ``_goal_`` (case-insensitive) in the filename stem.
+    """
+    stem = clip_path.stem.upper()
+    for event in ("GOAL", "CROSS", "SHOT", "SAVE", "FOUL"):
+        # Match as a whole word — avoid false positives like "CROSSBAR"
+        if re.search(rf"(?:^|[_.\-])({event})(?:$|[_.\-])", stem):
+            return event
+    return None
+
+
 def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
                  *, keep_scratch: bool = False,
                  scratch_root: str | None = None,
@@ -405,6 +419,11 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
         cmd.append("--diagnostics")
     if scratch_root:
         cmd.extend(["--scratch-root", scratch_root])
+
+    # Auto-detect event type from clip filename and pass to renderer.
+    _event_type = _detect_event_type(clip_path)
+    if _event_type:
+        cmd.extend(["--event-type", _event_type])
 
     # Auto-discover per-clip YOLO exclusion zones.
     # Convention: <clip_stem>.yolo_exclude.json in any of these locations:
@@ -497,6 +516,12 @@ def _render_clip(clip_path: Path, out_path: Path, preset: str, portrait: str,
         m = re.search(r"YOLO-only ball in crop: \d+/\d+ \(([0-9.]+)%\)", result.stdout)
         if m:
             stats["yolo_ball_in_crop_pct"] = float(m.group(1))
+        # [DIAG] Confidence-weighted ball-in-crop: P% (weighted frames: N/M)
+        m = re.search(r"Confidence-weighted ball-in-crop: ([0-9.]+)% \(weighted frames: (\d+)/(\d+)\)", result.stdout)
+        if m:
+            stats["cw_ball_in_crop_pct"] = float(m.group(1))
+            stats["cw_weighted_frames"] = int(m.group(2))
+            stats["cw_total_frames"] = int(m.group(3))
 
     if result.returncode == 0:
         return True, "", stats
@@ -856,6 +881,20 @@ def main(argv: list[str] | None = None) -> int:
                 yolo_crop_pcts.append(yolo_crop_pct)
                 if yolo_crop_pct < 90.0:
                     flagged.append((name, f"YOLO-verified ball in crop only {yolo_crop_pct:.1f}%"))
+            # Confidence-weighted ball-in-crop gating: flag clips where
+            # the weighted metric (only counting YOLO + near-YOLO centroid
+            # frames) shows poor framing, AND there's enough data to trust it.
+            cw_pct = st.get("cw_ball_in_crop_pct")
+            cw_frames = st.get("cw_weighted_frames", 0)
+            cw_total = st.get("cw_total_frames", 1)
+            if cw_pct is not None:
+                cw_coverage = cw_frames / max(1, cw_total)
+                if cw_coverage >= 0.15 and cw_pct < 85.0:
+                    flagged.append((name, f"confidence-weighted ball-in-crop {cw_pct:.1f}% "
+                                          f"(needs review — trustworthy frames show framing issues)"))
+                elif cw_coverage < 0.15:
+                    flagged.append((name, f"insufficient trustworthy data ({cw_frames}/{cw_total} frames) "
+                                          f"— framing quality unverifiable"))
             if st.get("sparse_yolo"):
                 sparse_count += 1
             if "avg_conf" in st:
@@ -876,6 +915,11 @@ def main(argv: list[str] | None = None) -> int:
         if yolo_crop_pcts:
             print(f"  Ball-in-crop (YOLO):    {sum(yolo_crop_pcts)/len(yolo_crop_pcts):.1f}% avg "
                   f"(min={min(yolo_crop_pcts):.1f}%, max={max(yolo_crop_pcts):.1f}%)")
+        # Confidence-weighted ball-in-crop summary
+        _cw_pcts = [st.get("cw_ball_in_crop_pct") for _, st in clip_stats if st.get("cw_ball_in_crop_pct") is not None]
+        if _cw_pcts:
+            print(f"  Ball-in-crop (weighted): {sum(_cw_pcts)/len(_cw_pcts):.1f}% avg "
+                  f"(min={min(_cw_pcts):.1f}%, max={max(_cw_pcts):.1f}%)")
         print(f"  Sparse YOLO clips:      {sparse_count}/{len(clip_stats)}")
         print(f"  Zero YOLO clips:        {zero_yolo_count}/{len(clip_stats)}")
 
