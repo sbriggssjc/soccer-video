@@ -5161,6 +5161,7 @@ class CameraPlanner:
         #
         # FPS-correct: alpha_corrected = 1 - (1-alpha_base)^(30/fps) keeps
         # the effective smoothing window in seconds constant at any frame rate.
+        render_fps = self.render_fps
         _conf_alpha_base = 0.15  # tuned for 30fps: ~6-frame effective window
         _fps_ratio = 30.0 / max(render_fps, 1.0)  # >1 at lower fps, 1.0 at 30fps
         _conf_alpha = 1.0 - (1.0 - _conf_alpha_base) ** _fps_ratio
@@ -5182,7 +5183,6 @@ class CameraPlanner:
         prev_cx = init_cx
         prev_cy = init_cy
         prev_zoom = self.base_zoom
-        render_fps = self.render_fps
         px_per_sec_x = self.speed_limit * 1.35
         px_per_sec_y = self.speed_limit * 0.90
         pxpf_x = px_per_sec_x / render_fps if render_fps > 0 else 0.0
