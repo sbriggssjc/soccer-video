@@ -5158,7 +5158,12 @@ class CameraPlanner:
         # Without this, rapid alternation between YOLO (conf ≥ 0.4) and
         # centroid-only (conf = 0.3) frames causes the confidence-based zoom
         # to oscillate, producing visible zoom jitter even with zoom_slew.
-        _conf_alpha = 0.15  # 15% new, 85% prev → ~6-frame effective window
+        #
+        # FPS-correct: alpha_corrected = 1 - (1-alpha_base)^(30/fps) keeps
+        # the effective smoothing window in seconds constant at any frame rate.
+        _conf_alpha_base = 0.15  # tuned for 30fps: ~6-frame effective window
+        _fps_ratio = 30.0 / max(render_fps, 1.0)  # >1 at lower fps, 1.0 at 30fps
+        _conf_alpha = 1.0 - (1.0 - _conf_alpha_base) ** _fps_ratio
         for _ci in range(1, frame_count):
             frame_confidence[_ci] = (
                 _conf_alpha * frame_confidence[_ci]
@@ -5185,6 +5190,9 @@ class CameraPlanner:
         center_alpha = float(np.clip(self.smoothing, 0.0, 1.0))
         if math.isclose(center_alpha, 0.0, abs_tol=1e-6):
             center_alpha = 0.28
+        # FPS-correct tracking EMA so camera responds at the same real-time
+        # rate regardless of frame rate.
+        center_alpha = 1.0 - (1.0 - center_alpha) ** _fps_ratio
         zoom_slew = self.zoom_slew
         prev_target_x = prev_cx
         prev_target_y = prev_cy
@@ -5276,10 +5284,10 @@ class CameraPlanner:
         # is high, zoom out to keep more action visible.
         prev_speed_pf = 0.0
         smooth_speed_pf = 0.0  # EMA-smoothed speed for zoom decisions
-        speed_ema_alpha = 0.25  # 25% new → ~4-frame window, dampens fusion noise
+        speed_ema_alpha = 1.0 - (1.0 - 0.25) ** _fps_ratio  # fps-corrected ~4-frame window
         accel_zoom_out = 1.0  # multiplier: 1.0 = no change, <1.0 = zoom out
-        accel_zoom_decay = 0.92  # how fast the zoom-out recovers (per frame)
-        accel_threshold_pf = 4.0  # px/frame acceleration threshold
+        accel_zoom_decay = 0.92 ** _fps_ratio  # fps-corrected per-frame decay
+        accel_threshold_pf = 4.0 * _fps_ratio  # px/frame accel threshold (fps-corrected)
         accel_zoom_strength = 0.22  # max zoom reduction per acceleration event
 
         prev_bx = prev_cx
@@ -5304,7 +5312,7 @@ class CameraPlanner:
         # frame-to-frame nearest-neighbor jumps between players.
         _scorer_smooth_x: Optional[float] = None
         _scorer_smooth_y: Optional[float] = None
-        _SCORER_EMA_ALPHA = 0.35  # 35% new, 65% previous — smooth but responsive
+        _SCORER_EMA_ALPHA = 1.0 - (1.0 - 0.35) ** _fps_ratio  # fps-corrected scorer smoothing
         # Goal origin: where the scorer was when the goal was detected.
         # Used to cap total drift — prevents the tracker from migrating
         # to the coach/sideline when the source camera pans.
@@ -5377,7 +5385,7 @@ class CameraPlanner:
             # During shots/passes, remember the closest player to the ball.
             # When the ball rapidly decelerates (goal, save, out of play),
             # the camera can snap back to the scorer for the reaction.
-            _shot_speed_thr = 6.0  # px/frame: above this = shot in flight
+            _shot_speed_thr = 6.0 * _fps_ratio  # px/frame: fps-corrected (same real-world speed at any fps)
             if smooth_speed_pf > _shot_speed_thr:
                 _high_speed_sustained += 1
                 # Update scorer position: nearest person to ball during shot
@@ -5400,7 +5408,7 @@ class CameraPlanner:
                 # now suddenly slow.  This triggers the snap-back.
                 if _high_speed_sustained >= 5 and _scorer_x is not None:
                     _decel = _prev_smooth_speed - smooth_speed_pf
-                    if _decel > 3.0:  # rapid deceleration
+                    if _decel > 3.0 * _fps_ratio:  # rapid deceleration (fps-corrected)
                         _goal_event_frame = frame_idx
                         _goal_snap_active = True
                         _goal_snap_duration = 0
@@ -5849,9 +5857,10 @@ class CameraPlanner:
             _pos_hold = _dz_dist < _dz_radius
             _pos_ramp = _dz_dist < _dz_radius * 3.0
             # Velocity-based thresholds: hold when target moves < 15% of
-            # deadzone radius per frame; ramp when < 50%.
-            _vel_hold = _target_delta < _dz_radius * 0.15
-            _vel_ramp = _target_delta < _dz_radius * 0.50
+            # deadzone radius per frame; ramp when < 50%.  Scale by fps
+            # ratio so the same real-world speed triggers the same behavior.
+            _vel_hold = _target_delta < _dz_radius * 0.15 * _fps_ratio
+            _vel_ramp = _target_delta < _dz_radius * 0.50 * _fps_ratio
             if _pos_hold or _vel_hold:
                 follow_alpha = 0.0
                 _dz_hold_count += 1
@@ -5947,7 +5956,7 @@ class CameraPlanner:
             # than ball movement), temporarily allow faster virtual panning
             # so the crop keeps up with the physical camera.
             _ball_delta_pf = math.hypot(bx_used - prev_bx, target_center_y - prev_by)
-            _pan_detect_thresh = self.width * 0.015  # 1.5% of frame width/frame
+            _pan_detect_thresh = self.width * 0.015 * _fps_ratio  # 1.5% of frame width/frame (fps-corrected)
             if _ball_delta_pf > _pan_detect_thresh:
                 _pan_boost = min(2.5, 1.0 + (_ball_delta_pf / _pan_detect_thresh - 1.0) * 0.8)
                 accel_speed_boost = max(accel_speed_boost, _pan_boost)
