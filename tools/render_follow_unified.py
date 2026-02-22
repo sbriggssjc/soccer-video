@@ -5109,6 +5109,10 @@ class CameraPlanner:
         self.keepinview_min_band_frac = 0.15
         self.keepinview_max_band_frac = 0.85
         self._post_smooth_sigma = max(0.0, float(post_smooth_sigma))
+        # Confidence-based speed damping floor: at zero confidence the
+        # camera moves at this fraction of normal speed.  Event-type
+        # handlers can lower this to make centroid-dominated clips calmer.
+        self._conf_speed_floor = 0.70  # default: matches original formula
 
         # Event-type-aware parameter adjustments.
         # Different event types have fundamentally different ball dynamics
@@ -5132,14 +5136,15 @@ class CameraPlanner:
             self.keepinview_nudge_gain = min(1.0, self.keepinview_nudge_gain * 1.15)
         elif self.event_type == "FREE_KICK":
             # FREE_KICK: ball is stationary during setup, then one fast
-            # kick.  Noisy detections on the parked ball cause the camera
-            # to jitter if nudge is too eager.  Widen margins and dampen
-            # nudge so the camera holds steady during the set piece, and
-            # raise post-smooth sigma for an extra-cinematic feel.
-            self.keepinview_margin_px *= 1.40   # wider margin = less nudging
-            self.keepinview_nudge_gain *= 0.60  # gentler corrections
-            self.speed_limit *= 0.80            # calmer panning overall
-            self._post_smooth_sigma = max(self._post_smooth_sigma, 7.0)
+            # kick.  The camera must hold steady during setup (so the kick
+            # taker stays in frame) and not chase centroid noise during the
+            # aftermath.  Centroid frames (conf ~0.28) should barely move
+            # the camera; only confident YOLO-backed positions trigger pans.
+            self.keepinview_margin_px *= 1.80   # much wider margin = rare nudging
+            self.keepinview_nudge_gain *= 0.45  # very gentle corrections
+            self.speed_limit *= 0.55            # camera moves slowly overall
+            self._post_smooth_sigma = max(self._post_smooth_sigma, 10.0)
+            self._conf_speed_floor = 0.30       # centroid frames -> near-locked camera
 
         if not math.isfinite(center_frac):
             center_frac = 0.5
@@ -6055,14 +6060,16 @@ class CameraPlanner:
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
             # At full confidence (>=0.60) no damping; at zero confidence the
-            # camera moves at 70% of normal speed.
+            # camera moves at _conf_speed_floor (default 0.70, lower for
+            # event types like FREE_KICK where centroid data is unreliable).
             # Completely bypass confidence damping when keepinview is active
             # with meaningful excess — the camera must reach the ball even
             # if confidence is low, otherwise keepinview and speed-limit
             # fight each other every frame.
             _conf_speed_scale = 1.0
+            _csf = self._conf_speed_floor
             if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.02):
-                _conf_speed_scale = 0.70 + 0.50 * frame_conf  # 0.70 at 0, 1.0 at 0.60
+                _conf_speed_scale = _csf + (1.0 - _csf) * (frame_conf / 0.60)
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
             _eff_speed_boost = accel_speed_boost * _conf_speed_scale
