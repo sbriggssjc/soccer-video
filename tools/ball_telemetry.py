@@ -744,7 +744,14 @@ def _ball_class_ids(model, sport: str) -> set[int]:
 
 
 def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = DEFAULT_MIN_CONF) -> Tuple[float | None, float | None, float | None]:
-    """Run detector on a single frame and return centre coords + confidence."""
+    """Run detector on a single frame and return centre coords + confidence.
+
+    When multiple ball candidates are detected, a depth bias favours
+    lower-in-frame detections (closer to the camera in a typical soccer
+    broadcast).  The bias adds up to +0.15 confidence bonus at the very
+    bottom of the frame, preventing the tracker from locking onto a spare
+    ball or background-pitch ball with marginally higher raw confidence.
+    """
 
     try:
         results = model.predict(frame, verbose=False, device="cpu")
@@ -753,7 +760,10 @@ def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = 
         return None, None, None
 
     target_ids = _ball_class_ids(model, sport)
+    frame_h = float(frame.shape[0]) if hasattr(frame, "shape") else 1.0
+    _DEPTH_BIAS = 0.15  # max bonus for bottom-of-frame detection
     best: Tuple[float, float, float] | None = None
+    best_score: float = float("-inf")
 
     for res in results:
         boxes = getattr(res, "boxes", None)
@@ -775,7 +785,10 @@ def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = 
             x0, y0, x1, y1 = map(float, box[:4])
             cx = (x0 + x1) / 2.0
             cy = (y0 + y1) / 2.0
-            if best is None or conf > best[2]:
+            depth_bonus = (cy / max(frame_h, 1.0)) * _DEPTH_BIAS
+            score = float(conf) + depth_bonus
+            if score > best_score:
+                best_score = score
                 best = (cx, cy, float(conf))
 
     if best is None:
