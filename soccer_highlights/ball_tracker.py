@@ -250,7 +250,14 @@ class BallTracker:
         # override spatial proximity.  Penalty: 0.001 conf per pixel of
         # distance from predicted position (~0.2 penalty at 200px,
         # ~0.5 at 500px).
+        #
+        # Depth bias: prefer lower-in-frame detections (closer to camera
+        # in a typical soccer broadcast).  A ball at the bottom of the
+        # frame gets up to +0.15 confidence bonus vs one at the very top.
+        # This prevents the tracker from locking onto a spare ball or
+        # background-pitch ball that happens to have similar YOLO confidence.
         _DIST_PENALTY_SCALE = 0.001
+        _DEPTH_BIAS = 0.15  # max bonus for bottom-of-frame detection
         predicted = self._velocity_filter.predict(frame_index)
         if predicted is not None and len(_candidates) > 1:
             pred_x, pred_y = float(predicted[0]), float(predicted[1])
@@ -259,14 +266,16 @@ class BallTracker:
             for cand in _candidates:
                 _, c_val, cx_c, cy_c, _ = cand
                 dist = math.hypot(cx_c - pred_x, cy_c - pred_y)
-                score = c_val - dist * _DIST_PENALTY_SCALE
+                depth_bonus = (cy_c / max(height, 1.0)) * _DEPTH_BIAS
+                score = c_val - dist * _DIST_PENALTY_SCALE + depth_bonus
                 if score > best_score:
                     best_score = score
                     best_cand = cand
             best_idx, best_conf, _, _, best_box = best_cand
         else:
-            # Single candidate or no prediction: pick highest confidence
-            best_cand = max(_candidates, key=lambda c: c[1])
+            # Single candidate or no prediction: pick highest confidence,
+            # with depth bias to prefer closer (lower-in-frame) detections.
+            best_cand = max(_candidates, key=lambda c: c[1] + (c[3] / max(height, 1.0)) * _DEPTH_BIAS)
             best_idx, best_conf, _, _, best_box = best_cand
 
         x1, y1, x2, y2 = best_box
