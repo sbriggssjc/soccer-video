@@ -8949,32 +8949,53 @@ def run(
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask, confidence=fusion_confidence, person_boxes=person_boxes_by_frame)
 
-    # --- STARTUP SNAP: ensure kick taker / ball visible at clip start ---
-    # The Gaussian post-smooth + anticipation lead can pull the camera
-    # far from the ball at frame 0 (e.g. 172 px on a free kick where
-    # the ball is about to fly across the field).  This makes the kick
-    # taker invisible.  Fix: snap the first few frames toward the ball
-    # position and quadratic-ramp back to the planned trajectory.
-    if states and len(positions) > 0 and not np.isnan(positions[0]).any():
-        _snap_ball_x = float(positions[0][0])
-        _snap_cam_x = float(states[0].cx)
-        _snap_gap = abs(_snap_ball_x - _snap_cam_x)
-        if _snap_gap > 50.0:
-            _snap_n = min(20, len(states) // 4)
+    # --- STARTUP SNAP: keep camera on ball during free-kick setup ---
+    # The Gaussian post-smooth + centroid noise can pull the camera far
+    # from the ball at the start of the clip.  For FREE_KICK clips, the
+    # setup period lasts several seconds and the kick taker must stay
+    # in frame the entire time — so we track the per-frame ball position
+    # and blend smoothly toward the planned trajectory.
+    #
+    # For other events, a short snap (20 frames) corrects the initial
+    # Gaussian pull when the gap exceeds 50 px.
+    _snap_event = getattr(args, "event_type", None) or ""
+    _snap_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+    if states and len(positions) > 0:
+        _snap_ball_x0 = float(positions[0][0]) if not np.isnan(positions[0]).any() else None
+        _snap_cam_x0 = float(states[0].cx) if states else None
+
+        _is_free_kick = (_snap_event == "FREE_KICK")
+        _snap_gap = abs(_snap_ball_x0 - _snap_cam_x0) if (_snap_ball_x0 is not None and _snap_cam_x0 is not None) else 0.0
+
+        if _is_free_kick or _snap_gap > 50.0:
+            # FREE_KICK: long ramp tracking per-frame ball positions
+            # (camera stays near ball through entire setup period).
+            # Other events: short ramp snapping to f0 ball position.
+            _snap_n = int(_snap_fps * 5.0) if _is_free_kick else 20
+            _snap_n = min(_snap_n, len(states) // 3)
+            _snap_n = max(_snap_n, 1)
             _snap_fw = float(width) if width > 0 else 1920.0
+
             for _si in range(_snap_n):
                 _blend = (_si / _snap_n) ** 2  # quadratic ease-in to planned path
-                _new_cx = (1.0 - _blend) * _snap_ball_x + _blend * states[_si].cx
+                # Per-frame ball position (tracks ball through kick flight)
+                if _si < len(positions) and not np.isnan(positions[_si]).any():
+                    _ball_x_i = float(positions[_si][0])
+                elif _snap_ball_x0 is not None:
+                    _ball_x_i = _snap_ball_x0
+                else:
+                    continue
+                _new_cx = (1.0 - _blend) * _ball_x_i + _blend * states[_si].cx
                 states[_si].cx = _new_cx
                 _half_cw = states[_si].crop_w / 2.0
                 states[_si].x0 = float(np.clip(
                     _new_cx - _half_cw, 0.0,
                     max(0.0, _snap_fw - states[_si].crop_w),
                 ))
+            _snap_label = "FREE_KICK ball-track" if _is_free_kick else "startup"
             print(
-                f"[CAMERA] Startup snap: shifted f0 camera {_snap_gap:.0f}px "
-                f"toward ball (cx {_snap_cam_x:.0f} -> {_snap_ball_x:.0f}), "
-                f"ramp={_snap_n}f"
+                f"[CAMERA] {_snap_label} snap: gap={_snap_gap:.0f}px, "
+                f"ramp={_snap_n}f ({_snap_n / _snap_fps:.1f}s)"
             )
 
     # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
