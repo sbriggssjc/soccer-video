@@ -385,12 +385,20 @@ def _detect_event_type(clip_path: Path) -> str | None:
     """Infer event type (GOAL, SHOT, CROSS, etc.) from clip filename.
 
     Looks for common patterns like ``clip_004_GOAL``, ``highlight_CROSS_03``,
-    or ``_goal_`` (case-insensitive) in the filename stem.
+    ``Free Kick & Goal``, or ``_goal_`` (case-insensitive) in the filename stem.
     """
     stem = clip_path.stem.upper()
+    # Word boundary: start/end of string OR any of _ . - space & +
+    _WB = r"(?:^|[\s_.\-&+])"
+    _WE = r"(?:$|[\s_.\-&+])"
+
+    # Check for FREE_KICK / FREE KICK / FREE-KICK first (compound event)
+    if re.search(rf"{_WB}FREE[\s_\-]*KICK{_WE}", stem):
+        return "FREE_KICK"
+
     for event in ("GOAL", "CROSS", "SHOT", "SAVE", "FOUL"):
         # Match as a whole word — avoid false positives like "CROSSBAR"
-        if re.search(rf"(?:^|[_.\-])({event})(?:$|[_.\-])", stem):
+        if re.search(rf"{_WB}({event}){_WE}", stem):
             return event
     return None
 
