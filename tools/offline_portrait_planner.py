@@ -787,8 +787,15 @@ class OfflinePortraitPlanner:
             accel_x = cfg.accel_limit_x
             accel_y = cfg.accel_limit_y
 
-        lead_x = lead_scale * (vx / norm)
-        lead_y = lead_scale * (vy / norm)
+        # Gate lead by speed: when the ball is nearly stationary the
+        # velocity direction (vx/norm) is dominated by detection noise and
+        # flips randomly each frame, causing the crop center to jitter.
+        # Ramp lead from 0→full over 0→2 px/frame so stationary balls
+        # (free kicks, set pieces) get zero lead and a rock-steady frame.
+        _LEAD_SPEED_THRESH = 2.0  # px/frame: full lead above this
+        speed_gate = np.clip(speed / _LEAD_SPEED_THRESH, 0.0, 1.0)
+        lead_x = lead_scale * (vx / norm) * speed_gate
+        lead_y = lead_scale * (vy / norm) * speed_gate
         headroom = cfg.headroom_frac * self.crop_h
 
         ideal_cx = bx_clean + lead_x

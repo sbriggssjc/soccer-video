@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
@@ -217,9 +218,8 @@ class BallTracker:
         conf = conf.detach().cpu().numpy() if hasattr(conf, "detach") else np.asarray(conf)
         xyxy = xyxy.detach().cpu().numpy() if hasattr(xyxy, "detach") else np.asarray(xyxy)
 
-        best_idx = -1
-        best_conf = float("-inf")
-        best_box: Optional[np.ndarray] = None
+        # Collect all valid ball candidates before selecting
+        _candidates: list[tuple[int, float, float, float, np.ndarray]] = []
         for idx, (cls_id, c_score, box) in enumerate(zip(cls, conf, xyxy)):
             if self._ball_ids and int(cls_id) not in self._ball_ids:
                 continue
@@ -237,14 +237,37 @@ class BallTracker:
             cy = y1 + bh * 0.5
             if not (0.0 <= cx <= width and 0.0 <= cy <= height):
                 continue
-            if c_val > best_conf:
-                best_conf = c_val
-                best_idx = idx
-                best_box = np.array([x1, y1, x2, y2], dtype=np.float32)
+            _candidates.append((idx, c_val, cx, cy,
+                                np.array([x1, y1, x2, y2], dtype=np.float32)))
 
-        if best_idx < 0 or best_box is None:
+        if not _candidates:
             self._register_miss(frame_index)
             return None
+
+        # Spatial continuity: when we have a predicted position, prefer
+        # detections near it.  A far-away detection (background ball, spare
+        # ball on sideline) must have substantially higher confidence to
+        # override spatial proximity.  Penalty: 0.001 conf per pixel of
+        # distance from predicted position (~0.2 penalty at 200px,
+        # ~0.5 at 500px).
+        _DIST_PENALTY_SCALE = 0.001
+        predicted = self._velocity_filter.predict(frame_index)
+        if predicted is not None and len(_candidates) > 1:
+            pred_x, pred_y = float(predicted[0]), float(predicted[1])
+            best_score = float("-inf")
+            best_cand = _candidates[0]
+            for cand in _candidates:
+                _, c_val, cx_c, cy_c, _ = cand
+                dist = math.hypot(cx_c - pred_x, cy_c - pred_y)
+                score = c_val - dist * _DIST_PENALTY_SCALE
+                if score > best_score:
+                    best_score = score
+                    best_cand = cand
+            best_idx, best_conf, _, _, best_box = best_cand
+        else:
+            # Single candidate or no prediction: pick highest confidence
+            best_cand = max(_candidates, key=lambda c: c[1])
+            best_idx, best_conf, _, _, best_box = best_cand
 
         x1, y1, x2, y2 = best_box
         bw = max(0.0, x2 - x1)
