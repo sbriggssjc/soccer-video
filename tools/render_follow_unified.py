@@ -6526,6 +6526,22 @@ class CameraPlanner:
                 _bic_cy_p = np.pad(_bic_cy, _bic_r, mode="edge")
                 _bic_cx_s = np.convolve(_bic_cx_p, _bic_k, mode="valid")
                 _bic_cy_s = np.convolve(_bic_cy_p, _bic_k, mode="valid")
+
+                # Edge ramp: blend smoothed back toward pre-smooth at
+                # clip boundaries so the BIC Gaussian doesn't undo the
+                # main post-plan edge protection.
+                _bic_n = len(_bic_cx)
+                _bic_er = min(_bic_r * 2, _bic_n // 2)
+                if _bic_er >= 1:
+                    for _bei in range(_bic_er):
+                        _bt = (_bei / _bic_er) ** 2
+                        _bic_cx_s[_bei] = (1.0 - _bt) * _bic_cx[_bei] + _bt * _bic_cx_s[_bei]
+                        _bic_cy_s[_bei] = (1.0 - _bt) * _bic_cy[_bei] + _bt * _bic_cy_s[_bei]
+                    for _bei in range(max(0, _bic_n - _bic_er), _bic_n):
+                        _bt = ((_bic_n - 1 - _bei) / _bic_er) ** 2
+                        _bic_cx_s[_bei] = (1.0 - _bt) * _bic_cx[_bei] + _bt * _bic_cx_s[_bei]
+                        _bic_cy_s[_bei] = (1.0 - _bt) * _bic_cy[_bei] + _bt * _bic_cy_s[_bei]
+
                 for _bi, _bs in enumerate(states):
                     _bs.cx = float(_bic_cx_s[_bi])
                     _bs.cy = float(_bic_cy_s[_bi])
@@ -8645,8 +8661,18 @@ def run(
             _high_conf_alpha = 0.85  # trust own value — minimal neighbour pull
             for _si in range(_n_pos):
                 _sl = fusion_source_labels[_si]
-                if _sl == _FUSE_YOLO or _sl == _FUSE_INTERP or _sl == _FUSE_HOLD:
+                if _sl == _FUSE_YOLO or _sl == _FUSE_INTERP:
                     _per_alpha[_si] = _high_conf_alpha
+                elif _sl == _FUSE_HOLD:
+                    # FUSE_HOLD frames are backward-filled copies of a
+                    # YOLO anchor — they should NOT be pulled by the
+                    # EMA's backward pass.  With alpha=0.85 the 15%
+                    # leakage compounds across 10-50 hold frames and
+                    # lets distant centroid positions drag the ball far
+                    # from its true location, pushing the kick taker to
+                    # the frame edge on free-kick clips.  Alpha=1.0
+                    # locks them to the YOLO anchor position.
+                    _per_alpha[_si] = 1.0
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
