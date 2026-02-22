@@ -5130,6 +5130,16 @@ class CameraPlanner:
             self.speed_limit *= 1.40
             self.keepinview_margin_px *= 0.85
             self.keepinview_nudge_gain = min(1.0, self.keepinview_nudge_gain * 1.15)
+        elif self.event_type == "FREE_KICK":
+            # FREE_KICK: ball is stationary during setup, then one fast
+            # kick.  Noisy detections on the parked ball cause the camera
+            # to jitter if nudge is too eager.  Widen margins and dampen
+            # nudge so the camera holds steady during the set piece, and
+            # raise post-smooth sigma for an extra-cinematic feel.
+            self.keepinview_margin_px *= 1.40   # wider margin = less nudging
+            self.keepinview_nudge_gain *= 0.60  # gentler corrections
+            self.speed_limit *= 0.80            # calmer panning overall
+            self._post_smooth_sigma = max(self._post_smooth_sigma, 7.0)
 
         if not math.isfinite(center_frac):
             center_frac = 0.5
@@ -5860,7 +5870,7 @@ class CameraPlanner:
             # lead_time_sec controls how far ahead the camera looks.
             # The post-Gaussian smoothing will round this into an S-curve.
             _lead_time_sec = 0.25  # seconds of anticipation (raised from 0.20)
-            _lead_speed_floor = 1.5  # px/frame: no lead below this speed (lowered from 2.0)
+            _lead_speed_floor = 3.0  # px/frame: no lead below this speed (raised from 1.5 — YOLO/centroid noise on stationary balls produces ~1-2 px/frame jitter)
             _lead_max_px = self.width * 0.12  # cap lead at 12% of frame width (raised from 8%)
             if smooth_speed_pf > _lead_speed_floor:
                 # Velocity direction unit vector
