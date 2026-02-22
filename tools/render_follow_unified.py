@@ -3201,7 +3201,7 @@ def detect_motion_centroid(
     *,
     prev_cx: float | None = None,
     prev_cy: float | None = None,
-    ignore_top_frac: float = 0.15,
+    ignore_top_frac: float = 0.25,
     motion_thresh: int = 25,
     blur_ksize: int = 41,
     min_area_frac: float = 0.0005,
@@ -3264,6 +3264,13 @@ def detect_motion_centroid(
     # Gaussian heatmap to find densest motion cluster
     bk = blur_ksize if blur_ksize % 2 == 1 else blur_ksize + 1
     heat = cv2.GaussianBlur(motion_mask.astype(np.float32), (bk, bk), 0)
+
+    # Vertical/depth bias: weight near-field (lower rows) higher than
+    # far-field (upper rows) so the centroid prefers foreground action
+    # over background activity on adjacent pitches.  The gradient runs
+    # from 0.3 at the top to 1.0 at the bottom.
+    vert_weight = np.linspace(0.3, 1.0, h, dtype=np.float32).reshape(-1, 1)
+    heat *= vert_weight
 
     peak_val = heat.max()
     if peak_val < 1.0:
@@ -3418,6 +3425,12 @@ def detect_red_ball_xy(
         score += 0.5 * (1.0 - abs(aspect - 1.0))  # closer to 1 is better
         score += -0.001 * area  # slight bias toward smaller
 
+        # Vertical/depth bias: prefer near-field (lower in frame) over
+        # far-field (upper-middle).  cy/h ranges from ~0.33 (top cutoff)
+        # to 1.0 (bottom); this adds up to +2.0 for bottom-of-frame
+        # detections, strongly discouraging background ball locks.
+        score += 2.0 * (cy / h)
+
         # Temporal: prefer near previous location
         if prev_xy is not None:
             dx = cx - prev_xy[0]
@@ -3487,6 +3500,8 @@ def detect_ball_xy(
         cy = float(M["m01"] / M["m00"])
 
         score = 3.0 * circ + 0.5 * (1.0 - abs(aspect - 1.0)) - 0.001 * area
+        # Vertical/depth bias: prefer near-field (lower in frame)
+        score += 2.0 * (cy / h)
         if prev_xy is not None:
             d2 = (cx - prev_xy[0]) ** 2 + (cy - prev_xy[1]) ** 2
             score += -0.002 * d2
