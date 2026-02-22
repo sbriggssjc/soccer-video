@@ -8603,7 +8603,23 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = min(0.12, smoothing)  # suppress centroid-YOLO jitter aggressively — lower alpha = heavier smoothing
+        _pos_alpha_base = min(0.12, smoothing)  # suppress centroid-YOLO jitter aggressively — lower alpha = heavier smoothing
+
+        # Build per-frame alpha: high-confidence sources (YOLO, interpolated
+        # between YOLO anchors) resist being pulled by neighbours, while
+        # low-confidence sources (centroid, hold) are smoothed heavily.
+        # This prevents the EMA from contaminating clean YOLO-interpolated
+        # positions with centroid noise (the root cause of early-clip wobble
+        # on sparse-YOLO clips like free kicks).
+        _per_alpha = np.full(_n_pos, _pos_alpha_base, dtype=np.float64)
+        if fusion_source_labels is not None and len(fusion_source_labels) >= _n_pos:
+            _FUSE_YOLO = np.uint8(1)
+            _FUSE_INTERP = np.uint8(4)
+            _high_conf_alpha = 0.85  # trust own value — minimal neighbour pull
+            for _si in range(_n_pos):
+                _sl = fusion_source_labels[_si]
+                if _sl == _FUSE_YOLO or _sl == _FUSE_INTERP:
+                    _per_alpha[_si] = _high_conf_alpha
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
@@ -8617,13 +8633,15 @@ def run(
         _fwd = positions.copy()
         for _si in range(1, _n_pos):
             if used_mask[_si] and used_mask[_si - 1]:
-                _fwd[_si] = _pos_alpha * positions[_si] + (1.0 - _pos_alpha) * _fwd[_si - 1]
+                _a = _per_alpha[_si]
+                _fwd[_si] = _a * positions[_si] + (1.0 - _a) * _fwd[_si - 1]
 
         # Backward EMA pass
         _bwd = positions.copy()
         for _si in range(_n_pos - 2, -1, -1):
             if used_mask[_si] and used_mask[_si + 1]:
-                _bwd[_si] = _pos_alpha * positions[_si] + (1.0 - _pos_alpha) * _bwd[_si + 1]
+                _a = _per_alpha[_si]
+                _bwd[_si] = _a * positions[_si] + (1.0 - _a) * _bwd[_si + 1]
 
         # Average forward and backward passes (zero-lag result)
         for _si in range(_n_pos):
@@ -8638,9 +8656,11 @@ def run(
                 _post_deltas.append(_d)
         _post_max = max(_post_deltas) if _post_deltas else 0.0
 
+        _high_count = int((_per_alpha > _pos_alpha_base + 0.01).sum()) if fusion_source_labels is not None else 0
         logger.info(
-            "[PLANNER] Position smoothing: %d frames, max delta %.1f->%.1f px/frame",
-            _n_pos, _pre_max, _post_max,
+            "[PLANNER] Position smoothing: %d frames (%d high-conf protected), "
+            "max delta %.1f->%.1f px/frame",
+            _n_pos, _high_count, _pre_max, _post_max,
         )
 
     # Override min_box to match the actual portrait crop dimensions.
