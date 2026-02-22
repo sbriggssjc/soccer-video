@@ -1648,8 +1648,8 @@ def fuse_yolo_and_centroid(
     _last_yolo_x: Optional[float] = None
     _last_yolo_y: Optional[float] = None
     _last_yolo_frame: int = -999
-    YOLO_HOLD_DIST = 200.0  # px: centroid beyond this → suspect
-    YOLO_HOLD_BLEND = 0.40  # weight for last YOLO when centroid diverges
+    YOLO_HOLD_DIST = 140.0  # px: centroid beyond this → suspect (tightened from 200 to catch background lock-on sooner)
+    YOLO_HOLD_BLEND = 0.55  # weight for last YOLO when centroid diverges (raised from 0.40 for stronger gating)
     YOLO_STALE_FRAMES = max(1, int(30 * _fps_scale))  # ~1s at any fps
 
     # Velocity-based prediction: maintain a short history of the last

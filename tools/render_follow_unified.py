@@ -3201,7 +3201,7 @@ def detect_motion_centroid(
     *,
     prev_cx: float | None = None,
     prev_cy: float | None = None,
-    ignore_top_frac: float = 0.25,
+    ignore_top_frac: float = 0.30,
     motion_thresh: int = 25,
     blur_ksize: int = 41,
     min_area_frac: float = 0.0005,
@@ -3268,8 +3268,10 @@ def detect_motion_centroid(
     # Vertical/depth bias: weight near-field (lower rows) higher than
     # far-field (upper rows) so the centroid prefers foreground action
     # over background activity on adjacent pitches.  The gradient runs
-    # from 0.3 at the top to 1.0 at the bottom.
-    vert_weight = np.linspace(0.3, 1.0, h, dtype=np.float32).reshape(-1, 1)
+    # from 0.10 at the top to 1.0 at the bottom — a 10x preference for
+    # bottom-of-frame action, which aggressively suppresses background
+    # ball/player motion on adjacent pitches.
+    vert_weight = np.linspace(0.10, 1.0, h, dtype=np.float32).reshape(-1, 1)
     heat *= vert_weight
 
     peak_val = heat.max()
@@ -3296,8 +3298,11 @@ def detect_motion_centroid(
         local_heat = heat[y0:y1, x0:x1]
         local_peak = float(local_heat.max()) if local_heat.size > 0 else 0.0
 
-        # If local motion is at least 30% of global peak, track locally
-        if local_peak >= peak_val * 0.30:
+        # If local motion is at least 50% of global peak, track locally.
+        # Higher threshold makes it easier to break free from background
+        # lock-on: the tracker will jump to the global peak (foreground
+        # action) when the local region only has weak residual motion.
+        if local_peak >= peak_val * 0.50:
             local_thresh = local_peak * 0.4
             ly, lx = np.where(local_heat >= local_thresh)
             if len(lx) > 0:
@@ -3426,10 +3431,10 @@ def detect_red_ball_xy(
         score += -0.001 * area  # slight bias toward smaller
 
         # Vertical/depth bias: prefer near-field (lower in frame) over
-        # far-field (upper-middle).  cy/h ranges from ~0.33 (top cutoff)
-        # to 1.0 (bottom); this adds up to +2.0 for bottom-of-frame
-        # detections, strongly discouraging background ball locks.
-        score += 2.0 * (cy / h)
+        # far-field (upper-middle).  cy/h ranges from ~0.30 (top cutoff)
+        # to 1.0 (bottom); this adds up to +4.0 for bottom-of-frame
+        # detections, aggressively discouraging background ball locks.
+        score += 4.0 * (cy / h)
 
         # Temporal: prefer near previous location
         if prev_xy is not None:
@@ -3500,8 +3505,9 @@ def detect_ball_xy(
         cy = float(M["m01"] / M["m00"])
 
         score = 3.0 * circ + 0.5 * (1.0 - abs(aspect - 1.0)) - 0.001 * area
-        # Vertical/depth bias: prefer near-field (lower in frame)
-        score += 2.0 * (cy / h)
+        # Vertical/depth bias: prefer near-field (lower in frame) — 4x
+        # weight aggressively penalizes background ball detections.
+        score += 4.0 * (cy / h)
         if prev_xy is not None:
             d2 = (cx - prev_xy[0]) ** 2 + (cy - prev_xy[1]) ** 2
             score += -0.002 * d2
@@ -3699,7 +3705,8 @@ def write_red_ball_telemetry(
 
     # Jump dampening: limit frame-to-frame movement to prevent sudden
     # position changes during chaotic moments (shots, blocks, etc.).
-    max_jump_px = 0.12 * w  # max 12% of frame width per frame
+    # Tightened from 12% to 7% to suppress background lock-on jumps.
+    max_jump_px = 0.07 * w  # max 7% of frame width per frame
     for i in range(1, n):
         dx = stitched_cx[i] - stitched_cx[i - 1]
         dy = stitched_cy[i] - stitched_cy[i - 1]
@@ -3713,9 +3720,10 @@ def write_red_ball_telemetry(
     print(f"[MOTION] Stitched path: {stitched_count}/{n} frames")
 
     # --- Pass 5: centered Gaussian smooth with forward bias ---
-    # Sigma backward = 0.2s (responsive to recent motion)
+    # Sigma backward = 0.4s (wide enough to dampen oscillation from
+    #   background lock-on without losing responsiveness to real action)
     # Sigma forward  = 0.6s (anticipate where action is going)
-    sigma_back = max(3, int(fps_value * 0.2))
+    sigma_back = max(5, int(fps_value * 0.4))
     sigma_fwd = max(5, int(fps_value * 0.6))
     window_back = sigma_back * 3
     window_fwd = sigma_fwd * 3
@@ -8578,7 +8586,7 @@ def run(
     # the real trajectory and adding zero directional lag.
     _n_pos = len(positions) if len(positions) > 0 else 0
     if _n_pos > 5:
-        _pos_alpha = min(0.20, smoothing)  # suppress centroid-YOLO jitter without over-attenuating fast ball movement
+        _pos_alpha = min(0.12, smoothing)  # suppress centroid-YOLO jitter aggressively — lower alpha = heavier smoothing
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
