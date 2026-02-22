@@ -3195,6 +3195,110 @@ def estimate_global_shift(
     return dx, dy
 
 
+# ------------------------------------------------------------------
+# Vertical wobble stabilisation helpers
+# ------------------------------------------------------------------
+
+def load_camera_shifts(shifts_path: Path) -> Optional[np.ndarray]:
+    """Load pre-computed per-frame camera shifts from a .cam_shifts.npy file.
+
+    Returns an (N, 2) float32 array of (dx, dy) per frame, or *None* if the
+    file does not exist or cannot be read.
+    """
+    if not shifts_path.exists():
+        return None
+    try:
+        arr = np.load(str(shifts_path))
+        if arr.ndim == 2 and arr.shape[1] == 2:
+            return arr.astype(np.float64)
+        return None
+    except Exception:
+        return None
+
+
+def compute_camera_shifts(video_path: str, logger: logging.Logger) -> np.ndarray:
+    """Fast single-pass computation of per-frame global camera shifts.
+
+    Used as a fallback when the cached .cam_shifts.npy file does not exist
+    (e.g. telemetry was cached before this feature was added).
+    Returns an (N, 2) float64 array of (dx, dy) per frame.
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.warning("[STAB] Cannot open video for shift computation: %s", video_path)
+        return np.zeros((0, 2), dtype=np.float64)
+
+    shifts = []
+    prev_gray = None
+    while True:
+        ok, bgr = cap.read()
+        if not ok or bgr is None:
+            break
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if prev_gray is None:
+            shifts.append((0.0, 0.0))
+        else:
+            shifts.append(estimate_global_shift(prev_gray, gray))
+        prev_gray = gray
+    cap.release()
+
+    if shifts:
+        logger.info("[STAB] Computed camera shifts for %d frames", len(shifts))
+    return np.array(shifts, dtype=np.float64) if shifts else np.zeros((0, 2), dtype=np.float64)
+
+
+def compute_wobble_corrections(
+    shifts: np.ndarray,
+    fps: float,
+    *,
+    smooth_window_s: float = 0.5,
+    max_correction_px: float = 20.0,
+) -> Optional[np.ndarray]:
+    """Derive per-frame vertical wobble corrections from global camera shifts.
+
+    1. Accumulate per-frame (dx, dy) into a cumulative camera trajectory.
+    2. Smooth the trajectory with a Gaussian (``smooth_window_s`` seconds)
+       to recover the intended camera motion.
+    3. The residual (raw − smooth) is the high-frequency wobble.
+    4. Clamp to ±``max_correction_px`` and return as an (N,) float64 array
+       of vertical corrections (positive = shift frame down to cancel
+       upward camera wobble).
+
+    Returns *None* if the wobble is negligible (peak < 1.5 px).
+    """
+    if shifts is None or len(shifts) < 5:
+        return None
+
+    n = len(shifts)
+
+    # Cumulative camera trajectory (vertical only)
+    cum_dy = np.cumsum(shifts[:, 1])
+
+    # Smooth with Gaussian to separate intended motion from wobble
+    sigma_frames = max(2.0, smooth_window_s * max(fps, 1.0))
+    radius = int(sigma_frames * 3.0 + 0.5)
+    radius = min(radius, n // 2)
+    if radius < 1:
+        return None
+    x_k = np.arange(-radius, radius + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (x_k / sigma_frames) ** 2)
+    kernel /= kernel.sum()
+    padded = np.pad(cum_dy, radius, mode="edge")
+    smooth_dy = np.convolve(padded, kernel, mode="valid")
+
+    # Residual = wobble
+    wobble_dy = cum_dy - smooth_dy
+
+    # Check if wobble is meaningful
+    peak = float(np.max(np.abs(wobble_dy)))
+    if peak < 1.5:
+        return None
+
+    # Clamp
+    wobble_dy = np.clip(wobble_dy, -max_correction_px, max_correction_px)
+    return wobble_dy
+
+
 def detect_motion_centroid(
     prev_gray: np.ndarray,
     curr_gray: np.ndarray,
@@ -3580,6 +3684,14 @@ def write_red_ball_telemetry(
             pan_frame_count += 1
     if pan_frame_count > 0:
         print(f"[MOTION] Source-camera pan detected on {pan_frame_count}/{n} frames — compensating")
+
+    # Persist per-frame camera shifts so the renderer can stabilise
+    # vertical wobble without re-reading the entire video.
+    _shifts_path = out_path.with_suffix(".cam_shifts.npy")
+    try:
+        np.save(str(_shifts_path), np.array(shifts, dtype=np.float32))
+    except Exception as _shifts_err:  # non-critical — don't block pipeline
+        logger.warning("[MOTION] Failed to save camera shifts: %s", _shifts_err)
 
     # --- Pass 1: global peak detection per frame (no locality bias) ---
     # This gives us the "ground truth" of where the most motion is.
@@ -7503,6 +7615,36 @@ class Renderer:
             overlay_samples_x, overlay_samples_y = self._ball_overlay_samples(render_fps)
             overlay_times = [row[0] for row in overlay_samples_x]
 
+        # --- VERTICAL WOBBLE STABILISATION ---
+        # Physical camera wobble (e.g. wind on a tripod) creates
+        # high-frequency vertical jitter visible in the rendered
+        # portrait crop (which uses the full frame height).
+        # Load pre-computed camera shifts, extract the wobble
+        # component, and apply a per-frame correction via warpAffine.
+        _wobble_dy: Optional[np.ndarray] = None
+        _stab_fps = render_fps if render_fps > 0 else 30.0
+        _shifts_path = Path(
+            telemetry_path_for_video(str(self.input_path))
+        ).with_suffix(".cam_shifts.npy")
+        _cam_shifts = load_camera_shifts(_shifts_path)
+        if _cam_shifts is None:
+            logger.info("[STAB] No cached camera shifts found — computing on the fly")
+            _cam_shifts = compute_camera_shifts(str(self.input_path), logger)
+        if _cam_shifts is not None and len(_cam_shifts) >= 5:
+            _wobble_dy = compute_wobble_corrections(
+                _cam_shifts, _stab_fps,
+                smooth_window_s=0.5,
+                max_correction_px=20.0,
+            )
+        if _wobble_dy is not None:
+            _peak_wobble = float(np.max(np.abs(_wobble_dy)))
+            logger.info(
+                "[STAB] Vertical stabilisation active: %d frames, "
+                "peak=%.1fpx, rms=%.1fpx",
+                len(_wobble_dy), _peak_wobble,
+                float(np.sqrt(np.mean(_wobble_dy ** 2))),
+            )
+
         for frame_idx in range(frame_count):
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -7510,6 +7652,17 @@ class Renderer:
 
             if frame_idx >= len(states):
                 break
+
+            # Apply vertical wobble correction before cropping.
+            if _wobble_dy is not None and frame_idx < len(_wobble_dy):
+                _dy_corr = float(_wobble_dy[frame_idx])
+                if abs(_dy_corr) > 0.3:
+                    _h, _w = frame.shape[:2]
+                    _M = np.float32([[1.0, 0.0, 0.0], [0.0, 1.0, -_dy_corr]])
+                    frame = cv2.warpAffine(
+                        frame, _M, (_w, _h),
+                        borderMode=cv2.BORDER_REPLICATE,
+                    )
 
             if self.debug_ball_overlay:
                 overlay_frame = frame.copy()
