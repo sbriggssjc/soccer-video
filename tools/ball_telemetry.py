@@ -1623,6 +1623,74 @@ def fuse_yolo_and_centroid(
                 f"{len(exclude_zones)} exclusion zone(s)"
             )
 
+    # --- Multi-ball spatial consistency filter ---
+    # When two balls are visible (spare ball on sideline, ball on adjacent
+    # pitch), YOLO detections alternate between them.  Detect a bimodal
+    # spatial distribution and keep only the cluster closer to the camera
+    # (lower in frame).  Only activates when the spatial gap is large
+    # enough to confirm two distinct targets, and both clusters have
+    # enough detections to be meaningful (not single-frame noise).
+    if len(yolo_by_frame) >= 6:
+        _mb_frames = sorted(yolo_by_frame.keys())
+        _mb_xs = [float(yolo_by_frame[f].x) for f in _mb_frames]
+        _mb_ys = [float(yolo_by_frame[f].y) for f in _mb_frames]
+
+        # Find largest gap in x-distribution
+        _xs_sorted = sorted(_mb_xs)
+        _max_gap_x = 0.0
+        _split_x = 0.0
+        for _gi in range(1, len(_xs_sorted)):
+            _gx = _xs_sorted[_gi] - _xs_sorted[_gi - 1]
+            if _gx > _max_gap_x:
+                _max_gap_x = _gx
+                _split_x = (_xs_sorted[_gi - 1] + _xs_sorted[_gi]) / 2.0
+
+        # Find largest gap in y-distribution
+        _ys_sorted = sorted(_mb_ys)
+        _max_gap_y = 0.0
+        _split_y = 0.0
+        for _gi in range(1, len(_ys_sorted)):
+            _gy = _ys_sorted[_gi] - _ys_sorted[_gi - 1]
+            if _gy > _max_gap_y:
+                _max_gap_y = _gy
+                _split_y = (_ys_sorted[_gi - 1] + _ys_sorted[_gi]) / 2.0
+
+        # Use the dimension with the proportionally larger gap
+        _x_frac = _max_gap_x / max(width, 1.0)
+        _y_frac = _max_gap_y / max(height, 1.0)
+        _SPLIT_THRESH = 0.25  # 25% of frame dimension
+
+        if _x_frac >= _SPLIT_THRESH or _y_frac >= _SPLIT_THRESH:
+            if _x_frac >= _y_frac:
+                _grp_a = [f for f in _mb_frames if yolo_by_frame[f].x < _split_x]
+                _grp_b = [f for f in _mb_frames if yolo_by_frame[f].x >= _split_x]
+            else:
+                _grp_a = [f for f in _mb_frames if yolo_by_frame[f].y < _split_y]
+                _grp_b = [f for f in _mb_frames if yolo_by_frame[f].y >= _split_y]
+
+            # Both groups need at least 2 detections to confirm two targets
+            if len(_grp_a) >= 2 and len(_grp_b) >= 2:
+                _mean_y_a = sum(yolo_by_frame[f].y for f in _grp_a) / len(_grp_a)
+                _mean_y_b = sum(yolo_by_frame[f].y for f in _grp_b) / len(_grp_b)
+
+                # Keep the cluster closer to camera (higher y = lower in frame)
+                if _mean_y_a >= _mean_y_b:
+                    _keep = set(_grp_a)
+                    _kept_y = _mean_y_a
+                else:
+                    _keep = set(_grp_b)
+                    _kept_y = _mean_y_b
+
+                _n_removed = len(yolo_by_frame) - len(_keep)
+                if _n_removed > 0:
+                    yolo_by_frame = {f: yolo_by_frame[f] for f in _keep}
+                    print(
+                        f"[FUSION] Multi-ball filter: removed {_n_removed}/{_n_removed + len(_keep)} "
+                        f"YOLO detections from farther cluster "
+                        f"(gap={max(_max_gap_x, _max_gap_y):.0f}px, "
+                        f"kept {len(_keep)} closer detections, mean_y={_kept_y:.0f})"
+                    )
+
     # Index centroid samples by frame
     centroid_by_frame: dict[int, BallSample] = {}
     for s in centroid_samples:
@@ -1916,8 +1984,17 @@ def fuse_yolo_and_centroid(
             # path to follow on-field motion patterns.
             _cg_offsets: dict[int, float] = {}
             if is_long and not use_step and gap > _BASE_LONG_INTERP_GAP:
-                _CG_BLEND = 0.40      # fraction of centroid residual to apply
-                _CG_MAX_PX = 200.0    # max offset per frame (px)
+                _CG_BLEND_BASE = 0.40   # fraction of centroid residual to apply
+                _CG_MAX_PX_BASE = 200.0 # max offset per frame (px)
+                # Scale down centroid-guide influence when YOLO is sparse:
+                # at 5% density the centroid is unreliable (tracking player
+                # clusters, not the ball), so halve the blend and cap.
+                if _yolo_density < 0.15:
+                    _cg_trust = max(0.35, _yolo_density / 0.15)
+                else:
+                    _cg_trust = 1.0
+                _CG_BLEND = _CG_BLEND_BASE * _cg_trust
+                _CG_MAX_PX = _CG_MAX_PX_BASE * _cg_trust
                 _CG_MIN_COV = 0.50    # min centroid coverage to enable guiding
                 _CG_SMOOTH = max(3, int(7 * _fps_scale))  # smoothing window (~0.23s)
 
