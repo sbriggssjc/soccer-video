@@ -7633,16 +7633,25 @@ class Renderer:
         if _cam_shifts is not None and len(_cam_shifts) >= 5:
             _wobble_dy = compute_wobble_corrections(
                 _cam_shifts, _stab_fps,
-                smooth_window_s=0.5,
-                max_correction_px=20.0,
+                smooth_window_s=1.0,
+                max_correction_px=12.0,
             )
+        # Adaptive overscan: zoom just enough to hide BORDER_REPLICATE
+        # artifacts at frame edges.  The zoom is constant across all
+        # frames so it doesn't introduce visible pulsing.
+        _stab_overscan = 1.0
         if _wobble_dy is not None:
             _peak_wobble = float(np.max(np.abs(_wobble_dy)))
+            _stab_src_h = float(src_h) if src_h > 0 else 1080.0
+            # Enough zoom to cover the peak shift, plus 30% safety margin.
+            _stab_overscan = 1.0 + (_peak_wobble / _stab_src_h) * 1.3
+            _stab_overscan = min(_stab_overscan, 1.04)  # cap at 4%
             logger.info(
                 "[STAB] Vertical stabilisation active: %d frames, "
-                "peak=%.1fpx, rms=%.1fpx",
+                "peak=%.1fpx, rms=%.1fpx, overscan=%.3f",
                 len(_wobble_dy), _peak_wobble,
                 float(np.sqrt(np.mean(_wobble_dy ** 2))),
+                _stab_overscan,
             )
 
         for frame_idx in range(frame_count):
@@ -7654,11 +7663,19 @@ class Renderer:
                 break
 
             # Apply vertical wobble correction before cropping.
+            # A slight overscan zoom hides the BORDER_REPLICATE edge
+            # artifacts that would otherwise appear as a blurry bar.
             if _wobble_dy is not None and frame_idx < len(_wobble_dy):
                 _dy_corr = float(_wobble_dy[frame_idx])
-                if abs(_dy_corr) > 0.3:
+                if abs(_dy_corr) > 0.3 or _stab_overscan > 1.0:
                     _h, _w = frame.shape[:2]
-                    _M = np.float32([[1.0, 0.0, 0.0], [0.0, 1.0, -_dy_corr]])
+                    _cx_f = _w / 2.0
+                    _cy_f = _h / 2.0
+                    _s = _stab_overscan
+                    _M = np.float32([
+                        [_s, 0.0, _cx_f * (1.0 - _s)],
+                        [0.0, _s, _cy_f * (1.0 - _s) - _dy_corr * _s],
+                    ])
                     frame = cv2.warpAffine(
                         frame, _M, (_w, _h),
                         borderMode=cv2.BORDER_REPLICATE,
@@ -8931,6 +8948,34 @@ def run(
     print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask, confidence=fusion_confidence, person_boxes=person_boxes_by_frame)
+
+    # --- STARTUP SNAP: ensure kick taker / ball visible at clip start ---
+    # The Gaussian post-smooth + anticipation lead can pull the camera
+    # far from the ball at frame 0 (e.g. 172 px on a free kick where
+    # the ball is about to fly across the field).  This makes the kick
+    # taker invisible.  Fix: snap the first few frames toward the ball
+    # position and quadratic-ramp back to the planned trajectory.
+    if states and len(positions) > 0 and not np.isnan(positions[0]).any():
+        _snap_ball_x = float(positions[0][0])
+        _snap_cam_x = float(states[0].cx)
+        _snap_gap = abs(_snap_ball_x - _snap_cam_x)
+        if _snap_gap > 50.0:
+            _snap_n = min(20, len(states) // 4)
+            _snap_fw = float(width) if width > 0 else 1920.0
+            for _si in range(_snap_n):
+                _blend = (_si / _snap_n) ** 2  # quadratic ease-in to planned path
+                _new_cx = (1.0 - _blend) * _snap_ball_x + _blend * states[_si].cx
+                states[_si].cx = _new_cx
+                _half_cw = states[_si].crop_w / 2.0
+                states[_si].x0 = float(np.clip(
+                    _new_cx - _half_cw, 0.0,
+                    max(0.0, _snap_fw - states[_si].crop_w),
+                ))
+            print(
+                f"[CAMERA] Startup snap: shifted f0 camera {_snap_gap:.0f}px "
+                f"toward ball (cx {_snap_cam_x:.0f} -> {_snap_ball_x:.0f}), "
+                f"ramp={_snap_n}f"
+            )
 
     # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
     if states and len(states) > 1:
