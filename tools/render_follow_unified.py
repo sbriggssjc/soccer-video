@@ -6391,6 +6391,32 @@ class CameraPlanner:
                             cx_smooth = np.convolve(_cx_p2, _fk, mode="valid")
                             cy_smooth = np.convolve(_cy_p2, _fk, mode="valid")
 
+                # --- EDGE PROTECTION ---
+                # At clip boundaries the Gaussian averages with future (or
+                # past) frames that may have very different ball positions
+                # (e.g., free kick: ball stationary at kick taker then
+                # flying across the field).  Edge padding (mode="edge")
+                # replicates the boundary value but cannot prevent the
+                # one-sided pull from rapidly-changing future values.
+                #
+                # Fix: blend smoothed positions back toward the pre-smooth
+                # (speed-limited, EMA-tracked) values using a quadratic
+                # ramp over 2*sigma frames at each clip end.  The
+                # quadratic shape ensures zero derivative at the boundary
+                # (no velocity cliff) and a gradual transition to the
+                # fully smoothed trajectory.
+                _edge_ramp = int(sigma_frames * 2.0 + 0.5)
+                if _edge_ramp >= 1:
+                    _er = min(_edge_ramp, n // 2)  # don't overlap
+                    for _ei in range(_er):
+                        _t = (_ei / _edge_ramp) ** 2
+                        cx_smooth[_ei] = (1.0 - _t) * cx_arr[_ei] + _t * cx_smooth[_ei]
+                        cy_smooth[_ei] = (1.0 - _t) * cy_arr[_ei] + _t * cy_smooth[_ei]
+                    for _ei in range(max(0, n - _er), n):
+                        _t = ((n - 1 - _ei) / _edge_ramp) ** 2
+                        cx_smooth[_ei] = (1.0 - _t) * cx_arr[_ei] + _t * cx_smooth[_ei]
+                        cy_smooth[_ei] = (1.0 - _t) * cy_arr[_ei] + _t * cy_smooth[_ei]
+
                 # Re-derive crop dimensions from smoothed positions/zoom
                 # and write back into the CamState objects.
                 for i, st in enumerate(states):
