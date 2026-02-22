@@ -744,14 +744,7 @@ def _ball_class_ids(model, sport: str) -> set[int]:
 
 
 def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = DEFAULT_MIN_CONF) -> Tuple[float | None, float | None, float | None]:
-    """Run detector on a single frame and return centre coords + confidence.
-
-    When multiple ball candidates are detected, a depth bias favours
-    lower-in-frame detections (closer to the camera in a typical soccer
-    broadcast).  The bias adds up to +0.15 confidence bonus at the very
-    bottom of the frame, preventing the tracker from locking onto a spare
-    ball or background-pitch ball with marginally higher raw confidence.
-    """
+    """Run detector on a single frame and return centre coords + confidence."""
 
     try:
         results = model.predict(frame, verbose=False, device="cpu")
@@ -760,10 +753,7 @@ def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = 
         return None, None, None
 
     target_ids = _ball_class_ids(model, sport)
-    frame_h = float(frame.shape[0]) if hasattr(frame, "shape") else 1.0
-    _DEPTH_BIAS = 0.15  # max bonus for bottom-of-frame detection
     best: Tuple[float, float, float] | None = None
-    best_score: float = float("-inf")
 
     for res in results:
         boxes = getattr(res, "boxes", None)
@@ -785,10 +775,7 @@ def detect_ball_in_frame(model, frame, sport: str = "soccer", min_conf: float = 
             x0, y0, x1, y1 = map(float, box[:4])
             cx = (x0 + x1) / 2.0
             cy = (y0 + y1) / 2.0
-            depth_bonus = (cy / max(frame_h, 1.0)) * _DEPTH_BIAS
-            score = float(conf) + depth_bonus
-            if score > best_score:
-                best_score = score
+            if best is None or conf > best[2]:
                 best = (cx, cy, float(conf))
 
     if best is None:
@@ -1626,10 +1613,14 @@ def fuse_yolo_and_centroid(
     # --- Multi-ball spatial consistency filter ---
     # When two balls are visible (spare ball on sideline, ball on adjacent
     # pitch), YOLO detections alternate between them.  Detect a bimodal
-    # spatial distribution and keep only the cluster closer to the camera
-    # (lower in frame).  Only activates when the spatial gap is large
-    # enough to confirm two distinct targets, and both clusters have
-    # enough detections to be meaningful (not single-frame noise).
+    # spatial distribution and keep only the dominant cluster.
+    #
+    # Selection priority:
+    # 1. Cluster SIZE — the cluster with many more detections is almost
+    #    certainly the game ball (YOLO sees it consistently).  A 3x+
+    #    size ratio overrides all other signals.
+    # 2. Vertical position (tiebreaker) — when clusters are similar size,
+    #    prefer lower-in-frame (closer to camera).
     if len(yolo_by_frame) >= 6:
         _mb_frames = sorted(yolo_by_frame.keys())
         _mb_xs = [float(yolo_by_frame[f].x) for f in _mb_frames]
@@ -1670,25 +1661,43 @@ def fuse_yolo_and_centroid(
 
             # Both groups need at least 2 detections to confirm two targets
             if len(_grp_a) >= 2 and len(_grp_b) >= 2:
+                _size_ratio = max(len(_grp_a), len(_grp_b)) / min(len(_grp_a), len(_grp_b))
                 _mean_y_a = sum(yolo_by_frame[f].y for f in _grp_a) / len(_grp_a)
                 _mean_y_b = sum(yolo_by_frame[f].y for f in _grp_b) / len(_grp_b)
 
-                # Keep the cluster closer to camera (higher y = lower in frame)
-                if _mean_y_a >= _mean_y_b:
-                    _keep = set(_grp_a)
-                    _kept_y = _mean_y_a
+                if _size_ratio >= 3.0:
+                    # One cluster dominates — it's the game ball.
+                    # A spare/adjacent-field ball produces sporadic
+                    # detections; the game ball is consistently tracked.
+                    if len(_grp_a) >= len(_grp_b):
+                        _keep = set(_grp_a)
+                        _kept_y = _mean_y_a
+                        _reason = "dominant cluster"
+                    else:
+                        _keep = set(_grp_b)
+                        _kept_y = _mean_y_b
+                        _reason = "dominant cluster"
                 else:
-                    _keep = set(_grp_b)
-                    _kept_y = _mean_y_b
+                    # Clusters are comparable size — use vertical
+                    # position as tiebreaker (lower in frame = closer).
+                    if _mean_y_a >= _mean_y_b:
+                        _keep = set(_grp_a)
+                        _kept_y = _mean_y_a
+                        _reason = "closer to camera"
+                    else:
+                        _keep = set(_grp_b)
+                        _kept_y = _mean_y_b
+                        _reason = "closer to camera"
 
                 _n_removed = len(yolo_by_frame) - len(_keep)
                 if _n_removed > 0:
                     yolo_by_frame = {f: yolo_by_frame[f] for f in _keep}
                     print(
                         f"[FUSION] Multi-ball filter: removed {_n_removed}/{_n_removed + len(_keep)} "
-                        f"YOLO detections from farther cluster "
-                        f"(gap={max(_max_gap_x, _max_gap_y):.0f}px, "
-                        f"kept {len(_keep)} closer detections, mean_y={_kept_y:.0f})"
+                        f"YOLO detections ({_reason}, "
+                        f"size={len(_keep)}v{_n_removed}, ratio={_size_ratio:.1f}x, "
+                        f"gap={max(_max_gap_x, _max_gap_y):.0f}px, "
+                        f"kept mean_y={_kept_y:.0f})"
                     )
 
     # Index centroid samples by frame
