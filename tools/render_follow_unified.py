@@ -5142,9 +5142,9 @@ class CameraPlanner:
             # the camera; only confident YOLO-backed positions trigger pans.
             self.keepinview_margin_px *= 1.80   # much wider margin = rare nudging
             self.keepinview_nudge_gain *= 0.45  # very gentle corrections
-            self.speed_limit *= 0.55            # camera moves slowly overall
-            self._post_smooth_sigma = max(self._post_smooth_sigma, 10.0)
-            self._conf_speed_floor = 0.30       # centroid frames -> near-locked camera
+            self.speed_limit *= 0.45            # camera moves slowly overall
+            self._post_smooth_sigma = max(self._post_smooth_sigma, 14.0)
+            self._conf_speed_floor = 0.15       # centroid/hold frames -> near-locked camera
 
         if not math.isfinite(center_frac):
             center_frac = 0.5
@@ -8615,10 +8615,11 @@ def run(
         if fusion_source_labels is not None and len(fusion_source_labels) >= _n_pos:
             _FUSE_YOLO = np.uint8(1)
             _FUSE_INTERP = np.uint8(4)
+            _FUSE_HOLD = np.uint8(5)
             _high_conf_alpha = 0.85  # trust own value — minimal neighbour pull
             for _si in range(_n_pos):
                 _sl = fusion_source_labels[_si]
-                if _sl == _FUSE_YOLO or _sl == _FUSE_INTERP:
+                if _sl == _FUSE_YOLO or _sl == _FUSE_INTERP or _sl == _FUSE_HOLD:
                     _per_alpha[_si] = _high_conf_alpha
 
         # Compute max delta before smoothing (for diagnostics)
