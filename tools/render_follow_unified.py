@@ -8949,12 +8949,14 @@ def run(
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
     states = planner.plan(positions, used_mask, confidence=fusion_confidence, person_boxes=person_boxes_by_frame)
 
-    # --- STARTUP SNAP: keep camera on ball during free-kick setup ---
-    # The Gaussian post-smooth + centroid noise can pull the camera far
-    # from the ball at the start of the clip.  For FREE_KICK clips, the
-    # setup period lasts several seconds and the kick taker must stay
-    # in frame the entire time — so we track the per-frame ball position
-    # and blend smoothly toward the planned trajectory.
+    # --- STARTUP SNAP + KICK-HOLD: keep camera on ball and kick taker ---
+    # For FREE_KICK clips, the viewer needs to see the kick taker
+    # through the moment of the kick.  We center the camera between
+    # the kicker (standing at the pre-kick ball position) and the
+    # ball as it flies away, keeping both in frame for as long as
+    # the crop allows.  Once the spread exceeds the crop, the camera
+    # follows the ball.  A quadratic ramp then transitions to the
+    # planner's trajectory.
     #
     # For other events, a short snap (20 frames) corrects the initial
     # Gaussian pull when the gap exceeds 50 px.
@@ -8968,35 +8970,108 @@ def run(
         _snap_gap = abs(_snap_ball_x0 - _snap_cam_x0) if (_snap_ball_x0 is not None and _snap_cam_x0 is not None) else 0.0
 
         if _is_free_kick or _snap_gap > 50.0:
-            # FREE_KICK: long ramp tracking per-frame ball positions
-            # (camera stays near ball through entire setup period).
-            # Other events: short ramp snapping to f0 ball position.
             _snap_n = int(_snap_fps * 5.0) if _is_free_kick else 20
             _snap_n = min(_snap_n, len(states) // 3)
             _snap_n = max(_snap_n, 1)
             _snap_fw = float(width) if width > 0 else 1920.0
 
+            # Kick-hold parameters for FREE_KICK
+            _kicker_x = _snap_ball_x0  # kick taker stands where ball was placed
+            _kick_margin = 30.0  # min px from crop edge for ball/kicker
+
             for _si in range(_snap_n):
                 _blend = (_si / _snap_n) ** 2  # quadratic ease-in to planned path
-                # Per-frame ball position (tracks ball through kick flight)
+
+                # Resolve per-frame ball position
                 if _si < len(positions) and not np.isnan(positions[_si]).any():
                     _ball_x_i = float(positions[_si][0])
                 elif _snap_ball_x0 is not None:
                     _ball_x_i = _snap_ball_x0
                 else:
                     continue
-                _new_cx = (1.0 - _blend) * _ball_x_i + _blend * states[_si].cx
+
+                if _is_free_kick and _kicker_x is not None:
+                    # Midpoint centering: keep both kicker and ball
+                    # in frame for as long as the crop allows.
+                    _crop_w_i = states[_si].crop_w if states[_si].crop_w > 1 else 607.0
+                    _available = _crop_w_i - 2 * _kick_margin
+                    _spread = abs(_kicker_x - _ball_x_i)
+                    if _spread <= _available:
+                        _target_x = (_kicker_x + _ball_x_i) / 2.0
+                    else:
+                        _target_x = _ball_x_i
+                else:
+                    _target_x = _ball_x_i
+
+                _new_cx = (1.0 - _blend) * _target_x + _blend * states[_si].cx
                 states[_si].cx = _new_cx
                 _half_cw = states[_si].crop_w / 2.0
                 states[_si].x0 = float(np.clip(
                     _new_cx - _half_cw, 0.0,
                     max(0.0, _snap_fw - states[_si].crop_w),
                 ))
-            _snap_label = "FREE_KICK ball-track" if _is_free_kick else "startup"
+            _snap_label = "FREE_KICK kick-hold" if _is_free_kick else "startup"
             print(
                 f"[CAMERA] {_snap_label} snap: gap={_snap_gap:.0f}px, "
                 f"ramp={_snap_n}f ({_snap_n / _snap_fps:.1f}s)"
             )
+
+    # --- BALL-GRAVITY CLAMP: keep camera near known ball positions ---
+    # The planner's centroid-tracking can drift the camera far from
+    # the ball during gaps in YOLO coverage (69% centroid-only on
+    # this clip).  Apply a soft clamp: if the camera is more than
+    # ``max_drift_frac`` of crop width from the ball, pull it back.
+    # Corrections are Gaussian-smoothed to prevent jitter.
+    if states and len(positions) > 0 and len(states) > 5:
+        _grav_max_frac = 0.32  # ball must be within 32% of crop half-width from center
+        _grav_corrections = np.zeros(len(states), dtype=np.float64)
+        # Only trust YOLO-confirmed or interpolated/held ball positions,
+        # NOT centroid-only (label 2) which tracks player mass, not ball.
+        _grav_reliable = {1, 3, 4, 5}  # YOLO, interpolated, hold-fwd, hold-bwd
+        for _gi in range(len(states)):
+            # Skip centroid-only frames — ball position is unreliable
+            if fusion_source_labels is not None and _gi < len(fusion_source_labels):
+                if int(fusion_source_labels[_gi]) not in _grav_reliable:
+                    continue
+            elif fusion_source_labels is not None:
+                continue  # out of range → no label → skip
+            if _gi < len(positions) and not np.isnan(positions[_gi]).any():
+                _grav_bx = float(positions[_gi][0])
+                _grav_cx = float(states[_gi].cx)
+                _grav_cw = float(states[_gi].crop_w) if states[_gi].crop_w > 1 else 607.0
+                _grav_max_drift = _grav_cw * _grav_max_frac
+                _grav_drift = _grav_cx - _grav_bx
+                if abs(_grav_drift) > _grav_max_drift:
+                    _grav_corrections[_gi] = _grav_drift - np.sign(_grav_drift) * _grav_max_drift
+
+        # Smooth corrections with a Gaussian to prevent jitter
+        _grav_sigma = max(2.0, _snap_fps * 0.15)  # ~4-5 frames
+        _grav_r = int(_grav_sigma * 3.0 + 0.5)
+        _grav_r = min(_grav_r, len(states) // 2)
+        if _grav_r >= 1 and np.any(np.abs(_grav_corrections) > 0.5):
+            _grav_kx = np.arange(-_grav_r, _grav_r + 1, dtype=np.float64)
+            _grav_k = np.exp(-0.5 * (_grav_kx / _grav_sigma) ** 2)
+            _grav_k /= _grav_k.sum()
+            _grav_padded = np.pad(_grav_corrections, _grav_r, mode="edge")
+            _grav_smooth = np.convolve(_grav_padded, _grav_k, mode="valid")
+
+            _grav_applied = 0
+            for _gi in range(len(states)):
+                if abs(_grav_smooth[_gi]) > 0.5:
+                    states[_gi].cx -= _grav_smooth[_gi]
+                    _half_cw_g = states[_gi].crop_w / 2.0
+                    _fw_g = float(width) if width > 0 else 1920.0
+                    states[_gi].x0 = float(np.clip(
+                        states[_gi].cx - _half_cw_g, 0.0,
+                        max(0.0, _fw_g - states[_gi].crop_w),
+                    ))
+                    _grav_applied += 1
+            if _grav_applied > 0:
+                print(
+                    f"[CAMERA] Ball-gravity clamp: corrected {_grav_applied}/{len(states)} frames "
+                    f"(max_drift={_grav_max_frac:.0%} of crop, "
+                    f"peak_correction={float(np.max(np.abs(_grav_smooth))):.1f}px)"
+                )
 
     # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
     if states and len(states) > 1:
