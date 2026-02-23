@@ -9183,7 +9183,7 @@ def run(
                 _hold_end = _kick_frame + _hold_frames
                 _trans_end = _hold_end + _trans_frames
                 _trans_end = min(_trans_end, len(states) - 1)
-                _kick_hold_trans_end = _trans_end  # protect from gravity clamp
+                _kick_hold_trans_end = _hold_end  # only protect hold; let gravity clamp correct transition
 
                 # Phase 1+2: lock camera on anchor (kicker) position
                 for _si in range(min(_hold_end, len(states))):
