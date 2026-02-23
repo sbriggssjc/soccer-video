@@ -6,7 +6,8 @@
       "Bash(ls:*)",
       "Bash(find:*)",
       "Bash(sort:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

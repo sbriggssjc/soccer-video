@@ -1484,6 +1484,7 @@ def fuse_yolo_and_centroid(
     FUSE_BLENDED = np.uint8(3)
     FUSE_INTERP = np.uint8(4)
     FUSE_HOLD = np.uint8(5)
+    FUSE_SHOT_HOLD = np.uint8(6)  # shot-hold / pan-hold (frozen at YOLO anchor)
 
     # Guard: zero-frame or negative frame_count
     if frame_count <= 0:
@@ -2144,7 +2145,7 @@ def fuse_yolo_and_centroid(
                         positions[k, 0] = max(0.0, min(width, _sh_cur_x))
                         positions[k, 1] = max(0.0, min(height, _sh_cur_y))
                         confidence[k] = _SH_CONF
-                        source_labels[k] = FUSE_HOLD
+                        source_labels[k] = FUSE_SHOT_HOLD
                         used_mask[k] = True
                         interpolated += 1
                     _is_pan_hold = len(_sh_vel_frames) == 0
@@ -2490,12 +2491,14 @@ def fuse_yolo_and_centroid(
                 # Override existing position if the extrapolation
                 # diverges by >100px (position is tracking something
                 # else) OR the frame has no data.
-                # NEVER override FUSE_INTERP or FUSE_HOLD frames: those
-                # were set by ease_out / smoothstep interpolation or by
-                # shot-hold / pan-hold between YOLO anchors — far more
-                # reliable than a velocity estimate from 1-2 consecutive
-                # frames which can be dominated by YOLO detection jitter.
-                if source_labels[k] in (FUSE_INTERP, FUSE_HOLD):
+                # NEVER override FUSE_INTERP or FUSE_SHOT_HOLD frames:
+                # those were set by ease_out / smoothstep interpolation
+                # or by shot-hold / pan-hold between YOLO anchors — far
+                # more reliable than a velocity estimate from 1-2
+                # consecutive frames dominated by detection jitter.
+                # Note: plain FUSE_HOLD (backward-fill) CAN be overridden
+                # — velocity extrapolation often improves those estimates.
+                if source_labels[k] in (FUSE_INTERP, FUSE_SHOT_HOLD):
                     continue  # preserve YOLO-anchored interpolation / hold
                 _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_clamped
                 _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_clamped
@@ -2551,7 +2554,7 @@ def fuse_yolo_and_centroid(
                                 break
                             _ex_c = max(0.0, min(width, _ex))
                             _ey_c = max(0.0, min(height, _ey))
-                            if source_labels[k] in (FUSE_INTERP, FUSE_HOLD):
+                            if source_labels[k] in (FUSE_INTERP, FUSE_SHOT_HOLD):
                                 continue  # preserve interpolation / hold
                             _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_c
                             _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_c

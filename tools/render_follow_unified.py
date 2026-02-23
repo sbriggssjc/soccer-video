@@ -5715,10 +5715,11 @@ class CameraPlanner:
             _cur_source_label = int(_source_labels[frame_idx]) if (
                 _source_labels is not None and frame_idx < len(_source_labels)
             ) else 0
-            if _prev_source_label == 5 and _cur_source_label in (1, 3):
-                # Only fire hold-exit boost when transitioning to YOLO (1)
-                # or blended (3) frames — NOT interpolated (4), which may
-                # be a phantom trajectory from broadcast camera pan.
+            if _prev_source_label in (5, 6) and _cur_source_label in (1, 3):
+                # Only fire hold-exit boost when transitioning from
+                # FUSE_HOLD (5) or FUSE_SHOT_HOLD (6) to YOLO (1) or
+                # blended (3) — NOT interpolated (4), which may be a
+                # phantom trajectory from broadcast camera pan.
                 # Distance-proportional: compute gap between camera and
                 # new ball position.  Larger gaps get stronger/longer boost.
                 _he_gap = 0.0
@@ -6977,6 +6978,45 @@ class CameraPlanner:
                     "[POST-SMOOTH] BIC re-applied after smooth: %d frames",
                     _bic2,
                 )
+
+                # Iterative convergence: for multi-frame escape clusters,
+                # the first smooth can undo corrections faster than one
+                # re-BIC pass can fix.  Apply a tighter smooth + re-BIC
+                # to converge without introducing jitter.
+                _bic_sigma2 = 1.5
+                _bic_r2 = int(_bic_sigma2 * 3.0 + 0.5)
+                _bic_r2 = min(_bic_r2, len(states) // 2)
+                if _bic_r2 >= 1 and len(states) > 2 * _bic_r2:
+                    _bic_cx2 = np.array([s.cx for s in states], dtype=np.float64)
+                    _bic_cy2 = np.array([s.cy for s in states], dtype=np.float64)
+                    _bic_x2 = np.arange(-_bic_r2, _bic_r2 + 1, dtype=np.float64)
+                    _bic_k2 = np.exp(-0.5 * (_bic_x2 / _bic_sigma2) ** 2)
+                    _bic_k2 /= _bic_k2.sum()
+                    _bic_cx2_p = np.pad(_bic_cx2, _bic_r2, mode="edge")
+                    _bic_cy2_p = np.pad(_bic_cy2, _bic_r2, mode="edge")
+                    _bic_cx2_s = np.convolve(_bic_cx2_p, _bic_k2, mode="valid")
+                    _bic_cy2_s = np.convolve(_bic_cy2_p, _bic_k2, mode="valid")
+                    for _bi2, _bs2 in enumerate(states):
+                        _bs2.cx = float(_bic_cx2_s[_bi2])
+                        _bs2.cy = float(_bic_cy2_s[_bi2])
+                        _hw2 = _bs2.crop_w * 0.5
+                        _hh2 = _bs2.crop_h * 0.5
+                        _bs2.x0 = float(np.clip(
+                            _bs2.cx - _hw2, 0.0,
+                            max(0.0, self.width - _bs2.crop_w),
+                        ))
+                        _bs2.y0 = float(np.clip(
+                            _bs2.cy - _hh2, 0.0,
+                            max(0.0, self.height - _bs2.crop_h),
+                        ))
+                        _bs2.cx = _bs2.x0 + _hw2
+                        _bs2.cy = _bs2.y0 + _hh2
+                    _bic3 = _apply_bic(states, _bic_margin, self.width, self.height)
+                    if _bic3 > 0:
+                        logger.info(
+                            "[POST-SMOOTH] BIC convergence pass: %d frames",
+                            _bic3,
+                        )
 
         return states
 
@@ -10061,7 +10101,7 @@ def run(
             )
 
     # --- Ball-in-crop diagnostic (always printed to stdout for batch visibility) ---
-    _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold"}
+    _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold", 6: "shot_hold"}
     if states and len(states) > 0 and follow_crop_width > 0:
         _n_states = len(states)
         _half_pw = float(follow_crop_width) / 2.0
@@ -10168,14 +10208,15 @@ def run(
         # it always appears "in crop," masking real ball escapes.
         _interp_total_diag = _inside_by_src.get(4, 0) + _outside_by_src.get(4, 0)
         _hold_total_diag = _inside_by_src.get(5, 0) + _outside_by_src.get(5, 0)
-        _synth_total = _interp_total_diag + _hold_total_diag + _centroid_only_total
+        _shot_hold_total_diag = _inside_by_src.get(6, 0) + _outside_by_src.get(6, 0)
+        _synth_total = _interp_total_diag + _hold_total_diag + _shot_hold_total_diag + _centroid_only_total
         if _checked > 0 and _synth_total > _checked * 0.40:
             _synth_pct = 100.0 * _synth_total / _checked
             print(
                 f"[DIAG] WARNING: {_synth_total}/{_checked} frames "
                 f"({_synth_pct:.0f}%) use synthetic positions "
                 f"(interp={_interp_total_diag}, hold={_hold_total_diag}, "
-                f"centroid={_centroid_only_total}). "
+                f"shot_hold={_shot_hold_total_diag}, centroid={_centroid_only_total}). "
                 f"Ball-in-crop metric is unreliable — "
                 f"actual ball may be outside the crop."
             )
@@ -10310,10 +10351,11 @@ def run(
                         if _bx_d and _by_d:
                             _bxf = float(_bx_d)
                             _byf = float(_by_d)
-                            _cl = max(0.0, _st.cx - _half_pw)
-                            if _cl + follow_crop_width > width:
-                                _cl = max(0.0, width - follow_crop_width)
-                            _cr = _cl + follow_crop_width
+                            # Use per-frame crop bounds (matches BIC guarantee
+                            # and summary diagnostic)
+                            _cw_d = _st.crop_w if hasattr(_st, "crop_w") and _st.crop_w > 0 else follow_crop_width
+                            _cl = _st.x0 if hasattr(_st, "x0") else max(0.0, _st.cx - _cw_d / 2.0)
+                            _cr = _cl + _cw_d
                             _ct = _st.y0 if hasattr(_st, "y0") else max(0.0, _st.cy - _crop_h_est / 2.0)
                             _cb = _ct + (_st.crop_h if hasattr(_st, "crop_h") else _crop_h_est)
                             _md = min(_bxf - _cl, _cr - _bxf, _byf - _ct, _cb - _byf)
