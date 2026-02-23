@@ -6640,8 +6640,16 @@ class CameraPlanner:
                 # max_accel = max_speed / (ramp_time * fps)
                 # With ramp_time ~0.3s the camera takes ~9 frames to reach
                 # full speed, producing visibly smooth acceleration.
-                _max_spd_x = pxpf_x  # pre-computed speed limit px/frame
-                _max_spd_y = pxpf_y
+                #
+                # Use the planner's actual pre-smooth max velocity as the
+                # ceiling (not the base pxpf_x).  The planner's main loop
+                # applied keepinview/flight/pan-detect boosts up to 4.5x;
+                # clipping at the base speed silently undoes those boosts
+                # and prevents the camera from tracking fast ball movement.
+                _pre_smooth_vx = np.abs(np.diff(cx_arr))
+                _pre_smooth_vy = np.abs(np.diff(cy_arr))
+                _max_spd_x = max(pxpf_x, float(np.percentile(_pre_smooth_vx, 99)) if len(_pre_smooth_vx) > 0 else pxpf_x)
+                _max_spd_y = max(pxpf_y, float(np.percentile(_pre_smooth_vy, 99)) if len(_pre_smooth_vy) > 0 else pxpf_y)
                 _ramp_s = 0.35  # seconds to reach full speed (longer ramp = smoother starts/stops)
                 _ramp_frames = max(1.0, _ramp_s * render_fps)
                 _max_accel_x = _max_spd_x / _ramp_frames
@@ -7246,8 +7254,13 @@ class Renderer:
         height = cropped.shape[0]
         frame = cropped
         center_x = float(center_x - left)
-        if state is not None:
-            state.cx = center_x
+        # NOTE: Do NOT write center_x back to state.cx here.  The state
+        # must retain its original source-coordinate cx so that the
+        # validation loop and any subsequent render passes read the
+        # correct value.  Writing portrait-relative coords into state.cx
+        # corrupted multi-pass framing (pass 2+ would treat portrait-
+        # relative values as source coords, pinning the camera to the
+        # left edge of the source frame).
 
         if output_size is None:
             output_size = (width, height)
