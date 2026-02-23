@@ -8915,6 +8915,40 @@ def run(
                 len(used_mask),
                 float(fusion_confidence[used_mask].mean()) if used_mask.any() else 0.0,
             )
+
+            # --- Wrong-ball sanity check ---
+            # When two balls are visible (e.g. adjacent field in the
+            # background), the multi-ball filter may keep the wrong
+            # cluster.  Detect this by checking whether the fused ball
+            # position at frame 0 falls far outside the centroid
+            # (player-cluster) x-range.  If so, the YOLO detections
+            # are tracking a background ball — re-run fusion without
+            # YOLO to get clean centroid-only tracking.
+            if ball_samples and len(positions) > 0 and not np.isnan(positions[0]).any():
+                _cs_xs = [float(s.x) for s in ball_samples
+                          if hasattr(s, "x") and math.isfinite(s.x)]
+                if _cs_xs:
+                    _cs_min = min(_cs_xs)
+                    _cs_max = max(_cs_xs)
+                    _fused_x0 = float(positions[0][0])
+                    _cs_margin = max(150.0, (_cs_max - _cs_min) * 0.10)
+                    if _fused_x0 < _cs_min - _cs_margin or _fused_x0 > _cs_max + _cs_margin:
+                        print(
+                            f"[FUSION] Wrong-ball detected: fused x0={_fused_x0:.0f} "
+                            f"outside centroid range [{_cs_min:.0f}, {_cs_max:.0f}] "
+                            f"(margin={_cs_margin:.0f}px) — re-running fusion without YOLO"
+                        )
+                        fused_positions, fused_mask, fusion_confidence, fusion_source_labels = fuse_yolo_and_centroid(
+                            yolo_samples=[],
+                            centroid_samples=ball_samples,
+                            frame_count=len(positions),
+                            width=float(width),
+                            height=float(height),
+                            fps=float(render_fps_for_plan),
+                            exclude_zones=_exclude_zones,
+                        )
+                        positions = fused_positions
+                        used_mask = fused_mask
         elif ball_samples:
             # No YOLO available, fall back to centroid-only merge
             merged = 0
