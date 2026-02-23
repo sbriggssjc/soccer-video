@@ -3299,6 +3299,165 @@ def compute_wobble_corrections(
     return wobble_dy
 
 
+# ---------------------------------------------------------------------------
+# Portrait framing validation — self-correcting feedback loop
+# ---------------------------------------------------------------------------
+
+def validate_portrait_framing(
+    frames_dir: Path,
+    states: list,
+    positions: np.ndarray,
+    fusion_source_labels: Optional[np.ndarray],
+    source_width: float,
+    *,
+    sample_every: int = 5,
+    min_conf: float = 0.15,
+    edge_margin_frac: float = 0.10,
+) -> Optional[np.ndarray]:
+    """Run YOLO ball detection on rendered portrait frames to validate framing.
+
+    Compares ball detections in the portrait crop against expected source
+    positions.  Returns per-frame cx corrections (source pixels) if issues
+    are found, or ``None`` if the framing passes validation.
+
+    The function checks two things:
+    1. Ball visibility: for frames where the source pipeline has a reliable
+       ball position, is the ball actually visible in the portrait crop?
+    2. Ball centering: is the ball pushed too close to the crop edge?
+
+    Only frames with reliable source labels (YOLO=1, interp=3, hold=4,5)
+    are checked — centroid-only (2) positions are too unreliable.
+    """
+    try:
+        from ultralytics import YOLO as _YOLO
+        _val_model = _YOLO("yolov8n.pt")
+    except Exception as _e:
+        print(f"[VALIDATE] Cannot load YOLO model ({_e}), skipping validation")
+        return None
+
+    from tools.ball_telemetry import detect_ball_in_frame
+
+    n = len(states)
+    corrections = np.zeros(n, dtype=np.float64)
+    _reliable = {1, 3, 4, 5}
+    _checked = 0
+    _detected = 0
+    _missing = 0
+    _edge_warn = 0
+    _corrected = 0
+
+    for fi in range(0, n, sample_every):
+        # Only validate frames with reliable source ball data
+        if fi >= len(positions) or np.isnan(positions[fi]).any():
+            continue
+        if fusion_source_labels is not None and fi < len(fusion_source_labels):
+            if int(fusion_source_labels[fi]) not in _reliable:
+                continue
+        elif fusion_source_labels is not None:
+            continue
+
+        frame_path = frames_dir / f"frame_{fi:06d}.png"
+        if not frame_path.exists():
+            continue
+
+        portrait_frame = cv2.imread(str(frame_path))
+        if portrait_frame is None:
+            continue
+
+        _checked += 1
+        ph, pw = portrait_frame.shape[:2]
+
+        # Run YOLO ball detection on the rendered portrait frame
+        det_cx, det_cy, det_conf = detect_ball_in_frame(
+            _val_model, portrait_frame, min_conf=min_conf,
+        )
+
+        # Expected ball position in portrait coordinates
+        ball_sx = float(positions[fi][0])
+        x0 = float(states[fi].x0)
+        crop_w = float(states[fi].crop_w) if states[fi].crop_w > 1 else 607.0
+        scale_x = pw / crop_w if crop_w > 0 else 1.0
+        expected_px = (ball_sx - x0) * scale_x
+
+        if det_cx is not None:
+            _detected += 1
+            # Ball found — check if it's dangerously close to the edge
+            margin = pw * edge_margin_frac
+            if det_cx < margin or det_cx > pw - margin:
+                _edge_warn += 1
+                # Mild correction: nudge toward center
+                center_px = pw / 2.0
+                error_px = det_cx - center_px
+                error_src = error_px / scale_x  # convert to source pixels
+                corrections[fi] = error_src * 0.5  # partial correction
+                _corrected += 1
+        else:
+            # Ball NOT found in portrait crop
+            ball_in_crop = (x0 <= ball_sx <= x0 + crop_w)
+            if not ball_in_crop:
+                # Ball is geometrically outside the crop — definite error
+                _missing += 1
+                corrections[fi] = ball_sx - float(states[fi].cx)
+                _corrected += 1
+
+    # Interpolate corrections for non-sampled frames
+    if _corrected > 0:
+        # Fill gaps between sampled corrections using linear interpolation
+        _nonzero = np.nonzero(corrections)[0]
+        if len(_nonzero) > 1:
+            from scipy.interpolate import interp1d
+            try:
+                _interp = interp1d(
+                    _nonzero, corrections[_nonzero],
+                    kind="linear", fill_value=0.0, bounds_error=False,
+                )
+                _all_frames = np.arange(n)
+                corrections = _interp(_all_frames)
+            except Exception:
+                pass  # keep sparse corrections
+
+        # Gaussian smooth the corrections to prevent jitter
+        _sigma = max(3.0, n * 0.005)
+        _r = int(_sigma * 3.0 + 0.5)
+        _r = min(_r, n // 2)
+        if _r >= 1:
+            _kx = np.arange(-_r, _r + 1, dtype=np.float64)
+            _k = np.exp(-0.5 * (_kx / _sigma) ** 2)
+            _k /= _k.sum()
+            _padded = np.pad(corrections, _r, mode="edge")
+            corrections = np.convolve(_padded, _k, mode="valid")
+
+    print(
+        f"[VALIDATE] Checked {_checked} portrait frames: "
+        f"ball_detected={_detected}, ball_missing={_missing}, "
+        f"edge_warnings={_edge_warn}, corrections={_corrected}"
+    )
+
+    if _missing == 0 and _edge_warn == 0:
+        return None  # validation passed
+
+    return corrections
+
+
+def apply_framing_corrections(
+    states: list,
+    corrections: np.ndarray,
+    source_width: float,
+) -> int:
+    """Apply cx corrections to camera states. Returns count of modified frames."""
+    applied = 0
+    for i in range(min(len(states), len(corrections))):
+        if abs(corrections[i]) > 0.5:
+            states[i].cx -= corrections[i]
+            half_cw = states[i].crop_w / 2.0
+            states[i].x0 = float(np.clip(
+                states[i].cx - half_cw, 0.0,
+                max(0.0, source_width - states[i].crop_w),
+            ))
+            applied += 1
+    return applied
+
+
 def detect_motion_centroid(
     prev_gray: np.ndarray,
     curr_gray: np.ndarray,
@@ -8960,6 +9119,7 @@ def run(
     # Gaussian pull when the gap exceeds 50 px.
     _snap_event = getattr(args, "event_type", None) or ""
     _snap_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+    _kick_hold_trans_end = 0  # frames 0.._kick_hold_trans_end are protected from gravity clamp
     if states and len(positions) > 0:
         _snap_ball_x0 = float(positions[0][0]) if not np.isnan(positions[0]).any() else None
         _snap_cam_x0 = float(states[0].cx) if states else None
@@ -8972,18 +9132,44 @@ def run(
 
             if _is_free_kick and _snap_ball_x0 is not None:
                 # --- FREE_KICK hold-then-follow ---
-                # Phase 1 (pre-kick + hold): lock camera on kicker position
+                # Phase 1 (pre-kick + hold): lock camera on kicker
                 # Phase 2 (transition): cubic ease from kicker to planner
                 # Phase 3: planner takes over
 
-                _kicker_x = _snap_ball_x0  # kick taker at initial ball pos
+                # Find the actual kicker using person detections.
+                # The kicker is the nearest person to the ball in
+                # pre-kick frames (averaged over first 10 frames).
+                _ball_x0 = _snap_ball_x0
+                _ball_y0 = float(positions[0][1]) if not np.isnan(positions[0]).any() else 540.0
+                _kicker_cx = None
+                if person_boxes_by_frame:
+                    _kicker_dists = []  # (dist, person_cx) pairs
+                    for _pf in range(min(12, len(positions))):
+                        if _pf in person_boxes_by_frame:
+                            for _pb in person_boxes_by_frame[_pf]:
+                                _d = ((float(_pb.cx) - _ball_x0) ** 2 + (float(_pb.cy) - _ball_y0) ** 2) ** 0.5
+                                if _d < 200.0:  # within 200px of ball
+                                    _kicker_dists.append((_d, float(_pb.cx)))
+                    if _kicker_dists:
+                        # Take the median cx of the closest-person candidates
+                        _kicker_dists.sort()
+                        _top_n = min(5, len(_kicker_dists))
+                        _kicker_cx = float(np.median([kd[1] for kd in _kicker_dists[:_top_n]]))
+
+                # Camera anchor: use kicker position if found, else ball
+                _anchor_x = _kicker_cx if _kicker_cx is not None else _ball_x0
+                print(
+                    f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
+                    f"kicker_cx={_kicker_cx:.0f if _kicker_cx is not None else 'N/A'}, "
+                    f"anchor_x={_anchor_x:.0f}"
+                )
 
                 # Detect kick frame: first frame where ball has moved > 80px
                 _kick_frame = None
                 _kick_threshold = 80.0
                 for _kf in range(1, min(len(positions), int(_snap_fps * 6))):
                     if not np.isnan(positions[_kf]).any():
-                        if abs(float(positions[_kf][0]) - _kicker_x) > _kick_threshold:
+                        if abs(float(positions[_kf][0]) - _ball_x0) > _kick_threshold:
                             _kick_frame = _kf
                             break
 
@@ -8997,28 +9183,25 @@ def run(
                 _hold_end = _kick_frame + _hold_frames
                 _trans_end = _hold_end + _trans_frames
                 _trans_end = min(_trans_end, len(states) - 1)
+                _kick_hold_trans_end = _trans_end  # protect from gravity clamp
 
-                # Phase 1+2: lock camera on kicker position
+                # Phase 1+2: lock camera on anchor (kicker) position
                 for _si in range(min(_hold_end, len(states))):
-                    states[_si].cx = _kicker_x
+                    states[_si].cx = _anchor_x
                     _half_cw = states[_si].crop_w / 2.0
                     states[_si].x0 = float(np.clip(
-                        _kicker_x - _half_cw, 0.0,
+                        _anchor_x - _half_cw, 0.0,
                         max(0.0, _snap_fw - states[_si].crop_w),
                     ))
 
-                # Phase 3: cubic ease from kicker position to planner
-                # We need a smooth target — use the planner's original cx
-                # (before our modifications) which we haven't stored, but
-                # at _trans_end it's still the original planner value.
-                # Blend from kicker_x to current states[_si].cx (planner).
+                # Phase 3: cubic ease from anchor position to planner
                 if _trans_end > _hold_end and _trans_end < len(states):
                     _plan_cx_at_end = states[_trans_end].cx  # planner's original
                     for _si in range(_hold_end, _trans_end):
                         _t = (_si - _hold_end) / float(_trans_end - _hold_end)
                         # Cubic ease-in-out: smooth start and end
                         _ease = _t * _t * (3.0 - 2.0 * _t)
-                        _new_cx = (1.0 - _ease) * _kicker_x + _ease * _plan_cx_at_end
+                        _new_cx = (1.0 - _ease) * _anchor_x + _ease * _plan_cx_at_end
                         states[_si].cx = _new_cx
                         _half_cw = states[_si].crop_w / 2.0
                         states[_si].x0 = float(np.clip(
@@ -9069,6 +9252,9 @@ def run(
         # NOT centroid-only (label 2) which tracks player mass, not ball.
         _grav_reliable = {1, 3, 4, 5}  # YOLO, interpolated, hold-fwd, hold-bwd
         for _gi in range(len(states)):
+            # Skip frames protected by kick-hold — we placed them deliberately
+            if _gi < _kick_hold_trans_end:
+                continue
             # Skip centroid-only frames — ball position is unreliable
             if fusion_source_labels is not None and _gi < len(fusion_source_labels):
                 if int(fusion_source_labels[_gi]) not in _grav_reliable:
@@ -9827,11 +10013,61 @@ def run(
     assert len(pan_plan_for_render) == num_frames, (
         "Follow plan centers_x length mismatch (after align)"
     )
-    jerk95 = renderer.write_frames(
-        states,
-        follow_centers=follow_centers_int or follow_centers,
-        pan_x_plan=pan_plan_for_render,
-    )
+    # ----------------------------------------------------------------
+    # SELF-CORRECTING RENDER LOOP
+    # Render frames, validate ball visibility via YOLO on the portrait
+    # output, correct camera plan if needed, and re-render.  Converges
+    # in 1-3 passes.
+    # ----------------------------------------------------------------
+    _MAX_CORRECTION_PASSES = 3
+    _src_width = float(width) if width > 0 else 1920.0
+
+    for _pass_i in range(_MAX_CORRECTION_PASSES):
+        jerk95 = renderer.write_frames(
+            states,
+            follow_centers=follow_centers_int or follow_centers,
+            pan_x_plan=pan_plan_for_render,
+        )
+
+        if _pass_i >= _MAX_CORRECTION_PASSES - 1:
+            break  # last pass — accept whatever we have
+
+        _val_frames_dir = Path(renderer.temp_dir) / "frames"
+        _val_corrections = validate_portrait_framing(
+            _val_frames_dir,
+            states,
+            positions,
+            fusion_source_labels,
+            _src_width,
+            sample_every=5,
+        )
+
+        if _val_corrections is None:
+            print(f"[VALIDATE] Pass {_pass_i + 1}: PASSED — no corrections needed")
+            break
+
+        # Apply corrections
+        _val_applied = apply_framing_corrections(states, _val_corrections, _src_width)
+
+        # Re-apply speed limiter after corrections
+        _sl_fps_val = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+        _val_speed_clipped = 0
+        _val_max_speed = 15.0
+        for _vsi in range(1, len(states)):
+            _vd = states[_vsi].cx - states[_vsi - 1].cx
+            if abs(_vd) > _val_max_speed:
+                _vc = states[_vsi - 1].cx + np.sign(_vd) * _val_max_speed
+                states[_vsi].cx = _vc
+                _hcw = states[_vsi].crop_w / 2.0
+                states[_vsi].x0 = float(np.clip(
+                    _vc - _hcw, 0.0, max(0.0, _src_width - states[_vsi].crop_w),
+                ))
+                _val_speed_clipped += 1
+
+        print(
+            f"[VALIDATE] Pass {_pass_i + 1}: corrected {_val_applied} frames, "
+            f"speed-limited {_val_speed_clipped} — re-rendering..."
+        )
 
     assert renderer is not None
 
@@ -9839,7 +10075,7 @@ def run(
     log_path = Path(args.log).expanduser() if args.log else None
 
     # ------------------------------------------------------------
-    # NEW FINAL STITCHING STEP
+    # FINAL STITCHING STEP
     # Assemble rendered PNG frames into the final output MP4.
     # ------------------------------------------------------------
     import subprocess
