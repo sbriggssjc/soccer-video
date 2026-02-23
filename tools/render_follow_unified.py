@@ -9597,11 +9597,28 @@ def run(
     # ``max_drift_frac`` of crop width from the ball, pull it back.
     # Corrections are Gaussian-smoothed to prevent jitter.
     if states and len(positions) > 0 and len(states) > 5:
-        _grav_max_frac = 0.32  # ball must be within 32% of crop half-width from center
+        # Adaptive gravity: tighten for clips with wide ball travel,
+        # loosen for clips where the ball stays near the center.
+        _grav_max_frac = 0.32  # default
+        if auto_tune_enabled and positions is not None and len(positions) > 2:
+            _at_h_range = analyze_ball_positions(
+                positions[:, 0], positions[:, 1], fps=_snap_fps,
+            )["horizontal_range"]
+            _grav_crop_w_ref = float(states[0].crop_w) if states[0].crop_w > 1 else 607.0
+            _grav_range_ratio = _at_h_range / max(_grav_crop_w_ref, 1.0)
+            # Ball spans >2x crop → tighten to 0.22; <0.5x → loosen to 0.40
+            _grav_max_frac = float(np.clip(
+                0.40 - 0.18 * min(_grav_range_ratio / 2.0, 1.0), 0.22, 0.40
+            ))
+            print(
+                f"[CAMERA] Gravity clamp auto-tune: h_range={_at_h_range:.0f}px, "
+                f"range_ratio={_grav_range_ratio:.2f}x crop → max_drift={_grav_max_frac:.0%}"
+            )
         _grav_corrections = np.zeros(len(states), dtype=np.float64)
         # Only trust YOLO-confirmed or interpolated/held ball positions,
         # NOT centroid-only (label 2) which tracks player mass, not ball.
         _grav_reliable = {1, 3, 4, 5}  # YOLO, interpolated, hold-fwd, hold-bwd
+        _grav_skipped_centroid = 0
         for _gi in range(len(states)):
             # Skip frames protected by kick-hold — we placed them deliberately
             if _gi < _kick_hold_trans_end:
@@ -9609,6 +9626,7 @@ def run(
             # Skip centroid-only frames — ball position is unreliable
             if fusion_source_labels is not None and _gi < len(fusion_source_labels):
                 if int(fusion_source_labels[_gi]) not in _grav_reliable:
+                    _grav_skipped_centroid += 1
                     continue
             elif fusion_source_labels is not None:
                 continue  # out of range → no label → skip
@@ -9644,29 +9662,84 @@ def run(
                     ))
                     _grav_applied += 1
             if _grav_applied > 0:
+                _grav_checked = len(states) - _grav_skipped_centroid - max(0, _kick_hold_trans_end)
                 print(
-                    f"[CAMERA] Ball-gravity clamp: corrected {_grav_applied}/{len(states)} frames "
+                    f"[CAMERA] Ball-gravity clamp: corrected {_grav_applied}/{_grav_checked} reliable frames "
                     f"(max_drift={_grav_max_frac:.0%} of crop, "
-                    f"peak_correction={float(np.max(np.abs(_grav_smooth))):.1f}px)"
+                    f"peak_correction={float(np.max(np.abs(_grav_smooth))):.1f}px, "
+                    f"skipped {_grav_skipped_centroid} centroid-only)"
                 )
+
+    # --- PER-CLIP BALL DYNAMICS ANALYSIS ---
+    # When auto-tune is enabled, analyse the fused ball positions for
+    # this specific clip to derive an adaptive speed limit.  Clips with
+    # slow action (passing around the back) get a tighter limit for a
+    # smoother camera, while fast counter-attacks get a higher limit so
+    # the camera can keep up.  The adaptive limit is clamped between a
+    # floor of 15 px/frame and a ceiling of the preset speed_limit.
+    _sl_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+    _preset_limit_pf = speed_limit / _sl_fps  # preset speed_limit in px/frame
+    _clip_speed_pf = _preset_limit_pf  # default: use full preset
+
+    if auto_tune_enabled and positions is not None and len(positions) > 2:
+        _at_stats = analyze_ball_positions(
+            positions[:, 0], positions[:, 1], fps=_sl_fps,
+        )
+        _at_p95 = _at_stats["p95_speed"]      # px/frame
+        _at_peak = _at_stats["peak_speed"]     # px/frame
+        _at_median = _at_stats["median_speed"]  # px/frame
+
+        # Adaptive limit: 1.5x the p95 ball speed gives comfortable
+        # headroom for the camera to track without lag.  For high-
+        # variance clips (peak >> p95, e.g. FREE_KICK with a long hold
+        # then a fast flight), blend toward peak so the flight phase
+        # isn't under-limited by the mostly-stationary hold frames.
+        _at_ratio = _at_peak / max(_at_p95, 0.1)
+        if _at_ratio > 3.0:
+            _adaptive_base = _at_p95 * 2.0 + _at_peak * 0.4
+        else:
+            _adaptive_base = _at_p95 * 1.5
+        # Also ensure we can handle at least 3x the median speed
+        _adaptive_base = max(_adaptive_base, _at_median * 3.0)
+        _clip_speed_pf = float(np.clip(_adaptive_base, 15.0, _preset_limit_pf))
+        print(
+            f"[CAMERA] Auto-tune speed: p95={_at_p95:.1f} peak={_at_peak:.1f} "
+            f"median={_at_median:.1f} px/f → adaptive limit={_clip_speed_pf:.1f} px/f "
+            f"(preset={_preset_limit_pf:.1f})"
+        )
 
     # --- CAMERA SPEED LIMITER: prevent choppy single-frame jumps ---
     # After all corrections (snap, gravity), cap the maximum per-frame
     # camera movement.  This is a forward pass that propagates limits.
-    # Derive from the preset speed_limit (px/s) so the post-processing
-    # limiter is consistent with the planner's configured speed.
+    # Derive from the per-clip adaptive limit (or preset speed_limit
+    # when auto-tune is off) so the post-processing limiter matches
+    # this clip's actual ball dynamics.
+    # Apply the same event-type scaling the CameraPlanner uses internally
+    # so that FREE_KICK's 0.45x slowdown and GOAL/CROSS boosts are
+    # respected by the post-processing pass.
     if states and len(states) > 2:
-        _sl_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
-        _max_speed = max(15.0, speed_limit / _sl_fps)  # px/frame from preset speed_limit (px/s)
+        _sl_event_scale = 1.0
+        _sl_event = (getattr(args, "event_type", None) or "").upper().strip()
+        if _sl_event == "FREE_KICK":
+            _sl_event_scale = 0.45
+        elif _sl_event == "GOAL":
+            _sl_event_scale = 1.25
+        elif _sl_event == "CROSS":
+            _sl_event_scale = 1.40
+        _max_speed = max(15.0, _clip_speed_pf * _sl_event_scale)  # px/frame, per-clip adaptive
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
         _sl_start = max(1, _kick_hold_end)  # don't speed-limit the kick-hold
-        _trans_max_speed = max(40.0, _max_speed * 1.5)  # fast during FREE_KICK transition to track ball flight
+        # Transition & catch-up derive from the *un-scaled* adaptive limit
+        # (_clip_speed_pf) rather than _max_speed, because event_scale
+        # deliberately slows normal tracking (e.g. FREE_KICK 0.45x) but
+        # the transition/catchup phases must be fast to follow ball flight.
+        _trans_max_speed = max(40.0, _clip_speed_pf * 1.5)
         # Post-transition catch-up: the planner output is slow (conf-damped)
         # so give the camera 3s at higher speed to reach the ball before
         # falling back to the normal limit.
         _catchup_end = _kick_hold_trans_end + int(_sl_fps * 3.0) if _kick_hold_trans_end > 0 else 0
-        _catchup_speed = max(25.0, _max_speed * 1.2)
+        _catchup_speed = max(25.0, _clip_speed_pf * 1.2)
         for _si in range(_sl_start, len(states)):
             if _kick_hold_end > 0 and _si <= _kick_hold_trans_end:
                 _eff_max = _trans_max_speed
@@ -9687,9 +9760,11 @@ def run(
                 ))
                 _speed_clipped += 1
         if _speed_clipped > 0:
+            _adaptive_tag = "adaptive" if (auto_tune_enabled and _clip_speed_pf < _preset_limit_pf) else "preset"
             print(
-                f"[CAMERA] Speed limiter: clamped {_speed_clipped}/{len(states)} frames "
-                f"(max {_max_speed:.0f}px/f = {_max_speed * _sl_fps:.0f}px/s)"
+                f"[CAMERA] Speed limiter ({_adaptive_tag}): clamped {_speed_clipped}/{len(states)} frames "
+                f"(max {_max_speed:.1f}px/f = {_max_speed * _sl_fps:.0f}px/s, "
+                f"trans={_trans_max_speed:.1f}px/f, catchup={_catchup_speed:.1f}px/f)"
             )
 
     # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
@@ -10423,12 +10498,12 @@ def run(
         _val_applied = apply_framing_corrections(states, _val_corrections, _src_width)
 
         # Re-apply speed limiter after corrections (skip kick-hold frames)
-        # Use the same preset-derived speed limit as the main speed limiter.
-        _sl_fps_val = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+        # Use the same per-clip adaptive limit and event-type scaling
+        # as the main speed limiter.
         _val_speed_clipped = 0
-        _val_max_speed = max(15.0, speed_limit / _sl_fps_val)
+        _val_max_speed = max(15.0, _clip_speed_pf * _sl_event_scale)
         _val_sl_start = max(1, _kick_hold_end)  # don't speed-limit the hold
-        _val_trans_max_speed = max(25.0, _val_max_speed * 1.2)  # faster during transition
+        _val_trans_max_speed = max(25.0, _clip_speed_pf * 1.2)  # faster during transition (un-scaled)
         for _vsi in range(_val_sl_start, len(states)):
             _eff_max_v = _val_trans_max_speed if (_kick_hold_end > 0 and _vsi <= _kick_hold_trans_end) else _val_max_speed
             _vd = states[_vsi].cx - states[_vsi - 1].cx
