@@ -2015,6 +2015,7 @@ def fuse_yolo_and_centroid(
                 # coordinates.  Instead, hold near the last YOLO position
                 # with heavy deceleration — the ball stopped, the camera
                 # should stay put.
+                _LARGE_DIST_PX = 500.0  # ~quarter-field on 1920px
                 _SHOT_HOLD_GAP = max(1, int(30 * _fps_scale))  # ~1s
                 _SHOT_HOLD_SPEED = 4.0 * (30.0 / _fps)  # px/frame fps-corrected
                 _shot_hold = False
@@ -2042,6 +2043,41 @@ def fuse_yolo_and_centroid(
                                 )
                         if len(_sh_speeds) >= 2 and min(_sh_speeds) > _SHOT_HOLD_SPEED:
                             _shot_hold = True
+
+                    # Pan-hold: large-distance gap where ball was NOT fast.
+                    # Use centroid tracking during the gap to distinguish:
+                    #   - Real ball movement (cross/pass): centroid tracks
+                    #     the ball toward the endpoint → allow interpolation
+                    #   - Pan artifact: centroid stays near the start or
+                    #     moves differently → hold at start position
+                    # This generalises across clip types: crosses keep the
+                    # camera following, post-goal pans keep it still.
+                    if not _shot_hold and dist > _LARGE_DIST_PX:
+                        _centroid_xs = []
+                        for _ci in range(fi + 1, fj):
+                            if int(source_labels[_ci]) in (
+                                int(FUSE_CENTROID), int(FUSE_BLENDED),
+                            ):
+                                _centroid_xs.append(float(positions[_ci, 0]))
+                        _pan_hold_activate = False
+                        if len(_centroid_xs) >= 5:
+                            _centroid_med = float(np.median(_centroid_xs))
+                            _interp_dx = x1 - x0
+                            _centroid_drift = _centroid_med - x0
+                            # If centroid median stayed within 30% of the
+                            # interpolation distance from the start, the
+                            # ball didn't really travel → pan artifact.
+                            if abs(_interp_dx) > 1.0:
+                                _drift_ratio = _centroid_drift / _interp_dx
+                                if _drift_ratio < 0.30:
+                                    _pan_hold_activate = True
+                        else:
+                            # Very few centroid detections — can't tell.
+                            # Default to interpolation (avoid false freezes).
+                            pass
+                        if _pan_hold_activate:
+                            _shot_hold = True
+                            _sh_vel_frames = []  # zero velocity — hold at start
 
                 if _shot_hold:
                     # Hold at last YOLO with decelerating extrapolation,
@@ -2098,12 +2134,15 @@ def fuse_yolo_and_centroid(
                         source_labels[k] = FUSE_INTERP
                         used_mask[k] = True
                         interpolated += 1
-                    _interp_mode = "shot_hold"
+                    _is_pan_hold = len(_sh_vel_frames) == 0
+                    _interp_mode = "pan_hold" if _is_pan_hold else "shot_hold"
                     long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
+                    _hold_label = "Pan-hold" if _is_pan_hold else "Shot-hold"
                     print(
-                        f"[FUSION] Shot-hold: frames {fi}->{fj} "
+                        f"[FUSION] {_hold_label}: frames {fi}->{fj} "
                         f"({gap} frames), holding near "
-                        f"x={float(_sh_yi.x):.0f} (endpoint x={x1:.0f} ignored)"
+                        f"x={float(_sh_yi.x):.0f} (endpoint x={x1:.0f} ignored, "
+                        f"dist={dist:.0f}px)"
                     )
                     continue  # skip normal interpolation for this gap
 

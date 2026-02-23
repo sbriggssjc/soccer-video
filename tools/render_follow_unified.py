@@ -5698,7 +5698,10 @@ class CameraPlanner:
             _cur_source_label = int(_source_labels[frame_idx]) if (
                 _source_labels is not None and frame_idx < len(_source_labels)
             ) else 0
-            if _prev_source_label == 5 and _cur_source_label != 5:
+            if _prev_source_label == 5 and _cur_source_label in (1, 3):
+                # Only fire hold-exit boost when transitioning to YOLO (1)
+                # or blended (3) frames — NOT interpolated (4), which may
+                # be a phantom trajectory from broadcast camera pan.
                 _hold_exit_countdown = 10
             _prev_source_label = _cur_source_label
 
@@ -9349,10 +9352,17 @@ def run(
             if _dropout_len < 30:
                 _gi -= 1
                 continue
-            # Check preceding frames for high speed (>6 px/frame)
+            # Check preceding frames for high speed (>6 px/frame).
+            # IMPORTANT: only count frames with direct YOLO or blended
+            # observations — interpolated/ease-out positions can produce
+            # false high-speed readings from phantom trajectories.
             _high_speed_count = 0
             for _gk in range(_gi - 1, max(_gi - 20, 1), -1):
                 if used_mask[_gk] and used_mask[_gk - 1]:
+                    _gk_src = int(fusion_source_labels[_gk]) if _gk < len(fusion_source_labels) else 0
+                    _gk_prev_src = int(fusion_source_labels[_gk - 1]) if (_gk - 1) < len(fusion_source_labels) else 0
+                    if _gk_src not in (1, 3) or _gk_prev_src not in (1, 3):
+                        continue  # skip interp/centroid/hold frames
                     _gspd = math.hypot(
                         float(positions[_gk, 0]) - float(positions[_gk - 1, 0]),
                         float(positions[_gk, 1]) - float(positions[_gk - 1, 1]),
@@ -9739,7 +9749,7 @@ def run(
             ))
             print(
                 f"[CAMERA] Gravity clamp auto-tune: h_range={_at_h_range:.0f}px, "
-                f"range_ratio={_grav_range_ratio:.2f}x crop → max_drift={_grav_max_frac:.0%}"
+                f"range_ratio={_grav_range_ratio:.2f}x crop -> max_drift={_grav_max_frac:.0%}"
             )
         _grav_corrections = np.zeros(len(states), dtype=np.float64)
         # Only trust YOLO-confirmed or interpolated/held ball positions,
@@ -9831,7 +9841,7 @@ def run(
         _clip_speed_pf = float(np.clip(_adaptive_base, 15.0, _preset_limit_pf))
         print(
             f"[CAMERA] Auto-tune speed: p95={_at_p95:.1f} peak={_at_peak:.1f} "
-            f"median={_at_median:.1f} px/f → adaptive limit={_clip_speed_pf:.1f} px/f "
+            f"median={_at_median:.1f} px/f -> adaptive limit={_clip_speed_pf:.1f} px/f "
             f"(preset={_preset_limit_pf:.1f})"
         )
 
