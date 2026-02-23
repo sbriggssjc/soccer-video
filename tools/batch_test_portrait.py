@@ -117,7 +117,7 @@ def run_clip(clip_name: str) -> dict:
             cmd,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=900,
             encoding="utf-8",
             errors="replace",
         )

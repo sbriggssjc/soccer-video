@@ -5700,7 +5700,11 @@ class CameraPlanner:
         # After exiting a backward-hold segment, the camera may be stuck
         # at a stale position far from the real ball.  Apply a temporary
         # speed boost so it can close the gap quickly.
+        # Boost and duration are distance-proportional: small gaps (200px)
+        # get the base 3x/10f, large gaps (1000+px) get up to 6x/15f so
+        # the camera can recover from consecutive holds in time.
         _hold_exit_countdown: int = 0
+        _hold_exit_boost_level: float = 3.0
         _prev_source_label: int = 0
 
         for frame_idx in range(frame_count):
@@ -5715,7 +5719,18 @@ class CameraPlanner:
                 # Only fire hold-exit boost when transitioning to YOLO (1)
                 # or blended (3) frames — NOT interpolated (4), which may
                 # be a phantom trajectory from broadcast camera pan.
-                _hold_exit_countdown = 10
+                # Distance-proportional: compute gap between camera and
+                # new ball position.  Larger gaps get stronger/longer boost.
+                _he_gap = 0.0
+                if has_position:
+                    _he_gap = math.hypot(
+                        float(pos[0]) - prev_cx, float(pos[1]) - prev_cy
+                    )
+                # Base: 3x boost for 10 frames (covers ~300px gaps).
+                # Scale up for larger gaps: 1000px -> 6x/15f.
+                _he_gap_norm = min(1.0, max(0.0, (_he_gap - 200.0) / 800.0))
+                _hold_exit_boost_level = 3.0 + 3.0 * _he_gap_norm   # 3x - 6x
+                _hold_exit_countdown = 10 + int(5 * _he_gap_norm)    # 10 - 15 frames
             _prev_source_label = _cur_source_label
 
             # Ball position as pan target.
@@ -6430,10 +6445,11 @@ class CameraPlanner:
                 accel_speed_boost = max(accel_speed_boost, _keepin_boost)
 
             # Hold-exit catch-up boost: after exiting a backward-hold
-            # segment the camera may be 500-1000+ px behind the real ball.
-            # Apply a 3x speed boost for 10 frames so it can close the gap.
+            # or shot-hold/pan-hold segment, the camera may be 500-1000+ px
+            # behind the real ball.  Apply a distance-proportional speed
+            # boost so it can close the gap quickly.
             if _hold_exit_countdown > 0:
-                accel_speed_boost = max(accel_speed_boost, 3.0)
+                accel_speed_boost = max(accel_speed_boost, _hold_exit_boost_level)
                 _hold_exit_countdown -= 1
                 clamp_flags.append(f"hold_exit={_hold_exit_countdown}")
 
