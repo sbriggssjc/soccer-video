@@ -9653,18 +9653,20 @@ def run(
     # --- CAMERA SPEED LIMITER: prevent choppy single-frame jumps ---
     # After all corrections (snap, gravity), cap the maximum per-frame
     # camera movement.  This is a forward pass that propagates limits.
+    # Derive from the preset speed_limit (px/s) so the post-processing
+    # limiter is consistent with the planner's configured speed.
     if states and len(states) > 2:
         _sl_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
-        _max_speed = 15.0  # max px/frame (~450px/s at 30fps)
+        _max_speed = max(15.0, speed_limit / _sl_fps)  # px/frame from preset speed_limit (px/s)
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
         _sl_start = max(1, _kick_hold_end)  # don't speed-limit the kick-hold
-        _trans_max_speed = 40.0  # fast during FREE_KICK transition to track ball flight
+        _trans_max_speed = max(40.0, _max_speed * 1.5)  # fast during FREE_KICK transition to track ball flight
         # Post-transition catch-up: the planner output is slow (conf-damped)
         # so give the camera 3s at higher speed to reach the ball before
         # falling back to the normal limit.
         _catchup_end = _kick_hold_trans_end + int(_sl_fps * 3.0) if _kick_hold_trans_end > 0 else 0
-        _catchup_speed = 25.0
+        _catchup_speed = max(25.0, _max_speed * 1.2)
         for _si in range(_sl_start, len(states)):
             if _kick_hold_end > 0 and _si <= _kick_hold_trans_end:
                 _eff_max = _trans_max_speed
@@ -10421,11 +10423,12 @@ def run(
         _val_applied = apply_framing_corrections(states, _val_corrections, _src_width)
 
         # Re-apply speed limiter after corrections (skip kick-hold frames)
+        # Use the same preset-derived speed limit as the main speed limiter.
         _sl_fps_val = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
         _val_speed_clipped = 0
-        _val_max_speed = 15.0
+        _val_max_speed = max(15.0, speed_limit / _sl_fps_val)
         _val_sl_start = max(1, _kick_hold_end)  # don't speed-limit the hold
-        _val_trans_max_speed = 25.0  # faster during transition
+        _val_trans_max_speed = max(25.0, _val_max_speed * 1.2)  # faster during transition
         for _vsi in range(_val_sl_start, len(states)):
             _eff_max_v = _val_trans_max_speed if (_kick_hold_end > 0 and _vsi <= _kick_hold_trans_end) else _val_max_speed
             _vd = states[_vsi].cx - states[_vsi - 1].cx
