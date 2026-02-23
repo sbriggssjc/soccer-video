@@ -5643,6 +5643,12 @@ class CameraPlanner:
         _scorer_x: Optional[float] = None
         _scorer_y: Optional[float] = None
         _scorer_frame: int = -999  # frame when scorer was last updated
+        # For FREE_KICK: seed scorer from the kick taker so celebration
+        # tracking follows the right player, not a defender/goalkeeper.
+        _fk_scorer = getattr(self, '_free_kick_scorer_pos', None)
+        if _fk_scorer is not None:
+            _scorer_x = _fk_scorer[0]
+            _scorer_y = _fk_scorer[1]
         _goal_event_frame: int = -999  # frame when goal event was detected
         _goal_snap_active = False
         _goal_snap_duration = 0  # frames since goal event
@@ -5729,8 +5735,28 @@ class CameraPlanner:
             _shot_speed_thr = 6.0 * _fps_ratio  # px/frame: fps-corrected (same real-world speed at any fps)
             if smooth_speed_pf > _shot_speed_thr:
                 _high_speed_sustained += 1
-                # Update scorer position: nearest person to ball during shot
-                if person_boxes and has_position:
+                # Update scorer position during shot.
+                # FREE_KICK: track nearest person to the KICKER (not the ball)
+                # so the celebration tracker follows the kick taker, not a
+                # defender or goalkeeper near the ball's flight path.
+                if _fk_scorer is not None and person_boxes:
+                    _shot_persons = person_boxes.get(frame_idx)
+                    if _shot_persons:
+                        _ref_x = _scorer_x if _scorer_x is not None else _fk_scorer[0]
+                        _ref_y = _scorer_y if _scorer_y is not None else _fk_scorer[1]
+                        _best_p = None
+                        _best_p_dist = float("inf")
+                        for _sp in _shot_persons:
+                            _sp_dist = math.hypot(_sp.cx - _ref_x, _sp.cy - _ref_y)
+                            if _sp_dist < _best_p_dist and _sp_dist < self.width * 0.10:
+                                _best_p_dist = _sp_dist
+                                _best_p = _sp
+                        if _best_p is not None:
+                            _scorer_x = _best_p.cx
+                            _scorer_y = _best_p.cy
+                            _scorer_frame = frame_idx
+                elif person_boxes and has_position:
+                    # Default: nearest person to ball during shot
                     _shot_persons = person_boxes.get(frame_idx)
                     if _shot_persons:
                         _best_p = None
@@ -9093,6 +9119,32 @@ def run(
         post_smooth_sigma=float(preset_config.get("post_smooth_sigma", 0.0)),
         event_type=getattr(args, "event_type", None),
     )
+
+    # --- FREE_KICK: identify the kick taker BEFORE the planner runs ---
+    # The planner's scorer-memory logic normally tracks the nearest player
+    # to the ball during flight.  For a free kick, that's a defender or
+    # goalkeeper — not the kicker.  Pre-calculate the kicker position and
+    # pass it to the planner so it tracks the right person for celebration.
+    _snap_event = getattr(args, "event_type", None) or ""
+    planner._free_kick_scorer_pos = None
+    if _snap_event == "FREE_KICK" and len(positions) > 0 and not np.isnan(positions[0]).any():
+        _pre_ball_x = float(positions[0][0])
+        _pre_ball_y = float(positions[0][1])
+        if person_boxes_by_frame:
+            _pre_kicker_dists = []
+            for _pf in range(min(12, len(positions))):
+                if _pf in person_boxes_by_frame:
+                    for _pb in person_boxes_by_frame[_pf]:
+                        _d = math.hypot(_pb.cx - _pre_ball_x, _pb.cy - _pre_ball_y)
+                        if _d < 200.0:
+                            _pre_kicker_dists.append((_d, float(_pb.cx), float(_pb.cy)))
+            if _pre_kicker_dists:
+                _pre_kicker_dists.sort()
+                _top_n = min(5, len(_pre_kicker_dists))
+                planner._free_kick_scorer_pos = (
+                    float(np.median([kd[1] for kd in _pre_kicker_dists[:_top_n]])),
+                    float(np.median([kd[2] for kd in _pre_kicker_dists[:_top_n]])),
+                )
     if not ball_samples:
         ball_samples = load_ball_telemetry_for_clip(str(original_source_path))
         if ball_samples and upscale_factor > 1:
@@ -9316,10 +9368,13 @@ def run(
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
         _sl_start = max(1, _kick_hold_end)  # don't speed-limit the kick-hold
+        _trans_max_speed = 25.0  # faster during FREE_KICK transition to keep up with ball
         for _si in range(_sl_start, len(states)):
+            # Use higher speed limit during FREE_KICK transition phase
+            _eff_max = _trans_max_speed if (_kick_hold_end > 0 and _si <= _kick_hold_trans_end) else _max_speed
             _delta = states[_si].cx - states[_si - 1].cx
-            if abs(_delta) > _max_speed:
-                _clamped_cx = states[_si - 1].cx + np.sign(_delta) * _max_speed
+            if abs(_delta) > _eff_max:
+                _clamped_cx = states[_si - 1].cx + np.sign(_delta) * _eff_max
                 states[_si].cx = _clamped_cx
                 _half_cw_s = states[_si].crop_w / 2.0
                 states[_si].x0 = float(np.clip(
@@ -10068,10 +10123,12 @@ def run(
         _val_speed_clipped = 0
         _val_max_speed = 15.0
         _val_sl_start = max(1, _kick_hold_end)  # don't speed-limit the hold
+        _val_trans_max_speed = 25.0  # faster during transition
         for _vsi in range(_val_sl_start, len(states)):
+            _eff_max_v = _val_trans_max_speed if (_kick_hold_end > 0 and _vsi <= _kick_hold_trans_end) else _val_max_speed
             _vd = states[_vsi].cx - states[_vsi - 1].cx
-            if abs(_vd) > _val_max_speed:
-                _vc = states[_vsi - 1].cx + np.sign(_vd) * _val_max_speed
+            if abs(_vd) > _eff_max_v:
+                _vc = states[_vsi - 1].cx + np.sign(_vd) * _eff_max_v
                 states[_vsi].cx = _vc
                 _hcw = states[_vsi].crop_w / 2.0
                 states[_vsi].x0 = float(np.clip(
