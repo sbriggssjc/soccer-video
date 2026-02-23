@@ -8960,6 +8960,7 @@ def run(
     # Gaussian pull when the gap exceeds 50 px.
     _snap_event = getattr(args, "event_type", None) or ""
     _snap_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+    _kick_hold_trans_end = 0  # frames 0.._kick_hold_trans_end are protected from gravity clamp
     if states and len(positions) > 0:
         _snap_ball_x0 = float(positions[0][0]) if not np.isnan(positions[0]).any() else None
         _snap_cam_x0 = float(states[0].cx) if states else None
@@ -8972,18 +8973,44 @@ def run(
 
             if _is_free_kick and _snap_ball_x0 is not None:
                 # --- FREE_KICK hold-then-follow ---
-                # Phase 1 (pre-kick + hold): lock camera on kicker position
+                # Phase 1 (pre-kick + hold): lock camera on kicker
                 # Phase 2 (transition): cubic ease from kicker to planner
                 # Phase 3: planner takes over
 
-                _kicker_x = _snap_ball_x0  # kick taker at initial ball pos
+                # Find the actual kicker using person detections.
+                # The kicker is the nearest person to the ball in
+                # pre-kick frames (averaged over first 10 frames).
+                _ball_x0 = _snap_ball_x0
+                _ball_y0 = float(positions[0][1]) if not np.isnan(positions[0]).any() else 540.0
+                _kicker_cx = None
+                if person_boxes_by_frame:
+                    _kicker_dists = []  # (dist, person_cx) pairs
+                    for _pf in range(min(12, len(positions))):
+                        if _pf in person_boxes_by_frame:
+                            for _pb in person_boxes_by_frame[_pf]:
+                                _d = ((float(_pb.cx) - _ball_x0) ** 2 + (float(_pb.cy) - _ball_y0) ** 2) ** 0.5
+                                if _d < 200.0:  # within 200px of ball
+                                    _kicker_dists.append((_d, float(_pb.cx)))
+                    if _kicker_dists:
+                        # Take the median cx of the closest-person candidates
+                        _kicker_dists.sort()
+                        _top_n = min(5, len(_kicker_dists))
+                        _kicker_cx = float(np.median([kd[1] for kd in _kicker_dists[:_top_n]]))
+
+                # Camera anchor: use kicker position if found, else ball
+                _anchor_x = _kicker_cx if _kicker_cx is not None else _ball_x0
+                print(
+                    f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
+                    f"kicker_cx={_kicker_cx:.0f if _kicker_cx is not None else 'N/A'}, "
+                    f"anchor_x={_anchor_x:.0f}"
+                )
 
                 # Detect kick frame: first frame where ball has moved > 80px
                 _kick_frame = None
                 _kick_threshold = 80.0
                 for _kf in range(1, min(len(positions), int(_snap_fps * 6))):
                     if not np.isnan(positions[_kf]).any():
-                        if abs(float(positions[_kf][0]) - _kicker_x) > _kick_threshold:
+                        if abs(float(positions[_kf][0]) - _ball_x0) > _kick_threshold:
                             _kick_frame = _kf
                             break
 
@@ -8997,28 +9024,25 @@ def run(
                 _hold_end = _kick_frame + _hold_frames
                 _trans_end = _hold_end + _trans_frames
                 _trans_end = min(_trans_end, len(states) - 1)
+                _kick_hold_trans_end = _trans_end  # protect from gravity clamp
 
-                # Phase 1+2: lock camera on kicker position
+                # Phase 1+2: lock camera on anchor (kicker) position
                 for _si in range(min(_hold_end, len(states))):
-                    states[_si].cx = _kicker_x
+                    states[_si].cx = _anchor_x
                     _half_cw = states[_si].crop_w / 2.0
                     states[_si].x0 = float(np.clip(
-                        _kicker_x - _half_cw, 0.0,
+                        _anchor_x - _half_cw, 0.0,
                         max(0.0, _snap_fw - states[_si].crop_w),
                     ))
 
-                # Phase 3: cubic ease from kicker position to planner
-                # We need a smooth target — use the planner's original cx
-                # (before our modifications) which we haven't stored, but
-                # at _trans_end it's still the original planner value.
-                # Blend from kicker_x to current states[_si].cx (planner).
+                # Phase 3: cubic ease from anchor position to planner
                 if _trans_end > _hold_end and _trans_end < len(states):
                     _plan_cx_at_end = states[_trans_end].cx  # planner's original
                     for _si in range(_hold_end, _trans_end):
                         _t = (_si - _hold_end) / float(_trans_end - _hold_end)
                         # Cubic ease-in-out: smooth start and end
                         _ease = _t * _t * (3.0 - 2.0 * _t)
-                        _new_cx = (1.0 - _ease) * _kicker_x + _ease * _plan_cx_at_end
+                        _new_cx = (1.0 - _ease) * _anchor_x + _ease * _plan_cx_at_end
                         states[_si].cx = _new_cx
                         _half_cw = states[_si].crop_w / 2.0
                         states[_si].x0 = float(np.clip(
@@ -9069,6 +9093,9 @@ def run(
         # NOT centroid-only (label 2) which tracks player mass, not ball.
         _grav_reliable = {1, 3, 4, 5}  # YOLO, interpolated, hold-fwd, hold-bwd
         for _gi in range(len(states)):
+            # Skip frames protected by kick-hold — we placed them deliberately
+            if _gi < _kick_hold_trans_end:
+                continue
             # Skip centroid-only frames — ball position is unreliable
             if fusion_source_labels is not None and _gi < len(fusion_source_labels):
                 if int(fusion_source_labels[_gi]) not in _grav_reliable:
