@@ -8951,12 +8951,10 @@ def run(
 
     # --- STARTUP SNAP + KICK-HOLD: keep camera on ball and kick taker ---
     # For FREE_KICK clips, the viewer needs to see the kick taker
-    # through the moment of the kick.  We center the camera between
-    # the kicker (standing at the pre-kick ball position) and the
-    # ball as it flies away, keeping both in frame for as long as
-    # the crop allows.  Once the spread exceeds the crop, the camera
-    # follows the ball.  A quadratic ramp then transitions to the
-    # planner's trajectory.
+    # through the moment of the kick.  We detect when the ball first
+    # moves significantly (the kick), then HOLD the camera on the
+    # kicker for a beat so the viewer registers the kick, then
+    # smoothly ease the camera toward the planner's trajectory.
     #
     # For other events, a short snap (20 frames) corrects the initial
     # Gaussian pull when the gap exceeds 50 px.
@@ -8970,51 +8968,93 @@ def run(
         _snap_gap = abs(_snap_ball_x0 - _snap_cam_x0) if (_snap_ball_x0 is not None and _snap_cam_x0 is not None) else 0.0
 
         if _is_free_kick or _snap_gap > 50.0:
-            _snap_n = int(_snap_fps * 5.0) if _is_free_kick else 20
-            _snap_n = min(_snap_n, len(states) // 3)
-            _snap_n = max(_snap_n, 1)
             _snap_fw = float(width) if width > 0 else 1920.0
 
-            # Kick-hold parameters for FREE_KICK
-            _kicker_x = _snap_ball_x0  # kick taker stands where ball was placed
-            _kick_margin = 30.0  # min px from crop edge for ball/kicker
+            if _is_free_kick and _snap_ball_x0 is not None:
+                # --- FREE_KICK hold-then-follow ---
+                # Phase 1 (pre-kick + hold): lock camera on kicker position
+                # Phase 2 (transition): cubic ease from kicker to planner
+                # Phase 3: planner takes over
 
-            for _si in range(_snap_n):
-                _blend = (_si / _snap_n) ** 2  # quadratic ease-in to planned path
+                _kicker_x = _snap_ball_x0  # kick taker at initial ball pos
 
-                # Resolve per-frame ball position
-                if _si < len(positions) and not np.isnan(positions[_si]).any():
-                    _ball_x_i = float(positions[_si][0])
-                elif _snap_ball_x0 is not None:
-                    _ball_x_i = _snap_ball_x0
-                else:
-                    continue
+                # Detect kick frame: first frame where ball has moved > 80px
+                _kick_frame = None
+                _kick_threshold = 80.0
+                for _kf in range(1, min(len(positions), int(_snap_fps * 6))):
+                    if not np.isnan(positions[_kf]).any():
+                        if abs(float(positions[_kf][0]) - _kicker_x) > _kick_threshold:
+                            _kick_frame = _kf
+                            break
 
-                if _is_free_kick and _kicker_x is not None:
-                    # Midpoint centering: keep both kicker and ball
-                    # in frame for as long as the crop allows.
-                    _crop_w_i = states[_si].crop_w if states[_si].crop_w > 1 else 607.0
-                    _available = _crop_w_i - 2 * _kick_margin
-                    _spread = abs(_kicker_x - _ball_x_i)
-                    if _spread <= _available:
-                        _target_x = (_kicker_x + _ball_x_i) / 2.0
+                if _kick_frame is None:
+                    _kick_frame = int(_snap_fps * 2)  # fallback: 2s
+
+                # Hold on kicker for 0.7s after kick so viewer sees it happen
+                _hold_frames = int(_snap_fps * 0.7)
+                # Transition to planner over 2.0s with cubic ease
+                _trans_frames = int(_snap_fps * 2.0)
+                _hold_end = _kick_frame + _hold_frames
+                _trans_end = _hold_end + _trans_frames
+                _trans_end = min(_trans_end, len(states) - 1)
+
+                # Phase 1+2: lock camera on kicker position
+                for _si in range(min(_hold_end, len(states))):
+                    states[_si].cx = _kicker_x
+                    _half_cw = states[_si].crop_w / 2.0
+                    states[_si].x0 = float(np.clip(
+                        _kicker_x - _half_cw, 0.0,
+                        max(0.0, _snap_fw - states[_si].crop_w),
+                    ))
+
+                # Phase 3: cubic ease from kicker position to planner
+                # We need a smooth target — use the planner's original cx
+                # (before our modifications) which we haven't stored, but
+                # at _trans_end it's still the original planner value.
+                # Blend from kicker_x to current states[_si].cx (planner).
+                if _trans_end > _hold_end and _trans_end < len(states):
+                    _plan_cx_at_end = states[_trans_end].cx  # planner's original
+                    for _si in range(_hold_end, _trans_end):
+                        _t = (_si - _hold_end) / float(_trans_end - _hold_end)
+                        # Cubic ease-in-out: smooth start and end
+                        _ease = _t * _t * (3.0 - 2.0 * _t)
+                        _new_cx = (1.0 - _ease) * _kicker_x + _ease * _plan_cx_at_end
+                        states[_si].cx = _new_cx
+                        _half_cw = states[_si].crop_w / 2.0
+                        states[_si].x0 = float(np.clip(
+                            _new_cx - _half_cw, 0.0,
+                            max(0.0, _snap_fw - states[_si].crop_w),
+                        ))
+
+                print(
+                    f"[CAMERA] FREE_KICK hold-then-follow: kick_frame={_kick_frame}, "
+                    f"hold_end={_hold_end}, trans_end={_trans_end} "
+                    f"(hold={_hold_frames / _snap_fps:.1f}s, "
+                    f"transition={_trans_frames / _snap_fps:.1f}s)"
+                )
+            else:
+                # Non-FREE_KICK: short startup snap to ball position
+                _snap_n = 20
+                _snap_n = min(_snap_n, len(states) // 3)
+                _snap_n = max(_snap_n, 1)
+                for _si in range(_snap_n):
+                    _blend = (_si / _snap_n) ** 2
+                    if _si < len(positions) and not np.isnan(positions[_si]).any():
+                        _ball_x_i = float(positions[_si][0])
+                    elif _snap_ball_x0 is not None:
+                        _ball_x_i = _snap_ball_x0
                     else:
-                        _target_x = _ball_x_i
-                else:
-                    _target_x = _ball_x_i
-
-                _new_cx = (1.0 - _blend) * _target_x + _blend * states[_si].cx
-                states[_si].cx = _new_cx
-                _half_cw = states[_si].crop_w / 2.0
-                states[_si].x0 = float(np.clip(
-                    _new_cx - _half_cw, 0.0,
-                    max(0.0, _snap_fw - states[_si].crop_w),
-                ))
-            _snap_label = "FREE_KICK kick-hold" if _is_free_kick else "startup"
-            print(
-                f"[CAMERA] {_snap_label} snap: gap={_snap_gap:.0f}px, "
-                f"ramp={_snap_n}f ({_snap_n / _snap_fps:.1f}s)"
-            )
+                        continue
+                    _new_cx = (1.0 - _blend) * _ball_x_i + _blend * states[_si].cx
+                    states[_si].cx = _new_cx
+                    _half_cw = states[_si].crop_w / 2.0
+                    states[_si].x0 = float(np.clip(
+                        _new_cx - _half_cw, 0.0,
+                        max(0.0, _snap_fw - states[_si].crop_w),
+                    ))
+                print(
+                    f"[CAMERA] startup snap: gap={_snap_gap:.0f}px, ramp={_snap_n}f"
+                )
 
     # --- BALL-GRAVITY CLAMP: keep camera near known ball positions ---
     # The planner's centroid-tracking can drift the camera far from
@@ -9072,6 +9112,31 @@ def run(
                     f"(max_drift={_grav_max_frac:.0%} of crop, "
                     f"peak_correction={float(np.max(np.abs(_grav_smooth))):.1f}px)"
                 )
+
+    # --- CAMERA SPEED LIMITER: prevent choppy single-frame jumps ---
+    # After all corrections (snap, gravity), cap the maximum per-frame
+    # camera movement.  This is a forward pass that propagates limits.
+    if states and len(states) > 2:
+        _sl_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+        _max_speed = 15.0  # max px/frame (~450px/s at 30fps)
+        _speed_clipped = 0
+        _speed_fw = float(width) if width > 0 else 1920.0
+        for _si in range(1, len(states)):
+            _delta = states[_si].cx - states[_si - 1].cx
+            if abs(_delta) > _max_speed:
+                _clamped_cx = states[_si - 1].cx + np.sign(_delta) * _max_speed
+                states[_si].cx = _clamped_cx
+                _half_cw_s = states[_si].crop_w / 2.0
+                states[_si].x0 = float(np.clip(
+                    _clamped_cx - _half_cw_s, 0.0,
+                    max(0.0, _speed_fw - states[_si].crop_w),
+                ))
+                _speed_clipped += 1
+        if _speed_clipped > 0:
+            print(
+                f"[CAMERA] Speed limiter: clamped {_speed_clipped}/{len(states)} frames "
+                f"(max {_max_speed:.0f}px/f = {_max_speed * _sl_fps:.0f}px/s)"
+            )
 
     # --- Camera plan diagnostics (printed to stdout for batch visibility) ---
     if states and len(states) > 1:
