@@ -6238,9 +6238,18 @@ class CameraPlanner:
             #
             # lead_time_sec controls how far ahead the camera looks.
             # The post-Gaussian smoothing will round this into an S-curve.
-            _lead_time_sec = 0.25  # seconds of anticipation (raised from 0.20)
-            _lead_speed_floor = 3.0  # px/frame: no lead below this speed (raised from 1.5 — YOLO/centroid noise on stationary balls produces ~1-2 px/frame jitter)
-            _lead_max_px = self.width * 0.12  # cap lead at 12% of frame width (raised from 8%)
+            #
+            # PORTRAIT FIX: In portrait mode the visible crop is much narrower
+            # than the source frame (e.g. 608px vs 1920px).  The lead cap and
+            # anticipation time must be relative to the *crop* width, not the
+            # source width, or the camera overshoots and the ball drifts out
+            # of frame.  We also reduce anticipation time because the narrow
+            # frame has less margin to absorb forward bias.
+            _effective_w = self.height * aspect_ratio if self.portrait else self.width
+            _lead_time_sec = 0.12 if self.portrait else 0.25  # portrait: halved anticipation
+            _lead_speed_floor = 4.0 if self.portrait else 3.0  # portrait: higher floor to reject noise
+            _lead_max_frac = 0.10 if self.portrait else 0.12  # portrait: tighter cap
+            _lead_max_px = _effective_w * _lead_max_frac  # % of *visible* crop width
             if smooth_speed_pf > _lead_speed_floor:
                 # Velocity direction unit vector
                 _vel_mag = math.hypot(vx, vy)
