@@ -21,6 +21,19 @@ import math
 import subprocess
 import sys
 from dataclasses import dataclass
+
+# Ensure stdout can handle Unicode on Windows (cp1252 default chokes on
+# em-dashes, arrows, etc. in diagnostic messages).
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Optional, Sequence, Tuple
 
@@ -2131,7 +2144,7 @@ def fuse_yolo_and_centroid(
                         positions[k, 0] = max(0.0, min(width, _sh_cur_x))
                         positions[k, 1] = max(0.0, min(height, _sh_cur_y))
                         confidence[k] = _SH_CONF
-                        source_labels[k] = FUSE_INTERP
+                        source_labels[k] = FUSE_HOLD
                         used_mask[k] = True
                         interpolated += 1
                     _is_pan_hold = len(_sh_vel_frames) == 0
@@ -2477,13 +2490,13 @@ def fuse_yolo_and_centroid(
                 # Override existing position if the extrapolation
                 # diverges by >100px (position is tracking something
                 # else) OR the frame has no data.
-                # NEVER override FUSE_INTERP frames: those were set by
-                # ease_out / smoothstep interpolation between two YOLO
-                # anchors spanning tens of frames — far more reliable
-                # than a velocity estimate from 1-2 consecutive frames
-                # which can be dominated by YOLO detection jitter.
-                if source_labels[k] == FUSE_INTERP:
-                    continue  # preserve YOLO-anchored interpolation
+                # NEVER override FUSE_INTERP or FUSE_HOLD frames: those
+                # were set by ease_out / smoothstep interpolation or by
+                # shot-hold / pan-hold between YOLO anchors — far more
+                # reliable than a velocity estimate from 1-2 consecutive
+                # frames which can be dominated by YOLO detection jitter.
+                if source_labels[k] in (FUSE_INTERP, FUSE_HOLD):
+                    continue  # preserve YOLO-anchored interpolation / hold
                 _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_clamped
                 _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_clamped
                 _extrap_dist = math.hypot(_ex_clamped - _cx_cur, _ey_clamped - _cy_cur)
@@ -2538,8 +2551,8 @@ def fuse_yolo_and_centroid(
                                 break
                             _ex_c = max(0.0, min(width, _ex))
                             _ey_c = max(0.0, min(height, _ey))
-                            if source_labels[k] == FUSE_INTERP:
-                                continue  # preserve YOLO-anchored interpolation
+                            if source_labels[k] in (FUSE_INTERP, FUSE_HOLD):
+                                continue  # preserve interpolation / hold
                             _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_c
                             _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_c
                             _d = math.hypot(_ex_c - _cx_cur, _ey_c - _cy_cur)

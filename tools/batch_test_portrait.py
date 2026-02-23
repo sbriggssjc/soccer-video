@@ -10,6 +10,13 @@ import os
 import re
 import subprocess
 import sys
+
+# Handle Windows cp1252 encoding for Unicode output
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -129,10 +136,11 @@ def run_clip(clip_name: str) -> dict:
                 print(f"  {line_s}")
 
         # Parse metrics from output
-        m = re.search(r"Ball in crop:\s*([\d.]+)%\s*\((\d+)/(\d+)\)", output)
+        # Format: "Ball in crop: N/N (X.X%)"
+        m = re.search(r"Ball in crop:\s*(\d+)/(\d+)\s*\(([\d.]+)%\)", output)
         if m:
-            result["ball_in_crop_pct"] = float(m.group(1))
-            result["ball_in_crop_frac"] = f"{m.group(2)}/{m.group(3)}"
+            result["ball_in_crop_pct"] = float(m.group(3))
+            result["ball_in_crop_frac"] = f"{m.group(1)}/{m.group(2)}"
 
         m = re.search(r"Max escape:\s*([\d.]+)\s*px", output)
         if m:

@@ -5,7 +5,8 @@
       "Bash(xargs:*)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "Bash(python3:*)"
     ]
   }
 }

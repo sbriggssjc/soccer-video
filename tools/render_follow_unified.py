@@ -16,6 +16,19 @@ from __future__ import annotations
 import argparse
 import os, sys
 
+# Ensure stdout can handle Unicode on Windows (cp1252 default chokes on
+# em-dashes, arrows, etc. in diagnostic messages).
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 # Ensure repo root is importable even when running python tools\...`r
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if repo_root not in sys.path:
