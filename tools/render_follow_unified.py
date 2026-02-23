@@ -9437,7 +9437,7 @@ def run(
                     # planner may track centroid noise and pan away
                     # from the kicker/ball before the kick happens.
                     _min_hold_s = 0.3
-                    _min_trans_s = 0.8
+                    _min_trans_s = 2.5  # long transition to track ball flight
                     _follow_anchor = _kicker_cx if _kicker_cx is not None else _ball_x0
                     _fk_label = "follow+hold"
                     _hold_end_final, _trans_end_final, _out_f, _tot_f, _mesc_f, _fk_label = (
@@ -9574,10 +9574,21 @@ def run(
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
         _sl_start = max(1, _kick_hold_end)  # don't speed-limit the kick-hold
-        _trans_max_speed = 25.0  # faster during FREE_KICK transition to keep up with ball
+        _trans_max_speed = 40.0  # fast during FREE_KICK transition to track ball flight
+        # Post-transition catch-up: the planner output is slow (conf-damped)
+        # so give the camera 3s at higher speed to reach the ball before
+        # falling back to the normal limit.
+        _catchup_end = _kick_hold_trans_end + int(_sl_fps * 3.0) if _kick_hold_trans_end > 0 else 0
+        _catchup_speed = 25.0
         for _si in range(_sl_start, len(states)):
-            # Use higher speed limit during FREE_KICK transition phase
-            _eff_max = _trans_max_speed if (_kick_hold_end > 0 and _si <= _kick_hold_trans_end) else _max_speed
+            if _kick_hold_end > 0 and _si <= _kick_hold_trans_end:
+                _eff_max = _trans_max_speed
+            elif _kick_hold_end > 0 and _si <= _catchup_end:
+                # Linear taper from catch-up speed to normal speed
+                _cu_t = (_si - _kick_hold_trans_end) / max(1, _catchup_end - _kick_hold_trans_end)
+                _eff_max = _catchup_speed + (_max_speed - _catchup_speed) * _cu_t
+            else:
+                _eff_max = _max_speed
             _delta = states[_si].cx - states[_si - 1].cx
             if abs(_delta) > _eff_max:
                 _clamped_cx = states[_si - 1].cx + np.sign(_delta) * _eff_max
