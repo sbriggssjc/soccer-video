@@ -9209,24 +9209,76 @@ def run(
                         _top_n = min(5, len(_kicker_dists))
                         _kicker_cx = float(np.median([kd[1] for kd in _kicker_dists[:_top_n]]))
 
-                # Camera anchor: use kicker position if found, else ball
+                # ---- adaptive FREE_KICK anchor & timing ----
+                # Assess per-clip framing quality and auto-tune hold
+                # duration and transition speed so edge-constrained
+                # clips don't need manual triage.
+
+                # Camera anchor: use kicker position if found, else ball.
+                # Keep the raw kicker position — do NOT clamp to crop
+                # center range.  When the anchor overshoots the achievable
+                # crop center the transition blend naturally creates a
+                # "dead zone" that acts as extended hold + damper,
+                # preventing the camera from racing into centroid noise.
                 _anchor_x = _kicker_cx if _kicker_cx is not None else _ball_x0
-                # Clamp anchor to the achievable portrait-crop center range.
-                # When the kicker is near the source edge, the raw anchor
-                # falls outside the range the portrait crop can actually
-                # center on.  Using the unclamped value as the transition
-                # start creates a dead zone where the blend progresses but
-                # the crop stays pinned at the edge, causing the camera to
-                # appear stuck and the ball to escape during transition.
-                _anchor_x_raw = _anchor_x
-                if follow_crop_width > 0 and follow_crop_width < _snap_fw:
-                    _half_pcw = float(follow_crop_width) / 2.0
-                    _anchor_x = float(np.clip(_anchor_x, _half_pcw, _snap_fw - _half_pcw))
+
+                # --- per-clip framing-quality assessment ---
+                # Compute where ball & kicker land in the achievable crop
+                # and auto-tune hold / transition timing.
+                _pcw = float(follow_crop_width) if follow_crop_width > 0 else _snap_fw
+                _crop_left = float(np.clip(
+                    _anchor_x - _pcw / 2.0, 0.0,
+                    max(0.0, _snap_fw - _pcw),
+                ))
+                _crop_right = _crop_left + _pcw
+
+                _ball_frac = (_ball_x0 - _crop_left) / max(_pcw, 1.0)
+                _kicker_frac = (
+                    (_kicker_cx - _crop_left) / max(_pcw, 1.0)
+                    if _kicker_cx is not None
+                    else _ball_frac
+                )
+
+                # "edge factor": 0 = centred, 1 = at crop boundary
+                _kicker_edge = min(1.0, max(0.0, 2.0 * abs(_kicker_frac - 0.5)))
+
+                # Adaptive timing based on framing quality.
+                #  - good:          standard timing, kicker well-framed
+                #  - edge_extended: kicker in outer 15%, extend hold so
+                #                   the viewer has more time to register
+                #                   the kick taker before camera moves
+                #  - edge_severe:   kicker in outer 5%, maximise hold and
+                #                   slow the transition further
+                _fk_quality = "good"
+                _hold_s  = 0.8   # hold duration (seconds)
+                _trans_s = 1.5   # transition duration (seconds)
+
+                if _kicker_edge > 0.90:
+                    # Severe: kicker nearly off-screen (outer 5%).
+                    # Maximise hold to give the viewer as much time as
+                    # possible and slow down transition for stability.
+                    _hold_s  = 1.4
+                    _trans_s = 2.0
+                    _fk_quality = "edge_severe"
+                elif _kicker_edge > 0.70:
+                    # Moderate: kicker in outer 15%.
+                    # Proportionally extend hold.
+                    _severity = (_kicker_edge - 0.70) / 0.20
+                    _hold_s  = 0.8 + 0.6 * _severity
+                    _trans_s = 1.5 + 0.5 * _severity
+                    _fk_quality = "edge_extended"
+
                 print(
                     f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
                     f"kicker_cx={f'{_kicker_cx:.0f}' if _kicker_cx is not None else 'N/A'}, "
                     f"anchor_x={_anchor_x:.0f}"
-                    + (f" (clamped from {_anchor_x_raw:.0f})" if abs(_anchor_x - _anchor_x_raw) > 0.5 else "")
+                )
+                print(
+                    f"[CAMERA] FREE_KICK framing: quality={_fk_quality}, "
+                    f"kicker_frac={_kicker_frac:.2f}, "
+                    f"ball_frac={_ball_frac:.2f}, "
+                    f"kicker_edge={_kicker_edge:.2f}, "
+                    f"hold={_hold_s:.2f}s, trans={_trans_s:.2f}s"
                 )
 
                 # Detect kick frame: first frame where ball has moved > 80px
@@ -9241,10 +9293,9 @@ def run(
                 if _kick_frame is None:
                     _kick_frame = int(_snap_fps * 2)  # fallback: 2s
 
-                # Hold on kicker for 0.8s after kick so viewer registers the strike
-                _hold_frames = int(_snap_fps * 0.8)
-                # Transition to ball over 1.5s with ease-out
-                _trans_frames = int(_snap_fps * 1.5)
+                # Hold and transition use the per-clip adaptive durations
+                _hold_frames = int(_snap_fps * _hold_s)
+                _trans_frames = int(_snap_fps * _trans_s)
                 _hold_end = _kick_frame + _hold_frames
                 _trans_end = _hold_end + _trans_frames
                 _trans_end = min(_trans_end, len(states) - 1)
