@@ -2005,6 +2005,108 @@ def fuse_yolo_and_centroid(
                     )
                     continue
                 long_interp += gap - 1
+
+                # --- SHOT-HOLD MODE ---
+                # When the ball was moving fast at the gap start and then
+                # YOLO drops out for a long time, the ball likely entered
+                # the net (goal) or went out of play.  Interpolating toward
+                # the next YOLO creates a phantom trajectory because the
+                # broadcast camera pans between detections, shifting pixel
+                # coordinates.  Instead, hold near the last YOLO position
+                # with heavy deceleration — the ball stopped, the camera
+                # should stay put.
+                _SHOT_HOLD_GAP = max(1, int(30 * _fps_scale))  # ~1s
+                _SHOT_HOLD_SPEED = 4.0 * (30.0 / _fps)  # px/frame fps-corrected
+                _shot_hold = False
+                if gap > _SHOT_HOLD_GAP:
+                    # Compute speed at gap start from preceding YOLO frames
+                    _sh_vel_frames = []
+                    for _shi in range(seg_idx, max(seg_idx - 4, -1), -1):
+                        _shf = yolo_frames[_shi]
+                        if _shf < fi - 10:
+                            break
+                        _sh_vel_frames.append(_shf)
+                    _sh_vel_frames.reverse()
+                    if len(_sh_vel_frames) >= 3:
+                        _sh_speeds = []
+                        for _shk in range(1, len(_sh_vel_frames)):
+                            _sha = yolo_by_frame[_sh_vel_frames[_shk - 1]]
+                            _shb = yolo_by_frame[_sh_vel_frames[_shk]]
+                            _shdt = _sh_vel_frames[_shk] - _sh_vel_frames[_shk - 1]
+                            if _shdt > 0:
+                                _sh_speeds.append(
+                                    math.hypot(
+                                        float(_shb.x) - float(_sha.x),
+                                        float(_shb.y) - float(_sha.y),
+                                    ) / _shdt
+                                )
+                        if len(_sh_speeds) >= 2 and min(_sh_speeds) > _SHOT_HOLD_SPEED:
+                            _shot_hold = True
+
+                if _shot_hold:
+                    # Hold at last YOLO with decelerating extrapolation,
+                    # then freeze.  This matches "ball enters net" physics.
+                    _SH_DECEL = 0.90 ** (30.0 / _fps)  # per-frame decay
+                    _SH_EXTRAP = min(15, gap // 2)       # decel frames
+                    _SH_CONF = 0.25                       # low confidence
+                    _sh_yi = yolo_by_frame[fi]
+                    # Average velocity from the pre-gap YOLO segment
+                    _sh_vx_sum = 0.0
+                    _sh_vy_sum = 0.0
+                    _sh_vpairs = 0
+                    for _shk in range(1, len(_sh_vel_frames)):
+                        _sha = yolo_by_frame[_sh_vel_frames[_shk - 1]]
+                        _shb = yolo_by_frame[_sh_vel_frames[_shk]]
+                        _shdt = _sh_vel_frames[_shk] - _sh_vel_frames[_shk - 1]
+                        if _shdt > 0:
+                            _sh_vx_sum += (float(_shb.x) - float(_sha.x)) / _shdt
+                            _sh_vy_sum += (float(_shb.y) - float(_sha.y)) / _shdt
+                            _sh_vpairs += 1
+                    _sh_vx = _sh_vx_sum / max(1, _sh_vpairs)
+                    _sh_vy = _sh_vy_sum / max(1, _sh_vpairs)
+                    # Compute the deceleration endpoint (geometric sum)
+                    _sh_hold_x = float(_sh_yi.x)
+                    _sh_hold_y = float(_sh_yi.y)
+                    _sh_decay_vx = _sh_vx
+                    _sh_decay_vy = _sh_vy
+                    for _shd in range(_SH_EXTRAP):
+                        _sh_hold_x += _sh_decay_vx
+                        _sh_hold_y += _sh_decay_vy
+                        _sh_decay_vx *= _SH_DECEL
+                        _sh_decay_vy *= _SH_DECEL
+                    # Clamp hold position to frame bounds
+                    _sh_hold_x = max(0.0, min(width, _sh_hold_x))
+                    _sh_hold_y = max(0.0, min(height, _sh_hold_y))
+                    # Fill the gap
+                    _sh_cur_x = float(_sh_yi.x)
+                    _sh_cur_y = float(_sh_yi.y)
+                    _sh_cur_vx = _sh_vx
+                    _sh_cur_vy = _sh_vy
+                    for k in range(fi + 1, fj):
+                        _sh_t = k - fi
+                        if _sh_t <= _SH_EXTRAP:
+                            _sh_cur_x += _sh_cur_vx
+                            _sh_cur_y += _sh_cur_vy
+                            _sh_cur_vx *= _SH_DECEL
+                            _sh_cur_vy *= _SH_DECEL
+                        else:
+                            _sh_cur_x = _sh_hold_x
+                            _sh_cur_y = _sh_hold_y
+                        positions[k, 0] = max(0.0, min(width, _sh_cur_x))
+                        positions[k, 1] = max(0.0, min(height, _sh_cur_y))
+                        confidence[k] = _SH_CONF
+                        source_labels[k] = FUSE_INTERP
+                        used_mask[k] = True
+                        interpolated += 1
+                    _interp_mode = "shot_hold"
+                    long_flight_info.append((fi, fj, x0, y0, x1, y1, dist, _interp_mode))
+                    print(
+                        f"[FUSION] Shot-hold: frames {fi}->{fj} "
+                        f"({gap} frames), holding near "
+                        f"x={float(_sh_yi.x):.0f} (endpoint x={x1:.0f} ignored)"
+                    )
+                    continue  # skip normal interpolation for this gap
+
                 # Distance-aware mode selection: smoothstep holds near origin
                 # which works for short-distance flights (the ball stays
                 # nearby), but for large-distance passes/crosses (>500px)

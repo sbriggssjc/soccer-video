@@ -5475,9 +5475,14 @@ class CameraPlanner:
         used_mask: np.ndarray,
         confidence: Optional[np.ndarray] = None,
         person_boxes: Optional[dict] = None,
+        source_labels: Optional[np.ndarray] = None,
     ) -> List[CamState]:
         frame_count = len(positions)
         states: List[CamState] = []
+
+        # Per-frame source labels (FUSE_YOLO=1, CENTROID=2, BLENDED=3,
+        # INTERP=4, HOLD=5).  Used for hold-exit detection and diagnostics.
+        _source_labels = source_labels  # may be None
 
         # Per-frame confidence array (default 1.0 when not provided).
         if confidence is not None and len(confidence) == frame_count:
@@ -5678,9 +5683,24 @@ class CameraPlanner:
         _SHOT_PULLBACK_HOLD_MAX = int(render_fps * 0.7)
         _SHOT_PULLBACK_MIN_SPAN = 40.0  # min px span to activate
 
+        # --- Hold-exit catch-up state ---
+        # After exiting a backward-hold segment, the camera may be stuck
+        # at a stale position far from the real ball.  Apply a temporary
+        # speed boost so it can close the gap quickly.
+        _hold_exit_countdown: int = 0
+        _prev_source_label: int = 0
+
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
             has_position = bool(used_mask[frame_idx]) and not np.isnan(pos).any()
+
+            # Detect hold-exit transition (FUSE_HOLD → anything else)
+            _cur_source_label = int(_source_labels[frame_idx]) if (
+                _source_labels is not None and frame_idx < len(_source_labels)
+            ) else 0
+            if _prev_source_label == 5 and _cur_source_label != 5:
+                _hold_exit_countdown = 10
+            _prev_source_label = _cur_source_label
 
             # Ball position as pan target.
             # Positions are pre-smoothed by the bidirectional EMA filter
@@ -5789,6 +5809,25 @@ class CameraPlanner:
                         _scorer_smooth_x = _scorer_x
                         _scorer_smooth_y = _scorer_y
                         clamp_flags.append("goal_event")
+                # Fallback: infer goal from YOLO dropout pattern when the
+                # deceleration detector missed it (common when YOLO drops
+                # out at the moment of the goal — interpolated speed is
+                # constant, so deceleration never fires).
+                _inferred_gf = getattr(self, '_inferred_goal_frame', -1)
+                if (not _goal_snap_active
+                        and _goal_event_frame < 0
+                        and _inferred_gf > 0
+                        and frame_idx == _inferred_gf
+                        and _scorer_x is not None):
+                    _goal_event_frame = frame_idx
+                    _goal_snap_active = True
+                    _goal_snap_duration = 0
+                    _goal_snap_max_frames = int(render_fps * 2.0)
+                    _goal_origin_x = _scorer_x
+                    _goal_origin_y = _scorer_y
+                    _scorer_smooth_x = _scorer_x
+                    _scorer_smooth_y = _scorer_y
+                    clamp_flags.append("goal_event_inferred")
                 _high_speed_sustained = 0
             _prev_smooth_speed = smooth_speed_pf
 
@@ -5966,6 +6005,18 @@ class CameraPlanner:
                 if frame_conf < _flight_conf_floor:
                     frame_conf = _flight_conf_floor
                     clamp_flags.append(f"flight_commit={_flight_frac:.2f}")
+
+            # --- LOW-CONFIDENCE ZOOM WIDENING ---
+            # When ball position confidence is low (backward-hold at 0.22,
+            # interpolated at 0.38), the reported position may be stale or
+            # a phantom trajectory from broadcast camera pan.  Bias toward
+            # the widest zoom so the real ball is more likely to stay in
+            # the crop even if the camera center is slightly off.
+            # Placed after flight-commitment so genuinely fast balls with
+            # boosted confidence won't be unnecessarily widened.
+            if frame_conf < 0.50:
+                _conf_zoom_bias = (0.50 - frame_conf) / 0.50  # 1.0 at conf=0, 0.0 at conf=0.50
+                zoom_target = zoom_target + (self.zoom_min - zoom_target) * _conf_zoom_bias
 
             if frame_conf < 0.60:
                 # Map confidence 0..0.60 → zoom scale 0.45..1.0
@@ -6353,6 +6404,14 @@ class CameraPlanner:
                 _keepin_boost = 1.0 + 3.5 * excess_frac  # up to 4.5x at full excess
                 accel_speed_boost = max(accel_speed_boost, _keepin_boost)
 
+            # Hold-exit catch-up boost: after exiting a backward-hold
+            # segment the camera may be 500-1000+ px behind the real ball.
+            # Apply a 3x speed boost for 10 frames so it can close the gap.
+            if _hold_exit_countdown > 0:
+                accel_speed_boost = max(accel_speed_boost, 3.0)
+                _hold_exit_countdown -= 1
+                clamp_flags.append(f"hold_exit={_hold_exit_countdown}")
+
             # Confidence-based speed damping: when the ball position is
             # uncertain (centroid-only, conf ~0.22-0.30), reduce the pan speed
             # limit so the camera doesn't chase noise across the field.
@@ -6365,7 +6424,7 @@ class CameraPlanner:
             # fight each other every frame.
             _conf_speed_scale = 1.0
             _csf = self._conf_speed_floor
-            if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.02):
+            if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.02) and _hold_exit_countdown <= 0:
                 _conf_speed_scale = _csf + (1.0 - _csf) * (frame_conf / 0.60)
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
 
@@ -6556,8 +6615,14 @@ class CameraPlanner:
             # visible frame-to-frame jitter ("rapid left-right glitching").
             # Re-apply the speed limit as a final gate so the rendered
             # camera motion never exceeds the configured maximum pan speed.
-            actual_cx, _fsc_x = _clamp_axis(prev_cx, actual_cx, pxpf_x * accel_speed_boost)
-            actual_cy, _fsc_y = _clamp_axis(prev_cy, actual_cy, pxpf_y * accel_speed_boost)
+            # When keepinview is actively correcting, raise the final limit
+            # so the emergency correction isn't undone — losing the ball is
+            # worse than a single-frame speed overshoot.
+            _final_limit_mult = accel_speed_boost
+            if keepinview_override and excess_frac > 0.05:
+                _final_limit_mult = max(_final_limit_mult, 1.0 + 5.0 * excess_frac)
+            actual_cx, _fsc_x = _clamp_axis(prev_cx, actual_cx, pxpf_x * _final_limit_mult)
+            actual_cy, _fsc_y = _clamp_axis(prev_cy, actual_cy, pxpf_y * _final_limit_mult)
             if _fsc_x or _fsc_y:
                 # Recompute x0/y0 from clamped center for state consistency.
                 _max_x0 = max(0.0, self.width - crop_w)
@@ -9256,7 +9321,56 @@ def run(
     fps = render_fps_for_plan
     print(f"[DEBUG] num_frames={num_frames} fps={fps} positions={len(positions)} duration={duration_s if 'duration_s' in locals() else 'n/a'}")
     print(f"[DEBUG] ball_samples={len(ball_samples) if 'ball_samples' in locals() else 'n/a'}")
-    states = planner.plan(positions, used_mask, confidence=fusion_confidence, person_boxes=person_boxes_by_frame)
+
+    # --- INFER GOAL EVENT FROM YOLO DROPOUT PATTERN ---
+    # When clip metadata says GOAL but YOLO drops out at the moment of the
+    # goal, the deceleration-based detector inside plan() will miss it.
+    # Pre-scan the fused telemetry for: sustained high-speed ball (>=5 frames
+    # at >6 px/frame) followed by a long YOLO dropout (>=30 frames of
+    # FUSE_INTERP or FUSE_HOLD).  The start of the dropout is the inferred
+    # goal frame.
+    _inferred_goal_frame = -1
+    _snap_event_for_goal = (getattr(args, "event_type", None) or "").upper().strip()
+    _clip_has_goal_tag = ("GOAL" in _snap_event_for_goal or
+                          "GOAL" in original_source_path.stem.upper())
+    if _clip_has_goal_tag and fusion_source_labels is not None and len(fusion_source_labels) > 60:
+        _n_sl = len(fusion_source_labels)
+        # Search backward from the end for the dropout-after-speed pattern
+        _gi = _n_sl - 1
+        while _gi > 30:
+            # Check if this frame starts a 30+ frame interp/hold run
+            _dropout_len = 0
+            for _gj in range(_gi, min(_gi + 90, _n_sl)):
+                _glbl = int(fusion_source_labels[_gj])
+                if _glbl in (4, 5):  # FUSE_INTERP or FUSE_HOLD
+                    _dropout_len += 1
+                else:
+                    break
+            if _dropout_len < 30:
+                _gi -= 1
+                continue
+            # Check preceding frames for high speed (>6 px/frame)
+            _high_speed_count = 0
+            for _gk in range(_gi - 1, max(_gi - 20, 1), -1):
+                if used_mask[_gk] and used_mask[_gk - 1]:
+                    _gspd = math.hypot(
+                        float(positions[_gk, 0]) - float(positions[_gk - 1, 0]),
+                        float(positions[_gk, 1]) - float(positions[_gk - 1, 1]),
+                    )
+                    if _gspd > 6.0:
+                        _high_speed_count += 1
+            if _high_speed_count >= 5:
+                _inferred_goal_frame = _gi
+                print(
+                    f"[GOAL-INFER] Detected YOLO dropout after high-speed flight "
+                    f"at frame {_gi} (dropout={_dropout_len}f, "
+                    f"fast_frames={_high_speed_count})"
+                )
+                break
+            _gi -= 1
+    planner._inferred_goal_frame = _inferred_goal_frame
+
+    states = planner.plan(positions, used_mask, confidence=fusion_confidence, person_boxes=person_boxes_by_frame, source_labels=fusion_source_labels)
 
     # --- STARTUP SNAP + KICK-HOLD: keep camera on ball and kick taker ---
     # For FREE_KICK clips, the viewer needs to see the kick taker
@@ -9825,7 +9939,7 @@ def run(
         )
         _goal_events = sum(
             1 for s in states
-            if any(f == "goal_event" for f in (s.clamp_flags or []))
+            if any(f.startswith("goal_event") for f in (s.clamp_flags or []))
         )
         _extras = ""
         if _person_ctx_frames > 0:
@@ -9850,7 +9964,7 @@ def run(
     if states and "GOAL" in _clip_stem_upper:
         _last_goal_frame = -1
         for _gi, _gs in enumerate(states):
-            if _gs.clamp_flags and "goal_event" in _gs.clamp_flags:
+            if _gs.clamp_flags and any(f.startswith("goal_event") for f in _gs.clamp_flags):
                 _last_goal_frame = _gi
         if _last_goal_frame >= 0:
             _render_fps_trim = float(fps_in if fps_in > 0 else fps_out or 30.0)
@@ -9998,6 +10112,23 @@ def run(
                 f"({100.0 * _centroid_only_total / _checked:.0f}%) use centroid-only "
                 f"tracking (YOLO-confirmed: {_yolo_pct:.0f}%). "
                 f"Ball-in-crop metric is unreliable for centroid frames — "
+                f"actual ball may be outside the crop."
+            )
+        # Also warn for interpolation-dominated clips: interpolated and
+        # backward-held frames have the same self-referential problem as
+        # centroid frames — the camera follows the estimated position so
+        # it always appears "in crop," masking real ball escapes.
+        _interp_total_diag = _inside_by_src.get(4, 0) + _outside_by_src.get(4, 0)
+        _hold_total_diag = _inside_by_src.get(5, 0) + _outside_by_src.get(5, 0)
+        _synth_total = _interp_total_diag + _hold_total_diag + _centroid_only_total
+        if _checked > 0 and _synth_total > _checked * 0.40:
+            _synth_pct = 100.0 * _synth_total / _checked
+            print(
+                f"[DIAG] WARNING: {_synth_total}/{_checked} frames "
+                f"({_synth_pct:.0f}%) use synthetic positions "
+                f"(interp={_interp_total_diag}, hold={_hold_total_diag}, "
+                f"centroid={_centroid_only_total}). "
+                f"Ball-in-crop metric is unreliable — "
                 f"actual ball may be outside the crop."
             )
         # YOLO-only ball-in-crop: the ground-truth metric.  Only counts
