@@ -1616,11 +1616,23 @@ def fuse_yolo_and_centroid(
     # spatial distribution and keep only the dominant cluster.
     #
     # Selection priority:
-    # 1. Cluster SIZE — the cluster with many more detections is almost
-    #    certainly the game ball (YOLO sees it consistently).  A 3x+
-    #    size ratio overrides all other signals.
-    # 2. Vertical position (tiebreaker) — when clusters are similar size,
-    #    prefer lower-in-frame (closer to camera).
+    # 1. Centroid proximity — the cluster whose mean position is closer to
+    #    the centroid (player-cluster) positions is on the main field.  This
+    #    overrides cluster size when the proximity difference is clear
+    #    (>150px), because a background ball can have MORE detections than
+    #    the game ball (it's stationary and easy for YOLO to detect).
+    # 2. Cluster SIZE — when centroid proximity is ambiguous, the cluster
+    #    with many more detections is likely the game ball.
+    # 3. Vertical position (tiebreaker) — when clusters are similar size
+    #    and distance, prefer lower-in-frame (closer to camera).
+    #
+    # Build a centroid lookup for proximity checks before the filter runs.
+    _centroid_lookup: dict[int, tuple[float, float]] = {}
+    for _cs in centroid_samples:
+        _cf = int(_cs.frame)
+        if 0 <= _cf < frame_count and math.isfinite(_cs.x) and math.isfinite(_cs.y):
+            _centroid_lookup[_cf] = (float(_cs.x), float(_cs.y))
+
     if len(yolo_by_frame) >= 6:
         _mb_frames = sorted(yolo_by_frame.keys())
         _mb_xs = [float(yolo_by_frame[f].x) for f in _mb_frames]
@@ -1665,10 +1677,53 @@ def fuse_yolo_and_centroid(
                 _mean_y_a = sum(yolo_by_frame[f].y for f in _grp_a) / len(_grp_a)
                 _mean_y_b = sum(yolo_by_frame[f].y for f in _grp_b) / len(_grp_b)
 
-                if _size_ratio >= 3.0:
-                    # One cluster dominates — it's the game ball.
-                    # A spare/adjacent-field ball produces sporadic
-                    # detections; the game ball is consistently tracked.
+                # --- Centroid-proximity check ---
+                # Compute mean distance of each cluster to the nearest
+                # centroid (player-cluster) position.  The cluster on the
+                # main field will be close to centroids; a background ball
+                # on another field will be far away.
+                def _cluster_centroid_dist(grp: list[int]) -> float:
+                    dists: list[float] = []
+                    for _gf in grp:
+                        _gx = float(yolo_by_frame[_gf].x)
+                        _gy = float(yolo_by_frame[_gf].y)
+                        if _gf in _centroid_lookup:
+                            _ccx, _ccy = _centroid_lookup[_gf]
+                            dists.append(math.hypot(_gx - _ccx, _gy - _ccy))
+                        else:
+                            # Try nearest centroid frame within ±15 frames
+                            _best_d = float("inf")
+                            for _off in range(-15, 16):
+                                _nf = _gf + _off
+                                if _nf in _centroid_lookup:
+                                    _ccx, _ccy = _centroid_lookup[_nf]
+                                    _best_d = min(_best_d, math.hypot(_gx - _ccx, _gy - _ccy))
+                            if _best_d < float("inf"):
+                                dists.append(_best_d)
+                    return sum(dists) / len(dists) if dists else float("inf")
+
+                _dist_a = _cluster_centroid_dist(_grp_a)
+                _dist_b = _cluster_centroid_dist(_grp_b)
+                _PROX_OVERRIDE_PX = 150.0  # override size-based when >150px closer
+
+                # Decide which cluster to keep:
+                # 1. Centroid proximity wins when the difference is clear
+                # 2. Size ratio wins when proximity is ambiguous
+                # 3. Vertical position (closer to camera) is final tiebreaker
+                if abs(_dist_a - _dist_b) > _PROX_OVERRIDE_PX:
+                    # Strong proximity signal — the closer cluster is
+                    # on the main field, even if the other has more
+                    # detections (background balls are easy for YOLO).
+                    if _dist_a <= _dist_b:
+                        _keep = set(_grp_a)
+                        _kept_y = _mean_y_a
+                        _reason = f"centroid proximity ({_dist_a:.0f}px vs {_dist_b:.0f}px)"
+                    else:
+                        _keep = set(_grp_b)
+                        _kept_y = _mean_y_b
+                        _reason = f"centroid proximity ({_dist_b:.0f}px vs {_dist_a:.0f}px)"
+                elif _size_ratio >= 3.0:
+                    # Proximity is ambiguous — fall back to cluster size.
                     if len(_grp_a) >= len(_grp_b):
                         _keep = set(_grp_a)
                         _kept_y = _mean_y_a
