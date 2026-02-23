@@ -8961,6 +8961,45 @@ def run(
                         )
                         positions = fused_positions
                         used_mask = fused_mask
+
+                        # --- Second-pass: tighter check ---
+                        # If the re-run fused x0 is still outside the
+                        # raw centroid range, the 150px margin let
+                        # through some wrong-ball YOLO detections that
+                        # now anchor the fused path.  Tighten the margin
+                        # and re-filter so the FREE_KICK anchor is
+                        # based on the real ball, not the background one.
+                        if not np.isnan(positions[0]).any():
+                            _fused_x0_2 = float(positions[0][0])
+                            _tight_margin = 50.0
+                            if (_fused_x0_2 < _cs_min - _tight_margin
+                                    or _fused_x0_2 > _cs_max + _tight_margin):
+                                _lo2 = _cs_min - _tight_margin
+                                _hi2 = _cs_max + _tight_margin
+                                _filtered_yolo_2 = [
+                                    s for s in _filtered_yolo
+                                    if _lo2 <= float(s.x) <= _hi2
+                                ]
+                                _n_removed_2 = len(_filtered_yolo) - len(_filtered_yolo_2)
+                                if _n_removed_2 > 0 and len(_filtered_yolo_2) > 0:
+                                    print(
+                                        f"[FUSION] Wrong-ball pass 2: fused x0={_fused_x0_2:.0f} "
+                                        f"still outside [{_cs_min:.0f}, {_cs_max:.0f}] "
+                                        f"(tight margin={_tight_margin:.0f}px) — removed "
+                                        f"{_n_removed_2} more bad YOLO, re-running with "
+                                        f"{len(_filtered_yolo_2)} good YOLO"
+                                    )
+                                    fused_positions, fused_mask, fusion_confidence, fusion_source_labels = fuse_yolo_and_centroid(
+                                        yolo_samples=_filtered_yolo_2,
+                                        centroid_samples=ball_samples,
+                                        frame_count=len(positions),
+                                        width=float(width),
+                                        height=float(height),
+                                        fps=float(render_fps_for_plan),
+                                        exclude_zones=_exclude_zones,
+                                    )
+                                    positions = fused_positions
+                                    used_mask = fused_mask
         elif ball_samples:
             # No YOLO available, fall back to centroid-only merge
             merged = 0
