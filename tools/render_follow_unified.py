@@ -9160,7 +9160,7 @@ def run(
                 _anchor_x = _kicker_cx if _kicker_cx is not None else _ball_x0
                 print(
                     f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
-                    f"kicker_cx={_kicker_cx:.0f if _kicker_cx is not None else 'N/A'}, "
+                    f"kicker_cx={f'{_kicker_cx:.0f}' if _kicker_cx is not None else 'N/A'}, "
                     f"anchor_x={_anchor_x:.0f}"
                 )
 
