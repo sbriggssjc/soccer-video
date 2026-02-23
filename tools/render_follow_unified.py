@@ -9655,9 +9655,20 @@ def run(
     # camera movement.  This is a forward pass that propagates limits.
     # Derive from the preset speed_limit (px/s) so the post-processing
     # limiter is consistent with the planner's configured speed.
+    # Apply the same event-type scaling the CameraPlanner uses internally
+    # so that FREE_KICK's 0.45x slowdown and GOAL/CROSS boosts are
+    # respected by the post-processing pass.
     if states and len(states) > 2:
         _sl_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
-        _max_speed = max(15.0, speed_limit / _sl_fps)  # px/frame from preset speed_limit (px/s)
+        _sl_event_scale = 1.0
+        _sl_event = (getattr(args, "event_type", None) or "").upper().strip()
+        if _sl_event == "FREE_KICK":
+            _sl_event_scale = 0.45
+        elif _sl_event == "GOAL":
+            _sl_event_scale = 1.25
+        elif _sl_event == "CROSS":
+            _sl_event_scale = 1.40
+        _max_speed = max(15.0, speed_limit * _sl_event_scale / _sl_fps)  # px/frame from preset speed_limit (px/s)
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
         _sl_start = max(1, _kick_hold_end)  # don't speed-limit the kick-hold
@@ -10423,10 +10434,11 @@ def run(
         _val_applied = apply_framing_corrections(states, _val_corrections, _src_width)
 
         # Re-apply speed limiter after corrections (skip kick-hold frames)
-        # Use the same preset-derived speed limit as the main speed limiter.
+        # Use the same preset-derived speed limit and event-type scaling
+        # as the main speed limiter.
         _sl_fps_val = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
         _val_speed_clipped = 0
-        _val_max_speed = max(15.0, speed_limit / _sl_fps_val)
+        _val_max_speed = max(15.0, speed_limit * _sl_event_scale / _sl_fps_val)
         _val_sl_start = max(1, _kick_hold_end)  # don't speed-limit the hold
         _val_trans_max_speed = max(25.0, _val_max_speed * 1.2)  # faster during transition
         for _vsi in range(_val_sl_start, len(states)):
