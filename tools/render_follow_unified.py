@@ -8921,9 +8921,9 @@ def run(
             # background), the multi-ball filter may keep the wrong
             # cluster.  Detect this by checking whether the fused ball
             # position at frame 0 falls far outside the centroid
-            # (player-cluster) x-range.  If so, the YOLO detections
-            # are tracking a background ball — re-run fusion without
-            # YOLO to get clean centroid-only tracking.
+            # (player-cluster) x-range.  If so, some YOLO detections
+            # are tracking a background ball — filter them out and
+            # re-run fusion with only the good YOLO detections.
             if ball_samples and len(positions) > 0 and not np.isnan(positions[0]).any():
                 _cs_xs = [float(s.x) for s in ball_samples
                           if hasattr(s, "x") and math.isfinite(s.x)]
@@ -8933,13 +8933,25 @@ def run(
                     _fused_x0 = float(positions[0][0])
                     _cs_margin = max(150.0, (_cs_max - _cs_min) * 0.10)
                     if _fused_x0 < _cs_min - _cs_margin or _fused_x0 > _cs_max + _cs_margin:
+                        # Filter out only the YOLO detections outside
+                        # the centroid x-range (the wrong-ball ones),
+                        # keep the rest so we still have precise ball
+                        # positions for most of the clip.
+                        _lo = _cs_min - _cs_margin
+                        _hi = _cs_max + _cs_margin
+                        _filtered_yolo = [
+                            s for s in yolo_samples
+                            if _lo <= float(s.x) <= _hi
+                        ]
+                        _n_removed = len(yolo_samples) - len(_filtered_yolo)
                         print(
                             f"[FUSION] Wrong-ball detected: fused x0={_fused_x0:.0f} "
                             f"outside centroid range [{_cs_min:.0f}, {_cs_max:.0f}] "
-                            f"(margin={_cs_margin:.0f}px) — re-running fusion without YOLO"
+                            f"(margin={_cs_margin:.0f}px) — removed {_n_removed} "
+                            f"bad YOLO, re-running fusion with {len(_filtered_yolo)} good YOLO"
                         )
                         fused_positions, fused_mask, fusion_confidence, fusion_source_labels = fuse_yolo_and_centroid(
-                            yolo_samples=[],
+                            yolo_samples=_filtered_yolo,
                             centroid_samples=ball_samples,
                             frame_count=len(positions),
                             width=float(width),
