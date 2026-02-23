@@ -9291,12 +9291,21 @@ def run(
                             ))
 
                     # --- plan-level ball-in-crop evaluation ---
+                    # Only count reliable frames (YOLO, blended, interp,
+                    # hold) to avoid inflated scores from centroid-only
+                    # frames that self-validate against planner positions.
+                    _fk_rel = {1, 3, 4, 5}
                     _out = 0
                     _tot = 0
                     _max_esc = 0.0
                     _eval_end = min(_te + int(_snap_fps * 2), len(states))
                     for _ei in range(_eval_end):
                         if _ei >= len(positions) or np.isnan(positions[_ei]).any():
+                            continue
+                        if fusion_source_labels is not None and _ei < len(fusion_source_labels):
+                            if int(fusion_source_labels[_ei]) not in _fk_rel:
+                                continue
+                        elif fusion_source_labels is not None:
                             continue
                         _ebx = float(positions[_ei][0])
                         _ecx = float(states[_ei].cx)
@@ -9363,6 +9372,14 @@ def run(
                 # entirely and let the planner's natural ball tracking
                 # drive the camera.  This is best when the ball moves
                 # fast or the kicker/ball are at the source frame edge.
+                #
+                # IMPORTANT: Only evaluate ball-in-crop on reliable
+                # frames (YOLO, blended, interpolated, hold — NOT
+                # centroid-only).  Centroid frames are self-validating:
+                # the planner tracks them, so they're trivially in-crop.
+                # Including them inflates the follow score to ~100%
+                # even when the actual ball (per YOLO) is off-screen.
+                _fk_reliable = {1, 3, 4, 5}  # yolo, blended, interp, hold
                 for _ri in range(len(states)):
                     states[_ri].cx = _saved_states_cx[_ri]
                     states[_ri].x0 = _saved_states_x0[_ri]
@@ -9372,6 +9389,12 @@ def run(
                 _follow_eval_end = min(len(states), len(positions))
                 for _ei in range(_follow_eval_end):
                     if np.isnan(positions[_ei]).any():
+                        continue
+                    # Skip centroid-only frames — they self-validate
+                    if fusion_source_labels is not None and _ei < len(fusion_source_labels):
+                        if int(fusion_source_labels[_ei]) not in _fk_reliable:
+                            continue
+                    elif fusion_source_labels is not None:
                         continue
                     _ebx = float(positions[_ei][0])
                     _ecx = float(states[_ei].cx)
@@ -9408,19 +9431,26 @@ def run(
                     states[_ri].x0 = _saved_states_x0[_ri]
 
                 if _anchor_x is None:
-                    # "follow" strategy won — planner states are already
-                    # restored, no hold/transition override needed.
-                    # Use minimal kick_hold markers so post-processing
-                    # (gravity clamp, speed limiter) runs normally.
-                    _hold_end = 0
-                    _trans_end = 0
-                    _hold_frames = 0
-                    _trans_frames = 0
-                    _kick_hold_end = 0
-                    _kick_hold_trans_end = 0
-                    _in_pct_f = _follow_in_pct
-                    _mesc_f = _follow_max_esc
-                    _anchor_x = _ball_x0  # for diagnostic print only
+                    # "follow" strategy won — but we still enforce a
+                    # minimum hold so the viewer sees the kicker at
+                    # the moment of the kick.  Without this, the
+                    # planner may track centroid noise and pan away
+                    # from the kicker/ball before the kick happens.
+                    _min_hold_s = 0.3
+                    _min_trans_s = 0.8
+                    _follow_anchor = _kicker_cx if _kicker_cx is not None else _ball_x0
+                    _fk_label = "follow+hold"
+                    _hold_end_final, _trans_end_final, _out_f, _tot_f, _mesc_f, _fk_label = (
+                        _apply_fk_strategy(_follow_anchor, _min_hold_s, _min_trans_s, _fk_label)
+                    )
+                    _hold_end = _hold_end_final
+                    _trans_end = _trans_end_final
+                    _hold_frames = _hold_end - _kick_frame
+                    _trans_frames = _trans_end - _hold_end
+                    _kick_hold_end = _hold_end
+                    _kick_hold_trans_end = _trans_end
+                    _in_pct_f = 100.0 * (1.0 - _out_f / max(1, _tot_f))
+                    _anchor_x = _follow_anchor
                 else:
                     _hold_end_final, _trans_end_final, _out_f, _tot_f, _mesc_f, _fk_label = (
                         _apply_fk_strategy(_anchor_x, _hold_s, _trans_s, _fk_label)
