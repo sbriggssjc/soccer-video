@@ -9211,10 +9211,22 @@ def run(
 
                 # Camera anchor: use kicker position if found, else ball
                 _anchor_x = _kicker_cx if _kicker_cx is not None else _ball_x0
+                # Clamp anchor to the achievable portrait-crop center range.
+                # When the kicker is near the source edge, the raw anchor
+                # falls outside the range the portrait crop can actually
+                # center on.  Using the unclamped value as the transition
+                # start creates a dead zone where the blend progresses but
+                # the crop stays pinned at the edge, causing the camera to
+                # appear stuck and the ball to escape during transition.
+                _anchor_x_raw = _anchor_x
+                if follow_crop_width > 0 and follow_crop_width < _snap_fw:
+                    _half_pcw = float(follow_crop_width) / 2.0
+                    _anchor_x = float(np.clip(_anchor_x, _half_pcw, _snap_fw - _half_pcw))
                 print(
                     f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
                     f"kicker_cx={f'{_kicker_cx:.0f}' if _kicker_cx is not None else 'N/A'}, "
                     f"anchor_x={_anchor_x:.0f}"
+                    + (f" (clamped from {_anchor_x_raw:.0f})" if abs(_anchor_x - _anchor_x_raw) > 0.5 else "")
                 )
 
                 # Detect kick frame: first frame where ball has moved > 80px
@@ -10135,6 +10147,12 @@ def run(
                     _vc - _hcw, 0.0, max(0.0, _src_width - states[_vsi].crop_w),
                 ))
                 _val_speed_clipped += 1
+
+        # Rebuild the pan plan from the corrected states so the next
+        # render pass actually uses the updated cx values.  Without
+        # this, pan_x in _compose_frame would override state.cx with
+        # stale pre-correction values, silently discarding fixes.
+        pan_plan_for_render = np.array([s.cx for s in states], dtype=float)
 
         print(
             f"[VALIDATE] Pass {_pass_i + 1}: corrected {_val_applied} frames, "
