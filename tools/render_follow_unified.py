@@ -9359,37 +9359,81 @@ def run(
                         _best_score = _score
                         _best = (_anc, _hs, _ts, _lbl2, _he, _te)
 
+                # Strategy E: "follow" — skip the hold/transition override
+                # entirely and let the planner's natural ball tracking
+                # drive the camera.  This is best when the ball moves
+                # fast or the kicker/ball are at the source frame edge.
+                for _ri in range(len(states)):
+                    states[_ri].cx = _saved_states_cx[_ri]
+                    states[_ri].x0 = _saved_states_x0[_ri]
+                _follow_out = 0
+                _follow_tot = 0
+                _follow_max_esc = 0.0
+                _follow_eval_end = min(len(states), len(positions))
+                for _ei in range(_follow_eval_end):
+                    if np.isnan(positions[_ei]).any():
+                        continue
+                    _ebx = float(positions[_ei][0])
+                    _ecx = float(states[_ei].cx)
+                    _ecw = float(states[_ei].crop_w) if states[_ei].crop_w > 0 else _pcw
+                    _el = float(np.clip(
+                        _ecx - _ecw / 2.0, 0.0,
+                        max(0.0, _snap_fw - _ecw),
+                    ))
+                    _er = _el + _ecw
+                    _follow_tot += 1
+                    if _ebx < _el or _ebx > _er:
+                        _follow_out += 1
+                        _follow_max_esc = max(
+                            _follow_max_esc,
+                            max(_el - _ebx, _ebx - _er),
+                        )
+                _follow_in_pct = 100.0 * (1.0 - _follow_out / max(1, _follow_tot))
+                _follow_score = _follow_in_pct - min(50.0, _follow_max_esc / 5.0)
+                _results_log.append(
+                    f"  follow: anchor=planner, hold=0.0s, "
+                    f"trans=0.0s, ball_in={_follow_in_pct:.1f}%, "
+                    f"max_esc={_follow_max_esc:.0f}px, score={_follow_score:.1f}"
+                )
+                if _follow_score > _best_score:
+                    _best_score = _follow_score
+                    _best = (None, 0.0, 0.0, "follow", _kick_frame, _kick_frame)
+
                 assert _best is not None
                 _anchor_x, _hold_s, _trans_s, _fk_label, _, _ = _best
 
-                # Restore planner states and apply the winning strategy
+                # Restore planner states before applying the winner
                 for _ri in range(len(states)):
                     states[_ri].cx = _saved_states_cx[_ri]
                     states[_ri].x0 = _saved_states_x0[_ri]
 
-                _hold_end_final, _trans_end_final, _out_f, _tot_f, _mesc_f, _fk_label = (
-                    _apply_fk_strategy(_anchor_x, _hold_s, _trans_s, _fk_label)
-                )
-                _hold_end = _hold_end_final
-                _trans_end = _trans_end_final
-                _hold_frames = _hold_end - _kick_frame
-                _trans_frames = _trans_end - _hold_end
-                _kick_hold_end = _hold_end
-                _kick_hold_trans_end = _trans_end
+                if _anchor_x is None:
+                    # "follow" strategy won — planner states are already
+                    # restored, no hold/transition override needed.
+                    # Use minimal kick_hold markers so post-processing
+                    # (gravity clamp, speed limiter) runs normally.
+                    _hold_end = 0
+                    _trans_end = 0
+                    _hold_frames = 0
+                    _trans_frames = 0
+                    _kick_hold_end = 0
+                    _kick_hold_trans_end = 0
+                    _in_pct_f = _follow_in_pct
+                    _mesc_f = _follow_max_esc
+                    _anchor_x = _ball_x0  # for diagnostic print only
+                else:
+                    _hold_end_final, _trans_end_final, _out_f, _tot_f, _mesc_f, _fk_label = (
+                        _apply_fk_strategy(_anchor_x, _hold_s, _trans_s, _fk_label)
+                    )
+                    _hold_end = _hold_end_final
+                    _trans_end = _trans_end_final
+                    _hold_frames = _hold_end - _kick_frame
+                    _trans_frames = _trans_end - _hold_end
+                    _kick_hold_end = _hold_end
+                    _kick_hold_trans_end = _trans_end
+                    _in_pct_f = 100.0 * (1.0 - _out_f / max(1, _tot_f))
 
-                # --- framing diagnostic ---
-                _crop_left = float(np.clip(
-                    _anchor_x - _pcw / 2.0, 0.0,
-                    max(0.0, _snap_fw - _pcw),
-                ))
-                _kicker_frac = (
-                    (_kicker_cx - _crop_left) / max(_pcw, 1.0)
-                    if _kicker_cx is not None
-                    else (_ball_x0 - _crop_left) / max(_pcw, 1.0)
-                )
-                _ball_frac = (_ball_x0 - _crop_left) / max(_pcw, 1.0)
-                _in_pct_f = 100.0 * (1.0 - _out_f / max(1, _tot_f))
-
+                # --- diagnostics ---
                 print(
                     f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
                     f"kicker_cx={f'{_kicker_cx:.0f}' if _kicker_cx is not None else 'N/A'}, "
@@ -9397,7 +9441,6 @@ def run(
                 )
                 print(
                     f"[CAMERA] FREE_KICK strategy: {_fk_label} (score={_best_score:.1f}), "
-                    f"kicker_frac={_kicker_frac:.2f}, ball_frac={_ball_frac:.2f}, "
                     f"plan_ball_in={_in_pct_f:.1f}%, max_esc={_mesc_f:.0f}px"
                 )
                 for _rl in _results_log:
