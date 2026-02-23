@@ -9209,79 +9209,15 @@ def run(
                         _top_n = min(5, len(_kicker_dists))
                         _kicker_cx = float(np.median([kd[1] for kd in _kicker_dists[:_top_n]]))
 
-                # ---- adaptive FREE_KICK anchor & timing ----
-                # Assess per-clip framing quality and auto-tune hold
-                # duration and transition speed so edge-constrained
-                # clips don't need manual triage.
+                # ---- self-tuning FREE_KICK camera strategy ----
+                # Try the default kicker-anchor strategy, evaluate ball-
+                # in-crop at the plan level, and retry with a ball-
+                # centric anchor if the ball escapes too severely.  This
+                # removes the need to hand-triage edge-constrained clips.
 
-                # Camera anchor: use kicker position if found, else ball.
-                # Keep the raw kicker position — do NOT clamp to crop
-                # center range.  When the anchor overshoots the achievable
-                # crop center the transition blend naturally creates a
-                # "dead zone" that acts as extended hold + damper,
-                # preventing the camera from racing into centroid noise.
-                _anchor_x = _kicker_cx if _kicker_cx is not None else _ball_x0
-
-                # --- per-clip framing-quality assessment ---
-                # Compute where ball & kicker land in the achievable crop
-                # and auto-tune hold / transition timing.
                 _pcw = float(follow_crop_width) if follow_crop_width > 0 else _snap_fw
-                _crop_left = float(np.clip(
-                    _anchor_x - _pcw / 2.0, 0.0,
-                    max(0.0, _snap_fw - _pcw),
-                ))
-                _crop_right = _crop_left + _pcw
 
-                _ball_frac = (_ball_x0 - _crop_left) / max(_pcw, 1.0)
-                _kicker_frac = (
-                    (_kicker_cx - _crop_left) / max(_pcw, 1.0)
-                    if _kicker_cx is not None
-                    else _ball_frac
-                )
-
-                # "edge factor": 0 = centred, 1 = at crop boundary
-                _kicker_edge = min(1.0, max(0.0, 2.0 * abs(_kicker_frac - 0.5)))
-
-                # Adaptive timing based on framing quality.
-                #  - good:          standard timing, kicker well-framed
-                #  - edge_extended: kicker in outer 15%, extend hold so
-                #                   the viewer has more time to register
-                #                   the kick taker before camera moves
-                #  - edge_severe:   kicker in outer 5%, maximise hold and
-                #                   slow the transition further
-                _fk_quality = "good"
-                _hold_s  = 0.8   # hold duration (seconds)
-                _trans_s = 1.5   # transition duration (seconds)
-
-                if _kicker_edge > 0.90:
-                    # Severe: kicker nearly off-screen (outer 5%).
-                    # Maximise hold to give the viewer as much time as
-                    # possible and slow down transition for stability.
-                    _hold_s  = 1.4
-                    _trans_s = 2.0
-                    _fk_quality = "edge_severe"
-                elif _kicker_edge > 0.70:
-                    # Moderate: kicker in outer 15%.
-                    # Proportionally extend hold.
-                    _severity = (_kicker_edge - 0.70) / 0.20
-                    _hold_s  = 0.8 + 0.6 * _severity
-                    _trans_s = 1.5 + 0.5 * _severity
-                    _fk_quality = "edge_extended"
-
-                print(
-                    f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
-                    f"kicker_cx={f'{_kicker_cx:.0f}' if _kicker_cx is not None else 'N/A'}, "
-                    f"anchor_x={_anchor_x:.0f}"
-                )
-                print(
-                    f"[CAMERA] FREE_KICK framing: quality={_fk_quality}, "
-                    f"kicker_frac={_kicker_frac:.2f}, "
-                    f"ball_frac={_ball_frac:.2f}, "
-                    f"kicker_edge={_kicker_edge:.2f}, "
-                    f"hold={_hold_s:.2f}s, trans={_trans_s:.2f}s"
-                )
-
-                # Detect kick frame: first frame where ball has moved > 80px
+                # Detect kick frame once (used by all strategies)
                 _kick_frame = None
                 _kick_threshold = 80.0
                 for _kf in range(1, min(len(positions), int(_snap_fps * 6))):
@@ -9289,49 +9225,183 @@ def run(
                         if abs(float(positions[_kf][0]) - _ball_x0) > _kick_threshold:
                             _kick_frame = _kf
                             break
-
                 if _kick_frame is None:
-                    _kick_frame = int(_snap_fps * 2)  # fallback: 2s
+                    _kick_frame = int(_snap_fps * 2)
 
-                # Hold and transition use the per-clip adaptive durations
-                _hold_frames = int(_snap_fps * _hold_s)
-                _trans_frames = int(_snap_fps * _trans_s)
-                _hold_end = _kick_frame + _hold_frames
-                _trans_end = _hold_end + _trans_frames
-                _trans_end = min(_trans_end, len(states) - 1)
-                _kick_hold_end = _hold_end         # hold phase: camera locked on kicker
-                _kick_hold_trans_end = _trans_end  # protect hold + transition from gravity clamp
+                def _apply_fk_strategy(
+                    anchor_x: float,
+                    hold_s: float,
+                    trans_s: float,
+                    label: str,
+                ) -> tuple:
+                    """Apply a hold-then-follow strategy and return plan-
+                    level ball-in-crop metrics without rendering.
 
-                # Phase 1+2: lock camera on anchor (kicker) position
-                for _si in range(min(_hold_end, len(states))):
-                    states[_si].cx = _anchor_x
-                    _half_cw = states[_si].crop_w / 2.0
-                    states[_si].x0 = float(np.clip(
-                        _anchor_x - _half_cw, 0.0,
-                        max(0.0, _snap_fw - states[_si].crop_w),
+                    Returns (hold_end, trans_end, outside_count,
+                             total_checked, max_escape_px, label).
+                    """
+                    _hf = int(_snap_fps * hold_s)
+                    _tf = int(_snap_fps * trans_s)
+
+                    # --- ball-escape cap: shorten hold if ball leaves
+                    # the crop before the hold expires ---
+                    _h_crop_left = float(np.clip(
+                        anchor_x - _pcw / 2.0, 0.0,
+                        max(0.0, _snap_fw - _pcw),
                     ))
+                    _h_crop_right = _h_crop_left + _pcw
+                    _h_margin = _pcw * 0.06  # 6 % inset so we react before full escape
+                    _nominal_hold_end = _kick_frame + _hf
+                    for _bf in range(_kick_frame, min(_nominal_hold_end, len(positions))):
+                        if not np.isnan(positions[_bf]).any():
+                            _bfx = float(positions[_bf][0])
+                            if _bfx < _h_crop_left + _h_margin or _bfx > _h_crop_right - _h_margin:
+                                # Ball is about to leave — cap hold here
+                                _hf = max(3, _bf - _kick_frame)
+                                label = label + "+capped"
+                                break
 
-                # Phase 3: ease-out from anchor toward ball position
-                # Track the ball at each frame (not a fixed endpoint) so
-                # the camera follows a fast-moving ball after the kick.
-                if _trans_end > _hold_end and _trans_end < len(states):
-                    for _si in range(_hold_end, _trans_end):
-                        _t = (_si - _hold_end) / float(_trans_end - _hold_end)
-                        # Ease-out: fast departure from anchor, gentle arrival
-                        _ease = 1.0 - (1.0 - _t) ** 2
-                        # Target: ball position at this frame (fallback to planner)
-                        if _si < len(positions) and not np.isnan(positions[_si]).any():
-                            _target_cx = float(positions[_si][0])
-                        else:
-                            _target_cx = float(states[_si].cx)
-                        _new_cx = (1.0 - _ease) * _anchor_x + _ease * _target_cx
-                        states[_si].cx = _new_cx
-                        _half_cw = states[_si].crop_w / 2.0
+                    _he = _kick_frame + _hf
+                    _te = min(_he + _tf, len(states) - 1)
+
+                    # Write hold phase
+                    for _si in range(min(_he, len(states))):
+                        states[_si].cx = anchor_x
+                        _hcw = states[_si].crop_w / 2.0
                         states[_si].x0 = float(np.clip(
-                            _new_cx - _half_cw, 0.0,
+                            anchor_x - _hcw, 0.0,
                             max(0.0, _snap_fw - states[_si].crop_w),
                         ))
 
+                    # Write transition phase
+                    if _te > _he and _te < len(states):
+                        for _si in range(_he, _te):
+                            _t = (_si - _he) / float(_te - _he)
+                            _ease = 1.0 - (1.0 - _t) ** 2
+                            if _si < len(positions) and not np.isnan(positions[_si]).any():
+                                _tgt = float(positions[_si][0])
+                            else:
+                                _tgt = float(states[_si].cx)
+                            _ncx = (1.0 - _ease) * anchor_x + _ease * _tgt
+                            states[_si].cx = _ncx
+                            _hcw = states[_si].crop_w / 2.0
+                            states[_si].x0 = float(np.clip(
+                                _ncx - _hcw, 0.0,
+                                max(0.0, _snap_fw - states[_si].crop_w),
+                            ))
+
+                    # --- plan-level ball-in-crop evaluation ---
+                    _out = 0
+                    _tot = 0
+                    _max_esc = 0.0
+                    _eval_end = min(_te + int(_snap_fps * 2), len(states))
+                    for _ei in range(_eval_end):
+                        if _ei >= len(positions) or np.isnan(positions[_ei]).any():
+                            continue
+                        _ebx = float(positions[_ei][0])
+                        _ecx = float(states[_ei].cx)
+                        _ecw = float(states[_ei].crop_w) if states[_ei].crop_w > 0 else _pcw
+                        _el = float(np.clip(
+                            _ecx - _ecw / 2.0, 0.0,
+                            max(0.0, _snap_fw - _ecw),
+                        ))
+                        _er = _el + _ecw
+                        _tot += 1
+                        if _ebx < _el or _ebx > _er:
+                            _out += 1
+                            _max_esc = max(_max_esc, max(_el - _ebx, _ebx - _er))
+
+                    return (_he, _te, _out, _tot, _max_esc, label)
+
+                # --- strategy candidates ---
+                _strategies: list[tuple] = []  # (anchor, hold_s, trans_s, label)
+
+                # Strategy A: kicker anchor, standard timing
+                _anchor_kicker = _kicker_cx if _kicker_cx is not None else _ball_x0
+                _strategies.append((_anchor_kicker, 0.8, 1.5, "kicker"))
+
+                # Strategy B: ball anchor, standard timing
+                _strategies.append((_ball_x0, 0.8, 1.5, "ball"))
+
+                # Strategy C: midpoint anchor, standard timing
+                if _kicker_cx is not None:
+                    _mid = (_kicker_cx + _ball_x0) / 2.0
+                    _strategies.append((_mid, 0.8, 1.5, "midpoint"))
+
+                # Strategy D: kicker anchor, short hold
+                _strategies.append((_anchor_kicker, 0.4, 1.2, "kicker_short"))
+
+                # Evaluate each strategy (lightweight — no rendering)
+                _best = None
+                _best_score = -1.0
+                _results_log: list[str] = []
+                _saved_states_cx = [s.cx for s in states]
+                _saved_states_x0 = [s.x0 for s in states]
+
+                for _anc, _hs, _ts, _lbl in _strategies:
+                    # Restore planner states before each strategy attempt
+                    for _ri in range(len(states)):
+                        states[_ri].cx = _saved_states_cx[_ri]
+                        states[_ri].x0 = _saved_states_x0[_ri]
+
+                    _he, _te, _out, _tot, _mesc, _lbl2 = _apply_fk_strategy(
+                        _anc, _hs, _ts, _lbl,
+                    )
+                    _in_pct = 100.0 * (1.0 - _out / max(1, _tot))
+                    # Score: maximise ball-in-crop %, penalise large escapes
+                    _score = _in_pct - min(50.0, _mesc / 5.0)
+                    _results_log.append(
+                        f"  {_lbl2}: anchor={_anc:.0f}, hold={_hs:.1f}s, "
+                        f"trans={_ts:.1f}s, ball_in={_in_pct:.1f}%, "
+                        f"max_esc={_mesc:.0f}px, score={_score:.1f}"
+                    )
+                    if _score > _best_score:
+                        _best_score = _score
+                        _best = (_anc, _hs, _ts, _lbl2, _he, _te)
+
+                assert _best is not None
+                _anchor_x, _hold_s, _trans_s, _fk_label, _, _ = _best
+
+                # Restore planner states and apply the winning strategy
+                for _ri in range(len(states)):
+                    states[_ri].cx = _saved_states_cx[_ri]
+                    states[_ri].x0 = _saved_states_x0[_ri]
+
+                _hold_end_final, _trans_end_final, _out_f, _tot_f, _mesc_f, _fk_label = (
+                    _apply_fk_strategy(_anchor_x, _hold_s, _trans_s, _fk_label)
+                )
+                _hold_end = _hold_end_final
+                _trans_end = _trans_end_final
+                _hold_frames = _hold_end - _kick_frame
+                _trans_frames = _trans_end - _hold_end
+                _kick_hold_end = _hold_end
+                _kick_hold_trans_end = _trans_end
+
+                # --- framing diagnostic ---
+                _crop_left = float(np.clip(
+                    _anchor_x - _pcw / 2.0, 0.0,
+                    max(0.0, _snap_fw - _pcw),
+                ))
+                _kicker_frac = (
+                    (_kicker_cx - _crop_left) / max(_pcw, 1.0)
+                    if _kicker_cx is not None
+                    else (_ball_x0 - _crop_left) / max(_pcw, 1.0)
+                )
+                _ball_frac = (_ball_x0 - _crop_left) / max(_pcw, 1.0)
+                _in_pct_f = 100.0 * (1.0 - _out_f / max(1, _tot_f))
+
+                print(
+                    f"[CAMERA] FREE_KICK anchor: ball_x={_ball_x0:.0f}, "
+                    f"kicker_cx={f'{_kicker_cx:.0f}' if _kicker_cx is not None else 'N/A'}, "
+                    f"anchor_x={_anchor_x:.0f}"
+                )
+                print(
+                    f"[CAMERA] FREE_KICK strategy: {_fk_label} (score={_best_score:.1f}), "
+                    f"kicker_frac={_kicker_frac:.2f}, ball_frac={_ball_frac:.2f}, "
+                    f"plan_ball_in={_in_pct_f:.1f}%, max_esc={_mesc_f:.0f}px"
+                )
+                for _rl in _results_log:
+                    print(f"[CAMERA] FREE_KICK candidate:{_rl}")
                 print(
                     f"[CAMERA] FREE_KICK hold-then-follow: kick_frame={_kick_frame}, "
                     f"hold_end={_hold_end}, trans_end={_trans_end} "
