@@ -18,3 +18,7 @@ id,game_label,brand,master_path,master_start,master_end,playtag,phase,side,forma
 17,,,,1923,1930,Pressure & Shot,,,,,,,,,
 18,,,,1959,1970,Pressure & Shot,,,,,,,,,
 19,,,,2039,2059,"Defense, Counter & Goal",,,,,,,,,
+20,,,,2287,2295,Save,,,,,,,,,
+21,,,,2319,2359,"Build, Pressure & Shot",,,,,,,,,
+22,,,,2372,2393,"Defense, Build & Shot",,,,,,,,,
+23,,,,2485,2506,"Defense, Build & Shot",,,,,,,,,
