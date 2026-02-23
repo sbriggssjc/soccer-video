@@ -9119,6 +9119,7 @@ def run(
     # Gaussian pull when the gap exceeds 50 px.
     _snap_event = getattr(args, "event_type", None) or ""
     _snap_fps = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
+    _kick_hold_end = 0       # frames 0.._kick_hold_end are locked on kicker (hold phase only)
     _kick_hold_trans_end = 0  # frames 0.._kick_hold_trans_end are protected from gravity clamp
     if states and len(positions) > 0:
         _snap_ball_x0 = float(positions[0][0]) if not np.isnan(positions[0]).any() else None
@@ -9176,14 +9177,15 @@ def run(
                 if _kick_frame is None:
                     _kick_frame = int(_snap_fps * 2)  # fallback: 2s
 
-                # Hold on kicker for 0.3s after kick so viewer sees it happen
-                _hold_frames = int(_snap_fps * 0.3)
+                # Hold on kicker for 0.8s after kick so viewer registers the strike
+                _hold_frames = int(_snap_fps * 0.8)
                 # Transition to ball over 1.5s with ease-out
                 _trans_frames = int(_snap_fps * 1.5)
                 _hold_end = _kick_frame + _hold_frames
                 _trans_end = _hold_end + _trans_frames
                 _trans_end = min(_trans_end, len(states) - 1)
-                _kick_hold_trans_end = _hold_end  # only protect hold; let gravity clamp correct transition
+                _kick_hold_end = _hold_end         # hold phase: camera locked on kicker
+                _kick_hold_trans_end = _trans_end  # protect hold + transition from gravity clamp
 
                 # Phase 1+2: lock camera on anchor (kicker) position
                 for _si in range(min(_hold_end, len(states))):
@@ -9313,7 +9315,8 @@ def run(
         _max_speed = 15.0  # max px/frame (~450px/s at 30fps)
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
-        for _si in range(1, len(states)):
+        _sl_start = max(1, _kick_hold_end)  # don't speed-limit the kick-hold
+        for _si in range(_sl_start, len(states)):
             _delta = states[_si].cx - states[_si - 1].cx
             if abs(_delta) > _max_speed:
                 _clamped_cx = states[_si - 1].cx + np.sign(_delta) * _max_speed
@@ -10052,14 +10055,20 @@ def run(
             print(f"[VALIDATE] Pass {_pass_i + 1}: PASSED — no corrections needed")
             break
 
+        # Protect kick-hold frames from validation corrections — these
+        # were deliberately placed on the kicker and must not be shifted.
+        if _kick_hold_end > 0 and _val_corrections is not None:
+            _val_corrections[:_kick_hold_end] = 0.0
+
         # Apply corrections
         _val_applied = apply_framing_corrections(states, _val_corrections, _src_width)
 
-        # Re-apply speed limiter after corrections
+        # Re-apply speed limiter after corrections (skip kick-hold frames)
         _sl_fps_val = float(fps_in if fps_in and fps_in > 0 else fps_out or 30.0)
         _val_speed_clipped = 0
         _val_max_speed = 15.0
-        for _vsi in range(1, len(states)):
+        _val_sl_start = max(1, _kick_hold_end)  # don't speed-limit the hold
+        for _vsi in range(_val_sl_start, len(states)):
             _vd = states[_vsi].cx - states[_vsi - 1].cx
             if abs(_vd) > _val_max_speed:
                 _vc = states[_vsi - 1].cx + np.sign(_vd) * _val_max_speed
