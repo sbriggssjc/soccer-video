@@ -9176,10 +9176,10 @@ def run(
                 if _kick_frame is None:
                     _kick_frame = int(_snap_fps * 2)  # fallback: 2s
 
-                # Hold on kicker for 0.7s after kick so viewer sees it happen
-                _hold_frames = int(_snap_fps * 0.7)
-                # Transition to planner over 2.0s with cubic ease
-                _trans_frames = int(_snap_fps * 2.0)
+                # Hold on kicker for 0.3s after kick so viewer sees it happen
+                _hold_frames = int(_snap_fps * 0.3)
+                # Transition to ball over 1.5s with ease-out
+                _trans_frames = int(_snap_fps * 1.5)
                 _hold_end = _kick_frame + _hold_frames
                 _trans_end = _hold_end + _trans_frames
                 _trans_end = min(_trans_end, len(states) - 1)
@@ -9194,14 +9194,20 @@ def run(
                         max(0.0, _snap_fw - states[_si].crop_w),
                     ))
 
-                # Phase 3: cubic ease from anchor position to planner
+                # Phase 3: ease-out from anchor toward ball position
+                # Track the ball at each frame (not a fixed endpoint) so
+                # the camera follows a fast-moving ball after the kick.
                 if _trans_end > _hold_end and _trans_end < len(states):
-                    _plan_cx_at_end = states[_trans_end].cx  # planner's original
                     for _si in range(_hold_end, _trans_end):
                         _t = (_si - _hold_end) / float(_trans_end - _hold_end)
-                        # Cubic ease-in-out: smooth start and end
-                        _ease = _t * _t * (3.0 - 2.0 * _t)
-                        _new_cx = (1.0 - _ease) * _anchor_x + _ease * _plan_cx_at_end
+                        # Ease-out: fast departure from anchor, gentle arrival
+                        _ease = 1.0 - (1.0 - _t) ** 2
+                        # Target: ball position at this frame (fallback to planner)
+                        if _si < len(positions) and not np.isnan(positions[_si]).any():
+                            _target_cx = float(positions[_si][0])
+                        else:
+                            _target_cx = float(states[_si].cx)
+                        _new_cx = (1.0 - _ease) * _anchor_x + _ease * _target_cx
                         states[_si].cx = _new_cx
                         _half_cw = states[_si].crop_w / 2.0
                         states[_si].x0 = float(np.clip(
