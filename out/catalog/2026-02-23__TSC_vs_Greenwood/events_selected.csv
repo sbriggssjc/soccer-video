@@ -22,3 +22,7 @@ id,game_label,brand,master_path,master_start,master_end,playtag,phase,side,forma
 21,,,,2319,2359,"Build, Pressure & Shot",,,,,,,,,
 22,,,,2372,2393,"Defense, Build & Shot",,,,,,,,,
 23,,,,2485,2506,"Defense, Build & Shot",,,,,,,,,
+24,,,,2649,2665,"Pressure, Build & Cross",,,,,,,,,
+25,,,,2729,2746,"Pressure, Skill & Shot",,,,,,,,,
+26,,,,2752,2760,Pressure & Shot,,,,,,,,,
+27,,,,2802,2818,"Defense, Build & Goal",,,,,,,,,
