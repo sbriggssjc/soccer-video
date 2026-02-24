@@ -10095,8 +10095,8 @@ def run(
         from scipy.ndimage import gaussian_filter1d as _gf1d_spline
 
         _sp_n = len(states)
-        _sp_sigma_x = 3.0    # light Gaussian polish on X
-        _sp_sigma_y = 4.0    # slightly heavier on Y (vertical motion more noticeable)
+        _sp_sigma_x = 8.0    # Gaussian polish on X — must be strong enough to smooth YOLO noise
+        _sp_sigma_y = 10.0   # heavier on Y (vertical motion more noticeable)
 
         # --- 1) Extract anchor frames (YOLO=1, BLENDED=3, TRACKER=7) ---
         _sp_anchor_sources = {1, 3, 7}
@@ -10166,6 +10166,43 @@ def run(
             _sp_ax = _sp_ax[_sp_uniq_mask]
             _sp_ay = _sp_ay[_sp_uniq_mask]
             _sp_n_anchors = len(_sp_anchor_frames)
+
+            # --- 2b) Outlier rejection: replace anchors with unrealistic speed ---
+            # YOLO can produce noisy detections (false positives, multi-ball
+            # confusion) that jump 100-400px between frames. PCHIP passes
+            # through every point exactly, so these create camera oscillation.
+            # Detect and replace outlier anchors with linear interpolation.
+            _sp_max_speed = 80.0   # max plausible ball speed in source px/frame
+            _sp_outlier_replaced = 0
+            if _sp_n_anchors >= 5:
+                for _oi in range(1, _sp_n_anchors - 1):
+                    _df_prev = float(max(1, _sp_anchor_frames[_oi] - _sp_anchor_frames[_oi - 1]))
+                    _df_next = float(max(1, _sp_anchor_frames[_oi + 1] - _sp_anchor_frames[_oi]))
+                    _df_span = float(max(1, _sp_anchor_frames[_oi + 1] - _sp_anchor_frames[_oi - 1]))
+
+                    _spd_in_x = abs(_sp_ax[_oi] - _sp_ax[_oi - 1]) / _df_prev
+                    _spd_out_x = abs(_sp_ax[_oi + 1] - _sp_ax[_oi]) / _df_next
+                    _spd_span_x = abs(_sp_ax[_oi + 1] - _sp_ax[_oi - 1]) / _df_span
+
+                    # Bounce: high speed in AND out, opposite directions
+                    _dx_in = _sp_ax[_oi] - _sp_ax[_oi - 1]
+                    _dx_out = _sp_ax[_oi + 1] - _sp_ax[_oi]
+                    _is_bounce = (_spd_in_x > _sp_max_speed and _spd_out_x > _sp_max_speed
+                                  and _dx_in * _dx_out < 0)
+
+                    # Spike: high speed in or out, but neighbors are close
+                    _is_spike = ((_spd_in_x > _sp_max_speed or _spd_out_x > _sp_max_speed)
+                                 and _spd_span_x < _sp_max_speed * 0.5)
+
+                    if _is_bounce or _is_spike:
+                        # Replace with linear interpolation between neighbors
+                        _t = (_sp_anchor_frames[_oi] - _sp_anchor_frames[_oi - 1]) / _df_span
+                        _sp_ax[_oi] = _sp_ax[_oi - 1] + _t * (_sp_ax[_oi + 1] - _sp_ax[_oi - 1])
+                        _sp_ay[_oi] = _sp_ay[_oi - 1] + _t * (_sp_ay[_oi + 1] - _sp_ay[_oi - 1])
+                        _sp_outlier_replaced += 1
+
+            if _sp_outlier_replaced > 0:
+                print(f"[ANCHOR-SPLINE] Outlier rejection: replaced {_sp_outlier_replaced} noisy anchors")
 
             # --- 3) Build PCHIP splines for X and Y ---
             _sp_pchip_x = _PchipInterp(_sp_anchor_frames.astype(np.float64), _sp_ax)
