@@ -43,6 +43,9 @@ import numpy as np
 DEFAULT_MODEL_NAME = "yolov8n.pt"
 DEFAULT_MIN_CONF = 0.35
 
+# Source label constants (must match local definitions in fuse_yolo_and_centroid)
+FUSE_TRACKER = 7  # CSRT visual tracker (real pixel data, not estimated)
+
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -1522,6 +1525,7 @@ def fuse_yolo_and_centroid(
     FUSE_INTERP = np.uint8(4)
     FUSE_HOLD = np.uint8(5)
     FUSE_SHOT_HOLD = np.uint8(6)  # shot-hold / pan-hold (frozen at YOLO anchor)
+    FUSE_TRACKER = np.uint8(7)    # CSRT visual tracker (real pixel data)
 
     # Guard: zero-frame or negative frame_count
     if frame_count <= 0:
@@ -2780,6 +2784,320 @@ def fuse_yolo_and_centroid(
     return positions, used_mask, confidence, source_labels
 
 
+# ---------------------------------------------------------------------------
+# CSRT visual tracker: fill YOLO detection gaps with real pixel tracking
+# ---------------------------------------------------------------------------
+
+
+def _tracker_cache_path(video_path: Path, model_name: str | None = None) -> Path:
+    """Return the canonical tracker cache path for a video."""
+    stem = Path(video_path).stem
+    # Include YOLO model in tracker cache name so different YOLO models
+    # produce different tracker caches (gaps differ per model).
+    if model_name:
+        _model_stem = Path(model_name).stem
+        _default_stem = Path(DEFAULT_MODEL_NAME).stem
+        if _model_stem != _default_stem:
+            return Path("out") / "telemetry" / f"{stem}.tracker_ball.{_model_stem}.jsonl"
+    return Path("out") / "telemetry" / f"{stem}.tracker_ball.jsonl"
+
+
+def _file_md5(path: Path) -> str:
+    """Compute MD5 hex digest of a file for cache invalidation."""
+    import hashlib
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _load_tracker_cache(
+    path: Path, yolo_hash: str, bbox_size: int
+) -> list[dict] | None:
+    """Load tracker cache, returning None if invalid/stale."""
+    if not path.is_file():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            first_line = f.readline().strip()
+            if not first_line:
+                return None
+            meta = json.loads(first_line)
+            if not meta.get("_meta"):
+                return None
+            if meta.get("yolo_hash") != yolo_hash:
+                print(f"[TRACKER] Cache stale (YOLO hash mismatch), re-tracking")
+                return None
+            if meta.get("bbox_size") != bbox_size:
+                print(f"[TRACKER] Cache stale (bbox_size mismatch), re-tracking")
+                return None
+            results = []
+            for line in f:
+                line = line.strip()
+                if line:
+                    results.append(json.loads(line))
+            return results
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[TRACKER] Cache load error: {exc}")
+        return None
+
+
+def _save_tracker_cache(
+    path: Path, results: list[dict], yolo_hash: str, bbox_size: int
+) -> None:
+    """Write tracker results to JSONL cache with metadata header."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        meta = {"_meta": True, "yolo_hash": yolo_hash, "bbox_size": bbox_size, "version": 1}
+        f.write(json.dumps(meta) + "\n")
+        for rec in results:
+            f.write(json.dumps(rec) + "\n")
+    print(f"[TRACKER] Cached {len(results)} tracker positions to {path}")
+
+
+def _apply_tracker_cache(
+    cached: list[dict],
+    positions: np.ndarray,
+    source_labels: np.ndarray,
+    confidence: np.ndarray,
+    used_mask: np.ndarray,
+) -> int:
+    """Apply cached tracker results to the fusion arrays. Returns count applied."""
+    count = 0
+    frame_count = len(positions)
+    for rec in cached:
+        fi = int(rec["frame"])
+        if 0 <= fi < frame_count:
+            positions[fi, 0] = float(rec["cx"])
+            positions[fi, 1] = float(rec["cy"])
+            source_labels[fi] = np.uint8(FUSE_TRACKER)
+            confidence[fi] = float(rec.get("conf", 0.70))
+            used_mask[fi] = True
+            count += 1
+    return count
+
+
+def run_csrt_tracker_for_gaps(
+    video_path: str | Path,
+    positions: np.ndarray,
+    source_labels: np.ndarray,
+    confidence: np.ndarray,
+    used_mask: np.ndarray,
+    *,
+    fps: float = 30.0,
+    bbox_size: int = 48,
+    max_jump_px: float = 60.0,
+    min_gap: int = 3,
+    max_gap: int = 150,
+    tracker_conf: float = 0.70,
+    cache: bool = True,
+    yolo_model_name: str | None = None,
+) -> int:
+    """Fill FUSE_INTERP gaps with CSRT visual tracker positions.
+
+    Identifies contiguous runs of FUSE_INTERP frames flanked by YOLO/BLENDED
+    detections, initializes a CSRT tracker at the leading anchor frame, and
+    tracks forward frame-by-frame through the actual video.
+
+    Modifies *positions*, *source_labels*, *confidence*, *used_mask* in-place.
+    Returns the number of frames successfully tracked.
+    """
+    try:
+        import cv2
+    except ImportError:
+        print("[TRACKER] OpenCV not available, skipping visual tracking")
+        return 0
+
+    # Verify CSRT is available
+    if not hasattr(cv2, "legacy") or not hasattr(cv2.legacy, "TrackerCSRT_create"):
+        print("[TRACKER] cv2.legacy.TrackerCSRT not available, skipping")
+        return 0
+
+    video_path = Path(video_path)
+    frame_count = len(positions)
+
+    # --- Cache check ---
+    cache_path = _tracker_cache_path(video_path, yolo_model_name)
+    # Find the YOLO cache to compute hash for invalidation
+    _yolo_cache = Path(yolo_telemetry_path_for_video(video_path))
+    if yolo_model_name:
+        _model_stem = Path(yolo_model_name).stem
+        _default_stem = Path(DEFAULT_MODEL_NAME).stem
+        if _model_stem != _default_stem:
+            _yolo_cache = _yolo_cache.with_suffix(f".{_model_stem}.jsonl")
+    yolo_hash = _file_md5(_yolo_cache) if _yolo_cache.is_file() else ""
+
+    if cache and cache_path.is_file():
+        cached = _load_tracker_cache(cache_path, yolo_hash, bbox_size)
+        if cached is not None:
+            applied = _apply_tracker_cache(cached, positions, source_labels,
+                                           confidence, used_mask)
+            print(f"[TRACKER] Loaded {applied} cached tracker positions from {cache_path}")
+            return applied
+
+    # --- Identify trackable gaps ---
+    # A gap is a contiguous run of FUSE_INTERP (4) frames flanked by
+    # FUSE_YOLO (1) or FUSE_BLENDED (3) anchors on both sides.
+    _INTERP = 4
+    _YOLO_ANCHORS = (1, 3)  # FUSE_YOLO, FUSE_BLENDED
+
+    gaps: list[tuple[int, int, int, int]] = []  # (anchor_before, gap_start, gap_end, anchor_after)
+    i = 0
+    while i < frame_count:
+        if source_labels[i] == _INTERP:
+            gap_start = i
+            while i < frame_count and source_labels[i] == _INTERP:
+                i += 1
+            gap_end = i - 1  # inclusive
+            gap_len = gap_end - gap_start + 1
+
+            anchor_before = gap_start - 1
+            anchor_after = gap_end + 1
+
+            if (gap_len >= min_gap
+                    and gap_len <= max_gap
+                    and anchor_before >= 0
+                    and anchor_after < frame_count
+                    and source_labels[anchor_before] in _YOLO_ANCHORS
+                    and source_labels[anchor_after] in _YOLO_ANCHORS
+                    and not np.isnan(positions[anchor_before]).any()):
+                gaps.append((anchor_before, gap_start, gap_end, anchor_after))
+        else:
+            i += 1
+
+    if not gaps:
+        print("[TRACKER] No trackable INTERP gaps found")
+        return 0
+
+    total_gap_frames = sum(g[2] - g[1] + 1 for g in gaps)
+    print(f"[TRACKER] Found {len(gaps)} trackable gaps ({total_gap_frames} total frames)")
+
+    # --- Open video and track ---
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[TRACKER] Cannot open video: {video_path}")
+        return 0
+
+    fps_scale = max(fps, 1.0) / 30.0
+    max_jump_scaled = max_jump_px * fps_scale
+    half_bbox = bbox_size // 2
+    vid_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    vid_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    tracked_results: list[dict] = []
+    total_tracked = 0
+
+    for gap_idx, (anchor_frame, gap_start, gap_end, anchor_after) in enumerate(gaps):
+        # Seek to anchor frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, anchor_frame)
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            print(f"[TRACKER] Gap {gap_start}-{gap_end}: failed to read anchor frame {anchor_frame}")
+            continue
+
+        # Initialize CSRT at anchor position
+        ax = float(positions[anchor_frame, 0])
+        ay = float(positions[anchor_frame, 1])
+        x0 = max(0.0, ax - half_bbox)
+        y0 = max(0.0, ay - half_bbox)
+        # Clamp bbox to stay within frame
+        if x0 + bbox_size > vid_w:
+            x0 = max(0.0, vid_w - bbox_size)
+        if y0 + bbox_size > vid_h:
+            y0 = max(0.0, vid_h - bbox_size)
+        init_bbox = (float(x0), float(y0), float(bbox_size), float(bbox_size))
+
+        tracker = cv2.legacy.TrackerCSRT_create()
+        tracker.init(frame, init_bbox)
+
+        prev_cx, prev_cy = ax, ay
+        gap_tracked: list[tuple[int, float, float]] = []
+        tracker_lost = False
+
+        for fi in range(gap_start, gap_end + 1):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                tracker_lost = True
+                break
+
+            ok_track, tracked_bbox = tracker.update(frame)
+            if not ok_track:
+                tracker_lost = True
+                break
+
+            bx, by, bw, bh = tracked_bbox
+            cx = bx + bw / 2.0
+            cy = by + bh / 2.0
+
+            # Validate: speed check — reject if jumped too far
+            jump = math.hypot(cx - prev_cx, cy - prev_cy)
+            if jump > max_jump_scaled:
+                print(f"[TRACKER] Gap {gap_start}-{gap_end}: speed violation at frame {fi} "
+                      f"({jump:.1f}px > {max_jump_scaled:.1f}px limit)")
+                tracker_lost = True
+                break
+
+            # Validate: frame bounds (reject near-edge positions)
+            edge_margin = bbox_size
+            if cx < edge_margin or cx > vid_w - edge_margin or \
+               cy < edge_margin or cy > vid_h - edge_margin:
+                tracker_lost = True
+                break
+
+            gap_tracked.append((fi, cx, cy))
+            prev_cx, prev_cy = cx, cy
+
+        # Endpoint validation: tracker's last position should converge
+        # toward the YOLO anchor after the gap
+        if gap_tracked and not tracker_lost:
+            last_cx = gap_tracked[-1][1]
+            last_cy = gap_tracked[-1][2]
+            anchor_cx = float(positions[anchor_after, 0])
+            anchor_cy = float(positions[anchor_after, 1])
+            endpoint_dist = math.hypot(last_cx - anchor_cx, last_cy - anchor_cy)
+            max_endpoint = bbox_size * 3.0
+            if endpoint_dist > max_endpoint:
+                print(f"[TRACKER] Gap {gap_start}-{gap_end}: endpoint divergence "
+                      f"{endpoint_dist:.0f}px > {max_endpoint:.0f}px, discarding "
+                      f"{len(gap_tracked)} frames")
+                gap_tracked = []
+
+        # Apply results
+        for fi, cx, cy in gap_tracked:
+            positions[fi, 0] = cx
+            positions[fi, 1] = cy
+            source_labels[fi] = np.uint8(FUSE_TRACKER)
+            confidence[fi] = tracker_conf
+            used_mask[fi] = True
+            total_tracked += 1
+            tracked_results.append({
+                "frame": fi,
+                "cx": round(cx, 2),
+                "cy": round(cy, 2),
+                "conf": round(tracker_conf, 4),
+                "gap_start": gap_start,
+                "gap_end": gap_end,
+            })
+
+        status = f"{len(gap_tracked)}/{gap_end - gap_start + 1} frames"
+        if tracker_lost and not gap_tracked:
+            status += " (tracker lost immediately)"
+        elif tracker_lost:
+            status += f" (tracker lost at frame {gap_tracked[-1][0] + 1})"
+        print(f"[TRACKER] Gap {gap_start}-{gap_end}: tracked {status}")
+
+    cap.release()
+
+    # --- Save cache ---
+    if cache and tracked_results:
+        _save_tracker_cache(cache_path, tracked_results, yolo_hash, bbox_size)
+
+    print(f"[TRACKER] Total: {total_tracked}/{total_gap_frames} gap frames tracked "
+          f"across {len(gaps)} gaps")
+    return total_tracked
+
+
 __all__ = [
     "BallSample",
     "ExcludeZone",
@@ -2794,6 +3112,8 @@ __all__ = [
     "smooth_telemetry",
     "run_yolo_ball_detection",
     "fuse_yolo_and_centroid",
+    "run_csrt_tracker_for_gaps",
+    "FUSE_TRACKER",
 ]
 
 

@@ -4693,7 +4693,7 @@ DEFAULT_PRESETS = {
         "zoom_max": 1.5,
         "crf": 17,
         "keyint_factor": 4,
-        "post_smooth_sigma": 8.0,
+        "post_smooth_sigma": 18.0,
         "follow": {
             "speed_zoom": {
                 "enabled": True,
@@ -5331,6 +5331,8 @@ class CamState:
     ball: Optional[Tuple[float, float]] = None
     zoom_scale: float = 1.0
     keepinview_override: bool = False
+    confidence: float = 1.0
+    source_label: int = 0
 
 
 class CameraPlanner:
@@ -5396,7 +5398,7 @@ class CameraPlanner:
         # Confidence-based speed damping floor: at zero confidence the
         # camera moves at this fraction of normal speed.  Event-type
         # handlers can lower this to make centroid-dominated clips calmer.
-        self._conf_speed_floor = 0.70  # default: matches original formula
+        self._conf_speed_floor = 0.40  # v3: much slower camera during uncertain stretches
 
         # Event-type-aware parameter adjustments.
         # Different event types have fundamentally different ball dynamics
@@ -5418,6 +5420,20 @@ class CameraPlanner:
             self.speed_limit *= 1.40
             self.keepinview_margin_px *= 0.85
             self.keepinview_nudge_gain = min(1.0, self.keepinview_nudge_gain * 1.15)
+        elif self.event_type == "SHOT":
+            # SHOT: fast ball movement toward goal, typically 15-40 px/frame.
+            # Similar to CROSS but usually shorter distance.  Boost speed
+            # limit moderately so the camera can track the shot.
+            self.speed_limit *= 1.20
+            self.keepinview_nudge_gain = min(1.0, self.keepinview_nudge_gain * 1.1)
+        elif self.event_type == "SAVE":
+            # SAVE: chaotic action near the goal — keeper diving, deflections,
+            # multiple players converging.  Ball is often invisible during the
+            # save itself (held by keeper, behind bodies), causing long YOLO
+            # blackouts.  Centroid tracker chases player motion, creating
+            # camera whipsaw.  Lock down camera during low-confidence stretches.
+            self._conf_speed_floor = 0.25       # centroid → mostly locked camera
+            self._post_smooth_sigma = max(self._post_smooth_sigma, 12.0)
         elif self.event_type == "FREE_KICK":
             # FREE_KICK: ball is stationary during setup, then one fast
             # kick.  The camera must hold steady during setup (so the kick
@@ -5706,6 +5722,25 @@ class CameraPlanner:
         _hold_exit_countdown: int = 0
         _hold_exit_boost_level: float = 3.0
         _prev_source_label: int = 0
+        # Progressive confidence decay: the longer we go without a YOLO
+        # anchor, the less we trust the centroid trajectory.  After
+        # _CONF_DECAY_ONSET frames of non-YOLO data, the effective
+        # conf_speed_floor decays toward _CONF_DECAY_TARGET over
+        # _CONF_DECAY_HALF frames (exponential).  This prevents the
+        # centroid oscillation whipsaw seen in SAVE clips where the
+        # ball disappears behind the keeper for 3+ seconds.
+        _CONF_DECAY_ONSET: int = 12     # start decaying after 12 non-YOLO frames (~0.4s)
+        _CONF_DECAY_HALF: float = 20.0  # half-life in frames (~0.67s at 30fps)
+        _CONF_DECAY_TARGET: float = 0.10  # floor at full decay — near-locked camera
+        _non_yolo_run: int = 0           # consecutive non-YOLO frames
+        # Reversal damping state: track rolling camera velocity direction.
+        # Prevents noise-induced micro-reversals by requiring either
+        # high-confidence data or sufficient ramp-in time before allowing
+        # the camera to reverse its pan direction.
+        _prev_rev_vx_ema: float = 0.0   # rolling X velocity EMA
+        _prev_rev_vy_ema: float = 0.0   # rolling Y velocity EMA
+        _rev_frames_x: int = 0          # frames since X reversal started
+        _rev_frames_y: int = 0          # frames since Y reversal started
 
         for frame_idx in range(frame_count):
             pos = positions[frame_idx]
@@ -5715,7 +5750,7 @@ class CameraPlanner:
             _cur_source_label = int(_source_labels[frame_idx]) if (
                 _source_labels is not None and frame_idx < len(_source_labels)
             ) else 0
-            if _prev_source_label in (5, 6) and _cur_source_label in (1, 3):
+            if _prev_source_label in (5, 6) and _cur_source_label in (1, 3, 7):
                 # Only fire hold-exit boost when transitioning from
                 # FUSE_HOLD (5) or FUSE_SHOT_HOLD (6) to YOLO (1) or
                 # blended (3) — NOT interpolated (4), which may be a
@@ -5733,6 +5768,13 @@ class CameraPlanner:
                 _hold_exit_boost_level = 3.0 + 3.0 * _he_gap_norm   # 3x - 6x
                 _hold_exit_countdown = 10 + int(5 * _he_gap_norm)    # 10 - 15 frames
             _prev_source_label = _cur_source_label
+
+            # Track consecutive non-YOLO frames for progressive decay.
+            # FUSE_YOLO=1, FUSE_BLENDED=3, FUSE_TRACKER=7 count as anchored.
+            if _cur_source_label in (1, 3, 7):
+                _non_yolo_run = 0
+            else:
+                _non_yolo_run += 1
 
             # Ball position as pan target.
             # Positions are pre-smoothed by the bidirectional EMA filter
@@ -6309,7 +6351,18 @@ class CameraPlanner:
             # Ramp zone:        alpha linearly ramps to full
             # Beyond ramp zone: full tracking at center_alpha
             _, _dz_crop_w, _ = _compute_crop_dimensions(zoom)
-            _dz_radius = _dz_crop_w * 0.065  # 6.5% of crop width — wider deadzone for broadcast-style pauses
+            # Source-aware deadzone: wider base (10%) + source-label scaling.
+            # YOLO/blended: 10% (normal).  Centroid/hold: 30% of crop,
+            # meaning the ball must drift to the outer third before the
+            # camera even begins to respond.
+            _dz_base = 0.10  # 10% of crop width (was 6.5%)
+            if _cur_source_label in (1, 3, 7):   # YOLO, BLENDED, TRACKER
+                _dz_source_scale = 1.0
+            elif _cur_source_label == 4:       # INTERP
+                _dz_source_scale = 1.5
+            else:                              # CENTROID, HOLD
+                _dz_source_scale = 3.0
+            _dz_radius = _dz_crop_w * _dz_base * _dz_source_scale
             _dz_dist = math.hypot(_led_bx - prev_cx, _led_by - prev_cy)
             _target_delta = math.hypot(_led_bx - prev_target_x, _led_by - prev_target_y)
             # Position-based thresholds (original)
@@ -6339,8 +6392,75 @@ class CameraPlanner:
                 follow_alpha = center_alpha * _dz_ramp
             else:
                 follow_alpha = center_alpha
+            # SOURCE-AWARE TRACKING (v3): the camera's responsiveness
+            # depends on the actual data source, not just smoothed
+            # confidence.  This is the key to eliminating jitter:
+            #
+            #   YOLO/Blended (labels 1,3): full tracking — we KNOW
+            #       where the ball is from the detector.
+            #   Interpolated (label 4): moderate tracking — reasonable
+            #       linear path between confirmed YOLO positions.
+            #   Centroid (label 2): near-frozen — centroid tracks scene
+            #       motion (players, camera pan), NOT the ball.  Chasing
+            #       centroid causes the "jitter" and "fighting" the user
+            #       sees.  Camera holds near last known good position.
+            #   Hold/Shot-hold (labels 5,6): frozen — no data at all.
+            #
+            # This replaces the v2 confidence-scaled alpha which was
+            # too gentle (30% reduction at low conf vs 95% here).
+            if _cur_source_label in (1, 3, 7):   # YOLO, BLENDED, TRACKER
+                # Gate by confidence: low-confidence YOLO shouldn't jerk
+                # the camera.  conf >= 0.55 → full alpha; conf 0.30 → 0.55×
+                _source_alpha_scale = min(1.0, frame_conf / 0.55)
+            elif _cur_source_label == 4:       # INTERP
+                _source_alpha_scale = 0.12
+            else:                              # CENTROID, HOLD, SHOT_HOLD
+                _source_alpha_scale = 0.04
+            follow_alpha *= _source_alpha_scale
             cx_smooth = follow_alpha * _led_bx + (1.0 - follow_alpha) * prev_cx
             cy_smooth = follow_alpha * _led_by + (1.0 - follow_alpha) * prev_cy
+
+            # 3b) REVERSAL DAMPING
+            # Track rolling velocity direction via EMA.  When the proposed
+            # camera movement would reverse direction, dampen it unless
+            # justified by high-confidence YOLO/tracker data.  This prevents
+            # the "fighting the pan" jitter from noise-induced micro-reversals.
+            _rev_ema_alpha = 0.15
+            _rev_dx = cx_smooth - prev_cx
+            _rev_dy = cy_smooth - prev_cy
+            _rev_vx_ema = _rev_ema_alpha * _rev_dx + (1.0 - _rev_ema_alpha) * _prev_rev_vx_ema
+            _rev_vy_ema = _rev_ema_alpha * _rev_dy + (1.0 - _rev_ema_alpha) * _prev_rev_vy_ema
+
+            # X-axis reversal check
+            if (abs(_rev_vx_ema) > 1.0 and abs(_rev_dx) > 0.5
+                    and math.copysign(1.0, _rev_dx) != math.copysign(1.0, _rev_vx_ema)):
+                _rev_frames_x += 1
+                if _cur_source_label in (1, 3, 7) and frame_conf > 0.50:
+                    # High-confidence: allow reversal but ramp in over 6 frames
+                    _rev_ramp = min(1.0, _rev_frames_x / 6.0)
+                    cx_smooth = prev_cx + _rev_dx * _rev_ramp
+                else:
+                    # Low-confidence: resist reversal, coast at decaying speed
+                    cx_smooth = prev_cx + _rev_vx_ema * 0.5
+                    _rev_frames_x = 0
+            else:
+                _rev_frames_x = 0
+
+            # Y-axis reversal check
+            if (abs(_rev_vy_ema) > 1.0 and abs(_rev_dy) > 0.5
+                    and math.copysign(1.0, _rev_dy) != math.copysign(1.0, _rev_vy_ema)):
+                _rev_frames_y += 1
+                if _cur_source_label in (1, 3, 7) and frame_conf > 0.50:
+                    _rev_ramp = min(1.0, _rev_frames_y / 6.0)
+                    cy_smooth = prev_cy + _rev_dy * _rev_ramp
+                else:
+                    cy_smooth = prev_cy + _rev_vy_ema * 0.5
+                    _rev_frames_y = 0
+            else:
+                _rev_frames_y = 0
+
+            _prev_rev_vx_ema = _rev_vx_ema
+            _prev_rev_vy_ema = _rev_vy_ema
 
             # 4) KEEP-IN-VIEW GUARD (DOMINANT)
             # Uses the actual ball position (not the led position) so the
@@ -6459,13 +6579,24 @@ class CameraPlanner:
             # limit so the camera doesn't chase noise across the field.
             # At full confidence (>=0.60) no damping; at zero confidence the
             # camera moves at _conf_speed_floor (default 0.70, lower for
-            # event types like FREE_KICK where centroid data is unreliable).
+            # event types like FREE_KICK/SAVE where centroid is unreliable).
+            #
+            # Progressive decay: after _CONF_DECAY_ONSET consecutive non-YOLO
+            # frames, the floor decays toward _CONF_DECAY_TARGET.  This
+            # prevents centroid oscillation from whipsawing the camera during
+            # long YOLO blackouts (saves, scrambles, ball hidden behind players).
+            #
             # Completely bypass confidence damping when keepinview is active
             # with meaningful excess — the camera must reach the ball even
             # if confidence is low, otherwise keepinview and speed-limit
             # fight each other every frame.
             _conf_speed_scale = 1.0
             _csf = self._conf_speed_floor
+            if _non_yolo_run > _CONF_DECAY_ONSET:
+                _decay_frames = _non_yolo_run - _CONF_DECAY_ONSET
+                _decay_frac = 1.0 - 0.5 ** (_decay_frames / _CONF_DECAY_HALF)
+                _csf = _csf + (_CONF_DECAY_TARGET - _csf) * _decay_frac
+                _csf = max(_CONF_DECAY_TARGET, _csf)
             if frame_conf < 0.60 and not (keepinview_override and excess_frac > 0.02) and _hold_exit_countdown <= 0:
                 _conf_speed_scale = _csf + (1.0 - _csf) * (frame_conf / 0.60)
                 clamp_flags.append(f"conf_speed={_conf_speed_scale:.2f}")
@@ -6698,6 +6829,8 @@ class CameraPlanner:
                     ball=ball_point,
                     zoom_scale=edge_zoom_scale,
                     keepinview_override=keepinview_override,
+                    confidence=frame_conf,
+                    source_label=_cur_source_label,
                 )
             )
 
@@ -6757,7 +6890,7 @@ class CameraPlanner:
                 _pre_smooth_vy = np.abs(np.diff(cy_arr))
                 _max_spd_x = max(pxpf_x, float(np.percentile(_pre_smooth_vx, 99)) if len(_pre_smooth_vx) > 0 else pxpf_x)
                 _max_spd_y = max(pxpf_y, float(np.percentile(_pre_smooth_vy, 99)) if len(_pre_smooth_vy) > 0 else pxpf_y)
-                _ramp_s = 0.35  # seconds to reach full speed (longer ramp = smoother starts/stops)
+                _ramp_s = 0.50  # seconds to reach full speed (longer ramp = smoother starts/stops)
                 _ramp_frames = max(1.0, _ramp_s * render_fps)
                 _max_accel_x = _max_spd_x / _ramp_frames
                 _max_accel_y = _max_spd_y / _ramp_frames
@@ -6868,10 +7001,19 @@ class CameraPlanner:
 
         def _apply_bic(states_list, margin, fw, fh):
             """Apply ball-in-crop guarantee using actual clamped crop bounds.
-            Returns number of corrected frames."""
+            Returns number of corrected frames.
+            Skip low-confidence frames: when ball position is uncertain
+            (centroid/interp/hold), chasing the estimated position creates
+            jitter and may move the camera AWAY from the real ball."""
             _count = 0
+            _BIC_MIN_CONF = 0.40  # only correct when ball position is reliable
             for _s in states_list:
                 if _s.ball is None:
+                    continue
+                # Skip BIC for low-confidence frames — the estimated ball
+                # position is likely wrong, so forcing it into the crop
+                # causes jitter and degrades real-ball framing.
+                if _s.confidence < _BIC_MIN_CONF:
                     continue
                 _bx, _by = _s.ball
                 _hw = _s.crop_w * 0.5
@@ -7017,6 +7159,44 @@ class CameraPlanner:
                             "[POST-SMOOTH] BIC convergence pass: %d frames",
                             _bic3,
                         )
+
+        # --- FINAL CINEMA SMOOTH ---
+        # Gravity clamp and BIC guarantee introduce discrete per-frame
+        # corrections AFTER the main Gaussian.  A final light smooth removes
+        # those artifacts so the rendered camera path is free of micro-jitter.
+        _cinema_sigma = max(3.0, sigma_frames * 0.40) if sigma_frames >= 0.5 else 0.0
+        if _cinema_sigma >= 1.0 and len(states) >= 5:
+            _cinema_r = int(_cinema_sigma * 3.0 + 0.5)
+            _cinema_r = min(_cinema_r, len(states) // 2)
+            if _cinema_r >= 1:
+                _cinema_cx = np.array([s.cx for s in states], dtype=np.float64)
+                _cinema_cy = np.array([s.cy for s in states], dtype=np.float64)
+                _cinema_kx = np.arange(-_cinema_r, _cinema_r + 1, dtype=np.float64)
+                _cinema_k = np.exp(-0.5 * (_cinema_kx / _cinema_sigma) ** 2)
+                _cinema_k /= _cinema_k.sum()
+                _cinema_cx_p = np.pad(_cinema_cx, _cinema_r, mode="edge")
+                _cinema_cy_p = np.pad(_cinema_cy, _cinema_r, mode="edge")
+                _cinema_cx_s = np.convolve(_cinema_cx_p, _cinema_k, mode="valid")
+                _cinema_cy_s = np.convolve(_cinema_cy_p, _cinema_k, mode="valid")
+                for _ci in range(len(states)):
+                    states[_ci].cx = float(_cinema_cx_s[_ci])
+                    states[_ci].cy = float(_cinema_cy_s[_ci])
+                    _hw_c = states[_ci].crop_w / 2.0
+                    _hh_c = states[_ci].crop_h / 2.0
+                    states[_ci].x0 = float(np.clip(
+                        states[_ci].cx - _hw_c, 0.0,
+                        max(0.0, self.width - states[_ci].crop_w),
+                    ))
+                    states[_ci].y0 = float(np.clip(
+                        states[_ci].cy - _hh_c, 0.0,
+                        max(0.0, self.height - states[_ci].crop_h),
+                    ))
+                    states[_ci].cx = states[_ci].x0 + _hw_c
+                    states[_ci].cy = states[_ci].y0 + _hh_c
+                logger.info(
+                    "[CINEMA-SMOOTH] Final smooth pass (sigma=%.1f) applied to %d frames",
+                    _cinema_sigma, len(states),
+                )
 
         return states
 
@@ -9161,6 +9341,34 @@ def run(
                                     )
                                     positions = fused_positions
                                     used_mask = fused_mask
+
+            # --- CSRT visual tracker: fill YOLO gaps with real pixel tracking ---
+            # Between YOLO detections, the fusion pipeline fills positions with
+            # interpolation (estimated math).  The CSRT tracker locks onto the
+            # ball's actual pixels at the last YOLO frame and follows them
+            # frame-by-frame through the real video, giving the camera a real
+            # target instead of a guess.
+            try:
+                from tools.ball_telemetry import run_csrt_tracker_for_gaps
+                _yolo_model = getattr(args, "yolo_model", None)
+                _tracked = run_csrt_tracker_for_gaps(
+                    video_path=str(input_path),
+                    positions=positions,
+                    source_labels=fusion_source_labels,
+                    confidence=fusion_confidence,
+                    used_mask=used_mask,
+                    fps=float(render_fps_for_plan),
+                    cache=True,
+                    yolo_model_name=_yolo_model,
+                )
+                if _tracked > 0:
+                    logger.info(
+                        "[TRACKER] CSRT filled %d gap frames with real pixel data",
+                        _tracked,
+                    )
+            except Exception as _tracker_exc:
+                logger.warning("[TRACKER] Visual tracker failed: %s", _tracker_exc)
+
         elif ball_samples:
             # No YOLO available, fall back to centroid-only merge
             merged = 0
@@ -9317,6 +9525,65 @@ def run(
             _n_pos, _high_count, _pre_max, _post_max,
         )
 
+    # --- VELOCITY-ADAPTIVE TRAJECTORY SMOOTH ---
+    # The bidirectional EMA above uses alpha=0.85 for YOLO frames, barely
+    # smoothing them.  YOLO detection noise (ball bouncing around player's
+    # feet during dribbling, 16-89px jumps at conf 0.28-0.36) passes
+    # through and causes the camera to chase per-frame noise.
+    #
+    # Fix: apply a Gaussian to the positions, then blend back toward the
+    # original at frames with high ball velocity.  This gives:
+    #   - Slow play (dribbling): fully smoothed trajectory (no jitter)
+    #   - Fast play (crosses, shots): near-original positions (responsive)
+    #
+    # The blend is based on a rolling max of velocity so the camera doesn't
+    # suddenly switch between smooth/raw — the transition is gradual.
+    _n_pos_t = len(positions) if positions is not None else 0
+    if _n_pos_t >= 5 and used_mask is not None and used_mask.sum() > 5:
+        from scipy.ndimage import gaussian_filter1d as _gf1d
+        from scipy.ndimage import maximum_filter1d as _mf1d
+
+        _traj_sigma = 8.0   # frames — 1/3 second at 24fps
+        _traj_v_lo = 3.0    # px/frame below which: fully smoothed
+        _traj_v_hi = 18.0   # px/frame above which: original positions
+
+        # Smoothed copy of positions
+        _traj_raw_x = positions[:, 0].astype(np.float64)
+        _traj_raw_y = positions[:, 1].astype(np.float64)
+        _traj_sx = _gf1d(_traj_raw_x, sigma=_traj_sigma, mode="nearest")
+        _traj_sy = _gf1d(_traj_raw_y, sigma=_traj_sigma, mode="nearest")
+
+        # Per-frame velocity (magnitude)
+        _traj_dx = np.diff(_traj_raw_x, prepend=_traj_raw_x[0])
+        _traj_dy = np.diff(_traj_raw_y, prepend=_traj_raw_y[0])
+        _traj_vel = np.sqrt(_traj_dx ** 2 + _traj_dy ** 2)
+
+        # Rolling max velocity over ±15 frames — prevents flicker between
+        # smooth/raw during brief pauses in fast play.  Uses a max-filter
+        # so a single fast frame keeps the region responsive.
+        _traj_vel_max = _mf1d(_traj_vel, size=31, mode="nearest")
+
+        # Blend factor: 0 = fully smoothed, 1 = fully original
+        _traj_blend = np.clip(
+            (_traj_vel_max - _traj_v_lo) / max(_traj_v_hi - _traj_v_lo, 1e-6),
+            0.0, 1.0,
+        )
+
+        # Apply blend per frame (only where used_mask is true)
+        for _ti in range(_n_pos_t):
+            if used_mask[_ti]:
+                _b = float(_traj_blend[_ti])
+                positions[_ti, 0] = float((1.0 - _b) * _traj_sx[_ti] + _b * _traj_raw_x[_ti])
+                positions[_ti, 1] = float((1.0 - _b) * _traj_sy[_ti] + _b * _traj_raw_y[_ti])
+
+        _smooth_pct = float((_traj_blend < 0.5).sum()) / max(_n_pos_t, 1) * 100.0
+        logger.info(
+            "[TRAJ-SMOOTH] Velocity-adaptive Gaussian (sigma=%.0f): "
+            "%.0f%% of frames heavily smoothed, v_range=[%.1f, %.1f] px/f",
+            _traj_sigma, _smooth_pct,
+            float(_traj_vel_max.min()), float(_traj_vel_max.max()),
+        )
+
     # Override min_box to match the actual portrait crop dimensions.
     # The preset min_box_px may be larger than the real visible area
     # (e.g., [486, 864] vs actual 405x720 for a 720p source).  If
@@ -9441,7 +9708,7 @@ def run(
                 if used_mask[_gk] and used_mask[_gk - 1]:
                     _gk_src = int(fusion_source_labels[_gk]) if _gk < len(fusion_source_labels) else 0
                     _gk_prev_src = int(fusion_source_labels[_gk - 1]) if (_gk - 1) < len(fusion_source_labels) else 0
-                    if _gk_src not in (1, 3) or _gk_prev_src not in (1, 3):
+                    if _gk_src not in (1, 3, 7) or _gk_prev_src not in (1, 3, 7):
                         continue  # skip interp/centroid/hold frames
                     _gspd = math.hypot(
                         float(positions[_gk, 0]) - float(positions[_gk - 1, 0]),
@@ -9807,6 +10074,74 @@ def run(
                     f"[CAMERA] startup snap: gap={_snap_gap:.0f}px, ramp={_snap_n}f"
                 )
 
+    # --- GLOBAL TRAJECTORY CAMERA PATH ---
+    # The CameraPlanner uses reactive frame-by-frame EMA tracking which
+    # introduces lag, deadzone artifacts, and source-transition jitter.
+    # Since we have the COMPLETE ball trajectory (this is post-production,
+    # not a live broadcast), we can compute a globally optimal camera path
+    # using bidirectional Gaussian smoothing on the ball positions.
+    #
+    # Bidirectional Gaussian has ZERO LAG — it considers future frames,
+    # so the camera naturally anticipates direction changes (it starts
+    # panning toward a cross/shot BEFORE the ball actually moves).
+    #
+    # The CameraPlanner still handles zoom, vertical position, person
+    # detection, and other state.  We only replace the horizontal cx.
+    if states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
+        from scipy.ndimage import gaussian_filter1d as _gf1d_global
+
+        _gp_n = len(states)
+        _gp_sigma = 15.0  # ~0.6s at 24fps — smooth cinematic panning
+        _gp_pos_x = positions[:_gp_n, 0].astype(np.float64)
+
+        # Replace NaN with edge-padded values so Gaussian doesn't break
+        _gp_mask = np.isfinite(_gp_pos_x)
+        if _gp_mask.sum() > 5:
+            # Forward-fill NaN
+            _gp_clean = _gp_pos_x.copy()
+            _last_valid = _gp_pos_x[_gp_mask][0]
+            for _gi in range(_gp_n):
+                if _gp_mask[_gi]:
+                    _last_valid = _gp_clean[_gi]
+                else:
+                    _gp_clean[_gi] = _last_valid
+
+            _gp_cx = _gf1d_global(_gp_clean, sigma=_gp_sigma, mode="nearest")
+
+            # Speed-limit the global path: max delta per frame
+            _gp_fw = float(width) if width > 0 else 1920.0
+            _gp_max_delta = 32.0  # px/frame — matches cinematic speed limit
+            for _gi in range(1, _gp_n):
+                _gp_d = _gp_cx[_gi] - _gp_cx[_gi - 1]
+                if abs(_gp_d) > _gp_max_delta:
+                    _gp_cx[_gi] = _gp_cx[_gi - 1] + np.sign(_gp_d) * _gp_max_delta
+
+            # Write back to states, preserving zoom/cy/crop_h
+            _gp_replaced = 0
+            for _gi in range(_gp_n):
+                _old_cx = states[_gi].cx
+                _new_cx = float(_gp_cx[_gi])
+                _hw_g = states[_gi].crop_w / 2.0
+                states[_gi].cx = _new_cx
+                states[_gi].x0 = float(np.clip(
+                    _new_cx - _hw_g, 0.0,
+                    max(0.0, _gp_fw - states[_gi].crop_w),
+                ))
+                states[_gi].cx = states[_gi].x0 + _hw_g
+                if abs(states[_gi].cx - _old_cx) > 1.0:
+                    _gp_replaced += 1
+
+            # Compute diagnostics
+            _gp_deltas = np.abs(np.diff(_gp_cx))
+            _gp_reversals = int(np.sum(np.diff(np.sign(np.diff(_gp_cx))) != 0)) if _gp_n > 2 else 0
+            print(
+                f"[GLOBAL-PATH] Replaced {_gp_replaced}/{_gp_n} frames with "
+                f"trajectory-aware path (sigma={_gp_sigma:.0f}), "
+                f"mean_delta={float(_gp_deltas.mean()):.1f}px/f, "
+                f"max_delta={float(_gp_deltas.max()):.1f}px/f, "
+                f"reversals={_gp_reversals}"
+            )
+
     # --- BALL-GRAVITY CLAMP: keep camera near known ball positions ---
     # The planner's centroid-tracking can drift the camera far from
     # the ball during gaps in YOLO coverage (69% centroid-only on
@@ -9857,7 +10192,7 @@ def run(
                     _grav_corrections[_gi] = _grav_drift - np.sign(_grav_drift) * _grav_max_drift
 
         # Smooth corrections with a Gaussian to prevent jitter
-        _grav_sigma = max(2.0, _snap_fps * 0.15)  # ~4-5 frames
+        _grav_sigma = max(4.0, _snap_fps * 0.30)  # ~8-9 frames (doubled for smoother gravity corrections)
         _grav_r = int(_grav_sigma * 3.0 + 0.5)
         _grav_r = min(_grav_r, len(states) // 2)
         if _grav_r >= 1 and np.any(np.abs(_grav_corrections) > 0.5):
@@ -9943,6 +10278,8 @@ def run(
             _sl_event_scale = 1.25
         elif _sl_event == "CROSS":
             _sl_event_scale = 1.40
+        elif _sl_event == "SHOT":
+            _sl_event_scale = 1.20
         _max_speed = max(15.0, _clip_speed_pf * _sl_event_scale)  # px/frame, per-clip adaptive
         _speed_clipped = 0
         _speed_fw = float(width) if width > 0 else 1920.0
@@ -10103,7 +10440,7 @@ def run(
             )
 
     # --- Ball-in-crop diagnostic (always printed to stdout for batch visibility) ---
-    _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold", 6: "shot_hold"}
+    _FUSE_LABELS = {0: "none", 1: "yolo", 2: "centroid", 3: "blended", 4: "interp", 5: "hold", 6: "shot_hold", 7: "tracker"}
     if states and len(states) > 0 and follow_crop_width > 0:
         _n_states = len(states)
         _half_pw = float(follow_crop_width) / 2.0
@@ -10185,7 +10522,7 @@ def run(
             if _s_tot > 0:
                 _s_pct_out = 100.0 * _s_out / max(1, _s_tot)
                 _src_parts.append(f"{_FUSE_LABELS[_sk]}={_s_tot}({_s_out} out/{_s_pct_out:.0f}%)")
-            if _sk in (1, 3):  # yolo, blended
+            if _sk in (1, 3, 7):  # yolo, blended, tracker
                 _yolo_confirmed_total += _s_tot
             elif _sk == 2:  # centroid
                 _centroid_only_total += _s_tot
@@ -10258,14 +10595,14 @@ def run(
             if _fi >= len(positions) or not used_mask[_fi]:
                 continue
             _src = int(fusion_source_labels[_fi]) if (fusion_source_labels is not None and _fi < len(fusion_source_labels)) else 0
-            if _src in (1, 3):  # yolo, blended
+            if _src in (1, 3, 7):  # yolo, blended, tracker
                 _w = 1.0
             elif _src == 2:  # centroid
                 # Weight centroid frames by proximity to nearest YOLO frame
                 _nearest_yolo_dist = float('inf')
                 if fusion_source_labels is not None:
                     for _yd in range(max(0, _fi - 30), min(len(fusion_source_labels), _fi + 31)):
-                        if int(fusion_source_labels[_yd]) in (1, 3):
+                        if int(fusion_source_labels[_yd]) in (1, 3, 7):
                             _d = abs(_yd - _fi)
                             if _d < _nearest_yolo_dist:
                                 _nearest_yolo_dist = _d

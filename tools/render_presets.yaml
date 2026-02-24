@@ -4,7 +4,7 @@ cinematic:
   smoothing: 0.22         # tracking alpha — raised from 0.15 to reduce lag during camera pans
   pad: 0.04               # reduced from 0.10 — preserves more source pixels (1.93x upscale vs 2.22x)
   speed_limit: 800        # raised from 550: Gaussian (sigma=5) dominates normal tracking so speed only affects flight transitions
-  post_smooth_sigma: 5.0  # original "fantastic" value — heavy Gaussian turns step-function into smooth cinematic pan
+  post_smooth_sigma: 12.0 # raised from 5.0: pipeline now has EMA+deadzone+source-alpha+keepinview+speed-limit layers that all create discrete steps; sigma=12 (±36 frames @ 24fps) converts those into genuinely smooth cinematic pans
   zoom_min: 0.85          # lowered from 1.00 — allows confidence-driven zoom-out when ball position uncertain
   zoom_max: 1.40          # reduced from 1.90 — caps upscale to ~2x, preserves sharpness
   crf: 17                 # higher quality output

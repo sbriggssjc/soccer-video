@@ -47,6 +47,10 @@ def extract_event_type(clip_name: str) -> str | None:
         return "CROSS"
     if "FREE_KICK" in upper:
         return "FREE_KICK"
+    if "SAVE" in upper:
+        return "SAVE"
+    if "SHOT" in upper:
+        return "SHOT"
     return None
 
 
