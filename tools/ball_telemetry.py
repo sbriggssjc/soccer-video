@@ -1054,18 +1054,30 @@ def run_yolo_ball_detection(
     *,
     min_conf: float = 0.20,
     cache: bool = True,
+    model_name: str | None = None,
 ) -> list[BallSample]:
     """Run YOLO ball detection on every frame, returning BallSamples with confidence.
 
-    Results are cached to ``out/telemetry/<stem>.yolo_ball.jsonl``.  If
-    a cache file already exists and *cache* is True, the cached result
-    is returned without re-running detection.
+    Results are cached to ``out/telemetry/<stem>.yolo_ball.jsonl``
+    (or ``<stem>.yolo_ball.<model>.jsonl`` when a non-default model is
+    used).  If a cache file already exists and *cache* is True, the
+    cached result is returned without re-running detection.
 
     Uses the BallTracker from soccer_highlights.ball_tracker which wraps
     ultralytics YOLO with constant-velocity smoothing.
     """
     video_path = Path(video_path)
-    cache_path = Path(yolo_telemetry_path_for_video(video_path))
+    _effective_model = model_name or DEFAULT_MODEL_NAME
+
+    # Model-specific cache so different weights don't collide.
+    # Default model uses the original path for backward compat.
+    _model_stem = Path(_effective_model).stem        # e.g. "yolov8m"
+    _default_stem = Path(DEFAULT_MODEL_NAME).stem    # e.g. "yolov8n"
+    if _model_stem == _default_stem:
+        cache_path = Path(yolo_telemetry_path_for_video(video_path))
+    else:
+        base = Path(yolo_telemetry_path_for_video(video_path))
+        cache_path = base.with_suffix(f".{_model_stem}.jsonl")
 
     # Return cached results if available
     if cache and cache_path.is_file():
@@ -1087,13 +1099,38 @@ def run_yolo_ball_detection(
         return []
 
     tracker = BallTracker(
-        weights_path=None,  # uses default yolov8n.pt
+        weights_path=None,
         min_conf=min_conf,
         device="cpu",
         input_size=1280,    # full resolution — critical for small soccer balls
         smooth_alpha=0.25,
         max_gap=12,
     )
+
+    # Override model if a non-default was requested
+    if _model_stem != _default_stem:
+        try:
+            from ultralytics import YOLO as _YOLO_CLS
+            _model_path = Path(_effective_model)
+            if not _model_path.is_absolute():
+                # Search repo root, then CWD
+                _repo = Path(__file__).resolve().parent.parent
+                if (_repo / _effective_model).is_file():
+                    _model_path = _repo / _effective_model
+            tracker._model = _YOLO_CLS(str(_model_path))
+            # Re-detect ball class IDs for the new model
+            _names = getattr(tracker._model, "names", {}) or {}
+            tracker._ball_ids = []
+            if isinstance(_names, dict):
+                for _idx, _nm in _names.items():
+                    if isinstance(_nm, str) and "ball" in _nm.lower():
+                        tracker._ball_ids.append(int(_idx))
+            if not tracker._ball_ids:
+                tracker._ball_ids = [32]
+            print(f"[YOLO] Using model: {_model_path.name}")
+        except Exception as _exc:
+            print(f"[YOLO] Failed to load model '{_effective_model}': {_exc}")
+            print(f"[YOLO] Falling back to default {DEFAULT_MODEL_NAME}")
     if not tracker.is_ready:
         reason = tracker.failure_reason or "unknown"
         print(f"[YOLO] BallTracker not ready: {reason}")
@@ -2496,10 +2533,15 @@ def fuse_yolo_and_centroid(
                 # or by shot-hold / pan-hold between YOLO anchors — far
                 # more reliable than a velocity estimate from 1-2
                 # consecutive frames dominated by detection jitter.
-                # Note: plain FUSE_HOLD (backward-fill) CAN be overridden
-                # — velocity extrapolation often improves those estimates.
                 if source_labels[k] in (FUSE_INTERP, FUSE_SHOT_HOLD):
                     continue  # preserve YOLO-anchored interpolation / hold
+                # For FUSE_HOLD (backward-fill), only override in early
+                # extrapolation where velocity estimates are still fresh.
+                # After ~15 frames, 0.92 decel reduces speed to 29% of
+                # initial — hold position is more reliable at that point.
+                _extrap_step = k - fi
+                if source_labels[k] == FUSE_HOLD and _extrap_step > 10:
+                    continue
                 _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_clamped
                 _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_clamped
                 _extrap_dist = math.hypot(_ex_clamped - _cx_cur, _ey_clamped - _cy_cur)
@@ -2556,6 +2598,9 @@ def fuse_yolo_and_centroid(
                             _ey_c = max(0.0, min(height, _ey))
                             if source_labels[k] in (FUSE_INTERP, FUSE_SHOT_HOLD):
                                 continue  # preserve interpolation / hold
+                            _extrap_step_t = k - _last_fi
+                            if source_labels[k] == FUSE_HOLD and _extrap_step_t > 10:
+                                continue
                             _cx_cur = float(positions[k, 0]) if used_mask[k] else _ex_c
                             _cy_cur = float(positions[k, 1]) if used_mask[k] else _ey_c
                             _d = math.hypot(_ex_c - _cx_cur, _ey_c - _cy_cur)

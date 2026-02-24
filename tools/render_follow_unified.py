@@ -9033,10 +9033,12 @@ def run(
 
     if valid_label_count < max(1, len(used_mask)) * 0.1:
         # YOLO label files are sparse/absent — run real-time YOLO detection
+        _yolo_model_arg = getattr(args, "yolo_model", None) if args is not None else None
         yolo_samples = run_yolo_ball_detection(
             original_source_path,
             min_conf=0.20,
             cache=True,
+            model_name=_yolo_model_arg,
         )
 
         # Scale YOLO detections if the source was upscaled
@@ -11124,6 +11126,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-draw-ball",
         action="store_true",
         help="Disable ball overlay even if preset enables it",
+    )
+    parser.add_argument(
+        "--yolo-model",
+        dest="yolo_model",
+        type=str,
+        default=None,
+        help=(
+            "YOLO model weights for ball detection (e.g. yolov8m.pt, "
+            "yolov8x.pt).  Defaults to yolov8n.pt.  Larger models are "
+            "slower but much more accurate for difficult footage "
+            "(outdoor parks, dry fields, distant camera)."
+        ),
     )
     parser.add_argument(
         "--yolo-exclude",
