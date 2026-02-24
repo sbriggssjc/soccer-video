@@ -10,7 +10,9 @@
       "Bash(findstr:*)",
       "Bash(py:*)",
       "Bash(pip install:*)",
-      "Bash(set +H)"
+      "Bash(set +H)",
+      "Bash(echo:*)",
+      "Bash(del \"D:\\\\Projects\\\\soccer-video\\\\out\\\\portrait_reels\\\\2026-02-23__TSC_vs_NEOFC\\\\001__auto_anchors_test.csv\" \"D:\\\\Projects\\\\soccer-video\\\\out\\\\portrait_reels\\\\2026-02-23__TSC_vs_NEOFC\\\\002__auto_anchors_test.csv\" \"D:\\\\Projects\\\\soccer-video\\\\out\\\\portrait_reels\\\\2026-02-23__TSC_vs_NEOFC\\\\003__auto_anchors_test.csv\")"
     ]
   }
 }

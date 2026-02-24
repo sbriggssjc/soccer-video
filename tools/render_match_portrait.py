@@ -73,7 +73,7 @@ def list_clips(match_name: str) -> list[str]:
     return clips
 
 
-def render_clip(match_name: str, clip_name: str, out_dir: Path, resume: bool = False, yolo_model: str | None = None) -> dict:
+def render_clip(match_name: str, clip_name: str, out_dir: Path, resume: bool = False, yolo_model: str | None = None, use_ball_telemetry: bool = True) -> dict:
     """Render one clip and return parsed metrics."""
     clip_path = ATOMIC_DIR / match_name / clip_name
     stem = Path(clip_name).stem
@@ -121,10 +121,18 @@ def render_clip(match_name: str, clip_name: str, out_dir: Path, resume: bool = F
         "--fps", "24",
         "--diagnostics",
     ]
+    if use_ball_telemetry:
+        cmd.append("--use-ball-telemetry")
     if event_type:
         cmd.extend(["--event-type", event_type])
     if yolo_model:
         cmd.extend(["--yolo-model", yolo_model])
+
+    # Auto-detect manual anchors: look for {clip_num}__manual_anchors.csv
+    clip_num = stem.split("__")[0]  # e.g. "001"
+    anchors_path = out_dir / f"{clip_num}__manual_anchors.csv"
+    if anchors_path.exists() and anchors_path.stat().st_size > 20:
+        cmd.extend(["--manual-anchors", str(anchors_path)])
 
     t0 = time.time()
     try:
@@ -334,7 +342,7 @@ def write_summary(results: list[dict], out_dir: Path, match_name: str):
     return summary_path, csv_path
 
 
-def render_match(match_name: str, resume: bool = False, yolo_model: str | None = None):
+def render_match(match_name: str, resume: bool = False, yolo_model: str | None = None, use_ball_telemetry: bool = True):
     """Render all clips in a match."""
     clips = list_clips(match_name)
     if not clips:
@@ -351,12 +359,14 @@ def render_match(match_name: str, resume: bool = False, yolo_model: str | None =
     print(f"# Resume: {resume}")
     if yolo_model:
         print(f"# YOLO model: {yolo_model}")
+    if use_ball_telemetry:
+        print(f"# Ball telemetry: ON (YOLO+Tracker+Spline)")
     print(f"{'#'*80}\n")
 
     results = []
     for i, clip_name in enumerate(clips, 1):
         print(f"\n[{i}/{len(clips)}] {clip_name}")
-        r = render_clip(match_name, clip_name, out_dir, resume=resume, yolo_model=yolo_model)
+        r = render_clip(match_name, clip_name, out_dir, resume=resume, yolo_model=yolo_model, use_ball_telemetry=use_ball_telemetry)
         results.append(r)
 
         if r["skipped"]:
@@ -396,6 +406,9 @@ def main():
     parser.add_argument("--resume", action="store_true", help="Skip clips that already have output")
     parser.add_argument("--yolo-model", dest="yolo_model", default=None,
                         help="YOLO model weights (e.g. yolov8m.pt, yolov8x.pt)")
+    parser.add_argument("--no-ball-telemetry", dest="use_ball_telemetry",
+                        action="store_false", default=True,
+                        help="Disable ball telemetry (YOLO+Tracker+Spline). Default: ON")
     parser.add_argument("--list", action="store_true", help="List available matches and exit")
     args = parser.parse_args()
 
@@ -411,7 +424,7 @@ def main():
         matches = list_matches()
         print(f"Rendering {len(matches)} matches, newest first...\n")
         for m in matches:
-            render_match(m, resume=args.resume, yolo_model=args.yolo_model)
+            render_match(m, resume=args.resume, yolo_model=args.yolo_model, use_ball_telemetry=args.use_ball_telemetry)
     elif args.match:
         # Accept partial match name
         if not (ATOMIC_DIR / args.match).exists():
@@ -427,7 +440,7 @@ def main():
             else:
                 print(f"No match found for '{args.match}'")
                 return
-        render_match(args.match, resume=args.resume, yolo_model=args.yolo_model)
+        render_match(args.match, resume=args.resume, yolo_model=args.yolo_model, use_ball_telemetry=args.use_ball_telemetry)
     else:
         parser.print_help()
 

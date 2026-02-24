@@ -10074,30 +10074,262 @@ def run(
                     f"[CAMERA] startup snap: gap={_snap_gap:.0f}px, ramp={_snap_n}f"
                 )
 
-    # --- GLOBAL TRAJECTORY CAMERA PATH ---
-    # The CameraPlanner uses reactive frame-by-frame EMA tracking which
-    # introduces lag, deadzone artifacts, and source-transition jitter.
-    # Since we have the COMPLETE ball trajectory (this is post-production,
-    # not a live broadcast), we can compute a globally optimal camera path
-    # using bidirectional Gaussian smoothing on the ball positions.
+    # --- ANCHOR-SPLINE CAMERA PATH (v8) ---
+    # Build camera path ONLY from real ball detections (YOLO + CSRT tracker).
+    # The fused position array contains ~48% unreliable data (centroid tracks
+    # player mass not ball, interp/hold are guesses).  Instead of smoothing
+    # over bad data, we extract the frames where the ball was actually
+    # observed and build a PCHIP spline through those anchor points.
     #
-    # Bidirectional Gaussian has ZERO LAG — it considers future frames,
-    # so the camera naturally anticipates direction changes (it starts
-    # panning toward a cross/shot BEFORE the ball actually moves).
+    # PCHIP (Piecewise Cubic Hermite Interpolating Polynomial):
+    #   - Passes exactly through every anchor point
+    #   - No overshoot between control points (shape-preserving)
+    #   - Local support — one bad anchor doesn't corrupt distant frames
+    #   - Zero lag — considers all anchors past and future
     #
-    # The CameraPlanner still handles zoom, vertical position, person
-    # detection, and other state.  We only replace the horizontal cx.
-    if states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
+    # For frames before the first anchor or after the last anchor, the
+    # camera holds at the nearest anchor position (no extrapolation).
+    _use_spline = getattr(args, "spline_camera", True)
+    if _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
+        from scipy.interpolate import PchipInterpolator as _PchipInterp
+        from scipy.ndimage import gaussian_filter1d as _gf1d_spline
+
+        _sp_n = len(states)
+        _sp_sigma_x = 3.0    # light Gaussian polish on X
+        _sp_sigma_y = 4.0    # slightly heavier on Y (vertical motion more noticeable)
+
+        # --- 1) Extract anchor frames (YOLO=1, BLENDED=3, TRACKER=7) ---
+        _sp_anchor_sources = {1, 3, 7}
+        _sp_pos_x = positions[:_sp_n, 0].astype(np.float64)
+        _sp_pos_y = positions[:_sp_n, 1].astype(np.float64) if positions.shape[1] > 1 else np.zeros(_sp_n, dtype=np.float64)
+        _sp_src = fusion_source_labels[:_sp_n] if (
+            fusion_source_labels is not None and len(fusion_source_labels) >= _sp_n
+        ) else np.ones(_sp_n, dtype=np.uint8)
+
+        _sp_anchor_mask = np.zeros(_sp_n, dtype=bool)
+        for _si in range(_sp_n):
+            if int(_sp_src[_si]) in _sp_anchor_sources:
+                if np.isfinite(_sp_pos_x[_si]) and np.isfinite(_sp_pos_y[_si]):
+                    _sp_anchor_mask[_si] = True
+
+        # --- 1b) Load manual anchor overrides ---
+        # Manual anchors are injected as high-priority spline control points.
+        # They override any existing position at that frame and fill gaps
+        # where YOLO/TRACKER failed (e.g., ball in net during save).
+        # CSV format: frame,ball_x,ball_y  (header row optional)
+        _sp_manual_path = getattr(args, "manual_anchors", None)
+        _sp_n_manual = 0
+        if _sp_manual_path:
+            import csv as _csv_mod
+            _sp_manual_file = Path(_sp_manual_path)
+            if _sp_manual_file.exists():
+                with open(_sp_manual_file, "r") as _mf:
+                    _reader = _csv_mod.reader(_mf)
+                    for _row in _reader:
+                        if len(_row) < 3:
+                            continue
+                        try:
+                            _mframe = int(_row[0].strip())
+                            _mbx = float(_row[1].strip())
+                            _mby = float(_row[2].strip())
+                        except (ValueError, IndexError):
+                            continue  # skip header or malformed rows
+                        if 0 <= _mframe < _sp_n:
+                            # Override position and mark as anchor
+                            _sp_pos_x[_mframe] = _mbx
+                            _sp_pos_y[_mframe] = _mby
+                            _sp_anchor_mask[_mframe] = True
+                            _sp_n_manual += 1
+                if _sp_n_manual > 0:
+                    print(
+                        f"[ANCHOR-SPLINE] Loaded {_sp_n_manual} manual anchors "
+                        f"from {_sp_manual_file.name}"
+                    )
+            else:
+                print(f"[ANCHOR-SPLINE] WARNING: manual anchors file not found: {_sp_manual_path}")
+
+        _sp_anchor_frames = np.where(_sp_anchor_mask)[0]
+        _sp_n_anchors = len(_sp_anchor_frames)
+
+        if _sp_n_anchors >= 3:
+            _sp_ax = _sp_pos_x[_sp_anchor_frames]
+            _sp_ay = _sp_pos_y[_sp_anchor_frames]
+
+            # --- 2) De-duplicate: PCHIP requires strictly increasing x ---
+            # If multiple anchors at same frame (shouldn't happen but be safe),
+            # keep last occurrence (manual overrides come after auto-detection).
+            _sp_uniq_mask = np.ones(_sp_n_anchors, dtype=bool)
+            for _ui in range(_sp_n_anchors - 1):
+                if _sp_anchor_frames[_ui] == _sp_anchor_frames[_ui + 1]:
+                    _sp_uniq_mask[_ui] = False
+            _sp_anchor_frames = _sp_anchor_frames[_sp_uniq_mask]
+            _sp_ax = _sp_ax[_sp_uniq_mask]
+            _sp_ay = _sp_ay[_sp_uniq_mask]
+            _sp_n_anchors = len(_sp_anchor_frames)
+
+            # --- 3) Build PCHIP splines for X and Y ---
+            _sp_pchip_x = _PchipInterp(_sp_anchor_frames.astype(np.float64), _sp_ax)
+            _sp_pchip_y = _PchipInterp(_sp_anchor_frames.astype(np.float64), _sp_ay)
+
+            # --- 4) Evaluate spline with edge hold ---
+            _sp_all_frames = np.arange(_sp_n, dtype=np.float64)
+            _sp_first = int(_sp_anchor_frames[0])
+            _sp_last = int(_sp_anchor_frames[-1])
+
+            # Interior: PCHIP interpolation
+            _sp_cx = _sp_pchip_x(_sp_all_frames)
+            _sp_cy = _sp_pchip_y(_sp_all_frames)
+
+            # Leading frames: hold at first anchor
+            if _sp_first > 0:
+                _sp_cx[:_sp_first] = _sp_ax[0]
+                _sp_cy[:_sp_first] = _sp_ay[0]
+
+            # Trailing frames: hold at last anchor
+            if _sp_last < _sp_n - 1:
+                _sp_cx[_sp_last + 1:] = _sp_ax[-1]
+                _sp_cy[_sp_last + 1:] = _sp_ay[-1]
+
+            # --- 5) Clamp to frame bounds ---
+            _sp_fw = float(width) if width > 0 else 1920.0
+            _sp_fh = float(height) if height > 0 else 1080.0
+            _sp_cx = np.clip(_sp_cx, 0.0, _sp_fw)
+            _sp_cy = np.clip(_sp_cy, 0.0, _sp_fh)
+
+            # --- 6) Light Gaussian polish ---
+            if _sp_sigma_x >= 1.0 and _sp_n >= 5:
+                _sp_cx = _gf1d_spline(_sp_cx, sigma=_sp_sigma_x, mode="nearest")
+            if _sp_sigma_y >= 1.0 and _sp_n >= 5:
+                _sp_cy = _gf1d_spline(_sp_cy, sigma=_sp_sigma_y, mode="nearest")
+
+            # --- 7) Kick-hold protection: restore pre-spline states ---
+            # Save planner's original cx/cy for kick-hold frames
+            if _kick_hold_trans_end > 0:
+                for _ki in range(min(_kick_hold_trans_end, _sp_n)):
+                    if _ki < _kick_hold_end:
+                        # Hard lock: fully restore planner position
+                        _sp_cx[_ki] = states[_ki].cx
+                        _sp_cy[_ki] = states[_ki].cy
+                    else:
+                        # Transition zone: quadratic ease from planner to spline
+                        _kt = (_ki - _kick_hold_end) / max(1, _kick_hold_trans_end - _kick_hold_end)
+                        _kt = _kt * _kt  # quadratic ease-in
+                        _sp_cx[_ki] = (1.0 - _kt) * states[_ki].cx + _kt * _sp_cx[_ki]
+                        _sp_cy[_ki] = (1.0 - _kt) * states[_ki].cy + _kt * _sp_cy[_ki]
+
+            # --- 8) Write back to CamState objects ---
+            _sp_replaced = 0
+            for _gi in range(_sp_n):
+                _old_cx = states[_gi].cx
+                _old_cy = states[_gi].cy
+                _new_cx = float(_sp_cx[_gi])
+                _new_cy = float(_sp_cy[_gi])
+
+                # X axis
+                _hw_sp = states[_gi].crop_w / 2.0
+                states[_gi].cx = _new_cx
+                states[_gi].x0 = float(np.clip(
+                    _new_cx - _hw_sp, 0.0,
+                    max(0.0, _sp_fw - states[_gi].crop_w),
+                ))
+                states[_gi].cx = states[_gi].x0 + _hw_sp
+
+                # Y axis
+                _hh_sp = states[_gi].crop_h / 2.0
+                states[_gi].cy = _new_cy
+                states[_gi].y0 = float(np.clip(
+                    _new_cy - _hh_sp, 0.0,
+                    max(0.0, _sp_fh - states[_gi].crop_h),
+                ))
+                states[_gi].cy = states[_gi].y0 + _hh_sp
+
+                if abs(states[_gi].cx - _old_cx) > 1.0 or abs(states[_gi].cy - _old_cy) > 1.0:
+                    _sp_replaced += 1
+
+            # --- 9) Gap analysis: find interior gaps between anchors ---
+            _sp_gaps = np.diff(_sp_anchor_frames)
+            _sp_max_gap = int(_sp_gaps.max()) if len(_sp_gaps) > 0 else 0
+            _sp_large_gaps = int((_sp_gaps > 40).sum())
+            _sp_gap_detail = ""
+            if _sp_large_gaps > 0:
+                _sp_large_idx = np.where(_sp_gaps > 40)[0]
+                _sp_gap_strs = []
+                for _gidx in _sp_large_idx[:5]:  # show up to 5 largest
+                    _g_start = int(_sp_anchor_frames[_gidx])
+                    _g_end = int(_sp_anchor_frames[_gidx + 1])
+                    _sp_gap_strs.append(f"f{_g_start}-f{_g_end}({_g_end - _g_start}f)")
+                _sp_gap_detail = f" gaps>{40}: {', '.join(_sp_gap_strs)}"
+
+            # --- 10) Deviation report: ball vs crop ---
+            _sp_anchor_escapes = 0
+            _sp_nonanchor_escapes = 0
+            _sp_anchor_escape_frames = []
+            for _di in range(_sp_n):
+                if _di >= len(positions) or np.isnan(positions[_di]).any():
+                    continue
+                _dbx = float(positions[_di, 0])
+                _dby = float(positions[_di, 1])
+                _dcx0 = states[_di].x0
+                _dcy0 = states[_di].y0
+                _dcw = states[_di].crop_w
+                _dch = states[_di].crop_h
+                # Check if ball is inside crop
+                _d_in_x = _dcx0 <= _dbx <= _dcx0 + _dcw
+                _d_in_y = _dcy0 <= _dby <= _dcy0 + _dch
+                if not (_d_in_x and _d_in_y):
+                    if _sp_anchor_mask[_di]:
+                        _sp_anchor_escapes += 1
+                        _sp_anchor_escape_frames.append(_di)
+                    else:
+                        _sp_nonanchor_escapes += 1
+
+            # --- 11) Summary logging ---
+            _sp_deltas = np.abs(np.diff(_sp_cx))
+            _sp_coverage = _sp_n_anchors / max(_sp_n, 1) * 100.0
+            _sp_leading = _sp_first
+            _sp_trailing = max(0, _sp_n - 1 - _sp_last)
+            _sp_esc_str = ""
+            if _sp_anchor_escape_frames:
+                _sp_esc_str = f" anchor_escape_frames={_sp_anchor_escape_frames[:10]}"
+            print(
+                f"[ANCHOR-SPLINE] PCHIP from {_sp_n_anchors} anchors "
+                f"({_sp_coverage:.0f}% coverage): "
+                f"replaced {_sp_replaced}/{_sp_n} frames, "
+                f"mean_delta={float(_sp_deltas.mean()):.1f}px/f, "
+                f"max_delta={float(_sp_deltas.max()):.1f}px/f, "
+                f"max_gap={_sp_max_gap}f,{_sp_gap_detail} "
+                f"leading_hold={_sp_leading}f, trailing_hold={_sp_trailing}f"
+            )
+            if _sp_anchor_escapes > 0 or _sp_nonanchor_escapes > 0:
+                print(
+                    f"[ANCHOR-SPLINE] Deviation: "
+                    f"{_sp_anchor_escapes} anchor-frame escapes (REAL), "
+                    f"{_sp_nonanchor_escapes} non-anchor escapes (may be wrong data)"
+                    f"{_sp_esc_str}"
+                )
+        else:
+            print(
+                f"[ANCHOR-SPLINE] Only {_sp_n_anchors} anchors found — "
+                f"too few for spline, falling back to planner output"
+            )
+
+    elif not _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
+        # --- LEGACY: Velocity-adaptive Gaussian (for --no-spline-camera) ---
         from scipy.ndimage import gaussian_filter1d as _gf1d_global
+        from scipy.ndimage import maximum_filter1d as _mf1d_global
 
         _gp_n = len(states)
-        _gp_sigma = 15.0  # ~0.6s at 24fps — smooth cinematic panning
+        _gp_sigma_smooth = 18.0
+        _gp_sigma_fast = 6.0
+        _gp_v_lo = 3.0
+        _gp_v_hi = 18.0
+        _gp_vel_window = 31
         _gp_pos_x = positions[:_gp_n, 0].astype(np.float64)
-
-        # Replace NaN with edge-padded values so Gaussian doesn't break
+        _gp_conf = fusion_confidence[:_gp_n].astype(np.float64) if (
+            fusion_confidence is not None and len(fusion_confidence) >= _gp_n
+        ) else np.ones(_gp_n, dtype=np.float64)
         _gp_mask = np.isfinite(_gp_pos_x)
         if _gp_mask.sum() > 5:
-            # Forward-fill NaN
             _gp_clean = _gp_pos_x.copy()
             _last_valid = _gp_pos_x[_gp_mask][0]
             for _gi in range(_gp_n):
@@ -10105,18 +10337,24 @@ def run(
                     _last_valid = _gp_clean[_gi]
                 else:
                     _gp_clean[_gi] = _last_valid
-
-            _gp_cx = _gf1d_global(_gp_clean, sigma=_gp_sigma, mode="nearest")
-
-            # Speed-limit the global path: max delta per frame
+            _gp_w = np.clip(_gp_conf, 0.05, 1.0) ** 2
+            _gp_w_s = _gf1d_global(_gp_clean * _gp_w, sigma=_gp_sigma_smooth, mode="nearest")
+            _gp_ws_s = _gf1d_global(_gp_w, sigma=_gp_sigma_smooth, mode="nearest")
+            _gp_ws_s = np.maximum(_gp_ws_s, 1e-8)
+            _gp_cx_smooth = _gp_w_s / _gp_ws_s
+            _gp_w_f = _gf1d_global(_gp_clean * _gp_w, sigma=_gp_sigma_fast, mode="nearest")
+            _gp_ws_f = _gf1d_global(_gp_w, sigma=_gp_sigma_fast, mode="nearest")
+            _gp_ws_f = np.maximum(_gp_ws_f, 1e-8)
+            _gp_cx_fast = _gp_w_f / _gp_ws_f
+            _gp_dx = np.diff(_gp_clean, prepend=_gp_clean[0])
+            _gp_vel = np.abs(_gp_dx)
+            _gp_vel_max = _mf1d_global(_gp_vel, size=_gp_vel_window, mode="nearest")
+            _gp_blend = np.clip((_gp_vel_max - _gp_v_lo) / max(_gp_v_hi - _gp_v_lo, 1e-6), 0.0, 1.0)
+            _gp_cx = (1.0 - _gp_blend) * _gp_cx_smooth + _gp_blend * _gp_cx_fast
+            _gp_polish = min(3.0, _gp_sigma_fast * 0.40)
+            if _gp_polish >= 1.0:
+                _gp_cx = _gf1d_global(_gp_cx, sigma=_gp_polish, mode="nearest")
             _gp_fw = float(width) if width > 0 else 1920.0
-            _gp_max_delta = 32.0  # px/frame — matches cinematic speed limit
-            for _gi in range(1, _gp_n):
-                _gp_d = _gp_cx[_gi] - _gp_cx[_gi - 1]
-                if abs(_gp_d) > _gp_max_delta:
-                    _gp_cx[_gi] = _gp_cx[_gi - 1] + np.sign(_gp_d) * _gp_max_delta
-
-            # Write back to states, preserving zoom/cy/crop_h
             _gp_replaced = 0
             for _gi in range(_gp_n):
                 _old_cx = states[_gi].cx
@@ -10130,25 +10368,20 @@ def run(
                 states[_gi].cx = states[_gi].x0 + _hw_g
                 if abs(states[_gi].cx - _old_cx) > 1.0:
                     _gp_replaced += 1
-
-            # Compute diagnostics
             _gp_deltas = np.abs(np.diff(_gp_cx))
-            _gp_reversals = int(np.sum(np.diff(np.sign(np.diff(_gp_cx))) != 0)) if _gp_n > 2 else 0
             print(
-                f"[GLOBAL-PATH] Replaced {_gp_replaced}/{_gp_n} frames with "
-                f"trajectory-aware path (sigma={_gp_sigma:.0f}), "
+                f"[GLOBAL-PATH] Legacy Gaussian: "
+                f"replaced {_gp_replaced}/{_gp_n} frames, "
                 f"mean_delta={float(_gp_deltas.mean()):.1f}px/f, "
-                f"max_delta={float(_gp_deltas.max()):.1f}px/f, "
-                f"reversals={_gp_reversals}"
+                f"max_delta={float(_gp_deltas.max()):.1f}px/f"
             )
 
     # --- BALL-GRAVITY CLAMP: keep camera near known ball positions ---
-    # The planner's centroid-tracking can drift the camera far from
-    # the ball during gaps in YOLO coverage (69% centroid-only on
-    # this clip).  Apply a soft clamp: if the camera is more than
-    # ``max_drift_frac`` of crop width from the ball, pull it back.
-    # Corrections are Gaussian-smoothed to prevent jitter.
-    if states and len(positions) > 0 and len(states) > 5:
+    # SKIPPED in spline mode: the spline path is already anchored to real
+    # detections.  The gravity clamp uses noisy fused positions (including
+    # centroid/interp/hold) as "ground truth" which would pull the camera
+    # AWAY from the clean spline path toward wrong positions.
+    if not _use_spline and states and len(positions) > 0 and len(states) > 5:
         # Adaptive gravity: tighten for clips with wide ball travel,
         # loosen for clips where the ball stays near the center.
         _grav_max_frac = 0.32  # default
@@ -10261,15 +10494,14 @@ def run(
         )
 
     # --- CAMERA SPEED LIMITER: prevent choppy single-frame jumps ---
-    # After all corrections (snap, gravity), cap the maximum per-frame
-    # camera movement.  This is a forward pass that propagates limits.
-    # Derive from the per-clip adaptive limit (or preset speed_limit
-    # when auto-tune is off) so the post-processing limiter matches
-    # this clip's actual ball dynamics.
-    # Apply the same event-type scaling the CameraPlanner uses internally
-    # so that FREE_KICK's 0.45x slowdown and GOAL/CROSS boosts are
-    # respected by the post-processing pass.
-    if states and len(states) > 2:
+    # SKIPPED in spline mode: The PCHIP spline inherently produces smooth
+    # camera motion (no choppy jumps).  The speed limiter was designed for
+    # the reactive EMA planner and actively HARMS spline output — it
+    # prevents the camera from tracking fast ball events (shots, crosses)
+    # where the spline correctly ramps up speed to 40-50 px/f.
+    # In legacy mode, the speed limiter is still needed.
+    _sl_event_scale = 1.0  # default — used by validation section downstream
+    if not _use_spline and states and len(states) > 2:
         _sl_event_scale = 1.0
         _sl_event = (getattr(args, "event_type", None) or "").upper().strip()
         if _sl_event == "FREE_KICK":
@@ -11573,6 +11805,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Event type for this clip (GOAL, SHOT, CROSS). Adjusts camera "
              "speed limits and keepinview parameters for the event dynamics.",
+    )
+    parser.add_argument(
+        "--spline-camera", action="store_true", default=True,
+        help="Use anchor-spline camera path built from YOLO/TRACKER detections only (default).",
+    )
+    parser.add_argument(
+        "--no-spline-camera", dest="spline_camera", action="store_false",
+        help="Use legacy velocity-adaptive Gaussian camera path.",
+    )
+    parser.add_argument(
+        "--manual-anchors",
+        dest="manual_anchors",
+        type=str,
+        default=None,
+        help="Path to CSV with manual ball position overrides (columns: frame,ball_x,ball_y). "
+             "These are injected as high-priority anchor points into the spline camera path. "
+             "Use tools/extract_problem_frames.py to generate a template.",
     )
     return parser
 
