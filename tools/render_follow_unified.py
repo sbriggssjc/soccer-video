@@ -3266,16 +3266,18 @@ def compute_wobble_corrections(
     *,
     smooth_window_s: float = 0.5,
     max_correction_px: float = 20.0,
+    axis: str = "y",
 ) -> Optional[np.ndarray]:
-    """Derive per-frame vertical wobble corrections from global camera shifts.
+    """Derive per-frame wobble corrections from global camera shifts.
 
     1. Accumulate per-frame (dx, dy) into a cumulative camera trajectory.
     2. Smooth the trajectory with a Gaussian (``smooth_window_s`` seconds)
        to recover the intended camera motion.
     3. The residual (raw − smooth) is the high-frequency wobble.
     4. Clamp to ±``max_correction_px`` and return as an (N,) float64 array
-       of vertical corrections (positive = shift frame down to cancel
-       upward camera wobble).
+       of corrections.
+
+    ``axis``: ``"y"`` for vertical (default), ``"x"`` for horizontal.
 
     Returns *None* if the wobble is negligible (peak < 1.5 px).
     """
@@ -3283,9 +3285,10 @@ def compute_wobble_corrections(
         return None
 
     n = len(shifts)
+    col = 1 if axis == "y" else 0
 
-    # Cumulative camera trajectory (vertical only)
-    cum_dy = np.cumsum(shifts[:, 1])
+    # Cumulative camera trajectory
+    cum = np.cumsum(shifts[:, col])
 
     # Smooth with Gaussian to separate intended motion from wobble
     sigma_frames = max(2.0, smooth_window_s * max(fps, 1.0))
@@ -3296,20 +3299,20 @@ def compute_wobble_corrections(
     x_k = np.arange(-radius, radius + 1, dtype=np.float64)
     kernel = np.exp(-0.5 * (x_k / sigma_frames) ** 2)
     kernel /= kernel.sum()
-    padded = np.pad(cum_dy, radius, mode="edge")
-    smooth_dy = np.convolve(padded, kernel, mode="valid")
+    padded = np.pad(cum, radius, mode="edge")
+    smooth = np.convolve(padded, kernel, mode="valid")
 
     # Residual = wobble
-    wobble_dy = cum_dy - smooth_dy
+    wobble = cum - smooth
 
     # Check if wobble is meaningful
-    peak = float(np.max(np.abs(wobble_dy)))
+    peak = float(np.max(np.abs(wobble)))
     if peak < 1.5:
         return None
 
     # Clamp
-    wobble_dy = np.clip(wobble_dy, -max_correction_px, max_correction_px)
-    return wobble_dy
+    wobble = np.clip(wobble, -max_correction_px, max_correction_px)
+    return wobble
 
 
 # ---------------------------------------------------------------------------
@@ -7164,7 +7167,7 @@ class CameraPlanner:
         # Gravity clamp and BIC guarantee introduce discrete per-frame
         # corrections AFTER the main Gaussian.  A final light smooth removes
         # those artifacts so the rendered camera path is free of micro-jitter.
-        _cinema_sigma = max(3.0, sigma_frames * 0.40) if sigma_frames >= 0.5 else 0.0
+        _cinema_sigma = max(3.0, sigma_frames * 0.80) if sigma_frames >= 0.5 else 0.0  # v14: heavier cinema smooth (was 0.40)
         if _cinema_sigma >= 1.0 and len(states) >= 5:
             _cinema_r = int(_cinema_sigma * 3.0 + 0.5)
             _cinema_r = min(_cinema_r, len(states) // 2)
@@ -8154,27 +8157,49 @@ class Renderer:
         if _cam_shifts is None:
             logger.info("[STAB] No cached camera shifts found — computing on the fly")
             _cam_shifts = compute_camera_shifts(str(self.input_path), logger)
+        _wobble_dx: Optional[np.ndarray] = None
+        _spline_active = getattr(self, 'spline_active', False)
         if _cam_shifts is not None and len(_cam_shifts) >= 5:
             _wobble_dy = compute_wobble_corrections(
                 _cam_shifts, _stab_fps,
                 smooth_window_s=1.0,
                 max_correction_px=12.0,
+                axis="y",
             )
+            # In spline mode, SKIP horizontal wobble correction.  The
+            # spline already produces a smooth horizontal camera path.
+            # The X "wobble" on a panning source camera is NOT real
+            # shake — it is the smoothing-lag residual of a large pan
+            # (e.g. 3000+px over 15s).  Applying it shifts the frame
+            # content by up to ±40px WITHOUT adjusting the crop → the
+            # ball visibly jitters left-right inside the crop.
+            if not _spline_active:
+                _wobble_dx = compute_wobble_corrections(
+                    _cam_shifts, _stab_fps,
+                    smooth_window_s=1.0,
+                    max_correction_px=40.0,
+                    axis="x",
+                )
         # Adaptive overscan: zoom just enough to hide BORDER_REPLICATE
         # artifacts at frame edges.  The zoom is constant across all
         # frames so it doesn't introduce visible pulsing.
         _stab_overscan = 1.0
-        if _wobble_dy is not None:
-            _peak_wobble = float(np.max(np.abs(_wobble_dy)))
+        _stab_any = _wobble_dy is not None or _wobble_dx is not None
+        if _stab_any:
+            _peak_wobble_y = float(np.max(np.abs(_wobble_dy))) if _wobble_dy is not None else 0.0
+            _peak_wobble_x = float(np.max(np.abs(_wobble_dx))) if _wobble_dx is not None else 0.0
             _stab_src_h = float(src_h) if src_h > 0 else 1080.0
-            # Enough zoom to cover the peak shift, plus 30% safety margin.
-            _stab_overscan = 1.0 + (_peak_wobble / _stab_src_h) * 1.3
+            _stab_src_w = float(src_w_f) if src_w_f > 0 else 1920.0
+            # Enough zoom to cover the peak shift in both axes, plus 30% safety margin.
+            _over_y = (_peak_wobble_y / _stab_src_h) * 1.3 if _peak_wobble_y > 0 else 0.0
+            _over_x = (_peak_wobble_x / _stab_src_w) * 1.3 if _peak_wobble_x > 0 else 0.0
+            _stab_overscan = 1.0 + max(_over_y, _over_x)
             _stab_overscan = min(_stab_overscan, 1.04)  # cap at 4%
             logger.info(
-                "[STAB] Vertical stabilisation active: %d frames, "
-                "peak=%.1fpx, rms=%.1fpx, overscan=%.3f",
-                len(_wobble_dy), _peak_wobble,
-                float(np.sqrt(np.mean(_wobble_dy ** 2))),
+                "[STAB] Stabilisation active: %d frames, "
+                "peak_y=%.1fpx, peak_x=%.1fpx, overscan=%.3f",
+                len(_wobble_dy if _wobble_dy is not None else _wobble_dx),
+                _peak_wobble_y, _peak_wobble_x,
                 _stab_overscan,
             )
 
@@ -8186,24 +8211,28 @@ class Renderer:
             if frame_idx >= len(states):
                 break
 
-            # Apply vertical wobble correction before cropping.
+            # Apply wobble correction (X + Y) before cropping.
             # A slight overscan zoom hides the BORDER_REPLICATE edge
             # artifacts that would otherwise appear as a blurry bar.
+            _dy_corr = 0.0
+            _dx_corr = 0.0
             if _wobble_dy is not None and frame_idx < len(_wobble_dy):
                 _dy_corr = float(_wobble_dy[frame_idx])
-                if abs(_dy_corr) > 0.3 or _stab_overscan > 1.0:
-                    _h, _w = frame.shape[:2]
-                    _cx_f = _w / 2.0
-                    _cy_f = _h / 2.0
-                    _s = _stab_overscan
-                    _M = np.float32([
-                        [_s, 0.0, _cx_f * (1.0 - _s)],
-                        [0.0, _s, _cy_f * (1.0 - _s) - _dy_corr * _s],
-                    ])
-                    frame = cv2.warpAffine(
-                        frame, _M, (_w, _h),
-                        borderMode=cv2.BORDER_REPLICATE,
-                    )
+            if _wobble_dx is not None and frame_idx < len(_wobble_dx):
+                _dx_corr = float(_wobble_dx[frame_idx])
+            if abs(_dy_corr) > 0.3 or abs(_dx_corr) > 0.3 or _stab_overscan > 1.0:
+                _h, _w = frame.shape[:2]
+                _cx_f = _w / 2.0
+                _cy_f = _h / 2.0
+                _s = _stab_overscan
+                _M = np.float32([
+                    [_s, 0.0, _cx_f * (1.0 - _s) + _dx_corr * _s],
+                    [0.0, _s, _cy_f * (1.0 - _s) - _dy_corr * _s],
+                ])
+                frame = cv2.warpAffine(
+                    frame, _M, (_w, _h),
+                    borderMode=cv2.BORDER_REPLICATE,
+                )
 
             if self.debug_ball_overlay:
                 overlay_frame = frame.copy()
@@ -8212,6 +8241,40 @@ class Renderer:
                 if bx is not None and by is not None:
                     cv2.circle(overlay_frame, (int(round(bx)), int(round(by))), 8, (0, 0, 255), -1)
                 frame = overlay_frame
+
+            # --- v21 diagnostic overlay: YOLO detection markers ---
+            # Draw on source frame BEFORE _compose_frame so markers
+            # are automatically cropped into the portrait viewport.
+            #   Green ring = YOLO detection that passed all filters (driving camera)
+            #   Red ring   = YOLO detection rejected by filters (false positive)
+            #   Blue dot   = CSRT tracker position (confirming vote)
+            _ovl_kept = getattr(self, 'overlay_yolo_kept', None)
+            _ovl_rej = getattr(self, 'overlay_yolo_rejected', None)
+            _ovl_trk = getattr(self, 'overlay_tracker', None)
+            if _ovl_kept or _ovl_rej or _ovl_trk:
+                # Blue dot: tracker position
+                if _ovl_trk and frame_idx in _ovl_trk:
+                    _tx, _ty = _ovl_trk[frame_idx]
+                    cv2.circle(frame, (int(round(_tx)), int(round(_ty))),
+                               5, (255, 160, 0), -1)  # filled blue-ish
+                # Red ring: rejected YOLO detection
+                if _ovl_rej and frame_idx in _ovl_rej:
+                    _rx, _ry, _rc, _rr = _ovl_rej[frame_idx]
+                    cv2.circle(frame, (int(round(_rx)), int(round(_ry))),
+                               14, (0, 0, 255), 2)  # red ring
+                    cv2.putText(frame, f"X {_rc:.2f}",
+                                (int(round(_rx)) + 18, int(round(_ry)) - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (0, 0, 255), 1, cv2.LINE_AA)
+                # Green ring: kept YOLO detection (drawn last = on top)
+                if _ovl_kept and frame_idx in _ovl_kept:
+                    _kx, _ky, _kc = _ovl_kept[frame_idx]
+                    cv2.circle(frame, (int(round(_kx)), int(round(_ky))),
+                               14, (0, 255, 0), 2)  # green ring
+                    cv2.putText(frame, f"{_kc:.2f}",
+                                (int(round(_kx)) + 18, int(round(_ky)) - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (0, 255, 0), 1, cv2.LINE_AA)
 
             state = states[frame_idx]
             desired_center_x = float(state.cx)
@@ -10089,7 +10152,11 @@ def run(
     #
     # For frames before the first anchor or after the last anchor, the
     # camera holds at the nearest anchor position (no extrapolation).
-    _use_spline = getattr(args, "spline_camera", True)
+    _use_spline = True  # v15: re-enable spline — PCHIP through YOLO+tracker only, no centroid pollution
+    # Overlay data for diagnostic rendering (populated inside spline section)
+    _overlay_yolo_kept: dict = {}      # frame → (x, y, conf)
+    _overlay_yolo_rejected: dict = {}  # frame → (x, y, conf, reason)
+    _overlay_tracker: dict = {}        # frame → (x, y)
     if _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
         from scipy.interpolate import PchipInterpolator as _PchipInterp
         from scipy.ndimage import gaussian_filter1d as _gf1d_spline
@@ -10099,23 +10166,59 @@ def run(
         # lighter smoothing during fast events (ball stays visible).
         # NOTE: cinematic preset's post_smooth_sigma=12 runs BEFORE the spline
         # and gets overwritten. This sigma is the ONLY smoothing on the final path.
-        _sp_sigma_slow = 4.0    # very light smooth for calm play — PCHIP is already smooth
-        _sp_sigma_fast = 2.0    # minimal polish for fast events — let camera follow the ball
+        _sp_sigma_slow = 3.0    # sub-pixel polish only — PCHIP is already smooth
+        _sp_sigma_fast = 1.5    # near-zero smooth for fast events — camera must follow ball
         _sp_speed_thresh = 12.0 # px/f — spline speed above which we use fast sigma
 
-        # --- 1) Extract anchor frames (YOLO=1, BLENDED=3, TRACKER=7) ---
-        _sp_anchor_sources = {1, 3, 7}
+        # v11: Disable action-zone gap-fill and camera-motion stabilization.
+        # The source is a static camera — no pan to compensate for.
+        # Action-zone anchors (from player clusters) compete with real ball
+        # detections and cause the camera to "fight competing data points."
+        # PCHIP through ONLY real detections naturally interpolates smoothly.
+        _sp_use_action_zone = False
+        _sp_use_camera_stab = False
+
+        # --- 1) Extract anchor frames (YOLO=1 ONLY — v17: no tracker/centroid) ---
+        _sp_anchor_sources = {1}  # v17: YOLO-only — confirmed ball detections
+        _sp_min_anchor_conf = 0.30  # v17: moderate confidence floor
         _sp_pos_x = positions[:_sp_n, 0].astype(np.float64)
         _sp_pos_y = positions[:_sp_n, 1].astype(np.float64) if positions.shape[1] > 1 else np.zeros(_sp_n, dtype=np.float64)
         _sp_src = fusion_source_labels[:_sp_n] if (
             fusion_source_labels is not None and len(fusion_source_labels) >= _sp_n
         ) else np.ones(_sp_n, dtype=np.uint8)
+        _sp_conf = fusion_confidence[:_sp_n].astype(np.float64) if (
+            fusion_confidence is not None and len(fusion_confidence) >= _sp_n
+        ) else np.ones(_sp_n, dtype=np.float64)
+
+        # --- 1a) Horizontal stabilization: DISABLED in v19 ---
+        # Previously this adjusted ball positions by the X wobble correction
+        # to match stabilized frames.  But the X wobble correction was the
+        # ROOT CAUSE of camera "fighting" (see v19 notes in write_frames):
+        # the Gaussian lag residual of a 3000+px horizontal pan is NOT real
+        # wobble.  The renderer's X wobble is now disabled in spline mode,
+        # so position adjustment is no longer needed.
+        # Load camera shifts for field-space analysis only (not wobble).
+        _sp_wobble_x = None
+        _sp_stab_shifts_path = Path(
+            telemetry_path_for_video(str(input_path))
+        ).with_suffix(".cam_shifts.npy")
+        _sp_cam_shifts = load_camera_shifts(_sp_stab_shifts_path)
+        # NOTE: _sp_wobble_x stays None — no position adjustment
 
         _sp_anchor_mask = np.zeros(_sp_n, dtype=bool)
+        _sp_conf_rejected = 0
         for _si in range(_sp_n):
             if int(_sp_src[_si]) in _sp_anchor_sources:
                 if np.isfinite(_sp_pos_x[_si]) and np.isfinite(_sp_pos_y[_si]):
-                    _sp_anchor_mask[_si] = True
+                    if float(_sp_conf[_si]) >= _sp_min_anchor_conf:
+                        _sp_anchor_mask[_si] = True
+                    else:
+                        _sp_conf_rejected += 1
+        if _sp_conf_rejected > 0:
+            print(
+                f"[ANCHOR-SPLINE] Confidence filter: rejected {_sp_conf_rejected} "
+                f"low-conf anchors (conf < {_sp_min_anchor_conf})"
+            )
 
         # --- 1b) Load manual anchor overrides ---
         # Manual anchors are injected as high-priority spline control points.
@@ -10221,11 +10324,10 @@ def run(
         # --- 1d) Action-zone gap-filling from person detections ---
         # During detection gaps (no YOLO/tracker), use person detection data
         # to estimate the "action zone" — the densest cluster of players.
-        # This is MUCH better than blind PCHIP interpolation because:
-        # 1. Soccer action (passes, dribbles, crosses) happens where players cluster
-        # 2. Person detection works reliably (~13-15 detections per frame)
-        # 3. The broadcast camera operator tracks the ball, so the densest
-        #    cluster in the camera's view is usually near the ball
+        # NOTE: Disabled by default in v11. Action-zone anchors from player
+        # clusters compete with real ball detections, causing camera to
+        # "fight competing data points." PCHIP interpolation through gaps
+        # between real anchors produces smoother, more accurate paths.
         _sp_az_gap_thresh = 10    # fill gaps > 10 frames (~0.42s at 24fps)
         _sp_az_sample_step = 8    # sample action zone every 8 frames (~0.33s)
         _sp_az_bandwidth = 200.0  # KDE bandwidth for player clustering (px)
@@ -10235,7 +10337,7 @@ def run(
         # Find current anchor frames BEFORE gap-filling
         _sp_pre_anchors = np.where(_sp_anchor_mask)[0]
 
-        if len(_sp_pre_anchors) >= 1 and person_boxes_by_frame:
+        if _sp_use_action_zone and len(_sp_pre_anchors) >= 1 and person_boxes_by_frame:
             # Build list of gaps to fill
             _sp_az_gaps = []
             # Leading gap (before first detection)
@@ -10338,20 +10440,16 @@ def run(
                 )
 
         # --- 1e) Camera-motion stabilization ---
-        # The broadcast camera operator tracks the ball. When the camera pans
-        # during a detection gap, PCHIP interpolation in pixel-space creates
-        # wrong trajectories (e.g., a 40-yard pass appears as a 100px pixel
-        # shift when the camera panned 300px to follow it).
-        #
-        # Fix: compute "field coordinates" by removing camera pan motion.
-        # Camera pan is estimated from the smoothed median person x-position.
-        # Build the spline in field space, then convert back to pixel space.
-        # This ensures interpolation follows the ball's real-world trajectory.
+        # For broadcast/panning cameras, subtract camera pan from ball positions
+        # so PCHIP interpolates in "field-space" during gaps.
+        # NOTE: Disabled by default in v11. The source is a static park camera
+        # with no pan — subtracting person-median motion introduces artificial
+        # offsets that fight the real ball positions.
         _sp_stab_x = np.zeros(_sp_n, dtype=np.float64)
         _sp_stab_y = np.zeros(_sp_n, dtype=np.float64)
         _sp_use_stab = False
 
-        if person_boxes_by_frame and _sp_n >= 5:
+        if _sp_use_camera_stab and person_boxes_by_frame and _sp_n >= 5:
             _sp_pmed_x = np.full(_sp_n, np.nan, dtype=np.float64)
             _sp_pmed_y = np.full(_sp_n, np.nan, dtype=np.float64)
             for _fi in range(_sp_n):
@@ -10489,34 +10587,345 @@ def run(
             _sp_cx = np.clip(_sp_cx, 0.0, _sp_fw)
             _sp_cy = np.clip(_sp_cy, 0.0, _sp_fh)
 
-            # --- 6) Velocity-adaptive Gaussian smoothing ---
-            # Heavy smooth during calm play (eliminates jitter), lighter
-            # smooth during fast events (keeps ball in crop).
-            if _sp_n >= 5:
-                # Compute raw spline velocity (before smoothing)
-                _sp_vel_raw = np.abs(np.diff(_sp_cx, prepend=_sp_cx[0]))
-                # Smooth the velocity with wide sigma to avoid noisy blend transitions
-                # sigma=16 (was 8) — more gradual heavy↔light switching
-                _sp_vel_sm = _gf1d_spline(_sp_vel_raw, sigma=16.0, mode="nearest")
-                # Blend factor: 0.0=calm(heavy smooth), 1.0=fast(light smooth)
-                _sp_blend = np.clip(_sp_vel_sm / _sp_speed_thresh, 0.0, 1.0)
-                # Apply both sigma levels
-                _sp_cx_slow = _gf1d_spline(_sp_cx.copy(), sigma=_sp_sigma_slow, mode="nearest")
-                _sp_cx_fast = _gf1d_spline(_sp_cx.copy(), sigma=_sp_sigma_fast, mode="nearest")
-                _sp_cx = _sp_cx_slow * (1.0 - _sp_blend) + _sp_cx_fast * _sp_blend
-                # Y axis: same approach
-                _sp_cy_slow = _gf1d_spline(_sp_cy.copy(), sigma=_sp_sigma_slow, mode="nearest")
-                _sp_cy_fast = _gf1d_spline(_sp_cy.copy(), sigma=_sp_sigma_fast, mode="nearest")
-                _sp_vel_y = np.abs(np.diff(_sp_cy, prepend=_sp_cy[0]))
-                _sp_vel_y_sm = _gf1d_spline(_sp_vel_y, sigma=16.0, mode="nearest")
-                _sp_blend_y = np.clip(_sp_vel_y_sm / (_sp_speed_thresh * 0.8), 0.0, 1.0)
-                _sp_cy = _sp_cy_slow * (1.0 - _sp_blend_y) + _sp_cy_fast * _sp_blend_y
-                _sp_fast_pct = 100.0 * np.mean(_sp_blend > 0.5)
-                print(f"[ANCHOR-SPLINE] Velocity-adaptive smooth: {_sp_fast_pct:.0f}% fast-mode frames")
+            # --- 6) Sequential snap-follow between YOLO detections (v21) ---
+            #
+            # v21 improvements over v20:
+            #   • Tracklet cluster filter: require ≥1 YOLO neighbor within
+            #     ±5 frames / ±300px — isolated detections are likely false
+            #     positives (logos, shoes, field markings)
+            #   • CSRT tracker confirmation: rescue isolated YOLO detections
+            #     that have tracker agreement within ±3 frames / ±150px
+            #   • Speed-capped snaps: limit max camera speed during snap
+            #     transitions so long-distance movements are smooth pans
+            #   • Diagnostic overlay: collect kept/rejected/tracker positions
+            #     for visual markers on the rendered video
+            #
+            # Core approach (unchanged from v20): walk through consecutive
+            # YOLO detections and interpolate camera between each pair.
+            # Small movements → linear.  Large movements → hold-then-snap.
 
-            # (Acceleration limiter removed — too aggressive, prevented camera
-            #  from following fast ball movement. Jolt reduction now handled by
-            #  narrower sigma gap 12/8 and smoother blend transitions sigma=16.)
+            # Collect CSRT tracker positions for overlay + confirmation
+            _sf_trk_mask = (_sp_src == 7)
+            _sf_trk_frames = np.where(_sf_trk_mask)[0]
+            for _oti in range(len(_sf_trk_frames)):
+                _otf = int(_sf_trk_frames[_oti])
+                _overlay_tracker[_otf] = (
+                    float(_sp_pos_x[_otf]),
+                    float(_sp_pos_y[_otf]),
+                )
+
+            if _sp_n >= 5:
+                # --- a) Extract YOLO-only detections ---
+                _sf_yolo_mask = (
+                    (_sp_src == 1)
+                    & (_sp_conf >= 0.30)
+                    & (_sp_pos_x > 0)
+                    & (_sp_pos_x < _sp_fw)
+                )
+                _sf_yolo_idx = np.where(_sf_yolo_mask)[0]
+                _sf_yolo_px = _sp_pos_x[_sf_yolo_idx].copy()
+                _sf_yolo_py = _sp_pos_y[_sf_yolo_idx].copy()
+                _sf_yolo_conf = _sp_conf[_sf_yolo_idx].copy()
+                _sf_n_raw = len(_sf_yolo_idx)
+
+                # Save raw detections for overlay comparison
+                _sf_raw_idx = _sf_yolo_idx.copy()
+                _sf_raw_px = _sf_yolo_px.copy()
+                _sf_raw_py = _sf_yolo_py.copy()
+                _sf_raw_conf = _sf_yolo_conf.copy()
+
+                # --- b) Tracklet cluster filter ---
+                # Require each detection to have ≥1 YOLO neighbor within
+                # ±5 frames AND ±300px (temporal + spatial proximity).
+                # Isolated detections with no nearby support are likely
+                # false positives.
+                _sf_clust_f = 5       # temporal radius (frames)
+                _sf_clust_px = 300.0  # spatial radius (pixels)
+                _sf_clust_keep = np.ones(_sf_n_raw, dtype=bool)
+                for _ci in range(_sf_n_raw):
+                    _has_nbr = False
+                    _cf = int(_sf_yolo_idx[_ci])
+                    _cxv = float(_sf_yolo_px[_ci])
+                    for _cj in range(_sf_n_raw):
+                        if _ci == _cj:
+                            continue
+                        if (abs(_cf - int(_sf_yolo_idx[_cj])) <= _sf_clust_f
+                                and abs(_cxv - float(_sf_yolo_px[_cj])) <= _sf_clust_px):
+                            _has_nbr = True
+                            break
+                    if not _has_nbr:
+                        _sf_clust_keep[_ci] = False
+
+                _sf_n_clust_rej = int((~_sf_clust_keep).sum())
+
+                # --- b2) CSRT tracker confirmation ---
+                # Isolated YOLO detections that have CSRT tracker data
+                # within ±3 frames and ±150px are "confirmed" — the
+                # tracker independently saw the ball nearby.
+                _sf_trk_cf = 3        # temporal radius for tracker match
+                _sf_trk_cpx = 150.0   # spatial radius
+                _sf_trk_confirmed = np.zeros(_sf_n_raw, dtype=bool)
+                for _ci in range(_sf_n_raw):
+                    if _sf_clust_keep[_ci]:
+                        continue  # already kept
+                    _yf = int(_sf_yolo_idx[_ci])
+                    _yx = float(_sf_yolo_px[_ci])
+                    for _tfi in range(len(_sf_trk_frames)):
+                        _tf = int(_sf_trk_frames[_tfi])
+                        if (abs(_tf - _yf) <= _sf_trk_cf
+                                and abs(float(_sp_pos_x[_tf]) - _yx) <= _sf_trk_cpx):
+                            _sf_trk_confirmed[_ci] = True
+                            break
+
+                _sf_comb_keep = _sf_clust_keep | _sf_trk_confirmed
+                _sf_n_trk_rescued = int((_sf_trk_confirmed & ~_sf_clust_keep).sum())
+                _sf_n_comb_rej = int((~_sf_comb_keep).sum())
+
+                # Apply cluster + tracker filter
+                if _sf_n_comb_rej > 0:
+                    _sf_yolo_idx = _sf_yolo_idx[_sf_comb_keep]
+                    _sf_yolo_px = _sf_yolo_px[_sf_comb_keep]
+                    _sf_yolo_py = _sf_yolo_py[_sf_comb_keep]
+                    _sf_yolo_conf = _sf_yolo_conf[_sf_comb_keep]
+
+                print(
+                    f"[ANCHOR-SPLINE] v21 cluster+tracker filter: "
+                    f"{_sf_n_clust_rej} cluster-isolated, "
+                    f"{_sf_n_trk_rescued} tracker-rescued, "
+                    f"{_sf_n_comb_rej} removed"
+                )
+
+                # --- b3) Action zone filter (person proximity) ---
+                # A real ball in active play is almost always near players.
+                # Detections far from any person are likely static sideline
+                # objects: cones, corner flags, equipment bags, painted lines.
+                # For each ball detection, compute distance to nearest person.
+                # If no person within _sf_az_radius, reject the detection.
+                # Exception: high-confidence detections (≥0.55) are trusted.
+                _sf_az_radius = 250.0   # px: max distance to nearest person
+                _sf_az_conf_bypass = 0.55  # high-conf detections skip this filter
+                _sf_n_pre_az = len(_sf_yolo_idx)
+                _sf_az_keep = np.ones(_sf_n_pre_az, dtype=bool)
+                _sf_az_rejected = 0
+
+                if person_boxes_by_frame:
+                    for _ai in range(_sf_n_pre_az):
+                        # High-confidence detections bypass the filter
+                        if float(_sf_yolo_conf[_ai]) >= _sf_az_conf_bypass:
+                            continue
+                        _af = int(_sf_yolo_idx[_ai])
+                        _abx = float(_sf_yolo_px[_ai])
+                        _aby = float(_sf_yolo_py[_ai])
+                        _persons = person_boxes_by_frame.get(_af, [])
+                        if not _persons:
+                            # No person detections on this frame — can't verify
+                            # Keep the detection (benefit of the doubt)
+                            continue
+                        # Distance to nearest person
+                        _min_dist = float('inf')
+                        for _p in _persons:
+                            _dx = _abx - float(_p.cx)
+                            _dy = _aby - float(_p.cy)
+                            _d = math.sqrt(_dx * _dx + _dy * _dy)
+                            if _d < _min_dist:
+                                _min_dist = _d
+                        if _min_dist > _sf_az_radius:
+                            _sf_az_keep[_ai] = False
+                            _sf_az_rejected += 1
+
+                if _sf_az_rejected > 0:
+                    _sf_yolo_idx = _sf_yolo_idx[_sf_az_keep]
+                    _sf_yolo_px = _sf_yolo_px[_sf_az_keep]
+                    _sf_yolo_py = _sf_yolo_py[_sf_az_keep]
+                    _sf_yolo_conf = _sf_yolo_conf[_sf_az_keep]
+
+                print(
+                    f"[ANCHOR-SPLINE] v21 action-zone filter: "
+                    f"{_sf_az_rejected}/{_sf_n_pre_az} rejected "
+                    f"(no person within {_sf_az_radius}px), "
+                    f"{len(_sf_yolo_idx)} remaining"
+                )
+
+                # --- c) Velocity-based outlier pre-filter ---
+                # Reject detections with >100px/frame speed to BOTH
+                # temporal neighbors (physically impossible for a real ball).
+                _sf_n_post_clust = len(_sf_yolo_idx)
+                _vel_threshold = 100.0  # px/frame
+                _sf_keep = np.ones(_sf_n_post_clust, dtype=bool)
+                for _vi in range(_sf_n_post_clust):
+                    _v_fwd = float('inf')
+                    _v_bwd = float('inf')
+                    if _vi > 0:
+                        _df = float(_sf_yolo_idx[_vi] - _sf_yolo_idx[_vi - 1])
+                        if _df > 0:
+                            _dx = abs(_sf_yolo_px[_vi] - _sf_yolo_px[_vi - 1])
+                            _v_bwd = _dx / _df
+                    if _vi < _sf_n_post_clust - 1:
+                        _df = float(_sf_yolo_idx[_vi + 1] - _sf_yolo_idx[_vi])
+                        if _df > 0:
+                            _dx = abs(_sf_yolo_px[_vi + 1] - _sf_yolo_px[_vi])
+                            _v_fwd = _dx / _df
+                    if _v_bwd > _vel_threshold and _v_fwd > _vel_threshold:
+                        _sf_keep[_vi] = False
+
+                _sf_n_vel_filt = int((~_sf_keep).sum())
+                if _sf_n_vel_filt > 0:
+                    _sf_yolo_idx = _sf_yolo_idx[_sf_keep]
+                    _sf_yolo_px = _sf_yolo_px[_sf_keep]
+                    _sf_yolo_py = _sf_yolo_py[_sf_keep]
+                    _sf_yolo_conf = _sf_yolo_conf[_sf_keep]
+
+                _sf_n_yolo = len(_sf_yolo_idx)
+
+                # --- c2) Build overlay data ---
+                # Compare raw detections vs final kept set for diagnostic
+                # overlay rendering.
+                _sf_kept_set = set(int(f) for f in _sf_yolo_idx)
+                for _oi in range(len(_sf_raw_idx)):
+                    _of = int(_sf_raw_idx[_oi])
+                    if _of in _sf_kept_set:
+                        _overlay_yolo_kept[_of] = (
+                            float(_sf_raw_px[_oi]),
+                            float(_sf_raw_py[_oi]),
+                            float(_sf_raw_conf[_oi]),
+                        )
+                    else:
+                        _overlay_yolo_rejected[_of] = (
+                            float(_sf_raw_px[_oi]),
+                            float(_sf_raw_py[_oi]),
+                            float(_sf_raw_conf[_oi]),
+                            "filtered",
+                        )
+
+                # --- d) Sequential snap-follow parameters ---
+                _sf_snap_thresh = 150.0    # px: above → hold-then-snap
+                _sf_snap_max = 10          # frames: max snap transition
+                _sf_snap_min = 3           # frames: min snap transition
+                _sf_snap_frac = 0.35       # fraction of gap for snap
+                _sf_snap_speed_max = 80.0  # px/frame: max camera speed
+
+                print(
+                    f"[ANCHOR-SPLINE] v21 sequential snap-follow: "
+                    f"{len(_sf_raw_idx)} raw YOLO, "
+                    f"{_sf_n_comb_rej} cluster-filtered, "
+                    f"{_sf_n_vel_filt} velocity-filtered, "
+                    f"{_sf_n_yolo} kept, "
+                    f"snap_thresh={_sf_snap_thresh}px, "
+                    f"snap_speed_max={_sf_snap_speed_max}px/f"
+                )
+
+                # --- e) Build camera path from consecutive pairs ---
+                if _sf_n_yolo >= 3:
+                    _sf_cx = np.zeros(_sp_n, dtype=np.float64)
+                    _sf_cy = np.zeros(_sp_n, dtype=np.float64)
+
+                    # Place camera exactly at each detection position
+                    for _di in range(_sf_n_yolo):
+                        _sf_cx[int(_sf_yolo_idx[_di])] = float(_sf_yolo_px[_di])
+                        _sf_cy[int(_sf_yolo_idx[_di])] = float(_sf_yolo_py[_di])
+
+                    _sf_first = int(_sf_yolo_idx[0])
+                    _sf_last = int(_sf_yolo_idx[-1])
+
+                    # Leading hold: frames before first detection
+                    if _sf_first > 0:
+                        _sf_cx[:_sf_first] = float(_sf_yolo_px[0])
+                        _sf_cy[:_sf_first] = float(_sf_yolo_py[0])
+
+                    # Process consecutive detection pairs
+                    _sf_n_linear = 0
+                    _sf_n_snap = 0
+                    for _pi in range(_sf_n_yolo - 1):
+                        _fa = int(_sf_yolo_idx[_pi])
+                        _fb = int(_sf_yolo_idx[_pi + 1])
+                        _xa = float(_sf_yolo_px[_pi])
+                        _ya = float(_sf_yolo_py[_pi])
+                        _xb = float(_sf_yolo_px[_pi + 1])
+                        _yb = float(_sf_yolo_py[_pi + 1])
+                        _gap = _fb - _fa
+
+                        if _gap <= 1:
+                            continue
+
+                        _dist_x = abs(_xb - _xa)
+
+                        if _dist_x < _sf_snap_thresh:
+                            # Small movement → linear interpolation
+                            _sf_n_linear += 1
+                            for _f in range(_fa + 1, _fb):
+                                _t = float(_f - _fa) / float(_gap)
+                                _sf_cx[_f] = _xa + _t * (_xb - _xa)
+                                _sf_cy[_f] = _ya + _t * (_yb - _ya)
+                        else:
+                            # Large movement → hold then snap with speed cap
+                            _sf_n_snap += 1
+                            _snap_dur = min(
+                                _sf_snap_max,
+                                max(_sf_snap_min, int(_gap * _sf_snap_frac))
+                            )
+                            # Speed cap: ensure camera ≤ max speed
+                            _min_dur_speed = int(math.ceil(
+                                _dist_x / _sf_snap_speed_max
+                            ))
+                            _snap_dur = max(_snap_dur, min(_min_dur_speed, _gap))
+                            _snap_dur = min(_snap_dur, _gap)
+                            _snap_start = _fb - _snap_dur
+
+                            # Hold at A's position
+                            for _f in range(_fa + 1, min(_snap_start, _fb)):
+                                _sf_cx[_f] = _xa
+                                _sf_cy[_f] = _ya
+
+                            # Cosine ease-in-out from A to B
+                            for _f in range(_snap_start, _fb):
+                                _t = float(_f - _snap_start) / float(_snap_dur)
+                                _ease = 0.5 * (1.0 - math.cos(math.pi * _t))
+                                _sf_cx[_f] = _xa + _ease * (_xb - _xa)
+                                _sf_cy[_f] = _ya + _ease * (_yb - _ya)
+
+                    # Trailing hold: frames after last detection
+                    if _sf_last < _sp_n - 1:
+                        _sf_cx[_sf_last + 1:] = float(_sf_yolo_px[-1])
+                        _sf_cy[_sf_last + 1:] = float(_sf_yolo_py[-1])
+
+                    # Assign to spline arrays
+                    _sp_cx = _sf_cx
+                    _sp_cy = _sf_cy
+
+                    # Light Gaussian polish (sigma=3): smooth sub-pixel
+                    # jitter from detection noise without softening snaps
+                    _sp_cx = _gf1d_spline(_sp_cx, sigma=3.0, mode="nearest")
+                    _sp_cy = _gf1d_spline(_sp_cy, sigma=3.0, mode="nearest")
+
+                    print(
+                        f"[ANCHOR-SPLINE] v21 result: "
+                        f"cx=[{_sp_cx.min():.0f}, {_sp_cx.max():.0f}], "
+                        f"cy=[{_sp_cy.min():.0f}, {_sp_cy.max():.0f}], "
+                        f"linear_segments={_sf_n_linear}, "
+                        f"snap_segments={_sf_n_snap}, "
+                        f"leading_hold={_sf_first}f, "
+                        f"trailing_hold={max(0, _sp_n - 1 - _sf_last)}f"
+                    )
+                else:
+                    print(
+                        f"[ANCHOR-SPLINE] v21 WARNING: only {_sf_n_yolo} YOLO "
+                        f"detections after filtering — keeping PCHIP path"
+                    )
+
+                # Report
+                _sp_dz_dx = np.diff(_sp_cx)
+                _sp_dz_signs = np.sign(_sp_dz_dx)
+                _sp_dz_signs = _sp_dz_signs[_sp_dz_signs != 0]
+                _sp_dz_reversals = int(np.sum(np.diff(_sp_dz_signs) != 0)) if len(_sp_dz_signs) > 1 else 0
+                _sp_dz_max_speed = float(np.max(np.abs(_sp_dz_dx))) if len(_sp_dz_dx) > 0 else 0.0
+                _sp_dz_mean_speed = float(np.mean(np.abs(_sp_dz_dx))) if len(_sp_dz_dx) > 0 else 0.0
+                print(
+                    f"[ANCHOR-SPLINE] v21 path stats: "
+                    f"reversals={_sp_dz_reversals}, "
+                    f"max_speed={_sp_dz_max_speed:.1f}px/f, "
+                    f"mean_speed={_sp_dz_mean_speed:.1f}px/f, "
+                    f"range={float(_sp_cx.max() - _sp_cx.min()):.0f}px"
+                )
 
             # --- 7) Kick-hold protection: restore pre-spline states ---
             # Save planner's original cx/cy for kick-hold frames
@@ -11401,6 +11810,11 @@ def run(
     renderer.follow_crop_width = float(follow_crop_width)
     renderer.original_src_w = float(width)
     renderer.original_src_h = float(height)
+    renderer.spline_active = bool(_use_spline)
+    # Diagnostic overlay data from v21 detection filtering
+    renderer.overlay_yolo_kept = _overlay_yolo_kept
+    renderer.overlay_yolo_rejected = _overlay_yolo_rejected
+    renderer.overlay_tracker = _overlay_tracker
 
     follow_centers: Optional[Sequence[float]] = None
     follow_centers_int: Optional[list[int]] = None

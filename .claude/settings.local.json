@@ -21,7 +21,12 @@
       "Bash(wmic process where \"name=''python.exe''\" get CommandLine,ProcessId)",
       "Bash(wmic process where \"name=''ffmpeg.exe''\" get ProcessId)",
       "Bash(wmic process:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(/tmp/analyze_clip002.py:*)",
+      "Bash(/tmp/analyze_yolo_clip002.py:*)",
+      "Bash(/tmp/analyze_jitter.py:*)",
+      "Bash(/tmp/analyze_cam_shifts.py:*)",
+      "Bash(ffmpeg:*)"
     ]
   }
 }
