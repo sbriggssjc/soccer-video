@@ -140,7 +140,7 @@ def render_clip(match_name: str, clip_name: str, out_dir: Path, resume: bool = F
             cmd,
             capture_output=True,
             text=True,
-            timeout=900,
+            timeout=3600,  # 60min — YOLO at 1920px needs ~20-30min on CPU when uncached
             encoding="utf-8",
             errors="replace",
         )

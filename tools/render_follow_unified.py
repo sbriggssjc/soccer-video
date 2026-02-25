@@ -10095,8 +10095,13 @@ def run(
         from scipy.ndimage import gaussian_filter1d as _gf1d_spline
 
         _sp_n = len(states)
-        _sp_sigma_x = 8.0    # Gaussian polish on X — must be strong enough to smooth YOLO noise
-        _sp_sigma_y = 10.0   # heavier on Y (vertical motion more noticeable)
+        # Velocity-adaptive sigma: heavy smoothing during calm play (no jitter),
+        # lighter smoothing during fast events (ball stays visible).
+        # NOTE: cinematic preset's post_smooth_sigma=12 runs BEFORE the spline
+        # and gets overwritten. This sigma is the ONLY smoothing on the final path.
+        _sp_sigma_slow = 12.0   # moderate smooth for calm/slow play (was 18 — too heavy, missed action)
+        _sp_sigma_fast = 8.0    # light smooth for fast events (was 5 — gap too large, jolty transitions)
+        _sp_speed_thresh = 15.0 # px/f — spline speed above which we use fast sigma
 
         # --- 1) Extract anchor frames (YOLO=1, BLENDED=3, TRACKER=7) ---
         _sp_anchor_sources = {1, 3, 7}
@@ -10148,12 +10153,255 @@ def run(
             else:
                 print(f"[ANCHOR-SPLINE] WARNING: manual anchors file not found: {_sp_manual_path}")
 
+        # --- 1c) Manual anchor exclusion zones ---
+        # When manual anchors are dense in a region, suppress auto-detected
+        # anchors (tracker, blended, low-conf YOLO) between them.
+        # This prevents drifted tracker data and false blended detections
+        # from fighting manually-placed anchor positions.
+        #
+        # Cluster detection: find groups of 3+ manual anchors where each
+        # consecutive pair is within 60 frames. Suppress auto-detections
+        # only within these dense clusters.
+        _sp_manual_set = set()  # populated during load above
+        if _sp_n_manual >= 3 and _sp_manual_path:
+            # Re-read manual frames (lightweight — just frame column)
+            _sp_mf3 = Path(_sp_manual_path)
+            if _sp_mf3.exists():
+                with open(_sp_mf3, "r") as _mf3:
+                    for _row3 in _csv_mod.reader(_mf3):
+                        if len(_row3) >= 3:
+                            try:
+                                _sp_manual_set.add(int(_row3[0].strip()))
+                            except ValueError:
+                                pass
+            # Find dense clusters of manual anchors
+            _sp_ms = sorted(_sp_manual_set)
+            _sp_clusters = []  # list of (start, end) tuples
+            if len(_sp_ms) >= 3:
+                _cl_start = _sp_ms[0]
+                _cl_prev = _sp_ms[0]
+                _cl_count = 1
+                for _mi in range(1, len(_sp_ms)):
+                    if _sp_ms[_mi] - _cl_prev <= 60:
+                        _cl_prev = _sp_ms[_mi]
+                        _cl_count += 1
+                    else:
+                        if _cl_count >= 3:
+                            _sp_clusters.append((_cl_start, _cl_prev))
+                        _cl_start = _sp_ms[_mi]
+                        _cl_prev = _sp_ms[_mi]
+                        _cl_count = 1
+                if _cl_count >= 3:
+                    _sp_clusters.append((_cl_start, _cl_prev))
+
+            _sp_suppressed = 0
+            _sp_conf = fusion_confidence[:_sp_n] if (
+                fusion_confidence is not None and len(fusion_confidence) >= _sp_n
+            ) else np.zeros(_sp_n)
+            for _zs, _ze in _sp_clusters:
+                for _si in range(_zs, min(_ze + 1, _sp_n)):
+                    if _si in _sp_manual_set:
+                        continue  # keep manual anchors
+                    if _sp_anchor_mask[_si]:
+                        # Only keep high-confidence YOLO (source=1, conf>=0.35)
+                        _is_yolo = (int(_sp_src[_si]) == 1)
+                        _is_high_conf = (float(_sp_conf[_si]) >= 0.35)
+                        if _is_yolo and _is_high_conf:
+                            continue
+                        _sp_anchor_mask[_si] = False
+                        _sp_suppressed += 1
+            if _sp_suppressed > 0:
+                _zone_str = ", ".join(f"f{s}-f{e}" for s, e in _sp_clusters)
+                print(
+                    f"[ANCHOR-SPLINE] Manual exclusion zones [{_zone_str}]: "
+                    f"suppressed {_sp_suppressed} auto-detected anchors "
+                    f"(kept {_sp_n_manual} manual + high-conf YOLO)"
+                )
+
+        # --- 1d) Action-zone gap-filling from person detections ---
+        # During detection gaps (no YOLO/tracker), use person detection data
+        # to estimate the "action zone" — the densest cluster of players.
+        # This is MUCH better than blind PCHIP interpolation because:
+        # 1. Soccer action (passes, dribbles, crosses) happens where players cluster
+        # 2. Person detection works reliably (~13-15 detections per frame)
+        # 3. The broadcast camera operator tracks the ball, so the densest
+        #    cluster in the camera's view is usually near the ball
+        _sp_az_gap_thresh = 10    # fill gaps > 10 frames (~0.42s at 24fps)
+        _sp_az_sample_step = 8    # sample action zone every 8 frames (~0.33s)
+        _sp_az_bandwidth = 200.0  # KDE bandwidth for player clustering (px)
+        _sp_az_locality = 400.0   # locality bias bandwidth (px)
+        _sp_n_az_added = 0
+
+        # Find current anchor frames BEFORE gap-filling
+        _sp_pre_anchors = np.where(_sp_anchor_mask)[0]
+
+        if len(_sp_pre_anchors) >= 1 and person_boxes_by_frame:
+            # Build list of gaps to fill
+            _sp_az_gaps = []
+            # Leading gap (before first detection)
+            if _sp_pre_anchors[0] > _sp_az_gap_thresh:
+                _sp_az_gaps.append((0, int(_sp_pre_anchors[0])))
+            # Interior gaps (between consecutive anchors)
+            for _agi in range(len(_sp_pre_anchors) - 1):
+                _ag_s = int(_sp_pre_anchors[_agi])
+                _ag_e = int(_sp_pre_anchors[_agi + 1])
+                if _ag_e - _ag_s > _sp_az_gap_thresh:
+                    _sp_az_gaps.append((_ag_s, _ag_e))
+            # Trailing gap (after last detection)
+            if (_sp_n - 1 - _sp_pre_anchors[-1]) > _sp_az_gap_thresh:
+                _sp_az_gaps.append((int(_sp_pre_anchors[-1]), _sp_n - 1))
+
+            _sp_fw_kde = float(width) if width > 0 else 1920.0
+            _sp_fh_kde = float(height) if height > 0 else 1080.0
+            _sp_kde_grid = np.linspace(0, _sp_fw_kde, 100)
+
+            for _gap_s, _gap_e in _sp_az_gaps:
+                # Compute action-zone for every frame in the gap
+                _az_frames_list = []
+                _az_raw_x = []
+                _az_raw_y = []
+
+                # Seed locality from the anchor at gap boundary — but ONLY
+                # from real detections (YOLO/tracker), not synthetic sources
+                # (HOLD/centroid/interp). Synthetic sources often point to wrong
+                # positions, which biases the KDE toward the wrong cluster.
+                _prev_az_x = None
+                if _sp_anchor_mask[_gap_s] and int(_sp_src[_gap_s]) in _sp_anchor_sources:
+                    _prev_az_x = float(_sp_pos_x[_gap_s])
+
+                for _fi in range(_gap_s + 1, _gap_e):
+                    _persons = person_boxes_by_frame.get(_fi, [])
+                    if len(_persons) < 3:
+                        continue
+
+                    # Extract person cx and confidence
+                    _pcx = np.array([float(p.cx) for p in _persons], dtype=np.float64)
+                    _pcw = np.array([float(p.conf) for p in _persons], dtype=np.float64)
+                    # Near-field bias: slightly prefer bottom-of-frame players
+                    _pcy_arr = np.array([float(p.cy) for p in _persons], dtype=np.float64)
+                    _near_bias = 0.5 + 0.5 * (_pcy_arr / _sp_fh_kde)  # 0.5 at top, 1.0 at bottom
+                    _pcw_biased = _pcw * _near_bias
+
+                    # 1D Gaussian KDE on the grid
+                    _density = np.zeros(100, dtype=np.float64)
+                    for _pi in range(len(_pcx)):
+                        _dists = np.abs(_sp_kde_grid - _pcx[_pi])
+                        _density += float(_pcw_biased[_pi]) * np.exp(
+                            -0.5 * (_dists / _sp_az_bandwidth) ** 2
+                        )
+
+                    # Locality bias: prefer positions near previous action zone
+                    if _prev_az_x is not None:
+                        _loc_w = np.exp(
+                            -0.5 * ((_sp_kde_grid - _prev_az_x) / _sp_az_locality) ** 2
+                        )
+                        _density *= (0.3 + 0.7 * _loc_w)  # 30% base + 70% locality
+
+                    _best_idx = int(np.argmax(_density))
+                    _best_x = float(_sp_kde_grid[_best_idx])
+
+                    # Y: weighted median of persons near the action-zone center
+                    _near_mask = np.abs(_pcx - _best_x) < _sp_az_bandwidth
+                    if _near_mask.sum() > 0:
+                        _az_y = float(np.median(_pcy_arr[_near_mask]))
+                    else:
+                        _az_y = _sp_fh_kde / 2.0
+
+                    _az_frames_list.append(_fi)
+                    _az_raw_x.append(_best_x)
+                    _az_raw_y.append(_az_y)
+                    _prev_az_x = _best_x
+
+                if len(_az_frames_list) < 3:
+                    continue
+
+                # Smooth the action-zone trajectory to remove per-frame noise
+                _az_x_arr = np.array(_az_raw_x, dtype=np.float64)
+                _az_y_arr = np.array(_az_raw_y, dtype=np.float64)
+                _az_x_sm = _gf1d_spline(_az_x_arr, sigma=5.0, mode="nearest")
+                _az_y_sm = _gf1d_spline(_az_y_arr, sigma=5.0, mode="nearest")
+
+                # Sample at regular intervals and add as synthetic anchors
+                for _si_idx in range(0, len(_az_frames_list), _sp_az_sample_step):
+                    _frame = _az_frames_list[_si_idx]
+                    if not _sp_anchor_mask[_frame]:  # don't override real anchors
+                        _sp_pos_x[_frame] = _az_x_sm[_si_idx]
+                        _sp_pos_y[_frame] = _az_y_sm[_si_idx]
+                        _sp_anchor_mask[_frame] = True
+                        _sp_n_az_added += 1
+
+            if _sp_n_az_added > 0:
+                print(
+                    f"[ANCHOR-SPLINE] Action-zone gap-fill: added {_sp_n_az_added} "
+                    f"synthetic anchors from person-cluster KDE "
+                    f"(gaps>{_sp_az_gap_thresh}f, sample every {_sp_az_sample_step}f)"
+                )
+
+        # --- 1e) Camera-motion stabilization ---
+        # The broadcast camera operator tracks the ball. When the camera pans
+        # during a detection gap, PCHIP interpolation in pixel-space creates
+        # wrong trajectories (e.g., a 40-yard pass appears as a 100px pixel
+        # shift when the camera panned 300px to follow it).
+        #
+        # Fix: compute "field coordinates" by removing camera pan motion.
+        # Camera pan is estimated from the smoothed median person x-position.
+        # Build the spline in field space, then convert back to pixel space.
+        # This ensures interpolation follows the ball's real-world trajectory.
+        _sp_stab_x = np.zeros(_sp_n, dtype=np.float64)
+        _sp_stab_y = np.zeros(_sp_n, dtype=np.float64)
+        _sp_use_stab = False
+
+        if person_boxes_by_frame and _sp_n >= 5:
+            _sp_pmed_x = np.full(_sp_n, np.nan, dtype=np.float64)
+            _sp_pmed_y = np.full(_sp_n, np.nan, dtype=np.float64)
+            for _fi in range(_sp_n):
+                _persons = person_boxes_by_frame.get(_fi, [])
+                if len(_persons) >= 3:
+                    _sp_pmed_x[_fi] = float(np.median([p.cx for p in _persons]))
+                    _sp_pmed_y[_fi] = float(np.median([p.cy for p in _persons]))
+
+            # Fill NaN frames with linear interpolation
+            _valid_pm = np.isfinite(_sp_pmed_x)
+            if _valid_pm.sum() >= 5:
+                _pm_valid_idx = np.where(_valid_pm)[0]
+                _pm_invalid_idx = np.where(~_valid_pm)[0]
+                if len(_pm_invalid_idx) > 0:
+                    _sp_pmed_x[_pm_invalid_idx] = np.interp(
+                        _pm_invalid_idx, _pm_valid_idx, _sp_pmed_x[_pm_valid_idx]
+                    )
+                    _sp_pmed_y[_pm_invalid_idx] = np.interp(
+                        _pm_invalid_idx, _pm_valid_idx, _sp_pmed_y[_pm_valid_idx]
+                    )
+
+                # Heavy smoothing to isolate camera pan (not individual player motion)
+                _sp_pmed_x_sm = _gf1d_spline(_sp_pmed_x, sigma=12.0, mode="nearest")
+                _sp_pmed_y_sm = _gf1d_spline(_sp_pmed_y, sigma=6.0, mode="nearest")
+
+                # Zero-center the offset so it doesn't shift overall camera position
+                _sp_stab_x = _sp_pmed_x_sm - float(np.mean(_sp_pmed_x_sm))
+                _sp_stab_y = _sp_pmed_y_sm - float(np.mean(_sp_pmed_y_sm))
+                _sp_use_stab = True
+                _sp_stab_range_x = float(np.max(_sp_stab_x) - np.min(_sp_stab_x))
+                print(
+                    f"[ANCHOR-SPLINE] Camera-motion stabilization: "
+                    f"person-median x-range={_sp_stab_range_x:.0f}px "
+                    f"(spline built in field-space for better gap interpolation)"
+                )
+
         _sp_anchor_frames = np.where(_sp_anchor_mask)[0]
         _sp_n_anchors = len(_sp_anchor_frames)
 
         if _sp_n_anchors >= 3:
-            _sp_ax = _sp_pos_x[_sp_anchor_frames]
-            _sp_ay = _sp_pos_y[_sp_anchor_frames]
+            # Save pixel-space positions for edge-hold (stabilization-free)
+            _sp_ax_pixel = _sp_pos_x[_sp_anchor_frames].copy()
+            _sp_ay_pixel = _sp_pos_y[_sp_anchor_frames].copy()
+
+            # Work in field-space if stabilization is available
+            _sp_ax = _sp_ax_pixel.copy()
+            _sp_ay = _sp_ay_pixel.copy()
+            if _sp_use_stab:
+                _sp_ax -= _sp_stab_x[_sp_anchor_frames]
+                _sp_ay -= _sp_stab_y[_sp_anchor_frames]
 
             # --- 2) De-duplicate: PCHIP requires strictly increasing x ---
             # If multiple anchors at same frame (shouldn't happen but be safe),
@@ -10165,6 +10413,8 @@ def run(
             _sp_anchor_frames = _sp_anchor_frames[_sp_uniq_mask]
             _sp_ax = _sp_ax[_sp_uniq_mask]
             _sp_ay = _sp_ay[_sp_uniq_mask]
+            _sp_ax_pixel = _sp_ax_pixel[_sp_uniq_mask]
+            _sp_ay_pixel = _sp_ay_pixel[_sp_uniq_mask]
             _sp_n_anchors = len(_sp_anchor_frames)
 
             # --- 2b) Outlier rejection: replace anchors with unrealistic speed ---
@@ -10172,7 +10422,7 @@ def run(
             # confusion) that jump 100-400px between frames. PCHIP passes
             # through every point exactly, so these create camera oscillation.
             # Detect and replace outlier anchors with linear interpolation.
-            _sp_max_speed = 80.0   # max plausible ball speed in source px/frame
+            _sp_max_speed = 55.0   # max plausible ball speed in source px/frame
             _sp_outlier_replaced = 0
             if _sp_n_anchors >= 5:
                 for _oi in range(1, _sp_n_anchors - 1):
@@ -10213,19 +10463,25 @@ def run(
             _sp_first = int(_sp_anchor_frames[0])
             _sp_last = int(_sp_anchor_frames[-1])
 
-            # Interior: PCHIP interpolation
+            # Interior: PCHIP interpolation (in field-space if stabilized)
             _sp_cx = _sp_pchip_x(_sp_all_frames)
             _sp_cy = _sp_pchip_y(_sp_all_frames)
 
-            # Leading frames: hold at first anchor
-            if _sp_first > 0:
-                _sp_cx[:_sp_first] = _sp_ax[0]
-                _sp_cy[:_sp_first] = _sp_ay[0]
+            # Convert from field-space back to pixel-space
+            if _sp_use_stab:
+                _sp_cx += _sp_stab_x
+                _sp_cy += _sp_stab_y
 
-            # Trailing frames: hold at last anchor
+            # Leading frames: hold at first anchor PIXEL position
+            # (don't let stabilization drift the hold position)
+            if _sp_first > 0:
+                _sp_cx[:_sp_first] = _sp_ax_pixel[0]
+                _sp_cy[:_sp_first] = _sp_ay_pixel[0]
+
+            # Trailing frames: hold at last anchor PIXEL position
             if _sp_last < _sp_n - 1:
-                _sp_cx[_sp_last + 1:] = _sp_ax[-1]
-                _sp_cy[_sp_last + 1:] = _sp_ay[-1]
+                _sp_cx[_sp_last + 1:] = _sp_ax_pixel[-1]
+                _sp_cy[_sp_last + 1:] = _sp_ay_pixel[-1]
 
             # --- 5) Clamp to frame bounds ---
             _sp_fw = float(width) if width > 0 else 1920.0
@@ -10233,11 +10489,34 @@ def run(
             _sp_cx = np.clip(_sp_cx, 0.0, _sp_fw)
             _sp_cy = np.clip(_sp_cy, 0.0, _sp_fh)
 
-            # --- 6) Light Gaussian polish ---
-            if _sp_sigma_x >= 1.0 and _sp_n >= 5:
-                _sp_cx = _gf1d_spline(_sp_cx, sigma=_sp_sigma_x, mode="nearest")
-            if _sp_sigma_y >= 1.0 and _sp_n >= 5:
-                _sp_cy = _gf1d_spline(_sp_cy, sigma=_sp_sigma_y, mode="nearest")
+            # --- 6) Velocity-adaptive Gaussian smoothing ---
+            # Heavy smooth during calm play (eliminates jitter), lighter
+            # smooth during fast events (keeps ball in crop).
+            if _sp_n >= 5:
+                # Compute raw spline velocity (before smoothing)
+                _sp_vel_raw = np.abs(np.diff(_sp_cx, prepend=_sp_cx[0]))
+                # Smooth the velocity with wide sigma to avoid noisy blend transitions
+                # sigma=16 (was 8) — more gradual heavy↔light switching
+                _sp_vel_sm = _gf1d_spline(_sp_vel_raw, sigma=16.0, mode="nearest")
+                # Blend factor: 0.0=calm(heavy smooth), 1.0=fast(light smooth)
+                _sp_blend = np.clip(_sp_vel_sm / _sp_speed_thresh, 0.0, 1.0)
+                # Apply both sigma levels
+                _sp_cx_slow = _gf1d_spline(_sp_cx.copy(), sigma=_sp_sigma_slow, mode="nearest")
+                _sp_cx_fast = _gf1d_spline(_sp_cx.copy(), sigma=_sp_sigma_fast, mode="nearest")
+                _sp_cx = _sp_cx_slow * (1.0 - _sp_blend) + _sp_cx_fast * _sp_blend
+                # Y axis: same approach
+                _sp_cy_slow = _gf1d_spline(_sp_cy.copy(), sigma=_sp_sigma_slow, mode="nearest")
+                _sp_cy_fast = _gf1d_spline(_sp_cy.copy(), sigma=_sp_sigma_fast, mode="nearest")
+                _sp_vel_y = np.abs(np.diff(_sp_cy, prepend=_sp_cy[0]))
+                _sp_vel_y_sm = _gf1d_spline(_sp_vel_y, sigma=16.0, mode="nearest")
+                _sp_blend_y = np.clip(_sp_vel_y_sm / (_sp_speed_thresh * 0.8), 0.0, 1.0)
+                _sp_cy = _sp_cy_slow * (1.0 - _sp_blend_y) + _sp_cy_fast * _sp_blend_y
+                _sp_fast_pct = 100.0 * np.mean(_sp_blend > 0.5)
+                print(f"[ANCHOR-SPLINE] Velocity-adaptive smooth: {_sp_fast_pct:.0f}% fast-mode frames")
+
+            # (Acceleration limiter removed — too aggressive, prevented camera
+            #  from following fast ball movement. Jolt reduction now handled by
+            #  narrower sigma gap 12/8 and smoother blend transitions sigma=16.)
 
             # --- 7) Kick-hold protection: restore pre-spline states ---
             # Save planner's original cx/cy for kick-hold frames
@@ -10323,14 +10602,19 @@ def run(
             # --- 11) Summary logging ---
             _sp_deltas = np.abs(np.diff(_sp_cx))
             _sp_coverage = _sp_n_anchors / max(_sp_n, 1) * 100.0
+            _sp_n_ball_anchors = _sp_n_anchors - _sp_n_az_added
             _sp_leading = _sp_first
             _sp_trailing = max(0, _sp_n - 1 - _sp_last)
             _sp_esc_str = ""
             if _sp_anchor_escape_frames:
                 _sp_esc_str = f" anchor_escape_frames={_sp_anchor_escape_frames[:10]}"
+            _sp_az_str = ""
+            if _sp_n_az_added > 0:
+                _sp_az_str = f" ({_sp_n_ball_anchors} ball + {_sp_n_az_added} action-zone)"
+            _sp_stab_str = " +field-space" if _sp_use_stab else ""
             print(
                 f"[ANCHOR-SPLINE] PCHIP from {_sp_n_anchors} anchors "
-                f"({_sp_coverage:.0f}% coverage): "
+                f"({_sp_coverage:.0f}% coverage){_sp_az_str}{_sp_stab_str}: "
                 f"replaced {_sp_replaced}/{_sp_n} frames, "
                 f"mean_delta={float(_sp_deltas.mean()):.1f}px/f, "
                 f"max_delta={float(_sp_deltas.max()):.1f}px/f, "
@@ -11304,8 +11588,12 @@ def run(
     # output, correct camera plan if needed, and re-render.  Converges
     # in 1-3 passes.
     # ----------------------------------------------------------------
-    _MAX_CORRECTION_PASSES = 3
+    _MAX_CORRECTION_PASSES = 1 if _use_spline else 3
     _src_width = float(width) if width > 0 else 1920.0
+    # In spline mode, skip the correction loop entirely.  The PCHIP spline
+    # + Gaussian already produces a clean, smooth path.  The validation
+    # corrections and its speed limiter fight the spline, re-introducing
+    # jitter that the smoothing was designed to remove.
 
     for _pass_i in range(_MAX_CORRECTION_PASSES):
         jerk95 = renderer.write_frames(
@@ -11313,6 +11601,10 @@ def run(
             follow_centers=follow_centers_int or follow_centers,
             pan_x_plan=pan_plan_for_render,
         )
+
+        if _use_spline:
+            print(f"[VALIDATE] Spline mode — skipping correction passes (smooth path trusted)")
+            break  # single render pass, no corrections
 
         if _pass_i >= _MAX_CORRECTION_PASSES - 1:
             break  # last pass — accept whatever we have

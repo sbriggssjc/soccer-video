@@ -1105,7 +1105,7 @@ def run_yolo_ball_detection(
         weights_path=None,
         min_conf=min_conf,
         device="cpu",
-        input_size=1280,    # full resolution — critical for small soccer balls
+        input_size=1920,    # native resolution — maximize detection of small/distant balls
         smooth_alpha=0.25,
         max_gap=12,
     )
@@ -1801,14 +1801,30 @@ def fuse_yolo_and_centroid(
 
                 _n_removed = len(yolo_by_frame) - len(_keep)
                 if _n_removed > 0:
-                    yolo_by_frame = {f: yolo_by_frame[f] for f in _keep}
-                    print(
-                        f"[FUSION] Multi-ball filter: removed {_n_removed}/{_n_removed + len(_keep)} "
-                        f"YOLO detections ({_reason}, "
-                        f"size={len(_keep)}v{_n_removed}, ratio={_size_ratio:.1f}x, "
-                        f"gap={max(_max_gap_x, _max_gap_y):.0f}px, "
-                        f"kept mean_y={_kept_y:.0f})"
+                    # Safety: don't remove detections with high confidence —
+                    # a conf>0.45 detection is almost certainly the real ball,
+                    # even if it's far from centroid.  The centroid tracks
+                    # player-mass which can be totally wrong.
+                    _removed_frames = set(yolo_by_frame.keys()) - _keep
+                    _max_removed_conf = max(
+                        (float(yolo_by_frame[f].conf) for f in _removed_frames),
+                        default=0.0,
                     )
+                    if _max_removed_conf >= 0.45:
+                        print(
+                            f"[FUSION] Multi-ball filter: SKIPPED removal of "
+                            f"{_n_removed} detections — removed cluster contains "
+                            f"high-confidence detection (conf={_max_removed_conf:.3f} >= 0.45)"
+                        )
+                    else:
+                        yolo_by_frame = {f: yolo_by_frame[f] for f in _keep}
+                        print(
+                            f"[FUSION] Multi-ball filter: removed {_n_removed}/{_n_removed + len(_keep)} "
+                            f"YOLO detections ({_reason}, "
+                            f"size={len(_keep)}v{_n_removed}, ratio={_size_ratio:.1f}x, "
+                            f"gap={max(_max_gap_x, _max_gap_y):.0f}px, "
+                            f"kept mean_y={_kept_y:.0f})"
+                        )
 
     # Index centroid samples by frame
     centroid_by_frame: dict[int, BallSample] = {}
@@ -1820,16 +1836,13 @@ def fuse_yolo_and_centroid(
     yolo_used = 0
     centroid_used = 0
     blended = 0
-    conf_threshold = 0.28  # YOLO conf above which we trust it fully (lowered from 0.40)
+    conf_threshold = 0.20  # YOLO conf above which we trust it fully (lowered from 0.28)
     # Adaptive conf threshold: when YOLO is sparse, lower the threshold
-    # further so we accept more marginal detections.  At 5% density the
-    # threshold drops to 0.18, recovering ~30-50% more detections that
-    # were being discarded as "low confidence" even though they were
-    # correct ball positions.
+    # further so we accept more marginal detections.
     _yolo_density_pre = len(yolo_by_frame) / max(frame_count, 1)
     if _yolo_density_pre < 0.15:
         _density_ratio = _yolo_density_pre / 0.15
-        conf_threshold = max(0.15, conf_threshold * (0.65 + 0.35 * _density_ratio))
+        conf_threshold = max(0.12, conf_threshold * (0.65 + 0.35 * _density_ratio))
         print(
             f"[FUSION] Sparse YOLO ({_yolo_density_pre:.1%}): "
             f"lowered conf_threshold to {conf_threshold:.2f}"
