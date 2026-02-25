@@ -10099,9 +10099,9 @@ def run(
         # lighter smoothing during fast events (ball stays visible).
         # NOTE: cinematic preset's post_smooth_sigma=12 runs BEFORE the spline
         # and gets overwritten. This sigma is the ONLY smoothing on the final path.
-        _sp_sigma_slow = 12.0   # moderate smooth for calm/slow play (was 18 — too heavy, missed action)
-        _sp_sigma_fast = 8.0    # light smooth for fast events (was 5 — gap too large, jolty transitions)
-        _sp_speed_thresh = 15.0 # px/f — spline speed above which we use fast sigma
+        _sp_sigma_slow = 4.0    # very light smooth for calm play — PCHIP is already smooth
+        _sp_sigma_fast = 2.0    # minimal polish for fast events — let camera follow the ball
+        _sp_speed_thresh = 12.0 # px/f — spline speed above which we use fast sigma
 
         # --- 1) Extract anchor frames (YOLO=1, BLENDED=3, TRACKER=7) ---
         _sp_anchor_sources = {1, 3, 7}
