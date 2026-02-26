@@ -11361,8 +11361,11 @@ def run(
                 f"too few for spline, falling back to planner output"
             )
 
-    elif not _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
-        # --- LEGACY: Velocity-adaptive Gaussian (for --no-spline-camera) ---
+    elif not _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5 and False:
+        # v22e: DISABLED — Legacy Gaussian overwrites CameraPlanner output
+        # with a naive smoothed-ball-positions path, destroying the intelligent
+        # source-aware tracking, keepinview, and edge-detection fixes.
+        # The CameraPlanner + CINEMA-SMOOTH now drives the camera directly.
         from scipy.ndimage import gaussian_filter1d as _gf1d_global
         from scipy.ndimage import maximum_filter1d as _mf1d_global
 
