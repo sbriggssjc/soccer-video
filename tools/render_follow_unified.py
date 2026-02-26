@@ -10695,18 +10695,29 @@ def run(
                     f"{_sf_n_comb_rej} removed"
                 )
 
-                # --- b3) Action zone filter (person proximity) ---
-                # A real ball in active play is almost always near players.
-                # Detections far from any person are likely static sideline
-                # objects: cones, corner flags, equipment bags, painted lines.
-                # For each ball detection, compute distance to nearest person.
-                # If no person within _sf_az_radius, reject the detection.
-                # Exception: high-confidence detections (≥0.55) are trusted.
-                _sf_az_radius = 250.0   # px: max distance to nearest person
-                _sf_az_conf_bypass = 0.55  # high-conf detections skip this filter
+                # --- b3) Action zone filter (person proximity + density) ---
+                # A real ball in active play is almost always near MULTIPLE
+                # players.  Detections far from any person are clearly false.
+                # But single-person proximity is too weak — a cone next to the
+                # referee or a hairband near a spectator also passes.
+                #
+                # Enhanced logic (v21c):
+                #   1. conf ≥ 0.55 → keep (high-confidence bypass)
+                #   2. No person data on frame → keep (benefit of doubt)
+                #   3. Nearest person > 250px → reject (isolated)
+                #   4. Nearest person ≤ 120px → keep (ball AT someone's feet)
+                #   5. persons within 400px ≥ 3 → keep (active play cluster)
+                #   6. Otherwise (1–2 people nearby, none very close) → reject
+                #      (likely near spectator / referee / parent)
+                _sf_az_far_radius = 250.0    # px: nobody within this → reject
+                _sf_az_close_radius = 120.0  # px: someone THIS close → always keep
+                _sf_az_density_radius = 400.0  # px: radius for person count
+                _sf_az_min_density = 3       # minimum persons for "active play"
+                _sf_az_conf_bypass = 0.55    # high-conf detections skip
                 _sf_n_pre_az = len(_sf_yolo_idx)
                 _sf_az_keep = np.ones(_sf_n_pre_az, dtype=bool)
-                _sf_az_rejected = 0
+                _sf_az_rej_far = 0     # rejected: nobody nearby
+                _sf_az_rej_sparse = 0  # rejected: 1-2 people but not close
 
                 if person_boxes_by_frame:
                     for _ai in range(_sf_n_pre_az):
@@ -10719,20 +10730,40 @@ def run(
                         _persons = person_boxes_by_frame.get(_af, [])
                         if not _persons:
                             # No person detections on this frame — can't verify
-                            # Keep the detection (benefit of the doubt)
                             continue
-                        # Distance to nearest person
-                        _min_dist = float('inf')
+
+                        # Compute distances to all persons
+                        _dists = []
                         for _p in _persons:
                             _dx = _abx - float(_p.cx)
                             _dy = _aby - float(_p.cy)
-                            _d = math.sqrt(_dx * _dx + _dy * _dy)
-                            if _d < _min_dist:
-                                _min_dist = _d
-                        if _min_dist > _sf_az_radius:
-                            _sf_az_keep[_ai] = False
-                            _sf_az_rejected += 1
+                            _dists.append(math.sqrt(_dx * _dx + _dy * _dy))
 
+                        _min_dist = min(_dists)
+
+                        # Rule 3: nobody within far radius → reject
+                        if _min_dist > _sf_az_far_radius:
+                            _sf_az_keep[_ai] = False
+                            _sf_az_rej_far += 1
+                            continue
+
+                        # Rule 4: someone very close → keep (ball at feet)
+                        if _min_dist <= _sf_az_close_radius:
+                            continue
+
+                        # Rule 5: enough people nearby → active play
+                        _n_nearby = sum(
+                            1 for _d in _dists
+                            if _d <= _sf_az_density_radius
+                        )
+                        if _n_nearby >= _sf_az_min_density:
+                            continue
+
+                        # Rule 6: only 1-2 people, none very close → reject
+                        _sf_az_keep[_ai] = False
+                        _sf_az_rej_sparse += 1
+
+                _sf_az_rejected = _sf_az_rej_far + _sf_az_rej_sparse
                 if _sf_az_rejected > 0:
                     _sf_yolo_idx = _sf_yolo_idx[_sf_az_keep]
                     _sf_yolo_px = _sf_yolo_px[_sf_az_keep]
@@ -10740,9 +10771,9 @@ def run(
                     _sf_yolo_conf = _sf_yolo_conf[_sf_az_keep]
 
                 print(
-                    f"[ANCHOR-SPLINE] v21 action-zone filter: "
+                    f"[ANCHOR-SPLINE] v21c action-zone filter: "
                     f"{_sf_az_rejected}/{_sf_n_pre_az} rejected "
-                    f"(no person within {_sf_az_radius}px), "
+                    f"({_sf_az_rej_far} far + {_sf_az_rej_sparse} sparse), "
                     f"{len(_sf_yolo_idx)} remaining"
                 )
 
@@ -10777,6 +10808,210 @@ def run(
 
                 _sf_n_yolo = len(_sf_yolo_idx)
 
+                # --- c1b) Flow coherence / spike filter (v21d) ---
+                # If detection i deviates far from the linear interpolation
+                # between its temporal neighbors (i-1, i+1), it's an isolated
+                # spike — a false positive that would jerk the camera out-and-
+                # back.  Run iteratively: removing a spike changes the
+                # neighbors, which may reveal adjacent spikes.
+                _sf_spike_thresh = 200.0   # px: max x-deviation from interp
+                _sf_spike_total = 0
+
+                _changed = True
+                while _changed and len(_sf_yolo_idx) >= 3:
+                    _changed = False
+                    _sn = len(_sf_yolo_idx)
+                    _spike_keep = np.ones(_sn, dtype=bool)
+                    for _si in range(1, _sn - 1):
+                        _f_prev = float(_sf_yolo_idx[_si - 1])
+                        _f_curr = float(_sf_yolo_idx[_si])
+                        _f_next = float(_sf_yolo_idx[_si + 1])
+                        _dt = _f_next - _f_prev
+                        if _dt <= 0:
+                            continue
+                        _t_frac = (_f_curr - _f_prev) / _dt
+                        _x_interp = (float(_sf_yolo_px[_si - 1])
+                                     + _t_frac * (float(_sf_yolo_px[_si + 1])
+                                                  - float(_sf_yolo_px[_si - 1])))
+                        _x_dev = abs(float(_sf_yolo_px[_si]) - _x_interp)
+                        if _x_dev > _sf_spike_thresh:
+                            _spike_keep[_si] = False
+                            _changed = True
+                    _n_removed = int((~_spike_keep).sum())
+                    if _n_removed > 0:
+                        _sf_spike_total += _n_removed
+                        _sf_yolo_idx = _sf_yolo_idx[_spike_keep]
+                        _sf_yolo_px = _sf_yolo_px[_spike_keep]
+                        _sf_yolo_py = _sf_yolo_py[_spike_keep]
+                        _sf_yolo_conf = _sf_yolo_conf[_spike_keep]
+
+                _sf_median_total = 0  # not used, kept for print compat
+                if _sf_spike_total > 0:
+                    print(
+                        f"[ANCHOR-SPLINE] v21d spike filter: "
+                        f"{_sf_spike_total} spikes removed "
+                        f"(>{_sf_spike_thresh}px x-deviation from interp), "
+                        f"{len(_sf_yolo_idx)} remaining"
+                    )
+
+                # --- c1c) Ball appearance filter (v21e) ---
+                # YOLO detects grass patches, shadows, and ground marks as
+                # "ball" with medium confidence.  For each detection, extract
+                # a small crop from the source frame and check if a real ball
+                # is present via: Hough circles, inner variance, centre-vs-
+                # surround contrast, and edge strength.
+                # A detection is kept if ANY metric exceeds its threshold.
+                # High-confidence detections (>=0.55) bypass this filter.
+                _sf_app_conf_bypass = 0.55
+                _sf_app_rejected = 0
+                _sf_n_pre_app = len(_sf_yolo_idx)
+
+                try:
+                    _app_cap = cv2.VideoCapture(str(input_path))
+                    if not _app_cap.isOpened():
+                        raise RuntimeError("Cannot open video for appearance check")
+
+                    _app_keep = np.ones(_sf_n_pre_app, dtype=bool)
+                    for _ai in range(_sf_n_pre_app):
+                        if float(_sf_yolo_conf[_ai]) >= _sf_app_conf_bypass:
+                            continue
+                        _af = int(_sf_yolo_idx[_ai])
+                        _ax = int(round(float(_sf_yolo_px[_ai])))
+                        _ay = int(round(float(_sf_yolo_py[_ai])))
+
+                        _app_cap.set(cv2.CAP_PROP_POS_FRAMES, _af)
+                        _ok, _aframe = _app_cap.read()
+                        if not _ok:
+                            continue  # can't read → keep
+                        _ah, _aw = _aframe.shape[:2]
+                        _agray = cv2.cvtColor(_aframe, cv2.COLOR_BGR2GRAY)
+
+                        # Hough circles in 50x50 crop
+                        _cr = 25
+                        _cy1, _cy2 = max(0, _ay - _cr), min(_ah, _ay + _cr)
+                        _cx1, _cx2 = max(0, _ax - _cr), min(_aw, _ax + _cr)
+                        _acrop = _agray[_cy1:_cy2, _cx1:_cx2]
+                        if _acrop.size < 100:
+                            continue
+                        _ablur = cv2.GaussianBlur(_acrop, (5, 5), 1.5)
+                        _circles = cv2.HoughCircles(
+                            _ablur, cv2.HOUGH_GRADIENT, dp=1.2,
+                            minDist=15, param1=80, param2=18,
+                            minRadius=4, maxRadius=18,
+                        )
+                        if _circles is not None and len(_circles[0]) >= 1:
+                            continue  # circle found → keep
+
+                        # Inner variance (8px radius)
+                        _ri = 8
+                        _iy1 = max(0, _ay - _ri)
+                        _iy2 = min(_ah, _ay + _ri)
+                        _ix1 = max(0, _ax - _ri)
+                        _ix2 = min(_aw, _ax + _ri)
+                        _inner = _agray[_iy1:_iy2, _ix1:_ix2].astype(float)
+                        _in_var = float(np.std(_inner))
+                        if _in_var >= 15.0:
+                            continue  # textured → likely ball
+
+                        # Centre-vs-surround contrast (25px outer)
+                        _ro = 25
+                        _oy1 = max(0, _ay - _ro)
+                        _oy2 = min(_ah, _ay + _ro)
+                        _ox1 = max(0, _ax - _ro)
+                        _ox2 = min(_aw, _ax + _ro)
+                        _outer = _agray[_oy1:_oy2, _ox1:_ox2].astype(float)
+                        _contrast = abs(float(np.mean(_inner)) - float(np.mean(_outer)))
+                        if _contrast >= 15.0:
+                            continue  # distinct from surroundings
+
+                        # Edge strength (Sobel in 30x30)
+                        _er = 15
+                        _ecrop = _agray[
+                            max(0, _ay - _er):min(_ah, _ay + _er),
+                            max(0, _ax - _er):min(_aw, _ax + _er),
+                        ]
+                        if _ecrop.size > 0:
+                            _sx = cv2.Sobel(_ecrop, cv2.CV_64F, 1, 0, ksize=3)
+                            _sy = cv2.Sobel(_ecrop, cv2.CV_64F, 0, 1, ksize=3)
+                            _edge = float(np.mean(np.sqrt(_sx ** 2 + _sy ** 2)))
+                        else:
+                            _edge = 0.0
+                        if _edge >= 40.0:
+                            continue  # strong edges → real object
+
+                        # All metrics below thresholds → grass / shadow
+                        _app_keep[_ai] = False
+                        _sf_app_rejected += 1
+
+                    _app_cap.release()
+
+                    if _sf_app_rejected > 0:
+                        _sf_yolo_idx = _sf_yolo_idx[_app_keep]
+                        _sf_yolo_px = _sf_yolo_px[_app_keep]
+                        _sf_yolo_py = _sf_yolo_py[_app_keep]
+                        _sf_yolo_conf = _sf_yolo_conf[_app_keep]
+
+                    print(
+                        f"[ANCHOR-SPLINE] v21e appearance filter: "
+                        f"{_sf_app_rejected}/{_sf_n_pre_app} rejected "
+                        f"(no circle, low var/contrast/edge), "
+                        f"{len(_sf_yolo_idx)} remaining"
+                    )
+                except Exception as _app_err:
+                    print(f"[ANCHOR-SPLINE] appearance filter skipped: {_app_err}")
+                    _sf_app_rejected = 0
+
+                _sf_tc_rejected = 0   # trajectory filter removed (v21h)
+
+                # --- c1f) Player-centroid proximity gate (graduated) ---
+                # Reject detections far from the player cluster centroid.
+                # Uses a graduated threshold:
+                #   ≤500px: always keep (ball near play)
+                #   500-700px: keep only if conf ≥ 0.50 (ball ahead of
+                #              play — need higher confidence)
+                #   >700px: always reject (corner flag / detached)
+                _sf_centroid_soft = 600.0   # px: always keep below this
+                _sf_centroid_hard = 700.0   # px: always reject above this
+                _sf_centroid_mid_conf = 0.40  # conf floor for mid-range
+                _sf_centroid_rejected = 0
+                _sf_n_pre_centroid = len(_sf_yolo_idx)
+
+                if person_boxes_by_frame:
+                    _sf_centroid_keep = np.ones(_sf_n_pre_centroid, dtype=bool)
+                    for _ci in range(_sf_n_pre_centroid):
+                        _cf = int(_sf_yolo_idx[_ci])
+                        _cbx = float(_sf_yolo_px[_ci])
+                        _cconf = float(_sf_yolo_conf[_ci])
+                        _persons = person_boxes_by_frame.get(_cf, [])
+                        if len(_persons) < 3:
+                            continue
+                        _pcx = sum(float(_p.cx) for _p in _persons) / len(_persons)
+                        _dev = abs(_cbx - _pcx)
+                        if _dev <= _sf_centroid_soft:
+                            continue  # always keep
+                        if _dev > _sf_centroid_hard:
+                            _sf_centroid_keep[_ci] = False
+                            _sf_centroid_rejected += 1
+                            continue  # always reject
+                        # Mid-range: keep only with sufficient confidence
+                        if _cconf < _sf_centroid_mid_conf:
+                            _sf_centroid_keep[_ci] = False
+                            _sf_centroid_rejected += 1
+                    if _sf_centroid_rejected > 0:
+                        _sf_yolo_idx = _sf_yolo_idx[_sf_centroid_keep]
+                        _sf_yolo_px = _sf_yolo_px[_sf_centroid_keep]
+                        _sf_yolo_py = _sf_yolo_py[_sf_centroid_keep]
+                        _sf_yolo_conf = _sf_yolo_conf[_sf_centroid_keep]
+                        print(
+                            f"[ANCHOR-SPLINE] centroid proximity gate: "
+                            f"{_sf_centroid_rejected}/{_sf_n_pre_centroid} rejected "
+                            f"(soft={_sf_centroid_soft:.0f}px, hard={_sf_centroid_hard:.0f}px, "
+                            f"mid_conf={_sf_centroid_mid_conf:.2f}), "
+                            f"{len(_sf_yolo_idx)} remaining"
+                        )
+
+                _sf_n_yolo = len(_sf_yolo_idx)
+
                 # --- c2) Build overlay data ---
                 # Compare raw detections vs final kept set for diagnostic
                 # overlay rendering.
@@ -10805,13 +11040,17 @@ def run(
                 _sf_snap_speed_max = 80.0  # px/frame: max camera speed
 
                 print(
-                    f"[ANCHOR-SPLINE] v21 sequential snap-follow: "
+                    f"[ANCHOR-SPLINE] v21h sequential snap-follow: "
                     f"{len(_sf_raw_idx)} raw YOLO, "
-                    f"{_sf_n_comb_rej} cluster-filtered, "
-                    f"{_sf_n_vel_filt} velocity-filtered, "
-                    f"{_sf_n_yolo} kept, "
-                    f"snap_thresh={_sf_snap_thresh}px, "
-                    f"snap_speed_max={_sf_snap_speed_max}px/f"
+                    f"{_sf_n_comb_rej} cluster + "
+                    f"{_sf_az_rejected} action-zone + "
+                    f"{_sf_n_vel_filt} velocity + "
+                    f"{_sf_spike_total} spike + "
+                    f"{_sf_app_rejected} appearance + "
+                    f"{_sf_tc_rejected} trajectory + "
+                    f"{_sf_centroid_rejected} centroid = "
+                    f"{len(_sf_raw_idx) - _sf_n_yolo} filtered, "
+                    f"{_sf_n_yolo} kept"
                 )
 
                 # --- e) Build camera path from consecutive pairs ---
@@ -10892,10 +11131,12 @@ def run(
                     _sp_cx = _sf_cx
                     _sp_cy = _sf_cy
 
-                    # Light Gaussian polish (sigma=3): smooth sub-pixel
-                    # jitter from detection noise without softening snaps
-                    _sp_cx = _gf1d_spline(_sp_cx, sigma=3.0, mode="nearest")
-                    _sp_cy = _gf1d_spline(_sp_cy, sigma=3.0, mode="nearest")
+                    # Gaussian polish (sigma=12): smooth false-positive
+                    # excursions and detection noise.  Larger sigma dampens
+                    # multi-frame outlier jerks while still following
+                    # sustained ball movement.
+                    _sp_cx = _gf1d_spline(_sp_cx, sigma=12.0, mode="nearest")
+                    _sp_cy = _gf1d_spline(_sp_cy, sigma=12.0, mode="nearest")
 
                     print(
                         f"[ANCHOR-SPLINE] v21 result: "

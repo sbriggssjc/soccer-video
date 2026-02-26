@@ -26,7 +26,10 @@
       "Bash(/tmp/analyze_yolo_clip002.py:*)",
       "Bash(/tmp/analyze_jitter.py:*)",
       "Bash(/tmp/analyze_cam_shifts.py:*)",
-      "Bash(ffmpeg:*)"
+      "Bash(ffmpeg:*)",
+      "Bash(\"D:/Projects/soccer-video/analyze_yolo_crops.py\":*)",
+      "Bash(\"D:/Projects/soccer-video/analyze_002.py\":*)",
+      "Bash(\"D:/Projects/soccer-video/extract_v21f_crops.py\":*)"
     ]
   }
 }
