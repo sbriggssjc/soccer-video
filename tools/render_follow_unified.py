@@ -10229,7 +10229,7 @@ def run(
     #
     # For frames before the first anchor or after the last anchor, the
     # camera holds at the nearest anchor position (no extrapolation).
-    _use_spline = True  # v15: re-enable spline — PCHIP through YOLO+tracker only, no centroid pollution
+    _use_spline = False  # v22b: disable spline — CameraPlanner + keepinview fixes drive tracking
     # Overlay data for diagnostic rendering (populated inside spline section)
     _overlay_yolo_kept: dict = {}      # frame → (x, y, conf)
     _overlay_yolo_rejected: dict = {}  # frame → (x, y, conf, reason)
@@ -11367,10 +11367,10 @@ def run(
         from scipy.ndimage import maximum_filter1d as _mf1d_global
 
         _gp_n = len(states)
-        _gp_sigma_smooth = 18.0
-        _gp_sigma_fast = 6.0
+        _gp_sigma_smooth = 10.0   # v22d: 18→10 — halve camera lag (~0.33s vs 0.6s)
+        _gp_sigma_fast = 3.0     # v22d: 6→3 — snappier during fast ball movement
         _gp_v_lo = 3.0
-        _gp_v_hi = 18.0
+        _gp_v_hi = 10.0          # v22d: 18→10 — switch to fast-track mode sooner
         _gp_vel_window = 31
         _gp_pos_x = positions[:_gp_n, 0].astype(np.float64)
         _gp_conf = fusion_confidence[:_gp_n].astype(np.float64) if (
@@ -11429,9 +11429,10 @@ def run(
     # detections.  The gravity clamp uses noisy fused positions (including
     # centroid/interp/hold) as "ground truth" which would pull the camera
     # AWAY from the clean spline path toward wrong positions.
-    if not _use_spline and states and len(positions) > 0 and len(states) > 5:
-        # Adaptive gravity: tighten for clips with wide ball travel,
-        # loosen for clips where the ball stays near the center.
+    if not _use_spline and states and len(positions) > 0 and len(states) > 5 and False:
+        # v22d: DISABLED — gravity clamp creates jitter by fighting the
+        # Gaussian smooth path.  The BIC guarantee in POST-SMOOTH already
+        # keeps the ball in crop; gravity clamp is redundant and harmful.
         _grav_max_frac = 0.32  # default
         if auto_tune_enabled and positions is not None and len(positions) > 2:
             _at_h_range = analyze_ball_positions(
