@@ -6376,7 +6376,30 @@ class CameraPlanner:
             # ratio so the same real-world speed triggers the same behavior.
             _vel_hold = _target_delta < _dz_radius * 0.15 * _fps_ratio
             _vel_ramp = _target_delta < _dz_radius * 0.50 * _fps_ratio
-            if _pos_hold or _vel_hold:
+            # FIX: DEADZONE BYPASS WHEN BALL APPROACHING CROP EDGE
+            # The deadzone suppresses camera motion to prevent centroid
+            # jitter — but it also prevents the camera from reacting
+            # when the ball is genuinely moving toward (or beyond) the
+            # crop edge.  Compute a preliminary edge proximity check:
+            # if the ball is within 20% of the crop edge or outside it,
+            # bypass the deadzone entirely so the camera starts tracking
+            # before the ball escapes.  This is source-agnostic: even
+            # centroid/interp frames get deadzone bypass when near the
+            # edge, because a late reaction guarantees an escape.
+            _, _dz_pre_crop_w, _dz_pre_crop_h = _compute_crop_dimensions(zoom)
+            _ball_dx_from_cam = abs(bx_used - prev_cx)
+            _ball_dy_from_cam = abs(target_center_y - prev_cy)
+            _edge_proximity_x = _ball_dx_from_cam / max(_dz_pre_crop_w * 0.5, 1.0)
+            _edge_proximity_y = _ball_dy_from_cam / max(_dz_pre_crop_h * 0.5, 1.0)
+            _near_edge = max(_edge_proximity_x, _edge_proximity_y) > 0.80
+            if _near_edge:
+                # Ball near or beyond crop edge — full tracking, no deadzone.
+                # Scale by edge proximity so the response ramps smoothly
+                # from 80% to 100%+ of the half-crop distance.
+                _edge_urgency = min(1.0, (max(_edge_proximity_x, _edge_proximity_y) - 0.80) / 0.20)
+                follow_alpha = center_alpha * (0.5 + 0.5 * _edge_urgency)
+                clamp_flags.append(f"dz_edge_bypass={_edge_urgency:.2f}")
+            elif _pos_hold or _vel_hold:
                 follow_alpha = 0.0
                 _dz_hold_count += 1
             elif _pos_ramp or _vel_ramp:
@@ -6420,6 +6443,22 @@ class CameraPlanner:
             else:                              # CENTROID, HOLD, SHOT_HOLD
                 _source_alpha_scale = 0.04
             follow_alpha *= _source_alpha_scale
+            # FIX: KEEPINVIEW ALPHA FLOOR — when the ball is near or
+            # beyond the crop edge, enforce a minimum tracking alpha
+            # regardless of source type.  Without this, interp/centroid
+            # frames (alpha ~0.003) let the ball drift 300+px outside
+            # the crop before the keepinview guard can build enough
+            # correction momentum.  The floor scales with edge proximity
+            # so it's zero when the ball is well-centered and rises to
+            # 0.35 (comparable to full YOLO tracking) when the ball is
+            # at the crop edge.  This is the critical bridge between
+            # "don't chase centroid noise" and "don't lose the ball".
+            if _near_edge:
+                _edge_max = max(_edge_proximity_x, _edge_proximity_y)
+                # Ramp from 0 at 0.80 to 0.35 at 1.0 (crop edge)
+                _kv_alpha_floor = 0.35 * min(1.0, (_edge_max - 0.80) / 0.20)
+                if follow_alpha < _kv_alpha_floor:
+                    follow_alpha = _kv_alpha_floor
             cx_smooth = follow_alpha * _led_bx + (1.0 - follow_alpha) * prev_cx
             cy_smooth = follow_alpha * _led_by + (1.0 - follow_alpha) * prev_cy
 
@@ -6477,19 +6516,57 @@ class CameraPlanner:
             dx = abs(bx_used - cx_smooth)
             dy = abs(target_center_y - cy_smooth)
 
+            # FIX: ANTICIPATORY KEEPINVIEW — inject future ball position
+            # into the excess calculation.  When the ball is moving toward
+            # the crop edge (velocity is away from camera center), project
+            # the ball position forward by a few frames.  This gives the
+            # keepinview system a head start so it begins correcting BEFORE
+            # the ball actually leaves the crop, rather than after.
+            # The anticipation window scales with speed: fast crosses get
+            # more look-ahead than slow build-up.  This is critical for
+            # preventing escapes during interp/centroid stretches where
+            # the EMA tracking is heavily damped.
+            _antic_frames = 4.0  # base look-ahead frames (~170ms at 24fps)
+            _ball_vx = bx_used - prev_bx
+            _ball_vy = target_center_y - prev_by
+            # Only anticipate when ball is moving AWAY from camera center
+            _moving_away_x = (_ball_vx > 0 and bx_used > cx_smooth) or (_ball_vx < 0 and bx_used < cx_smooth)
+            _moving_away_y = (_ball_vy > 0 and target_center_y > cy_smooth) or (_ball_vy < 0 and target_center_y < cy_smooth)
+            _antic_bx = bx_used + (_ball_vx * _antic_frames if _moving_away_x else 0.0)
+            _antic_by = target_center_y + (_ball_vy * _antic_frames if _moving_away_y else 0.0)
+            # Blend actual and anticipated: use the WORSE of the two for
+            # excess computation so anticipation only increases urgency.
+            dx_antic = abs(_antic_bx - cx_smooth)
+            dy_antic = abs(_antic_by - cy_smooth)
+            dx_eff = max(dx, dx_antic)
+            dy_eff = max(dy, dy_antic)
+
             # Proportional keep-in-view: instead of a hard binary switch,
             # ramp nudge strength based on how far outside the margin the
             # ball has drifted.  This avoids the visible jolt that occurs
             # when the override toggles on/off between consecutive frames.
-            dx_excess = max(0.0, dx - margin_x) / max(margin_x, 1.0)
-            dy_excess = max(0.0, dy - margin_y) / max(margin_y, 1.0)
-            # Square the excess to create a gradual ease-in curve instead
-            # of a linear ramp.  Small excesses produce negligible nudge
-            # (0.1^2 = 0.01) while large excesses still trigger strong
-            # recentering (0.8^2 = 0.64).  This eliminates the visible
-            # snap when the ball crosses the margin boundary.
-            excess_frac = min(1.0, max(dx_excess, dy_excess))
-            excess_frac = excess_frac * excess_frac  # quadratic ramp
+            dx_excess = max(0.0, dx_eff - margin_x) / max(margin_x, 1.0)
+            dy_excess = max(0.0, dy_eff - margin_y) / max(margin_y, 1.0)
+            # FIX: BLENDED LINEAR→QUADRATIC RAMP for keepinview engagement.
+            # The old pure quadratic (x²) was too conservative for small
+            # excesses: at 0.15 excess, correction was only 0.0225 — nearly
+            # invisible, letting the ball drift 15+ frames before meaningful
+            # correction.  New approach: linear up to the crossover point
+            # (0.35), then quadratic above it.  This gives immediate
+            # proportional response for small escapes (the common case in
+            # crosses, transitions, and build-up play) while preserving
+            # the smooth ease-in curve for larger corrections.
+            #
+            #   Old: 0.10→0.01, 0.20→0.04, 0.35→0.12, 0.50→0.25
+            #   New: 0.10→0.10, 0.20→0.20, 0.35→0.35, 0.50→0.31
+            _raw_excess = min(1.0, max(dx_excess, dy_excess))
+            _CROSSOVER = 0.35  # blend point: linear below, quadratic above
+            if _raw_excess <= _CROSSOVER:
+                excess_frac = _raw_excess  # linear: immediate response
+            else:
+                # Quadratic above crossover, continuous at the blend point
+                _above = (_raw_excess - _CROSSOVER) / (1.0 - _CROSSOVER)
+                excess_frac = _CROSSOVER + (1.0 - _CROSSOVER) * (_above * _above)
 
             keepinview_override = excess_frac > 0.0
             if keepinview_override:

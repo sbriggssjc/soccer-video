@@ -1,0 +1,6 @@
+'where' is not recognized as an internal or external command,
+operable program or batch file.
+'where' is not recognized as an internal or external command,
+operable program or batch file.
+The filename, directory name, or volume label syntax is incorrect.
+The filename, directory name, or volume label syntax is incorrect.
