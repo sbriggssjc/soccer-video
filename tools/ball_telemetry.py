@@ -1826,6 +1826,28 @@ def fuse_yolo_and_centroid(
                             f"kept mean_y={_kept_y:.0f})"
                         )
 
+    # --- v22p: Drop ALL low-conf YOLO (verified false positives) ---
+    # All 13 YOLO detections with conf <= 0.25 were visually verified as
+    # false: shadows, player cleats, watermark text, sideline ball.
+    # Drop them all to prevent false anchors in interpolation.
+    _YOLO_CONF_FLOOR = 0.25
+    _false_dropped = 0
+    if yolo_by_frame:
+        _to_drop = [
+            fi for fi, s in yolo_by_frame.items()
+            if s.conf <= _YOLO_CONF_FLOOR
+        ]
+        for fi in _to_drop:
+            del yolo_by_frame[fi]
+            _false_dropped += 1
+        if _false_dropped > 0:
+            print(
+                f"[FUSION] v22p conf floor: dropped {_false_dropped} "
+                f"false YOLO (conf <= {_YOLO_CONF_FLOOR})"
+            )
+            for _dfi in sorted(_to_drop):
+                print(f"  [DROPPED] f{_dfi}")
+
     # Index centroid samples by frame
     centroid_by_frame: dict[int, BallSample] = {}
     for s in centroid_samples:
@@ -2152,7 +2174,8 @@ def fuse_yolo_and_centroid(
                     # then freeze.  This matches "ball enters net" physics.
                     _SH_DECEL = 0.90 ** (30.0 / _fps)  # per-frame decay
                     _SH_EXTRAP = min(15, gap // 2)       # decel frames
-                    _SH_CONF = 0.25                       # low confidence
+                    _SH_CONF_START = 0.45                 # v22p: high conf at start (resist Gaussian)
+                    _SH_CONF_END = 0.20                   # v22p: low conf at end (smooth transition)
                     _sh_yi = yolo_by_frame[fi]
                     # Average velocity from the pre-gap YOLO segment
                     _sh_vx_sum = 0.0
@@ -2186,6 +2209,7 @@ def fuse_yolo_and_centroid(
                     _sh_cur_y = float(_sh_yi.y)
                     _sh_cur_vx = _sh_vx
                     _sh_cur_vy = _sh_vy
+                    _sh_gap_len = fj - fi - 1  # total frames in this shot-hold
                     for k in range(fi + 1, fj):
                         _sh_t = k - fi
                         if _sh_t <= _SH_EXTRAP:
@@ -2198,7 +2222,9 @@ def fuse_yolo_and_centroid(
                             _sh_cur_y = _sh_hold_y
                         positions[k, 0] = max(0.0, min(width, _sh_cur_x))
                         positions[k, 1] = max(0.0, min(height, _sh_cur_y))
-                        confidence[k] = _SH_CONF
+                        # v22p: ramped confidence — high at start, low at end
+                        _sh_frac = (_sh_t - 1) / max(_sh_gap_len - 1, 1)
+                        confidence[k] = _SH_CONF_START + _sh_frac * (_SH_CONF_END - _SH_CONF_START)
                         source_labels[k] = FUSE_SHOT_HOLD
                         used_mask[k] = True
                         interpolated += 1

@@ -1,0 +1,70 @@
+Loaded 59 YOLO detections
+Extracting 59 unique frames...
+Frames extracted to D:\Projects\soccer-video\_yolo_verify\_tmp
+  f25: conf=0.213 at (461,433) -> f0025_conf0.213.jpg
+  f45: conf=0.213 at (475,436) -> f0045_conf0.213.jpg
+  f69: conf=0.214 at (708,432) -> f0069_conf0.214.jpg
+  f95: conf=0.566 at (850,426) -> f0095_conf0.566.jpg
+  f96: conf=0.512 at (852,426) -> f0096_conf0.512.jpg
+  f105: conf=0.438 at (862,425) -> f0105_conf0.438.jpg
+  f120: conf=0.238 at (886,426) -> f0120_conf0.238.jpg
+  f121: conf=0.245 at (886,426) -> f0121_conf0.245.jpg
+  f122: conf=0.260 at (885,426) -> f0122_conf0.260.jpg
+  f125: conf=0.312 at (886,426) -> f0125_conf0.312.jpg
+  f126: conf=0.366 at (888,426) -> f0126_conf0.366.jpg
+  f144: conf=0.293 at (1410,550) -> f0144_conf0.293.jpg
+  f171: conf=0.269 at (1681,325) -> f0171_conf0.269.jpg
+  f186: conf=0.221 at (1415,438) -> f0186_conf0.221.jpg
+  f198: conf=0.223 at (1464,435) -> f0198_conf0.223.jpg
+  f199: conf=0.224 at (1520,431) -> f0199_conf0.224.jpg
+  f202: conf=0.261 at (1524,431) -> f0202_conf0.261.jpg
+  f203: conf=0.289 at (1507,432) -> f0203_conf0.289.jpg
+  f204: conf=0.288 at (1491,433) -> f0204_conf0.288.jpg
+  f208: conf=0.285 at (1474,445) -> f0208_conf0.285.jpg
+  f209: conf=0.284 at (1460,459) -> f0209_conf0.284.jpg
+  f210: conf=0.270 at (1449,471) -> f0210_conf0.270.jpg
+  f211: conf=0.319 at (1438,480) -> f0211_conf0.319.jpg
+  f212: conf=0.324 at (1431,490) -> f0212_conf0.324.jpg
+  f219: conf=0.301 at (1423,504) -> f0219_conf0.301.jpg
+  f253: conf=0.452 at (1379,462) -> f0253_conf0.452.jpg
+  f254: conf=0.452 at (1379,462) -> f0254_conf0.452.jpg
+  f268: conf=0.250 at (1782,481) -> f0268_conf0.250.jpg
+  f269: conf=0.249 at (1782,481) -> f0269_conf0.249.jpg
+  f272: conf=0.269 at (1727,486) -> f0272_conf0.269.jpg
+  f276: conf=0.269 at (1702,490) -> f0276_conf0.269.jpg
+  f280: conf=0.252 at (1683,493) -> f0280_conf0.252.jpg
+  f285: conf=0.251 at (1683,495) -> f0285_conf0.251.jpg
+  f286: conf=0.257 at (1705,494) -> f0286_conf0.257.jpg
+  f287: conf=0.254 at (1727,492) -> f0287_conf0.254.jpg
+  f288: conf=0.304 at (1746,491) -> f0288_conf0.304.jpg
+  f289: conf=0.340 at (1760,490) -> f0289_conf0.340.jpg
+  f290: conf=0.322 at (1771,489) -> f0290_conf0.322.jpg
+  f291: conf=0.299 at (1776,488) -> f0291_conf0.299.jpg
+  f292: conf=0.377 at (1777,488) -> f0292_conf0.377.jpg
+  f293: conf=0.434 at (1776,489) -> f0293_conf0.434.jpg
+  f295: conf=0.437 at (1774,489) -> f0295_conf0.437.jpg
+  f296: conf=0.438 at (1774,489) -> f0296_conf0.438.jpg
+  f297: conf=0.401 at (1774,489) -> f0297_conf0.401.jpg
+  f302: conf=0.389 at (1792,497) -> f0302_conf0.389.jpg
+  f306: conf=0.401 at (1792,501) -> f0306_conf0.401.jpg
+  f307: conf=0.379 at (1782,498) -> f0307_conf0.379.jpg
+  f308: conf=0.361 at (1771,496) -> f0308_conf0.361.jpg
+  f309: conf=0.330 at (1707,492) -> f0309_conf0.330.jpg
+  f313: conf=0.306 at (1615,488) -> f0313_conf0.306.jpg
+  f314: conf=0.294 at (1607,487) -> f0314_conf0.294.jpg
+  f332: conf=0.202 at (919,571) -> f0332_conf0.202.jpg
+  f425: conf=0.377 at (95,1028) -> f0425_conf0.377.jpg
+  f426: conf=0.397 at (96,1028) -> f0426_conf0.397.jpg
+  f431: conf=0.370 at (111,1026) -> f0431_conf0.370.jpg
+  f466: conf=0.205 at (1713,1018) -> f0466_conf0.205.jpg
+  f479: conf=0.402 at (406,778) -> f0479_conf0.402.jpg
+  f481: conf=0.351 at (407,778) -> f0481_conf0.351.jpg
+  f494: conf=0.225 at (81,1014) -> f0494_conf0.225.jpg
+
+Creating contact sheet...
+
+Done! Contact sheet: D:\Projects\soccer-video\_yolo_verify\contact_sheet.jpg
+Individual frames: D:\Projects\soccer-video\_yolo_verify
+Total: 59 annotated frames
+  Red markers = conf < 0.25 (potential phantoms)
+  Green markers = conf >= 0.25 (likely valid)

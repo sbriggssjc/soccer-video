@@ -6358,11 +6358,11 @@ class CameraPlanner:
             # YOLO/blended: 10% (normal).  Centroid/hold: 30% of crop,
             # meaning the ball must drift to the outer third before the
             # camera even begins to respond.
-            _dz_base = 0.10  # 10% of crop width (was 6.5%)
+            _dz_base = 0.06  # v22g: 6% of crop width (~36px) — reduced from 10% to let camera respond sooner
             if _cur_source_label in (1, 3, 7):   # YOLO, BLENDED, TRACKER
                 _dz_source_scale = 1.0
             elif _cur_source_label == 4:       # INTERP
-                _dz_source_scale = 1.5
+                _dz_source_scale = 1.0  # v22g: same as YOLO — interp paths are reliable linear trajectories
             else:                              # CENTROID, HOLD
                 _dz_source_scale = 3.0
             _dz_radius = _dz_crop_w * _dz_base * _dz_source_scale
@@ -6439,7 +6439,7 @@ class CameraPlanner:
                 # the camera.  conf >= 0.55 → full alpha; conf 0.30 → 0.55×
                 _source_alpha_scale = min(1.0, frame_conf / 0.55)
             elif _cur_source_label == 4:       # INTERP
-                _source_alpha_scale = 0.12
+                _source_alpha_scale = 0.50  # v22f: raised from 0.12 — interp frames are linear paths between confirmed YOLO positions, trustworthy enough for real tracking
             else:                              # CENTROID, HOLD, SHOT_HOLD
                 _source_alpha_scale = 0.04
             follow_alpha *= _source_alpha_scale
@@ -9397,6 +9397,9 @@ def run(
                 float(fusion_confidence[used_mask].mean()) if used_mask.any() else 0.0,
             )
 
+            # v22l: Post-FUSION phantom cleanup REMOVED — fixing inside
+            # fuse_yolo_and_centroid() instead (raise interp anchor conf
+            # threshold so phantoms never enter the pipeline).
             # --- Wrong-ball sanity check ---
             # When two balls are visible (e.g. adjacent field in the
             # background), the multi-ball filter may keep the wrong
@@ -9607,6 +9610,7 @@ def run(
             _FUSE_YOLO = np.uint8(1)
             _FUSE_INTERP = np.uint8(4)
             _FUSE_HOLD = np.uint8(5)
+            _FUSE_SHOT_HOLD = np.uint8(6)  # v22p
             _high_conf_alpha = 0.85  # trust own value — minimal neighbour pull
             for _si in range(_n_pos):
                 _sl = fusion_source_labels[_si]
@@ -9622,6 +9626,12 @@ def run(
                     # the frame edge on free-kick clips.  Alpha=1.0
                     # locks them to the YOLO anchor position.
                     _per_alpha[_si] = 1.0
+                elif _sl == _FUSE_SHOT_HOLD:
+                    # v22p: Moderate EMA protection for shot-hold.
+                    # alpha=0.50 means backward-pass erosion penetrates
+                    # ~10 frames (natural transition zone) instead of
+                    # ~50 frames at default alpha=0.12.
+                    _per_alpha[_si] = 0.50
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []
@@ -11361,19 +11371,18 @@ def run(
                 f"too few for spline, falling back to planner output"
             )
 
-    elif not _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5 and False:
-        # v22e: DISABLED — Legacy Gaussian overwrites CameraPlanner output
-        # with a naive smoothed-ball-positions path, destroying the intelligent
-        # source-aware tracking, keepinview, and edge-detection fixes.
-        # The CameraPlanner + CINEMA-SMOOTH now drives the camera directly.
+    elif not _use_spline and states and positions is not None and len(positions) >= len(states) and len(states) >= 5:
+        # v22h: RE-ENABLED with lower sigma — Legacy Gaussian centered smoothing
+        # tracks ball positions far better than CameraPlanner EMA (which inherently
+        # lags).  Reduced sigma from 10→6 for snappier transitions at passes/crosses.
         from scipy.ndimage import gaussian_filter1d as _gf1d_global
         from scipy.ndimage import maximum_filter1d as _mf1d_global
 
         _gp_n = len(states)
-        _gp_sigma_smooth = 10.0   # v22d: 18→10 — halve camera lag (~0.33s vs 0.6s)
-        _gp_sigma_fast = 3.0     # v22d: 6→3 — snappier during fast ball movement
+        _gp_sigma_smooth = 6.0   # v22h: 10→6 — snappier transitions (~0.2s lag vs 0.33s)
+        _gp_sigma_fast = 2.0     # v22h: 3→2 — even faster during high-speed ball flight
         _gp_v_lo = 3.0
-        _gp_v_hi = 10.0          # v22d: 18→10 — switch to fast-track mode sooner
+        _gp_v_hi = 8.0           # v22h: 10→8 — switch to fast-track mode sooner
         _gp_vel_window = 31
         _gp_pos_x = positions[:_gp_n, 0].astype(np.float64)
         _gp_conf = fusion_confidence[:_gp_n].astype(np.float64) if (

@@ -1,10 +1,10 @@
 cinematic:
   fps: 24                 # fixed social cadence
   lookahead: 0            # zero: telemetry already has forward-biased Gaussian smoothing
-  smoothing: 0.22         # tracking alpha — raised from 0.15 to reduce lag during camera pans
+  smoothing: 0.40         # v22f: raised from 0.22 — CameraPlanner now sole tracker, needs higher alpha
   pad: 0.04               # reduced from 0.10 — preserves more source pixels (1.93x upscale vs 2.22x)
   speed_limit: 1500       # v22e: raised from 1100 — camera can match fast ball flight (50px/f at 30fps)
-  post_smooth_sigma: 6.0  # v22e: lowered from 12.0 — with Legacy Gaussian disabled, CINEMA-SMOOTH is the only smoother; sigma=4.8 (~5 frames, 0.17s) gives responsive yet smooth pans
+  post_smooth_sigma: 2.5  # v22g: lowered from 6.0 — sigma=2.0 (~4-frame window) prevents CINEMA-SMOOTH from washing out CameraPlanner responsiveness
   zoom_min: 0.85          # lowered from 1.00 — allows confidence-driven zoom-out when ball position uncertain
   zoom_max: 1.40          # reduced from 1.90 — caps upscale to ~2x, preserves sharpness
   crf: 17                 # higher quality output
