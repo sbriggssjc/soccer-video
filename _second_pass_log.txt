@@ -1,0 +1,62 @@
+=== Loading crop geometry ===
+  Loaded crop info for 496 frames
+  Portrait video: 1080x1920, 496 frames, 30.0fps
+
+=== Running YOLO ball detection on portrait video ===
+  Loaded model: yolov8x.pt
+  Processed 50/496 frames, 0 detections so far
+  Processed 100/496 frames, 0 detections so far
+  Processed 150/496 frames, 3 detections so far
+  Processed 200/496 frames, 11 detections so far
+  Processed 250/496 frames, 13 detections so far
+  Processed 300/496 frames, 13 detections so far
+  Processed 350/496 frames, 13 detections so far
+  Processed 400/496 frames, 21 detections so far
+  Processed 450/496 frames, 30 detections so far
+
+  Total: 45 portrait detections from 496 frames (9.1%)
+
+=== Filtering portrait detections ===
+  Kept 45/45 after filtering
+  Portrait detections saved -> D:\Projects\soccer-video\out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.portrait_pass.jsonl
+
+=== Merging with polished v12 detections ===
+  Existing polished: 81 detections
+  Portrait pass: 45 detections
+  Added: 16 new portrait detections
+  Skipped (existing): 28
+  Skipped (consistency): 1
+  Final merged: 97 detections
+  Coverage: 97/496 = 19.6%
+
+=== Final velocity scrub ===
+  Iter 1: scrubbed 2 outliers: [360, 471]
+  Final after scrub: 95 detections (19.2% coverage)
+
+=== Saving ===
+  Merged v13 -> D:\Projects\soccer-video\out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.merged_v13.jsonl
+  Main file updated -> D:\Projects\soccer-video\out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.tracker_ball.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.follow.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.follow__smooth.jsonl
+
+=== Summary ===
+  v12 polished: 81 YOLO detections (16.3% coverage)
+  Portrait pass: 45 raw detections
+  v13 merged: 95 detections (19.2% coverage)
+
+  Remaining gaps >10f:
+    f46 -> f57: 11 frames
+    f57 -> f82: 25 frames
+    f83 -> f110: 27 frames
+    f110 -> f130: 20 frames
+    f186 -> f212: 26 frames
+    f229 -> f243: 14 frames
+    f248 -> f293: 45 frames
+    f306 -> f351: 45 frames
+    f366 -> f395: 29 frames
+    f424 -> f435: 11 frames
+
+Done! Run pipeline to regenerate v13.
+EXITCODE=0 

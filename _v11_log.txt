@@ -1,0 +1,128 @@
+[INFO] [MOTION] Generating motion-centroid telemetry at out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.jsonl
+[MOTION] Generating full-clip motion telemetry for 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.mp4 (496 frames, 16.5s)...
+[MOTION] Source-camera pan detected on 325/496 frames — compensating
+[MOTION] Global detections: 396/496 frames
+[MOTION] Stitched path: 496/496 frames
+[MOTION] Telemetry complete: 496 frames, cx=[247, 1755], lookahead=0.60s
+[INFO] [BALL-TELEMETRY] ball_src_x=[247.2, 1754.7], ball_src_y=[709.0, 1014.9], kept=496/496, conf=0.84
+[INFO] [BALL-CAM RAW] N=496, ball_cx_range=[247.2, 1754.7], ball_cy_range=[709.0, 1014.9], vpos=0.55
+[INFO] [BALL-CAM STRICT] N=496, cx_range=[304.0, 1616.0], cy_range=[540.0, 540.0], lead_frames=3, smooth_window=5, max_speed_px=120.0, margin=80.0, vpos=0.60
+[INFO] [BALL-CAM COVERAGE] ball_in_crop: 100.0% (496/496), strict_with_margin: 77.2% (383/496)
+[INFO] [BALL-CAM] coverage: 100.0% (conf=0.84, quality=0.79), path: 496 frames, cx range=[304.0, 1616.0], jerk95_raw=4042.1, jerk95_cam=5818.7 px/s^3
+[INFO] [BALL-CAM] ball_in_crop_horiz: 100.0% (496/496)
+[YOLO] Loaded 47 cached YOLO detections from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.jsonl
+[FUSION] Sparse YOLO (9.5%): lowered conf_threshold to 0.17
+[FUSION] Sparse YOLO (9.5%): gating stale_frames=52, hold_blend=0.51
+[FUSION] 496/496 frames covered (100.0%): yolo=47, centroid=449, blended=0, avg_conf=0.29
+[FUSION] Sparse YOLO: extended LONG_INTERP_GAP 90->123 frames
+[FUSION] Shot-hold: frames 222->293 (71 frames), holding near x=760 (endpoint x=1776 ignored, dist=1017px)
+[FUSION] Pan-hold: frames 306->361 (55 frames), holding near x=1792 (endpoint x=810 ignored, dist=984px)
+[FUSION] Shot-hold: frames 366->436 (70 frames), holding near x=622 (endpoint x=528 ignored, dist=179px)
+[FUSION] Backward-hold: filled 60 leading frames from first YOLO at frame 130
+[FUSION] Interpolated 379 frames between YOLO detections (short_gap=15, long_gap=123) (long-flight=270)
+[FUSION] YOLO-anchor blend: adjusted 27 centroid frames (density=9.5%, range=90f, max_disp=200px)
+[FUSION] Long-flight: frames 154->182 (t=5.1s->6.1s, 28 frames), ball x=1516->1212 (305px) [linear]
+[FUSION] Long-flight: frames 185->212 (t=6.2s->7.1s, 27 frames), ball x=1256->1109 (161px) [linear]
+[FUSION] Long-flight: frames 222->293 (t=7.4s->9.8s, 71 frames), ball x=760->1776 (1017px) [shot_hold]
+[FUSION] Long-flight: frames 306->361 (t=10.2s->12.0s, 55 frames), ball x=1792->810 (984px) [pan_hold]
+[FUSION] Long-flight: frames 366->436 (t=12.2s->14.5s, 70 frames), ball x=622->528 (179px) [shot_hold]
+[FUSION] Long-flight: frames 444->469 (t=14.8s->15.6s, 25 frames), ball x=641->874 (234px) [linear]
+[FUSION] Ball x timeline (1s steps): f0=784, f30=1246, f60=1629, f90=960, f120=960, f150=1405, f180=1233, f210=1120, f240=760, f270=760, f300=1780, f330=1792, f360=1792, f390=622, f420=622, f450=697, f480=943, f495=927
+[INFO] [PLANNER] Using YOLO+centroid fusion: 496/496 frames covered, avg confidence=0.37
+[TRACKER] Found 7 trackable gaps (105 total frames)
+[TRACKER] Gap 142-151: endpoint divergence 206px > 144px, discarding 10 frames
+[TRACKER] Gap 142-151: tracked 0/10 frames
+[TRACKER] Gap 155-181: endpoint divergence 433px > 144px, discarding 27 frames
+[TRACKER] Gap 155-181: tracked 0/27 frames
+[TRACKER] Gap 186-211: endpoint divergence 236px > 144px, discarding 26 frames
+[TRACKER] Gap 186-211: tracked 0/26 frames
+[TRACKER] Gap 213-215: tracked 3/3 frames
+[TRACKER] Gap 298-305: tracked 8/8 frames
+[TRACKER] Gap 445-468: tracked 24/24 frames
+[TRACKER] Gap 470-476: tracked 7/7 frames
+[TRACKER] Cached 42 tracker positions to out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.tracker_ball.jsonl
+[TRACKER] Total: 42/105 gap frames tracked across 7 gaps
+[INFO] [TRACKER] CSRT filled 42 gap frames with real pixel data
+[YOLO] Loaded 6127 cached person detections (496 frames) from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_person.jsonl
+[INFO] [PLANNER] Position smoothing: 496 frames (191 high-conf protected), max delta 1016.7->493.1 px/frame
+[INFO] [TRAJ-SMOOTH] Velocity-adaptive Gaussian (sigma=8): 22% of frames heavily smoothed, v_range=[0.0, 493.1] px/f
+[DEBUG] num_frames=496 fps=30.0 positions=496 duration=16.533333333333335
+[DEBUG] ball_samples=496
+[INFO] [POST-SMOOTH] Ball-in-crop guarantee: adjusted 19/496 frames (margin=60px)
+[INFO] [POST-SMOOTH] BIC re-applied after smooth: 14 frames
+[INFO] [POST-SMOOTH] BIC convergence pass: 11 frames
+[INFO] [CINEMA-SMOOTH] Final smooth pass (sigma=3.0) applied to 496 frames
+[GLOBAL-PATH] Legacy Gaussian: replaced 456/496 frames, mean_delta=10.8px/f, max_delta=154.6px/f
+[CAMERA] Speed limiter (preset): clamped 44/496 frames (max 50.0px/f = 1500px/s, trans=75.0px/f, catchup=60.0px/f)
+[CAMERA] cx: range=1007px, max_delta=50.0px/f, mean_delta=10.0px/f, p95_delta=50.0px/f, reversals=26, deadzone_hold=44%, still=30%
+[CAMERA] zoom: range=0.05, max_delta=0.0075/f, mean_delta=0.0009/f, reversals=24, person_ctx=127f, flight=496f
+[DIAG] Ball in crop: 485/496 (97.8%) | Outside: 11 frames | Max escape: 119px
+[DIAG] Source breakdown: yolo=47(9 out/19%), centroid=70(0 out/0%), interp=73(1 out/1%), hold=71(0 out/0%), shot_hold=193(1 out/1%), tracker=42(0 out/0%)
+[DIAG] WARNING: 407/496 frames (82%) use synthetic positions (interp=73, hold=71, shot_hold=193, centroid=70). Ball-in-crop metric is unreliable — actual ball may be outside the crop.
+[DIAG] YOLO-only ball in crop: 38/89 (42.7%) | Interpolated/held frames (not checked): 144
+[DIAG] Speed-limited: 2f (0%) | Keepinview: 133f (27%)
+[DIAG] Confidence-weighted ball-in-crop: 89.9% (weighted frames: 89/496)
+[DIAG] Camera cx timeline (1s): f0=818, f30=1241, f60=1516, f90=962, f120=960, f150=1421, f180=1241, f210=1104, f240=762, f270=788, f300=1591, f330=1591, f360=1313, f390=622, f420=614, f450=717, f480=937, f495=928
+[DIAG] Worst escapes: f363:119px(yolo), f362:116px(yolo), f364:106px(yolo), f294:92px(interp), f365:85px(yolo)
+[DIAG] Per-frame CSV: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__cleaned_v11.diag.csv
+[INFO] [PAN] CameraPlanner driving panning directly (Option C disabled)
+[INFO] [PAN-DEBUG] src=(1920,1080) portrait_target=(608.0,1080.0) scale_x=0.3167 offset_x=0.00
+[INFO] [STAB] Stabilisation active: 496 frames, peak_y=11.4px, peak_x=40.0px, overscan=1.027
+[VALIDATE] Checked 37 portrait frames: ball_detected=0, ball_missing=2, edge_warnings=0, corrections=2
+[VALIDATE] Pass 1: corrected 89 frames, speed-limited 20 â€” re-rendering...
+[INFO] [PAN-DEBUG] src=(1920,1080) portrait_target=(608.0,1080.0) scale_x=0.3167 offset_x=0.00
+[INFO] [STAB] Stabilisation active: 496 frames, peak_y=11.4px, peak_x=40.0px, overscan=1.027
+[VALIDATE] Checked 37 portrait frames: ball_detected=0, ball_missing=2, edge_warnings=0, corrections=2
+[VALIDATE] Pass 2: corrected 89 frames, speed-limited 37 â€” re-rendering...
+[INFO] [PAN-DEBUG] src=(1920,1080) portrait_target=(608.0,1080.0) scale_x=0.3167 offset_x=0.00
+[INFO] [STAB] Stabilisation active: 496 frames, peak_y=11.4px, peak_x=40.0px, overscan=1.027
+[FFMPEG] Stitching frames from D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames -> D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__cleaned_v11.mp4
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, image2, from 'D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames\frame_%06d.png':
+  Duration: 00:00:16.53, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1080x1920, 30 fps, 30 tbr, 30 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 000001e3a4aa7380] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 000001e3a4aa7380] profile High, level 5.0, 4:2:0, 8-bit
+[libx264 @ 000001e3a4aa7380] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=5 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=8 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=2 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=18 lookahead_threads=3 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=3 weightb=1 open_gop=0 weightp=2 keyint=96 keyint_min=9 scenecut=40 intra_refresh=0 rc_lookahead=50 rc=crf mbtree=1 crf=17.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\.tmp.002__cleaned_v11.mp4':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1080x1920, q=2-31, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.50    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:01.03    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:01.55    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:02.08    frame=   10 fps=3.8 q=23.0 size=     512KiB time=00:00:00.26 bitrate=15730.1kbits/s speed= 0.1x elapsed=0:00:02.65    frame=   16 fps=5.0 q=23.0 size=     768KiB time=00:00:00.46 bitrate=13482.5kbits/s speed=0.146x elapsed=0:00:03.19    frame=   19 fps=5.0 q=23.0 size=     768KiB time=00:00:00.56 bitrate=11103.2kbits/s speed=0.15x elapsed=0:00:03.78    frame=   30 fps=6.9 q=23.0 size=    1536KiB time=00:00:00.93 bitrate=13482.1kbits/s speed=0.213x elapsed=0:00:04.37    frame=   46 fps=9.2 q=23.0 size=    2048KiB time=00:00:01.46 bitrate=11439.3kbits/s speed=0.294x elapsed=0:00:04.98    frame=   53 fps=9.4 q=23.0 size=    2560KiB time=00:00:01.70 bitrate=12336.4kbits/s speed=0.303x elapsed=0:00:05.61    frame=   64 fps= 10 q=23.0 size=    3072KiB time=00:00:02.06 bitrate=12177.2kbits/s speed=0.333x elapsed=0:00:06.20    frame=   66 fps=9.8 q=23.0 size=    3072KiB time=00:00:02.13 bitrate=11796.7kbits/s speed=0.316x elapsed=0:00:06.74    frame=   72 fps=9.9 q=23.0 size=    3328KiB time=00:00:02.33 bitrate=11684.3kbits/s speed=0.321x elapsed=0:00:07.25    frame=   85 fps= 11 q=23.0 size=    4352KiB time=00:00:02.76 bitrate=12886.3kbits/s speed=0.353x elapsed=0:00:07.84    frame=   95 fps= 11 q=23.0 size=    5120KiB time=00:00:03.10 bitrate=13530.1kbits/s speed=0.37x elapsed=0:00:08.37    frame=   97 fps= 11 q=23.0 size=    5120KiB time=00:00:03.16 bitrate=13245.3kbits/s speed=0.355x elapsed=0:00:08.92    frame=  103 fps= 11 q=23.0 size=    5632KiB time=00:00:03.36 bitrate=13704.3kbits/s speed=0.356x elapsed=0:00:09.46    frame=  108 fps= 11 q=23.0 size=    5888KiB time=00:00:03.53 bitrate=13651.4kbits/s speed=0.354x elapsed=0:00:09.97    frame=  119 fps= 11 q=23.0 size=    6656KiB time=00:00:03.90 bitrate=13981.1kbits/s speed=0.37x elapsed=0:00:10.54    frame=  130 fps= 12 q=23.0 size=    7168KiB time=00:00:04.26 bitrate=13762.6kbits/s speed=0.384x elapsed=0:00:11.11    frame=  142 fps= 12 q=23.0 size=    7680KiB time=00:00:04.66 bitrate=13481.8kbits/s speed=0.402x elapsed=0:00:11.62    frame=  150 fps= 12 q=23.0 size=    8192KiB time=00:00:04.93 bitrate=13603.2kbits/s speed=0.406x elapsed=0:00:12.14    frame=  168 fps= 13 q=23.0 size=    9216KiB time=00:00:05.53 bitrate=13644.2kbits/s speed=0.437x elapsed=0:00:12.66    frame=  169 fps= 13 q=23.0 size=    9216KiB time=00:00:05.56 bitrate=13562.5kbits/s speed=0.422x elapsed=0:00:13.17    frame=  181 fps= 13 q=23.0 size=   10240KiB time=00:00:05.96 bitrate=14059.2kbits/s speed=0.436x elapsed=0:00:13.69    frame=  197 fps= 14 q=23.0 size=   11008KiB time=00:00:06.50 bitrate=13873.5kbits/s speed=0.457x elapsed=0:00:14.20    frame=  213 fps= 14 q=23.0 size=   12288KiB time=00:00:07.03 bitrate=14312.4kbits/s speed=0.475x elapsed=0:00:14.80    frame=  221 fps= 14 q=23.0 size=   12800KiB time=00:00:07.30 bitrate=14364.1kbits/s speed=0.477x elapsed=0:00:15.31    frame=  235 fps= 15 q=23.0 size=   13824KiB time=00:00:07.76 bitrate=14581.1kbits/s speed=0.49x elapsed=0:00:15.83    frame=  247 fps= 15 q=23.0 size=   14592KiB time=00:00:08.13 bitrate=14697.3kbits/s speed=0.497x elapsed=0:00:16.37    frame=  260 fps= 15 q=23.0 size=   15104KiB time=00:00:08.60 bitrate=14387.5kbits/s speed=0.509x elapsed=0:00:16.90    frame=  272 fps= 16 q=23.0 size=   15872KiB time=00:00:09.00 bitrate=14447.1kbits/s speed=0.516x elapsed=0:00:17.42    frame=  286 fps= 16 q=23.0 size=   16384KiB time=00:00:09.46 bitrate=14178.0kbits/s speed=0.527x elapsed=0:00:17.95    frame=  307 fps= 17 q=23.0 size=   17664KiB time=00:00:10.16 bitrate=14233.2kbits/s speed=0.551x elapsed=0:00:18.46    frame=  319 fps= 17 q=23.0 size=   18176KiB time=00:00:10.56 bitrate=14091.3kbits/s speed=0.557x elapsed=0:00:18.97    frame=  339 fps= 17 q=23.0 size=   19456KiB time=00:00:11.23 bitrate=14188.5kbits/s speed=0.576x elapsed=0:00:19.51    frame=  342 fps= 17 q=23.0 size=   19456KiB time=00:00:11.33 bitrate=14063.3kbits/s speed=0.565x elapsed=0:00:20.04    frame=  361 fps= 18 q=20.0 size=   20736KiB time=00:00:11.96 bitrate=14195.2kbits/s speed=0.582x elapsed=0:00:20.55    frame=  379 fps= 18 q=23.0 size=   21504KiB time=00:00:12.56 bitrate=14018.1kbits/s speed=0.596x elapsed=0:00:21.09    frame=  388 fps= 18 q=23.0 size=   22016KiB time=00:00:12.86 bitrate=14017.3kbits/s speed=0.596x elapsed=0:00:21.59    frame=  414 fps= 19 q=23.0 size=   23808KiB time=00:00:13.73 bitrate=14201.6kbits/s speed=0.621x elapsed=0:00:22.12    frame=  432 fps= 19 q=23.0 size=   24832KiB time=00:00:14.33 bitrate=14192.4kbits/s speed=0.633x elapsed=0:00:22.64    frame=  440 fps= 19 q=23.0 size=   25344KiB time=00:00:14.60 bitrate=14220.4kbits/s speed=0.63x elapsed=0:00:23.16    frame=  461 fps= 19 q=23.0 size=   26880KiB time=00:00:15.30 bitrate=14392.2kbits/s speed=0.646x elapsed=0:00:23.68    frame=  470 fps= 19 q=23.0 size=   27136KiB time=00:00:15.60 bitrate=14249.9kbits/s speed=0.645x elapsed=0:00:24.19    frame=  491 fps= 20 q=-1.0 size=   28672KiB time=00:00:16.30 bitrate=14409.9kbits/s speed=0.66x elapsed=0:00:24.71    [out#0/mp4 @ 000001e3a4a97500] video:28837KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.020508%
+frame=  496 fps= 20 q=-1.0 Lsize=   28843KiB time=00:00:16.46 bitrate=14349.2kbits/s speed=0.666x elapsed=0:00:24.73    
+[libx264 @ 000001e3a4aa7380] frame I:12    Avg QP:16.67  size:264861
+[libx264 @ 000001e3a4aa7380] frame P:296   Avg QP:19.57  size: 74812
+[libx264 @ 000001e3a4aa7380] frame B:188   Avg QP:22.67  size: 22372
+[libx264 @ 000001e3a4aa7380] consecutive B-frames: 40.5% 22.2% 13.9% 23.4%
+[libx264 @ 000001e3a4aa7380] mb I  I16..4:  4.1% 88.1%  7.8%
+[libx264 @ 000001e3a4aa7380] mb P  I16..4:  1.0%  7.1%  0.6%  P16..4: 38.4% 23.8% 12.9%  0.0%  0.0%    skip:16.2%
+[libx264 @ 000001e3a4aa7380] mb B  I16..4:  0.3%  0.6%  0.1%  B16..8: 40.1%  9.8%  2.7%  direct: 5.8%  skip:40.6%  L0:41.3% L1:47.1% BI:11.6%
+[libx264 @ 000001e3a4aa7380] 8x8 transform intra:82.4% inter:69.6%
+[libx264 @ 000001e3a4aa7380] direct mvs  spatial:98.4% temporal:1.6%
+[libx264 @ 000001e3a4aa7380] coded y,uvDC,uvAC intra: 79.5% 38.3% 19.0% inter: 35.2% 8.3% 0.3%
+[libx264 @ 000001e3a4aa7380] i16 v,h,dc,p: 11% 78%  2%  8%
+[libx264 @ 000001e3a4aa7380] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 12% 26%  9%  7%  9%  8%  9%  9% 13%
+[libx264 @ 000001e3a4aa7380] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 12% 22%  6%  7% 11% 10% 11%  9% 12%
+[libx264 @ 000001e3a4aa7380] i8c dc,h,v,p: 54% 27% 11%  8%
+[libx264 @ 000001e3a4aa7380] Weighted P-Frames: Y:1.7% UV:0.7%
+[libx264 @ 000001e3a4aa7380] ref P L0: 76.9%  7.4% 11.1%  2.9%  1.1%  0.5%  0.0%
+[libx264 @ 000001e3a4aa7380] ref B L0: 87.4%  9.9%  2.3%  0.3%
+[libx264 @ 000001e3a4aa7380] ref B L1: 98.1%  1.9%
+[libx264 @ 000001e3a4aa7380] kb/s:14288.04
+[DONE] Video stitched successfully.

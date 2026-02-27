@@ -1,0 +1,105 @@
+[INFO] [MOTION] Generating motion-centroid telemetry at out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.jsonl
+[MOTION] Generating full-clip motion telemetry for 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.mp4 (496 frames, 16.5s)...
+[MOTION] Source-camera pan detected on 325/496 frames — compensating
+[MOTION] Global detections: 396/496 frames
+[MOTION] Stitched path: 496/496 frames
+[MOTION] Telemetry complete: 496 frames, cx=[247, 1755], lookahead=0.60s
+[INFO] [BALL-TELEMETRY] ball_src_x=[247.2, 1754.7], ball_src_y=[709.0, 1014.9], kept=496/496, conf=0.84
+[INFO] [BALL-CAM RAW] N=496, ball_cx_range=[247.2, 1754.7], ball_cy_range=[709.0, 1014.9], vpos=0.55
+[INFO] [BALL-CAM STRICT] N=496, cx_range=[304.0, 1616.0], cy_range=[540.0, 540.0], lead_frames=3, smooth_window=5, max_speed_px=120.0, margin=80.0, vpos=0.60
+[INFO] [BALL-CAM COVERAGE] ball_in_crop: 100.0% (496/496), strict_with_margin: 77.2% (383/496)
+[INFO] [BALL-CAM] coverage: 100.0% (conf=0.84, quality=0.79), path: 496 frames, cx range=[304.0, 1616.0], jerk95_raw=4042.1, jerk95_cam=5818.7 px/s^3
+[INFO] [BALL-CAM] ball_in_crop_horiz: 100.0% (496/496)
+[YOLO] Loaded 86 cached YOLO detections from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.jsonl
+[FUSION] 496/496 frames covered (100.0%): yolo=86, centroid=410, blended=0, avg_conf=0.30
+[FUSION] Shot-hold: frames 222->253 (31 frames), holding near x=760 (endpoint x=1379 ignored, dist=619px)
+[FUSION] Backward-hold: filled 60 leading frames from first YOLO at frame 69
+[FUSION] Interpolated 383 frames between YOLO detections (short_gap=15, long_gap=90) (long-flight=196)
+[FUSION] Velocity extrapolation: filled 27 frames during high-speed ball flight (speed_thr=4.0 px/f, decel=0.920, fps_scale=1.00)
+[FUSION] Long-flight: frames 69->88 (t=2.3s->2.9s, 19 frames), ball x=708->1362 (655px) [ease_out]
+[FUSION] Long-flight: frames 186->202 (t=6.2s->6.7s, 16 frames), ball x=1333->1701 (373px) [linear]
+[FUSION] Long-flight: frames 222->253 (t=7.4s->8.4s, 31 frames), ball x=760->1379 (619px) [shot_hold]
+[FUSION] Long-flight: frames 254->293 (t=8.5s->9.8s, 39 frames), ball x=1379->1776 (398px) [linear]
+[FUSION] Long-flight: frames 306->360 (t=10.2s->12.0s, 54 frames), ball x=1792->1373 (420px) [smoothstep]
+[FUSION] Long-flight: frames 381->424 (t=12.7s->14.1s, 43 frames), ball x=974->451 (528px) [ease_out]
+[FUSION] Ball x timeline (1s steps): f0=784, f30=708, f60=708, f90=1497, f120=481, f150=1405, f180=1041, f210=1321, f240=760, f270=1542, f300=1780, f330=1617, f360=1373, f390=778, f420=455, f450=902, f480=943, f495=440
+[INFO] [PLANNER] Using YOLO+centroid fusion: 496/496 frames covered, avg confidence=0.40
+[TRACKER] Loaded 35 cached tracker positions from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.tracker_ball.jsonl
+[INFO] [TRACKER] CSRT filled 35 gap frames with real pixel data
+[YOLO] Loaded 6127 cached person detections (496 frames) from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_person.jsonl
+[INFO] [PLANNER] Position smoothing: 496 frames (422 high-conf protected), max delta 619.0->484.7 px/frame
+[INFO] [TRAJ-SMOOTH] Velocity-adaptive Gaussian (sigma=8): 10% of frames heavily smoothed, v_range=[0.0, 484.7] px/f
+[DEBUG] num_frames=496 fps=30.0 positions=496 duration=16.533333333333335
+[DEBUG] ball_samples=496
+[INFO] [POST-SMOOTH] Ball-in-crop guarantee: adjusted 7/496 frames (margin=60px)
+[INFO] [POST-SMOOTH] BIC re-applied after smooth: 7 frames
+[INFO] [POST-SMOOTH] BIC convergence pass: 7 frames
+[INFO] [CINEMA-SMOOTH] Final smooth pass (sigma=3.0) applied to 496 frames
+[GLOBAL-PATH] Legacy Gaussian: replaced 484/496 frames, mean_delta=20.0px/f, max_delta=131.9px/f
+[CAMERA] Speed limiter (preset): clamped 88/496 frames (max 50.0px/f = 1500px/s, trans=75.0px/f, catchup=60.0px/f)
+[CAMERA] cx: range=1134px, max_delta=50.0px/f, mean_delta=18.1px/f, p95_delta=50.0px/f, reversals=29, deadzone_hold=19%, still=24%
+[CAMERA] zoom: range=0.05, max_delta=0.0077/f, mean_delta=0.0004/f, reversals=14, person_ctx=94f, flight=496f
+[DIAG] Ball in crop: 494/496 (99.6%) | Outside: 2 frames | Max escape: 44px
+[DIAG] Source breakdown: yolo=86(2 out/2%), centroid=9(0 out/0%), interp=275(0 out/0%), hold=61(0 out/0%), shot_hold=30(0 out/0%), tracker=35(0 out/0%)
+[DIAG] WARNING: 375/496 frames (76%) use synthetic positions (interp=275, hold=61, shot_hold=30, centroid=9). Ball-in-crop metric is unreliable — actual ball may be outside the crop.
+[DIAG] YOLO-only ball in crop: 84/121 (69.4%) | Interpolated/held frames (not checked): 336
+[DIAG] Speed-limited: 3f (1%) | Keepinview: 124f (25%)
+[DIAG] Confidence-weighted ball-in-crop: 98.3% (weighted frames: 121/496)
+[DIAG] Camera cx timeline (1s): f0=774, f30=708, f60=708, f90=1435, f120=482, f150=1425, f180=1081, f210=1337, f240=820, f270=1541, f300=1591, f330=1591, f360=1189, f390=779, f420=457, f450=903, f480=936, f495=461
+[DIAG] Worst escapes: f100:44px(yolo), f95:4px(yolo)
+[DIAG] Per-frame CSV: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__consensus_v10.diag.csv
+[INFO] [PAN] CameraPlanner driving panning directly (Option C disabled)
+[INFO] [PAN-DEBUG] src=(1920,1080) portrait_target=(608.0,1080.0) scale_x=0.3167 offset_x=0.00
+[INFO] [STAB] Stabilisation active: 496 frames, peak_y=11.4px, peak_x=40.0px, overscan=1.027
+[VALIDATE] Checked 84 portrait frames: ball_detected=1, ball_missing=2, edge_warnings=0, corrections=2
+[VALIDATE] Pass 1: corrected 22 frames, speed-limited 3 â€” re-rendering...
+[INFO] [PAN-DEBUG] src=(1920,1080) portrait_target=(608.0,1080.0) scale_x=0.3167 offset_x=0.00
+[INFO] [STAB] Stabilisation active: 496 frames, peak_y=11.4px, peak_x=40.0px, overscan=1.027
+[VALIDATE] Checked 13 portrait frames: ball_detected=0, ball_missing=0, edge_warnings=0, corrections=0
+[VALIDATE] Pass 2: PASSED â€” no corrections needed
+[FFMPEG] Stitching frames from D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames -> D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__consensus_v10.mp4
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[image2 @ 00000209fa404a80] Could find no file with path 'D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames\frame_%06d.png' and index in the range 0-4
+[in#0 @ 00000209fa404800] Error opening input: No such file or directory
+Error opening input file D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames\frame_%06d.png.
+Error opening input files: No such file or directory
+
+[FATAL] Unhandled exception in render_follow_unified.py:
+  CalledProcessError(4294967294, ['ffmpeg', '-y', '-framerate', '30.0', '-i', 'D:\\Projects\\soccer-video\\out\\_scratch\\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\\autoframe_work\\cinematic\\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\\frames\\frame_%06d.png', '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', '-g', '96', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\.tmp.002__consensus_v10.mp4'])
+Traceback (most recent call last):
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12956, in <module>
+    main()
+    ~~~~^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12949, in main
+    run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12442, in run
+    subprocess.run(ffmpeg_cmd, check=True)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 579, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['ffmpeg', '-y', '-framerate', '30.0', '-i', 'D:\\Projects\\soccer-video\\out\\_scratch\\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\\autoframe_work\\cinematic\\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\\frames\\frame_%06d.png', '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', '-g', '96', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\.tmp.002__consensus_v10.mp4']' returned non-zero exit status 4294967294.
+Traceback (most recent call last):
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12956, in <module>
+    main()
+    ~~~~^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12949, in main
+    run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12442, in run
+    subprocess.run(ffmpeg_cmd, check=True)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 579, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['ffmpeg', '-y', '-framerate', '30.0', '-i', 'D:\\Projects\\soccer-video\\out\\_scratch\\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\\autoframe_work\\cinematic\\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\\frames\\frame_%06d.png', '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', '-g', '96', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\.tmp.002__consensus_v10.mp4']' returned non-zero exit status 4294967294.

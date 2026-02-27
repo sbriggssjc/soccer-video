@@ -1,0 +1,22 @@
+======================================================================
+v8 CAMERA-FOLLOWING RENDERER
+  Primary signal: camera pan velocity (cameraman tracks the ball)
+  No YOLO dependency - avoids all false detection issues
+======================================================================
+[CAM] Estimating camera motion for 496 frames...
+[CAM] Total pan: 3416px
+[CAM] Per-frame dx range: -11.1 to 32.0
+[PATH] Crop center range: 855 - 1310
+[PATH] Velocity lead range: -114 to 350
+[RENDER] Rendering 496 frames -> 002__camfollow_v8.mp4
+  f0/496 | 0.2s
+  f100/496 | 3.0s
+  f200/496 | 5.7s
+  f300/496 | 8.5s
+  f400/496 | 11.4s
+[RENDER] Done in 14.3s
+[RENDER] Output: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__camfollow_v8.mp4 (24.2 MB)
+
+======================================================================
+COMPLETE
+======================================================================

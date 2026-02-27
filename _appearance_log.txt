@@ -1,0 +1,164 @@
+=== Loading all candidate detections ===
+  Nano: 59
+  Medium: 116
+  Xlarge: 168
+  V13 merged: 95
+  Total unique frame candidates: 255
+
+=== Building reference ball signature ===
+  Using top 10 v13 detections as reference:
+    f487: cx=922, cy=538, conf=0.752
+    f488: cx=922, cy=538, conf=0.675
+    f495: cx=856, cy=577, conf=0.648
+    f365: cx=649, cy=458, conf=0.614
+    f364: cx=678, cy=456, conf=0.601
+    f476: cx=1007, cy=529, conf=0.598
+    f483: cx=931, cy=485, conf=0.596
+    f484: cx=927, cy=485, conf=0.580
+    f181: cx=1135, cy=454, conf=0.580
+    f363: cx=713, cy=454, conf=0.576
+    f487: crop (80, 80, 3), hist computed
+    f488: crop (80, 80, 3), hist computed
+    f495: crop (80, 80, 3), hist computed
+    f365: crop (80, 80, 3), hist computed
+    f364: crop (80, 80, 3), hist computed
+    f476: crop (80, 80, 3), hist computed
+    f483: crop (80, 80, 3), hist computed
+    f484: crop (80, 80, 3), hist computed
+    f181: crop (80, 80, 3), hist computed
+    f363: crop (80, 80, 3), hist computed
+  Reference histograms: 10
+
+=== Scoring 255 candidates against ball signature ===
+  Scored: 220 candidates
+  Score range: 0.404 - 0.998
+  Score mean: 0.875, median: 0.943
+  Score distribution:
+    0.0-0.2:   0 
+    0.2-0.3:   0 
+    0.3-0.4:   0 
+    0.4-0.5:   6 ######
+    0.5-0.6:   7 #######
+    0.6-0.7:  18 ##################
+    0.7-0.8:  17 #################
+    0.8-0.9:  36 ####################################
+    0.9-1.0: 136 ########################################################################################################################################
+
+=== Filtering by appearance score (threshold=0.35) ===
+  Accepted: 220
+  Rejected: 0
+
+=== Generating review strip ===
+  Review strip saved -> D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__ball_review_strip.png
+  (220 thumbnails: green=KEEP, red=REJECT)
+
+=== Building final detection set ===
+  Final: 220 detections (44.4% coverage)
+  Gaps >10f:
+    f46 -> f57: 11 frames
+    f57 -> f69: 12 frames
+    f257 -> f268: 11 frames
+    f381 -> f395: 14 frames
+    f424 -> f435: 11 frames
+
+  Velocity check:
+    f21->f22: 178px/f
+    f33->f34: 90px/f
+    f44->f45: 487px/f
+    f45->f46: 501px/f
+    f77->f78: 494px/f
+    f80->f82: 158px/f
+    f82->f83: 118px/f
+    f83->f84: 190px/f
+    f84->f85: 92px/f
+    f87->f88: 238px/f
+    f88->f89: 86px/f
+    f94->f95: 796px/f
+    f96->f99: 260px/f
+    f100->f101: 99px/f
+    f101->f102: 173px/f
+    f102->f105: 174px/f
+    f105->f108: 182px/f
+    f108->f109: 291px/f
+    f109->f110: 245px/f
+    f110->f111: 272px/f
+    f112->f113: 104px/f
+    f116->f118: 102px/f
+    f118->f119: 170px/f
+    f119->f120: 99px/f
+    f120->f121: 386px/f
+    f121->f122: 127px/f
+    f123->f124: 114px/f
+    f124->f125: 399px/f
+    f126->f127: 382px/f
+    f127->f128: 110px/f
+    f128->f129: 144px/f
+    f129->f130: 200px/f
+    f130->f131: 103px/f
+    f132->f133: 124px/f
+    f133->f134: 179px/f
+    f134->f135: 81px/f
+    f135->f136: 221px/f
+    f136->f137: 177px/f
+    f137->f138: 378px/f
+    f138->f139: 123px/f
+    f147->f148: 192px/f
+    f148->f149: 165px/f
+    f149->f150: 567px/f
+    f150->f151: 338px/f
+    f151->f152: 132px/f
+    f152->f153: 85px/f
+    f155->f156: 125px/f
+    f170->f171: 245px/f
+    f179->f180: 81px/f
+    f180->f181: 94px/f
+    f203->f204: 209px/f
+    f210->f211: 181px/f
+    f211->f212: 160px/f
+    f235->f240: 81px/f
+    f240->f241: 348px/f
+    f242->f243: 312px/f
+    f254->f256: 125px/f
+    f269->f271: 177px/f
+    f271->f272: 299px/f
+    f287->f288: 250px/f
+    f289->f290: 294px/f
+    f309->f310: 572px/f
+    f310->f313: 160px/f
+    f313->f314: 500px/f
+    f317->f318: 638px/f
+    f319->f324: 146px/f
+    f326->f327: 820px/f
+    f327->f328: 886px/f
+    f332->f333: 147px/f
+    f333->f334: 131px/f
+    f349->f351: 421px/f
+    f355->f360: 88px/f
+    f360->f361: 563px/f
+    f396->f399: 252px/f
+    f399->f400: 757px/f
+    f400->f401: 806px/f
+    f406->f410: 219px/f
+    f416->f417: 612px/f
+    f418->f419: 91px/f
+    f419->f420: 134px/f
+    f420->f421: 346px/f
+    f444->f446: 177px/f
+    f470->f471: 90px/f
+
+=== Saving ===
+  Appearance-filtered -> D:\Projects\soccer-video\out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.appearance_v14.jsonl
+  Main file updated -> D:\Projects\soccer-video\out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.tracker_ball.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.follow.jsonl
+  Deleted stale: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.follow__smooth.jsonl
+
+=== Done ===
+  v13: 95 detections
+  Candidates scored: 220
+  v14 appearance-filtered: 220 detections
+  Review strip: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__ball_review_strip.png
+
+Run pipeline to regenerate v14.
+EXITCODE=0 

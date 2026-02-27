@@ -5,7 +5,39 @@ v7 FILTERED TRAJECTORY RENDERER
 ======================================================================
 [YOLO] BallTracker model=yolov8n.pt conf>=0.10 imgsz=1920
 [YOLO] Scanning 496 frames...
-  f0/496 | 0 dets | 0.9 fps
-  f50/496 | 9 dets | 0.7 fps
-  f100/496 | 24 dets | 0.7 fps
-  f150/496 | 49 dets | 0.8 fps
+  f0/496 | 0 dets | 1.3 fps
+  f50/496 | 9 dets | 1.5 fps
+  f100/496 | 24 dets | 1.4 fps
+  f150/496 | 49 dets | 1.5 fps
+  f200/496 | 63 dets | 1.7 fps
+  f250/496 | 81 dets | 1.8 fps
+  f300/496 | 113 dets | 1.9 fps
+  f350/496 | 136 dets | 2.0 fps
+  f400/496 | 137 dets | 2.1 fps
+  f450/496 | 148 dets | 2.1 fps
+[YOLO] Done: 167/496 (33.7%) in 224.6s
+[YOLO] Cached to _v7_yolo_cache.json
+[CAM] Estimating camera motion...
+[CAM] Total pan: dx=3416px, dy=-233px
+[FILTER] Pass 1: 58 high-conf (>=0.2) detections
+[FILTER] Pass 2: kept 123 total (58 high + 65 low-conf near spine)
+[FILTER] Rejected 44 false detections
+[PATH] 123 anchors, world X: 461-5062
+[PATH] Largest gaps:
+  f332->f424: 92 frames (3.1s)
+  f431->f464: 33 frames (1.1s)
+  f144->f170: 26 frames (0.9s)
+  f219->f245: 26 frames (0.9s)
+  f72->f95: 23 frames (0.8s)
+[RENDER] Rendering 496 frames -> 002__filtered_v7.mp4
+  f0/496 | 0.3s
+  f100/496 | 5.4s
+  f200/496 | 10.8s
+  f300/496 | 15.9s
+  f400/496 | 21.1s
+[RENDER] Done in 26.6s | BIC: 123/123 (100.0%)
+[RENDER] Output: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__filtered_v7.mp4 (23.6 MB)
+
+======================================================================
+COMPLETE
+======================================================================

@@ -1,0 +1,234 @@
+=== Loading data ===
+  V13: 95, Nano: 59, Medium: 116, Xlarge: 168
+  Reverted main file to pre-v14 state (v13)
+  Total candidates: 255
+
+=== Building interpolated trajectory from v13 ===
+
+=== Building reference ball patches ===
+  f487: cx=922, conf=0.752, patch (36, 36, 3)
+  f488: cx=922, conf=0.675, patch (36, 36, 3)
+  f495: cx=856, conf=0.648, patch (36, 36, 3)
+  f365: cx=649, conf=0.614, patch (36, 36, 3)
+  f364: cx=678, conf=0.601, patch (36, 36, 3)
+  f476: cx=1007, conf=0.598, patch (36, 36, 3)
+  f483: cx=931, conf=0.596, patch (36, 36, 3)
+  f484: cx=927, conf=0.580, patch (36, 36, 3)
+  Reference patches: 8
+
+=== Scoring 255 candidates ===
+  Template sim range: 0.002 - 1.000
+  Template sim mean: 0.230, median: 0.198
+  Traj dist range: 0 - 880
+  Template similarity distribution:
+    -0.2 to +0.0:   0 
+    +0.0 to +0.1:  50 ##################################################
+    +0.1 to +0.2:  63 ###############################################################
+    +0.2 to +0.3:  50 ##################################################
+    +0.3 to +0.4:  23 #######################
+    +0.4 to +0.5:  22 ######################
+    +0.5 to +0.6:   8 ########
+    +0.6 to +0.7:   2 ##
+    +0.7 to +0.8:   0 
+    +0.8 to +0.9:   0 
+    +0.9 to +1.0:   2 ##
+
+=== Filtering (template >= 0.25 AND traj_dist <= 250) ===
+  Accepted: 57
+  Rejected: 163
+
+  Rejected detections:
+    f15: cx=481, conf=0.29, template=0.142, traj_dist=442
+    f22: cx=515, conf=0.27, template=0.155, traj_dist=408
+    f25: cx=461, conf=0.21, template=0.180, traj_dist=462
+    f31: cx=672, conf=0.24, traj_dist=251
+    f33: cx=734, conf=0.28, template=0.044
+    f34: cx=824, conf=0.30, template=0.170
+    f43: cx=923, conf=0.31, template=0.062
+    f45: cx=475, conf=0.21, template=0.198, traj_dist=494
+    f46: cx=976, conf=0.35, template=0.100
+    f57: cx=1009, conf=0.31, template=0.115
+    f70: cx=710, conf=0.31, template=0.219
+    f75: cx=735, conf=0.34, template=0.106
+    f77: cx=773, conf=0.37, template=0.186
+    f78: cx=1267, conf=0.23, template=0.177, traj_dist=354
+    f79: cx=1267, conf=0.23, template=0.177, traj_dist=358
+    f80: cx=1211, conf=0.26, template=0.101, traj_dist=306
+    f82: cx=896, conf=0.35, template=0.162
+    f84: cx=1204, conf=0.26, template=0.098
+    f85: cx=1296, conf=0.25, traj_dist=293
+    f88: cx=1409, conf=0.35, traj_dist=422
+    f89: cx=1496, conf=0.42, traj_dist=514
+    f91: cx=1499, conf=0.28, traj_dist=527
+    f92: cx=1571, conf=0.43, traj_dist=605
+    f93: cx=1617, conf=0.40, template=0.079, traj_dist=656
+    f94: cx=1646, conf=0.37, template=0.108, traj_dist=690
+    f95: cx=850, conf=0.57, template=0.133
+    f96: cx=852, conf=0.51, template=0.216
+    f99: cx=1631, conf=0.33, template=0.082, traj_dist=702
+    f100: cx=1656, conf=0.43, template=0.065, traj_dist=732
+    f101: cx=1557, conf=0.32, traj_dist=638
+    f102: cx=1384, conf=0.33, template=0.186, traj_dist=470
+    f105: cx=862, conf=0.44, template=0.074
+    f108: cx=1407, conf=0.40, template=0.174, traj_dist=525
+    f109: cx=1116, conf=0.37, template=0.131
+    f110: cx=871, conf=0.35, template=0.057
+    f111: cx=599, conf=0.43, template=0.182, traj_dist=276
+    f112: cx=543, conf=0.31, template=0.222, traj_dist=338
+    f113: cx=439, conf=0.28, template=0.030, traj_dist=446
+    f115: cx=493, conf=0.45, template=0.096, traj_dist=401
+    f116: cx=414, conf=0.42, template=0.091, traj_dist=484
+    f118: cx=616, conf=0.27, template=0.088, traj_dist=290
+    f119: cx=787, conf=0.25, template=0.089
+    f120: cx=886, conf=0.24, template=0.187
+    f121: cx=500, conf=0.39, template=0.215, traj_dist=420
+    f122: cx=627, conf=0.38, template=0.140, traj_dist=298
+    f123: cx=601, conf=0.35, template=0.090, traj_dist=328
+    f124: cx=487, conf=0.32, template=0.182, traj_dist=446
+    f125: cx=886, conf=0.31, template=0.238
+    f127: cx=506, conf=0.39, template=0.138, traj_dist=441
+    f128: cx=616, conf=0.44, template=0.093, traj_dist=335
+    f129: cx=760, conf=0.51, template=0.086
+    f130: cx=960, conf=0.51, template=0.103
+    f131: cx=1063, conf=0.56, template=0.121
+    f132: cx=1076, conf=0.54, template=0.218
+    f133: cx=952, conf=0.47, template=0.150
+    f134: cx=773, conf=0.42, template=0.060, traj_dist=395
+    f135: cx=854, conf=0.47, template=0.174, traj_dist=360
+    f136: cx=1075, conf=0.49, template=0.176
+    f137: cx=897, conf=0.31, template=0.103, traj_dist=409
+    f138: cx=1275, conf=0.47, template=0.130
+    f140: cx=1475, conf=0.44, template=0.216
+    f148: cx=1182, conf=0.35, template=0.238
+    f149: cx=1018, conf=0.32, template=0.240, traj_dist=293
+    f150: cx=1584, conf=0.30, template=0.227, traj_dist=306
+    f152: cx=1378, conf=0.46, template=0.202
+    f171: cx=1426, conf=0.37, template=0.204
+    f179: cx=960, conf=0.54, template=0.223
+    f180: cx=1041, conf=0.53, template=0.146
+    f192: cx=1475, conf=0.36, template=0.215
+    f198: cx=1464, conf=0.22, template=0.245, traj_dist=254
+    f199: cx=1520, conf=0.22, traj_dist=316
+    f202: cx=1701, conf=0.48, traj_dist=519
+    f203: cx=1701, conf=0.48, traj_dist=526
+    f204: cx=1491, conf=0.29, template=0.172, traj_dist=324
+    f206: cx=1533, conf=0.50, template=0.005, traj_dist=381
+    f208: cx=1474, conf=0.28, template=0.060, traj_dist=336
+    f209: cx=1460, conf=0.28, traj_dist=330
+    f210: cx=1449, conf=0.27, template=0.196, traj_dist=326
+    f217: cx=911, conf=0.45, template=0.084
+    f218: cx=856, conf=0.44, template=0.077
+    f235: cx=718, conf=0.32, template=0.075
+    f241: cx=773, conf=0.31, template=0.066, traj_dist=326
+    f242: cx=848, conf=0.33, traj_dist=282
+    f243: cx=1161, conf=0.35, template=0.122
+    f244: cx=1209, conf=0.32, template=0.116
+    f247: cx=1213, conf=0.32, template=0.115
+    f248: cx=1195, conf=0.32, template=0.086
+    f268: cx=1782, conf=0.25, traj_dist=329
+    f269: cx=1782, conf=0.25, traj_dist=316
+    f271: cx=1428, conf=0.26, template=0.215
+    f272: cx=1727, conf=0.27, template=0.195
+    f288: cx=1477, conf=0.34, template=0.198
+    f289: cx=1477, conf=0.34, template=0.198
+    f290: cx=1771, conf=0.32, template=0.148
+    f291: cx=1776, conf=0.30, template=0.200
+    f292: cx=1777, conf=0.38, template=0.234
+    f293: cx=1776, conf=0.43, template=0.224
+    f302: cx=1792, conf=0.39, template=0.157
+    f307: cx=1782, conf=0.38, template=0.220
+    f310: cx=1134, conf=0.37, template=0.193, traj_dist=585
+    f314: cx=1115, conf=0.34, template=0.203, traj_dist=531
+    f317: cx=1159, conf=0.33, traj_dist=432
+    f324: cx=1065, conf=0.31, traj_dist=398
+    f326: cx=976, conf=0.34, template=0.218, traj_dist=451
+    f327: cx=1796, conf=0.28, template=0.197, traj_dist=388
+    f328: cx=910, conf=0.35, template=0.123, traj_dist=480
+    f329: cx=865, conf=0.35, template=0.063, traj_dist=507
+    f330: cx=868, conf=0.37, template=0.037, traj_dist=486
+    f331: cx=877, conf=0.34, template=0.110, traj_dist=459
+    f332: cx=919, conf=0.20, traj_dist=398
+    f333: cx=772, conf=0.31, template=0.115, traj_dist=527
+    f334: cx=641, conf=0.28, template=0.019, traj_dist=640
+    f337: cx=635, conf=0.27, traj_dist=591
+    f338: cx=693, conf=0.26, template=0.070, traj_dist=515
+    f340: cx=815, conf=0.29, template=0.030, traj_dist=356
+    f348: cx=1813, conf=0.34, template=0.216, traj_dist=788
+    f349: cx=1813, conf=0.34, template=0.216, traj_dist=806
+    f351: cx=970, conf=0.34, template=0.231
+    f354: cx=976, conf=0.36, template=0.002
+    f355: cx=934, conf=0.34, template=0.147
+    f360: cx=1373, conf=0.41, template=0.052, traj_dist=542
+    f363: cx=713, conf=0.58, template=0.110
+    f375: cx=806, conf=0.47, template=0.099, traj_dist=252
+    f381: cx=974, conf=0.42, traj_dist=464
+    f395: cx=406, conf=0.33, template=0.145
+    f396: cx=464, conf=0.34, template=0.090
+    f399: cx=1221, conf=0.20, template=0.077, traj_dist=757
+    f400: cx=464, conf=0.34, template=0.130
+    f401: cx=1270, conf=0.27, traj_dist=806
+    f402: cx=1296, conf=0.30, traj_dist=831
+    f403: cx=1316, conf=0.32, traj_dist=850
+    f406: cx=1347, conf=0.36, traj_dist=880
+    f411: cx=477, conf=0.36, template=0.170
+    f416: cx=490, conf=0.33, template=0.221
+    f417: cx=1102, conf=0.31, traj_dist=606
+    f418: cx=1088, conf=0.29, template=0.090, traj_dist=588
+    f419: cx=997, conf=0.31, template=0.130, traj_dist=491
+    f420: cx=863, conf=0.32, template=0.084, traj_dist=352
+    f421: cx=516, conf=0.38, template=0.097
+    f424: cx=451, conf=0.42, template=0.055
+    f435: cx=487, conf=0.35, template=0.110
+    f436: cx=526, conf=0.39, template=0.191
+    f437: cx=556, conf=0.44, template=0.082
+    f438: cx=580, conf=0.48, template=0.101
+    f439: cx=598, conf=0.52, template=0.152
+    f440: cx=614, conf=0.45, template=0.095
+    f441: cx=627, conf=0.43, template=0.097
+    f443: cx=672, conf=0.54, template=0.108
+    f444: cx=641, conf=0.40, template=0.047
+    f446: cx=995, conf=0.34, template=0.172, traj_dist=290
+    f447: cx=985, conf=0.40, template=0.044
+    f448: cx=938, conf=0.44, template=0.075
+    f449: cx=889, conf=0.44, template=0.101
+    f452: cx=665, conf=0.38, template=0.173
+    f453: cx=684, conf=0.36, template=0.183
+    f458: cx=842, conf=0.32, template=0.061
+    f465: cx=895, conf=0.40, template=0.103
+    f466: cx=897, conf=0.38, template=0.078
+    f467: cx=902, conf=0.38, template=0.077
+    f468: cx=908, conf=0.37, template=0.099
+    f469: cx=838, conf=0.45, template=0.042
+    f470: cx=864, conf=0.39, template=0.197
+    f471: cx=774, conf=0.51, template=0.064
+
+=== Velocity scrub ===
+  Iteration 1: scrubbed 5: [153, 156, 178, 211, 256]
+  Iteration 2: scrubbed 2: [151, 257]
+  Iteration 3: clean
+
+  Final: 50 detections (10.1% coverage)
+
+=== Generating review strip ===
+  Review strip -> D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__ball_review_strip_v14b.png
+
+=== Saving ===
+  Template-filtered -> D:\Projects\soccer-video\out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.template_v14b.jsonl
+  Main file updated
+
+  Gaps >10f: 12
+    f21 -> f44: 23 frames
+    f44 -> f69: 25 frames
+    f69 -> f83: 14 frames
+    f87 -> f126: 39 frames
+    f126 -> f139: 13 frames
+    f170 -> f181: 11 frames
+    f186 -> f212: 26 frames
+    f229 -> f240: 11 frames
+    f240 -> f253: 13 frames
+    f254 -> f276: 22 frames
+    f319 -> f361: 42 frames
+    f366 -> f410: 44 frames
+
+Done! 50 detections. Run pipeline to regenerate.
+EXITCODE=0 
