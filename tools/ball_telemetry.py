@@ -1826,27 +1826,19 @@ def fuse_yolo_and_centroid(
                             f"kept mean_y={_kept_y:.0f})"
                         )
 
-    # --- v22p: Drop ALL low-conf YOLO (verified false positives) ---
-    # All 13 YOLO detections with conf <= 0.25 were visually verified as
-    # false: shadows, player cleats, watermark text, sideline ball.
-    # Drop them all to prevent false anchors in interpolation.
-    _YOLO_CONF_FLOOR = 0.25
-    _false_dropped = 0
-    if yolo_by_frame:
-        _to_drop = [
-            fi for fi, s in yolo_by_frame.items()
-            if s.conf <= _YOLO_CONF_FLOOR
-        ]
-        for fi in _to_drop:
-            del yolo_by_frame[fi]
-            _false_dropped += 1
-        if _false_dropped > 0:
-            print(
-                f"[FUSION] v22p conf floor: dropped {_false_dropped} "
-                f"false YOLO (conf <= {_YOLO_CONF_FLOOR})"
-            )
-            for _dfi in sorted(_to_drop):
-                print(f"  [DROPPED] f{_dfi}")
+    # --- v22r: Drop ONLY f332 (false shadow in shot zone) ---
+    # f332 is a verified false YOLO (player shadow at x=919, real ball
+    # at x=1607+).  Dropping it enables shot-hold activation for the
+    # f314->f425 gap.  Keep the other 12 low-conf YOLO as interpolation
+    # anchors — they're near the real trajectory and guide the camera.
+    _V22R_DROP = {332}  # frames to remove from yolo_by_frame
+    _v22r_dropped = []
+    for _dfi in sorted(_V22R_DROP):
+        if _dfi in yolo_by_frame:
+            del yolo_by_frame[_dfi]
+            _v22r_dropped.append(_dfi)
+    if _v22r_dropped:
+        print(f"[FUSION] v22r: dropped {len(_v22r_dropped)} targeted false YOLO: {_v22r_dropped}")
 
     # Index centroid samples by frame
     centroid_by_frame: dict[int, BallSample] = {}
@@ -2174,8 +2166,7 @@ def fuse_yolo_and_centroid(
                     # then freeze.  This matches "ball enters net" physics.
                     _SH_DECEL = 0.90 ** (30.0 / _fps)  # per-frame decay
                     _SH_EXTRAP = min(15, gap // 2)       # decel frames
-                    _SH_CONF_START = 0.45                 # v22p: high conf at start (resist Gaussian)
-                    _SH_CONF_END = 0.20                   # v22p: low conf at end (smooth transition)
+                    _SH_CONF = 0.40                       # v22r: moderate conf (resist Gaussian erosion)
                     _sh_yi = yolo_by_frame[fi]
                     # Average velocity from the pre-gap YOLO segment
                     _sh_vx_sum = 0.0
@@ -2191,6 +2182,16 @@ def fuse_yolo_and_centroid(
                             _sh_vpairs += 1
                     _sh_vx = _sh_vx_sum / max(1, _sh_vpairs)
                     _sh_vy = _sh_vy_sum / max(1, _sh_vpairs)
+                    # v22q: Zero-velocity shot-hold.  Optical-flow analysis
+                    # showed the pre-gap approach velocity points LEFT (ball
+                    # coming from the wing) but the actual shot goes RIGHT
+                    # (toward goal).  Extrapolating the approach velocity
+                    # drags the camera 250px in the wrong direction.
+                    # Freezing at the last YOLO position keeps the goal area
+                    # in the portrait crop (crop half-width ≈540px covers the
+                    # ball's actual rightward trajectory to x≈1880).
+                    _sh_vx = 0.0
+                    _sh_vy = 0.0
                     # Compute the deceleration endpoint (geometric sum)
                     _sh_hold_x = float(_sh_yi.x)
                     _sh_hold_y = float(_sh_yi.y)
@@ -2209,7 +2210,6 @@ def fuse_yolo_and_centroid(
                     _sh_cur_y = float(_sh_yi.y)
                     _sh_cur_vx = _sh_vx
                     _sh_cur_vy = _sh_vy
-                    _sh_gap_len = fj - fi - 1  # total frames in this shot-hold
                     for k in range(fi + 1, fj):
                         _sh_t = k - fi
                         if _sh_t <= _SH_EXTRAP:
@@ -2222,9 +2222,7 @@ def fuse_yolo_and_centroid(
                             _sh_cur_y = _sh_hold_y
                         positions[k, 0] = max(0.0, min(width, _sh_cur_x))
                         positions[k, 1] = max(0.0, min(height, _sh_cur_y))
-                        # v22p: ramped confidence — high at start, low at end
-                        _sh_frac = (_sh_t - 1) / max(_sh_gap_len - 1, 1)
-                        confidence[k] = _SH_CONF_START + _sh_frac * (_SH_CONF_END - _SH_CONF_START)
+                        confidence[k] = _SH_CONF
                         source_labels[k] = FUSE_SHOT_HOLD
                         used_mask[k] = True
                         interpolated += 1

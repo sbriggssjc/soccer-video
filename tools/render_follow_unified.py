@@ -9610,7 +9610,6 @@ def run(
             _FUSE_YOLO = np.uint8(1)
             _FUSE_INTERP = np.uint8(4)
             _FUSE_HOLD = np.uint8(5)
-            _FUSE_SHOT_HOLD = np.uint8(6)  # v22p
             _high_conf_alpha = 0.85  # trust own value — minimal neighbour pull
             for _si in range(_n_pos):
                 _sl = fusion_source_labels[_si]
@@ -9626,12 +9625,6 @@ def run(
                     # the frame edge on free-kick clips.  Alpha=1.0
                     # locks them to the YOLO anchor position.
                     _per_alpha[_si] = 1.0
-                elif _sl == _FUSE_SHOT_HOLD:
-                    # v22p: Moderate EMA protection for shot-hold.
-                    # alpha=0.50 means backward-pass erosion penetrates
-                    # ~10 frames (natural transition zone) instead of
-                    # ~50 frames at default alpha=0.12.
-                    _per_alpha[_si] = 0.50
 
         # Compute max delta before smoothing (for diagnostics)
         _pre_deltas = []

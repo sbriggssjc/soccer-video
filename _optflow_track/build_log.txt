@@ -1,0 +1,62 @@
+Total anchors: 202 (YOLO=97, tracker=105)
+Anchor frame range: 28-430
+Video: 496 frames @ 30.0 fps
+Loading all frames into memory...
+Loaded 496 frames
+  Anchor 20/202: f59 (x=507) fwd=200f bwd=2f
+  Anchor 40/202: f80 (x=773) fwd=5f bwd=19f
+  Anchor 60/202: f102 (x=862) fwd=200f bwd=102f
+  Anchor 80/202: f137 (x=590) fwd=200f bwd=67f
+  Anchor 100/202: f168 (x=612) fwd=200f bwd=88f
+  Anchor 120/202: f197 (x=1449) fwd=7f bwd=115f
+  Anchor 140/202: f227 (x=633) fwd=172f bwd=95f
+  Anchor 160/202: f247 (x=1442) fwd=12f bwd=12f
+  Anchor 180/202: f283 (x=1693) fwd=12f bwd=25f
+  Anchor 200/202: f428 (x=112) fwd=20f bwd=11f
+  Anchor 202/202: f430 (x=144) fwd=65f bwd=13f
+
+Optical flow coverage: 496/496 (100.0%)
+Full trajectory: 496/496 frames
+Ball path saved: _optflow_track\optflow_ball_path.jsonl
+
+=== ZONE ANALYSIS ===
+Beginning (f0-f95): 95/95 tracked (100%), x=[211, 831]
+Mid-field (f95-f250): 155/155 tracked (100%), x=[520, 1500]
+Winger (f250-f314): 64/64 tracked (100%), x=[383, 1800]
+Shot/Save (f314-f425): 111/111 tracked (100%), x=[-4, 1916]
+Restart (f425-f496): 71/71 tracked (100%), x=[84, 526]
+
+=== BALL X TIMELINE (optical flow) ===
+  f0: x=225 [tracked, conf=1.00]
+  f30: x=252 [tracked, conf=1.00]
+  f60: x=624 [tracked, conf=1.00]
+  f90: x=824 [tracked, conf=1.00]
+  f120: x=854 [tracked, conf=0.60]
+  f150: x=624 [tracked, conf=1.00]
+  f180: x=606 [tracked, conf=1.00]
+  f210: x=632 [tracked, conf=1.00]
+  f240: x=1390 [tracked, conf=1.00]
+  f270: x=476 [tracked, conf=1.00]
+  f300: x=1769 [tracked, conf=1.00]
+  f330: x=1745 [tracked, conf=1.00]
+  f360: x=1800 [tracked, conf=1.00]
+  f390: x=1906 [tracked, conf=1.00]
+  f420: x=26 [tracked, conf=1.00]
+  f450: x=292 [tracked, conf=0.60]
+  f480: x=525 [tracked, conf=1.00]
+
+=== SHOT/SAVE ZONE (f314-f425) ===
+  f314: x=1709, y=496 [tracked, conf=1.00]
+  f324: x=1711, y=496 [tracked, conf=1.00]
+  f334: x=1765, y=500 [tracked, conf=1.00]
+  f344: x=1787, y=509 [tracked, conf=1.00]
+  f354: x=1803, y=520 [tracked, conf=1.00]
+  f364: x=1796, y=519 [tracked, conf=1.00]
+  f374: x=1786, y=519 [tracked, conf=1.00]
+  f384: x=1857, y=520 [tracked, conf=1.00]
+  f394: x=1176, y=313 [tracked, conf=1.00]
+  f404: x=1305, y=281 [tracked, conf=1.00]
+  f414: x=1425, y=279 [tracked, conf=1.00]
+  f424: x=71, y=1033 [tracked, conf=1.00]
+
+Done! Use --ball-path _optflow_track\optflow_ball_path.jsonl to inject into render.

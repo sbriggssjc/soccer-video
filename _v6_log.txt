@@ -1,0 +1,41 @@
+======================================================================
+v6 FRESH YOLO RENDERER (BallTracker)
+  Model: yolov8n.pt @ 1920px | conf>=0.1
+  Smoothing: sigma=1.5 | Speed limits: NONE
+======================================================================
+[YOLO] BallTracker model=yolov8n.pt conf>=0.1 imgsz=1920
+[YOLO] Scanning 496 frames...
+  f0/496 | 0 dets | 0.3 fps
+  f50/496 | 9 dets | 0.9 fps
+  f100/496 | 24 dets | 0.9 fps
+  f150/496 | 49 dets | 0.8 fps
+  f200/496 | 63 dets | 0.7 fps
+  f250/496 | 81 dets | 0.7 fps
+  f300/496 | 113 dets | 0.7 fps
+  f350/496 | 136 dets | 0.7 fps
+  f400/496 | 137 dets | 0.7 fps
+  f450/496 | 148 dets | 0.7 fps
+[YOLO] Done: 167/496 (33.7%) in 768.0s
+[CAM] Estimating camera motion for 496 frames...
+[CAM] Total pan: dx=3416px, dy=-233px
+[PATH] 167 anchors, world X: 461-5131
+[PATH] Removed 13 outliers
+[PATH] Largest gaps:
+  f362->f424: 62 frames (2.1s)
+  f431->f464: 33 frames (1.1s)
+  f225->f245: 20 frames (0.7s)
+  f160->f176: 16 frames (0.5s)
+  f346->f362: 16 frames (0.5s)
+[RENDER] Rendering 496 frames -> 002__fresh_yolo_v6.mp4
+  f0/496 | 0.2s
+  f100/496 | 7.0s
+  f200/496 | 13.5s
+  f300/496 | 20.2s
+  f400/496 | 26.7s
+[RENDER] Done in 34.1s
+[RENDER] BIC: 150/167 (89.8%)
+[RENDER] Output: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__fresh_yolo_v6.mp4 (25.0 MB)
+
+======================================================================
+COMPLETE
+======================================================================

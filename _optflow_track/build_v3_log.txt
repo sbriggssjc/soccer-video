@@ -1,0 +1,144 @@
+=== Loading anchor data ===
+YOLO entries: 59
+Tracker entries: 147
+  Skipping false YOLO f332
+  Skipping false YOLO f466
+
+Anchors: 204 total (yolo=57, tracker=147, override=0)
+Range: f25-f494
+
+=== Loading video frames ===
+Video: 496 frames @ 30.0 fps
+Loaded 496 frames into memory
+
+=== Tracking from anchors ===
+  Anchor 25/204: f68 (tracker) fwd=200f bwd=17f [28.8s]
+  Anchor 50/204: f93 (tracker) fwd=200f bwd=22f [75.8s]
+  Anchor 75/204: f118 (tracker) fwd=37f bwd=118f [146.3s]
+  Anchor 100/204: f204 (yolo) fwd=17f bwd=18f [199.1s]
+  Anchor 125/204: f229 (tracker) fwd=0f bwd=200f [246.3s]
+  Anchor 150/204: f254 (yolo) fwd=167f bwd=19f [265.9s]
+  Anchor 175/204: f295 (yolo) fwd=34f bwd=20f [281.8s]
+  Anchor 200/204: f430 (tracker) fwd=65f bwd=13f [305.7s]
+  Anchor 204/204: f494 (yolo) fwd=1f bwd=27f [308.1s]
+
+Optical flow coverage: 496/496 (100.0%)
+Full trajectory: 496/496 frames
+Saved: _optflow_track\optflow_ball_path_v3.jsonl
+
+=== ZONE ANALYSIS ===
+  Beginning (f0-f95): 95/95 tracked (100%), x=[395, 831]
+  Mid-field (f95-f250): 155/155 tracked (100%), x=[850, 1717]
+  Winger (f250-f314): 64/64 tracked (100%), x=[1379, 1805]
+  Shot/Save (f314-f425): 111/111 tracked (100%), x=[6, 1916]
+  Restart (f425-f496): 71/71 tracked (100%), x=[81, 414]
+
+=== RESTART ZONE DETAIL (f410-f496) ===
+  f410: x=1549, y=486 [T] (anchor f254, dist=156)
+  f411: x=1553, y=487 [T] (anchor f254, dist=157)
+  f412: x=1555, y=488 [T] (anchor f254, dist=158)
+  f413: x=1555, y=488 [T] (anchor f254, dist=159)
+  f414: x=1572, y=489 [T] (anchor f254, dist=160)
+  f415: x=1583, y=487 [T] (anchor f254, dist=161)
+  f416: x=1585, y=488 [T] (anchor f254, dist=162)
+  f417: x=6, y=1042 [T] (anchor f425, dist=8)
+  f418: x=6, y=1042 [T] (anchor f425, dist=7)
+  f419: x=21, y=1040 [T] (anchor f425, dist=6)
+  f420: x=37, y=1037 [T] (anchor f425, dist=5)
+  f421: x=51, y=1035 [T] (anchor f425, dist=4)
+  f422: x=67, y=1033 [T] (anchor f425, dist=3)
+  f423: x=67, y=1033 [T] (anchor f425, dist=2)
+  f424: x=82, y=1030 [T] (anchor f425, dist=1)
+  f425: x=95, y=1028 [T] (anchor f425, dist=0)
+  f426: x=96, y=1028 [T] (anchor f426, dist=0)
+  f427: x=112, y=1026 [T] (anchor f427, dist=0)
+  f428: x=112, y=1026 [T] (anchor f428, dist=0)
+  f429: x=129, y=1022 [T] (anchor f429, dist=0)
+  f430: x=144, y=1020 [T] (anchor f430, dist=0)
+  f431: x=111, y=1026 [T] (anchor f431, dist=0)
+  f432: x=127, y=1022 [T] (anchor f431, dist=1)
+  f433: x=127, y=1022 [T] (anchor f431, dist=2)
+  f434: x=144, y=1019 [T] (anchor f431, dist=3)
+  f435: x=157, y=1017 [T] (anchor f431, dist=4)
+  f436: x=170, y=1015 [T] (anchor f431, dist=5)
+  f437: x=186, y=1012 [T] (anchor f431, dist=6)
+  f438: x=186, y=1012 [T] (anchor f431, dist=7)
+  f439: x=203, y=1009 [T] (anchor f431, dist=8)
+  f440: x=216, y=1007 [T] (anchor f431, dist=9)
+  f441: x=229, y=1004 [T] (anchor f431, dist=10)
+  f442: x=240, y=1001 [T] (anchor f431, dist=11)
+  f443: x=240, y=1001 [T] (anchor f431, dist=12)
+  f444: x=247, y=999 [T] (anchor f431, dist=13)
+  f445: x=251, y=996 [T] (anchor f431, dist=14)
+  f446: x=257, y=989 [T] (anchor f431, dist=15)
+  f447: x=282, y=981 [T] (anchor f430, dist=17)
+  f448: x=282, y=981 [T] (anchor f430, dist=18)
+  f449: x=286, y=978 [T] (anchor f430, dist=19)
+  f450: x=292, y=974 [T] (anchor f430, dist=20)
+  f451: x=306, y=971 [T] (anchor f430, dist=21)
+  f452: x=319, y=968 [T] (anchor f430, dist=22)
+  f453: x=319, y=968 [T] (anchor f430, dist=23)
+  f454: x=332, y=966 [T] (anchor f430, dist=24)
+  f455: x=218, y=799 [T] (anchor f479, dist=24)
+  f456: x=239, y=796 [T] (anchor f479, dist=23)
+  f457: x=254, y=795 [T] (anchor f479, dist=22)
+  f458: x=254, y=795 [T] (anchor f479, dist=21)
+  f459: x=266, y=793 [T] (anchor f479, dist=20)
+  f460: x=280, y=792 [T] (anchor f479, dist=19)
+  f461: x=296, y=790 [T] (anchor f479, dist=18)
+  f462: x=308, y=789 [T] (anchor f479, dist=17)
+  f463: x=308, y=789 [T] (anchor f479, dist=16)
+  f464: x=317, y=787 [T] (anchor f479, dist=15)
+  f465: x=329, y=786 [T] (anchor f479, dist=14)
+  f466: x=342, y=784 [T] (anchor f479, dist=13)
+  f467: x=353, y=783 [T] (anchor f479, dist=12)
+  f468: x=353, y=783 [T] (anchor f479, dist=11)
+  f469: x=359, y=782 [T] (anchor f479, dist=10)
+  f470: x=366, y=781 [T] (anchor f479, dist=9)
+  f471: x=378, y=780 [T] (anchor f479, dist=8)
+  f472: x=387, y=779 [T] (anchor f479, dist=7)
+  f473: x=387, y=779 [T] (anchor f479, dist=6)
+  f474: x=392, y=778 [T] (anchor f479, dist=5)
+  f475: x=395, y=778 [T] (anchor f479, dist=4)
+  f476: x=399, y=778 [T] (anchor f479, dist=3)
+  f477: x=404, y=778 [T] (anchor f479, dist=2)
+  f478: x=404, y=778 [T] (anchor f479, dist=1)
+  f479: x=406, y=778 [T] (anchor f479, dist=0)
+  f480: x=409, y=778 [T] (anchor f479, dist=1)
+  f481: x=407, y=778 [T] (anchor f481, dist=0)
+  f482: x=410, y=777 [T] (anchor f481, dist=1)
+  f483: x=410, y=777 [T] (anchor f481, dist=2)
+  f484: x=414, y=777 [T] (anchor f481, dist=3)
+  f485: x=414, y=777 [T] (anchor f481, dist=4)
+  f486: x=414, y=777 [T] (anchor f481, dist=5)
+  f487: x=414, y=777 [T] (anchor f481, dist=6)
+  f488: x=81, y=1015 [T] (anchor f494, dist=6)
+  f489: x=81, y=1016 [T] (anchor f494, dist=5)
+  f490: x=81, y=1015 [T] (anchor f494, dist=4)
+  f491: x=81, y=1015 [T] (anchor f494, dist=3)
+  f492: x=81, y=1015 [T] (anchor f494, dist=2)
+  f493: x=81, y=1015 [T] (anchor f494, dist=1)
+  f494: x=81, y=1014 [T] (anchor f494, dist=0)
+  f495: x=81, y=1014 [T] (anchor f494, dist=1)
+
+=== TIMELINE (every 30 frames) ===
+  f0: x=482 [T, conf=1.00]
+  f30: x=450 [T, conf=1.00]
+  f60: x=624 [T, conf=1.00]
+  f90: x=824 [T, conf=1.00]
+  f120: x=886 [T, conf=1.00]
+  f150: x=1398 [T, conf=1.00]
+  f180: x=1391 [T, conf=1.00]
+  f210: x=1449 [T, conf=1.00]
+  f240: x=1390 [T, conf=1.00]
+  f270: x=1805 [T, conf=1.00]
+  f300: x=1769 [T, conf=1.00]
+  f330: x=1673 [T, conf=1.00]
+  f360: x=1800 [T, conf=1.00]
+  f390: x=1906 [T, conf=1.00]
+  f420: x=37 [T, conf=1.00]
+  f450: x=292 [T, conf=0.60]
+  f480: x=409 [T, conf=1.00]
+
+Total time: 308.1s
+Done! Ball path: _optflow_track\optflow_ball_path_v3.jsonl

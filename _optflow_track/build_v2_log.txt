@@ -1,0 +1,80 @@
+=== Loading anchor data ===
+YOLO entries: 59
+Tracker entries: 147
+  Skipping false YOLO f332
+
+Anchors: 205 total (yolo=58, tracker=147, override=0)
+Range: f25-f494
+
+=== Loading video frames ===
+Video: 496 frames @ 30.0 fps
+Loaded 496 frames into memory
+
+=== Tracking from anchors ===
+  Anchor 25/205: f68 (tracker) fwd=200f bwd=17f [40.3s]
+  Anchor 50/205: f93 (tracker) fwd=200f bwd=22f [131.1s]
+  Anchor 75/205: f118 (tracker) fwd=37f bwd=118f [280.9s]
+  Anchor 100/205: f204 (yolo) fwd=17f bwd=18f [367.0s]
+  Anchor 125/205: f229 (tracker) fwd=0f bwd=200f [419.4s]
+  Anchor 150/205: f254 (yolo) fwd=167f bwd=19f [444.7s]
+  Anchor 175/205: f295 (yolo) fwd=34f bwd=20f [465.7s]
+  Anchor 200/205: f430 (tracker) fwd=65f bwd=13f [495.0s]
+  Anchor 205/205: f494 (yolo) fwd=1f bwd=27f [501.1s]
+
+Optical flow coverage: 496/496 (100.0%)
+Full trajectory: 496/496 frames
+Saved: _optflow_track\optflow_ball_path_v2.jsonl
+
+=== ZONE ANALYSIS ===
+  Beginning (f0-f95): 95/95 tracked (100%), x=[395, 831]
+  Mid-field (f95-f250): 155/155 tracked (100%), x=[850, 1717]
+  Winger (f250-f314): 64/64 tracked (100%), x=[1379, 1805]
+  Shot/Save (f314-f425): 111/111 tracked (100%), x=[6, 1893]
+  Restart (f425-f496): 71/71 tracked (100%), x=[81, 1714]
+
+=== SHOT/SAVE DETAIL (f314-f425) ===
+  f314: x=1607, y=487 [T] (anchor f314, dist=0)
+  f319: x=1625, y=489 [T] (anchor f314, dist=5)
+  f324: x=1651, y=491 [T] (anchor f314, dist=10)
+  f329: x=1666, y=491 [T] (anchor f314, dist=15)
+  f334: x=1706, y=493 [T] (anchor f314, dist=20)
+  f339: x=1724, y=489 [T] (anchor f314, dist=25)
+  f344: x=1763, y=495 [T] (anchor f314, dist=30)
+  f349: x=1804, y=508 [T] (anchor f312, dist=37)
+  f354: x=1803, y=520 [T] (anchor f312, dist=42)
+  f359: x=1800, y=520 [T] (anchor f312, dist=47)
+  f364: x=1796, y=519 [T] (anchor f312, dist=52)
+  f369: x=1788, y=520 [T] (anchor f312, dist=57)
+  f374: x=1786, y=519 [T] (anchor f312, dist=62)
+  f379: x=1819, y=523 [T] (anchor f312, dist=67)
+  f384: x=1857, y=520 [T] (anchor f312, dist=72)
+  f389: x=1893, y=524 [T] (anchor f312, dist=77)
+  f394: x=1713, y=1018 [T] (anchor f466, dist=72)
+  f399: x=1713, y=1018 [T] (anchor f466, dist=67)
+  f404: x=1713, y=1018 [T] (anchor f466, dist=62)
+  f409: x=1713, y=1018 [T] (anchor f466, dist=57)
+  f414: x=1713, y=1018 [T] (anchor f466, dist=52)
+  f419: x=21, y=1040 [T] (anchor f425, dist=6)
+  f424: x=82, y=1030 [T] (anchor f425, dist=1)
+
+=== TIMELINE (every 30 frames) ===
+  f0: x=482 [T, conf=1.00]
+  f30: x=450 [T, conf=1.00]
+  f60: x=624 [T, conf=1.00]
+  f90: x=824 [T, conf=1.00]
+  f120: x=886 [T, conf=1.00]
+  f150: x=1398 [T, conf=1.00]
+  f180: x=1391 [T, conf=1.00]
+  f210: x=1449 [T, conf=1.00]
+  f240: x=1390 [T, conf=1.00]
+  f270: x=1805 [T, conf=1.00]
+  f300: x=1769 [T, conf=1.00]
+  f330: x=1673 [T, conf=1.00]
+  f360: x=1800 [T, conf=1.00]
+  f390: x=1713 [T, conf=1.00]
+  f420: x=37 [T, conf=1.00]
+  f450: x=1713 [T, conf=1.00]
+  f480: x=409 [T, conf=1.00]
+
+Total time: 501.1s
+Done! Ball path: _optflow_track\optflow_ball_path_v2.jsonl
