@@ -1,0 +1,16 @@
+{
+  "clip_id": "002",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "playtag": "Build & Shots",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\002__stable_v19__4K.mp4",
+  "players_involved": [
+    {"name": "Charlotte Robison", "position": "GK", "action": "distribution — passes out from the back"},
+    {"name": "Sydney Shepelwich", "position": "CB", "action": "takes a touch and hits a great longball"},
+    {"name": "Caroline", "position": "CM", "action": "receives the longball, dribbles and creates space for a powerful shot"},
+    {"name": "Claire Briggs", "position": "LW", "action": "jumps on the rebound after the shot is parried"}
+  ],
+  "narrative": "GK distribution to CB, longball to midfield, creative dribbling creates a powerful shot that's parried — and the rebound is pounced on",
+  "caption_hook": "Building from the back the way Coach drew it up",
+  "mood": "hype",
+  "action_types": ["build_up", "shot"]
+}
