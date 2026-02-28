@@ -1,6 +1,10 @@
 {
   "clip_id": "002",
   "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
   "playtag": "Build & Shots",
   "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\002__stable_v19__4K.mp4",
   "players_involved": [
@@ -9,8 +13,8 @@
     {"name": "Caroline", "position": "CM", "action": "receives the longball, dribbles and creates space for a powerful shot"},
     {"name": "Claire Briggs", "position": "LW", "action": "jumps on the rebound after the shot is parried"}
   ],
-  "narrative": "GK distribution to CB, longball to midfield, creative dribbling creates a powerful shot that's parried — and the rebound is pounced on",
-  "caption_hook": "Building from the back the way Coach drew it up",
+  "narrative": "GK {Charlotte Robison} distribution to CB {Sydney Shepelwich}, longball to midfield, creative dribbling creates a powerful shot {Caroline} that's parried — and the rebound is pounced on by the LW {Claire Briggs}.",
+  "caption_hook": "Building from the back the way Coach drew it up!",
   "mood": "hype",
   "action_types": ["build_up", "shot"]
 }
