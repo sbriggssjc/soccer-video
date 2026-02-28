@@ -16,8 +16,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
-import textwrap
 from datetime import datetime
 from pathlib import Path
 
@@ -49,18 +49,42 @@ def load_roster() -> dict[str, dict]:
     return players
 
 
-def resolve_handle(player_name: str, roster: dict[str, dict]) -> str | None:
-    """Look up Instagram handle for a player name."""
+def resolve_player(player_name: str, roster: dict[str, dict]) -> dict | None:
+    """Look up full player info from roster."""
     key = player_name.strip().lower()
     entry = roster.get(key)
     if not entry:
-        # Try first name
         first = key.split()[0]
         entry = roster.get(first)
+    return entry
+
+
+def resolve_handle(player_name: str, roster: dict[str, dict]) -> str | None:
+    """Look up Instagram handle for a player name."""
+    entry = resolve_player(player_name, roster)
     if entry:
         handle = entry.get("InstagramHandle", "").strip()
         return handle if handle else None
     return None
+
+
+def expand_player_refs(narrative: str, roster: dict[str, dict]) -> str:
+    """Expand {PlayerName} placeholders to (#number - FirstName) format.
+
+    E.g. '{Charlotte Robison}' -> '(#13 - Charlotte)'
+    """
+    def replace_match(m: re.Match) -> str:
+        name = m.group(1)
+        entry = resolve_player(name, roster)
+        if entry:
+            number = entry.get("PlayerNumber", "").strip()
+            first_name = entry["PlayerName"].strip().split()[0]
+            if number:
+                return f"(#{number} - {first_name})"
+            return f"({first_name})"
+        return f"({name})"
+
+    return re.sub(r"\{([^}]+)\}", replace_match, narrative)
 
 
 def parse_game_label(label: str) -> dict:
@@ -85,36 +109,27 @@ def format_date(date_str: str) -> str:
         return date_str
 
 
-def pick_hashtags(config: dict, action_types: list[str], max_tags: int = 20) -> list[str]:
-    """Select hashtags from config based on action types."""
+def pick_hashtags(config: dict, action_types: list[str]) -> list[str]:
+    """Select hashtags from config based on action types. Instagram max = 5."""
+    max_tags = config.get("posting", {}).get("max_hashtags", 5)
     ht = config["hashtags"]
-    tags = list(ht["always"])
-    tags.extend(ht["broad"][:4])
-    tags.extend(ht["regional"])
 
-    # Add action-specific tags
+    # Start with the always tags (up to 3)
+    tags = list(ht["always"][:3])
+
+    # Add action-specific tags to fill remaining slots
     action_map = ht.get("action", {})
     for action in action_types:
-        action_tags = action_map.get(action, [])
-        for t in action_tags:
-            if t not in tags:
+        for t in action_map.get(action, []):
+            if t not in tags and len(tags) < max_tags:
                 tags.append(t)
 
+    # If still under limit, fill from broad
+    for t in ht.get("broad", []):
+        if t not in tags and len(tags) < max_tags:
+            tags.append(t)
+
     return tags[:max_tags]
-
-
-def build_player_line(players_involved: list[dict], roster: dict[str, dict]) -> str:
-    """Build the narrative line with player names/handles."""
-    parts = []
-    for p in players_involved:
-        name = p["name"]
-        pos = p.get("position", "")
-        action = p.get("action", "")
-        handle = resolve_handle(name, roster)
-        display = handle if handle else name
-        pos_label = f" ({pos})" if pos else ""
-        parts.append(f"{display}{pos_label} {action}")
-    return "\n".join(f"  {line}" for line in parts)
 
 
 def build_tag_line(players_involved: list[dict], config: dict, roster: dict[str, dict]) -> str:
@@ -124,8 +139,6 @@ def build_tag_line(players_involved: list[dict], config: dict, roster: dict[str,
         handle = resolve_handle(p["name"], roster)
         if handle and handle not in mentions:
             mentions.append(handle)
-
-    # Add opponent if available
     return " ".join(mentions)
 
 
@@ -138,36 +151,58 @@ def generate_post(note_path: Path, dry_run: bool = False) -> Path | None:
         note = json.load(f)
 
     game_info = parse_game_label(note["game_label"])
-    date_fmt = format_date(game_info["date"])
+
+    # Use event_date if provided, otherwise fall back to game_label date
+    date_str = note.get("event_date", game_info["date"])
+    date_fmt = format_date(date_str)
+
+    # Team names and colors
+    home = game_info["home"]
     opponent_key = game_info["away"]
     opponent = config.get("opponents", {}).get(opponent_key, {})
     opponent_name = opponent.get("name", opponent_key)
     opponent_ig = opponent.get("instagram", "")
 
+    home_color = note.get("home_color", "")
+    away_color = note.get("away_color", "")
+    matchup = f"{config['club']['short_name']}"
+    if home_color:
+        matchup += f" {home_color}"
+    matchup += f" vs {opponent_name}"
+    if away_color:
+        matchup += f" {away_color}"
+
+    # Event/tournament name
+    event_name = note.get("event_name", "")
+
     action_types = note.get("action_types", [])
     hashtags = pick_hashtags(config, action_types)
 
-    # Build the caption
+    # Hook line — include coach personal handle
     hook = note.get("caption_hook", note.get("playtag", "Highlight"))
-    narrative = note.get("narrative", "")
+    coach_personal = config.get("coach", {}).get("instagram_personal", "")
+    if coach_personal and "Coach" in hook and f"({coach_personal})" not in hook:
+        hook = hook.replace("Coach", f"Coach ({coach_personal})")
 
-    # Player action breakdown
-    player_lines = build_player_line(note["players_involved"], roster)
+    # Narrative with player refs expanded to (#number - Name)
+    narrative = note.get("narrative", "")
+    narrative = expand_player_refs(narrative, roster)
 
     # Tag line
     tag_line = build_tag_line(note["players_involved"], config, roster)
+    if opponent_ig:
+        tag_line += f" {opponent_ig}"
 
-    caption = textwrap.dedent(f"""\
-        {hook}
+    # Assemble caption
+    lines = [hook, matchup]
+    if event_name:
+        lines.append(event_name)
+    lines.append(date_fmt)
+    lines.append(narrative)
+    lines.append(tag_line)
+    lines.append(" ".join(hashtags))
 
-        {config["club"]["short_name"]} vs {opponent_name}
-        {date_fmt}
-
-        {narrative}
-
-        {tag_line}
-
-        {" ".join(hashtags)}""")
+    caption = "\n".join(lines)
 
     # Build the full post output
     post = {
@@ -176,14 +211,13 @@ def generate_post(note_path: Path, dry_run: bool = False) -> Path | None:
         "video_file": note.get("video_file", ""),
         "platform": "instagram",
         "caption": caption,
-        "tags_in_video": [t for t in config.get("always_tag", [])],
+        "tags_in_video": list(config.get("always_tag", [])),
         "hashtags": hashtags,
         "player_handles": [
             resolve_handle(p["name"], roster)
             for p in note["players_involved"]
             if resolve_handle(p["name"], roster)
         ],
-        "play_breakdown": player_lines,
     }
 
     if dry_run:
@@ -198,9 +232,6 @@ def generate_post(note_path: Path, dry_run: bool = False) -> Path | None:
         print("--- END CAPTION ---")
         print()
         print("TAG IN VIDEO:", ", ".join(post["tags_in_video"]))
-        print()
-        print("PLAY BREAKDOWN:")
-        print(player_lines)
         print()
         return None
 
