@@ -1,0 +1,19 @@
+{
+  "clip_id": "004",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Press & Shot",
+  "video_file": "C:\\Users\\scott\\OneDrive\\Desktop\\Uploads\\clip_004_v3.mp4",
+  "players_involved": [
+    {"name": "Caroline", "position": "CM", "action": "presses the opposition building out of the back, forces an errant pass"},
+    {"name": "Claire Briggs", "position": "LW", "action": "adds pressure, picks up the loose ball in the attacking third and takes a shot on goal"},
+    {"name": "Corrie Green", "position": "MF", "action": "wins the tackle to help win possession"}
+  ],
+  "narrative": "{Caroline} pressures the opposition as they try to build out of the back — forces an errant pass. {Claire Briggs} and {Corrie Green} stay aggressive, {Corrie Green} wins the tackle, and {Claire Briggs} picks up the ball in space in the attacking third and fires a shot on goal saved by the keeper.",
+  "caption_hook": "Press. Win. Shoot. That's the energy.",
+  "mood": "hype",
+  "action_types": ["defense", "shot"]
+}
