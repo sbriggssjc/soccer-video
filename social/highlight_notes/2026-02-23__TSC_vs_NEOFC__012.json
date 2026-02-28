@@ -1,0 +1,17 @@
+{
+  "clip_id": "012",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Free Kick",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Caroline", "position": "CM", "action": "strikes a dangerous free kick from just outside the box"}
+  ],
+  "narrative": "{Caroline} steps up and strikes a dangerous free kick from just outside the box.",
+  "caption_hook": "Set piece danger from Coach's squad!",
+  "mood": "hype",
+  "action_types": ["shot"]
+}
