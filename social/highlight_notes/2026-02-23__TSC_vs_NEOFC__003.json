@@ -1,0 +1,21 @@
+{
+  "clip_id": "003",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Build & Cross",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Corrie Green", "position": "MF", "action": "quick throw-in to restart play"},
+    {"name": "Hannah Landrum", "position": "MF", "action": "cool control and dribbling, finds Langley out wide"},
+    {"name": "Langley", "position": "W", "action": "receives in space, drives down the wing and delivers a cross"},
+    {"name": "Caroline", "position": "CM", "action": "makes a run into the box"},
+    {"name": "Claire Briggs", "position": "LW", "action": "makes a run into the box"}
+  ],
+  "narrative": "Quick throw-in from {Corrie Green} finds {Hannah Landrum} — cool control, slick dribbling, and a sharp pass out wide to {Langley} in space on the wing. {Langley} drives and whips in a cross looking for {Caroline} or {Claire Briggs} in the box — just couldn't quite get her foot all the way around it!",
+  "caption_hook": "Find the wing. Attack the box. That's the game plan.",
+  "mood": "hype",
+  "action_types": ["build_up", "cross"]
+}
