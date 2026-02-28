@@ -38,7 +38,7 @@
   },
   "posting": {
     "platform": "instagram",
-    "max_hashtags": 20,
+    "max_hashtags": 5,
     "max_caption_length": 2200
   }
 }
