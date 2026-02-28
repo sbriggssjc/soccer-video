@@ -1,0 +1,19 @@
+{
+  "clip_id": "007",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Cross",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Sydney Shepelwich", "position": "CB", "action": "receives the throw-in and delivers a cross"},
+    {"name": "Sterling", "position": "GP", "action": "makes a run at the near post"},
+    {"name": "Claire Briggs", "position": "LW", "action": "makes a run at the near post"}
+  ],
+  "narrative": "Quick throw-in to {Sydney Shepelwich} — she sends a cross into the box looking for {Sterling} and {Claire Briggs} at the near post, but the cross is deflected and the keeper gathers it.",
+  "caption_hook": "Get it in the box and make things happen.",
+  "mood": "hype",
+  "action_types": ["cross"]
+}
