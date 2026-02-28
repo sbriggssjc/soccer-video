@@ -1,0 +1,1099 @@
+Found 34 portrait clips to process
+Output dir: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC
+
+
+[1/34]
+============================================================
+  Processing: 001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:16.00, start: 0.000000, bitrate: 13424 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13421 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001d5e1ed0d80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001d5e1ed0d80] Error parsing a filter description around: 
+[AVFilterGraph @ 000001d5e1ed0d80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[2/34]  SKIP (already final 2160x3840): 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00__portrait__FINAL.mp4
+
+[3/34]
+============================================================
+  Processing: 003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:18.47, start: 0.000000, bitrate: 13674 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13671 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000028167780700] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000028167780700] Error parsing a filter description around: 
+[AVFilterGraph @ 0000028167780700] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[4/34]
+============================================================
+  Processing: 004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:18.20, start: 0.000000, bitrate: 14661 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14658 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001f2f32eef00] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001f2f32eef00] Error parsing a filter description around: 
+[AVFilterGraph @ 000001f2f32eef00] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[5/34]
+============================================================
+  Processing: 005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:15.80, start: 0.000000, bitrate: 14035 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14032 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000023aca8ba000] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000023aca8ba000] Error parsing a filter description around: 
+[AVFilterGraph @ 0000023aca8ba000] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[6/34]
+============================================================
+  Processing: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:21.13, start: 0.000000, bitrate: 14115 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14112 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000020a64fbdb80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000020a64fbdb80] Error parsing a filter description around: 
+[AVFilterGraph @ 0000020a64fbdb80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[7/34]
+============================================================
+  Processing: 007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:09.33, start: 0.000000, bitrate: 13645 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13642 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000002610bb8b880] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000002610bb8b880] Error parsing a filter description around: 
+[AVFilterGraph @ 000002610bb8b880] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[8/34]
+============================================================
+  Processing: 008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:16.53, start: 0.000000, bitrate: 12201 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 12198 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001750d8afc80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001750d8afc80] Error parsing a filter description around: 
+[AVFilterGraph @ 000001750d8afc80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[9/34]
+============================================================
+  Processing: 009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:07.20, start: 0.000000, bitrate: 13613 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13610 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001c21c69fac0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001c21c69fac0] Error parsing a filter description around: 
+[AVFilterGraph @ 000001c21c69fac0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[10/34]
+============================================================
+  Processing: 010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:15.73, start: 0.000000, bitrate: 13212 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13209 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 00000124a10a5cc0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 00000124a10a5cc0] Error parsing a filter description around: 
+[AVFilterGraph @ 00000124a10a5cc0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[11/34]
+============================================================
+  Processing: 011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:15.93, start: 0.000000, bitrate: 13539 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13536 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001e2bc4bef00] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001e2bc4bef00] Error parsing a filter description around: 
+[AVFilterGraph @ 000001e2bc4bef00] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[12/34]
+============================================================
+  Processing: 012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:09.73, start: 0.000000, bitrate: 14816 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14812 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001b23d260d40] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001b23d260d40] Error parsing a filter description around: 
+[AVFilterGraph @ 000001b23d260d40] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[13/34]
+============================================================
+  Processing: 013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:19.40, start: 0.000000, bitrate: 14061 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14058 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000011f15600e80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000011f15600e80] Error parsing a filter description around: 
+[AVFilterGraph @ 0000011f15600e80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[14/34]
+============================================================
+  Processing: 014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:20.33, start: 0.000000, bitrate: 14730 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14727 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001941647f0c0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing014__2026-02-23__TSC_vs_NEOFC__BUILD'
+[AVFilterGraph @ 000001941647f0c0] Error parsing a filter description around: ,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 000001941647f0c0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[15/34]
+============================================================
+  Processing: 015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:33.27, start: 0.000000, bitrate: 14371 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14368 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000025d91f8ec80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000025d91f8ec80] Error parsing a filter description around: 
+[AVFilterGraph @ 0000025d91f8ec80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[16/34]
+============================================================
+  Processing: 016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:17.57, start: 0.000000, bitrate: 14738 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14734 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001bb5ca61b80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001bb5ca61b80] Error parsing a filter description around: 
+[AVFilterGraph @ 000001bb5ca61b80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[17/34]
+============================================================
+  Processing: 017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:18.67, start: 0.000000, bitrate: 14948 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14945 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000015c7abb0c00] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing017__2026-02-23__TSC_vs_NEOFC__DEFENSE'
+[AVFilterGraph @ 0000015c7abb0c00] Error parsing a filter description around: ,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 0000015c7abb0c00] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[18/34]
+============================================================
+  Processing: 018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:28.97, start: 0.000000, bitrate: 14308 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14305 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 00000172b9128280] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 00000172b9128280] Error parsing a filter description around: 
+[AVFilterGraph @ 00000172b9128280] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[19/34]
+============================================================
+  Processing: 019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:18.33, start: 0.000000, bitrate: 15132 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 15129 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000002138b67edc0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000002138b67edc0] Error parsing a filter description around: 
+[AVFilterGraph @ 000002138b67edc0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[20/34]
+============================================================
+  Processing: 020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:08.47, start: 0.000000, bitrate: 13354 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13350 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000014fd315a000] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000014fd315a000] Error parsing a filter description around: 
+[AVFilterGraph @ 0000014fd315a000] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[21/34]
+============================================================
+  Processing: 021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:17.00, start: 0.000000, bitrate: 13574 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13571 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001f3eb8becc0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001f3eb8becc0] Error parsing a filter description around: 
+[AVFilterGraph @ 000001f3eb8becc0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[22/34]
+============================================================
+  Processing: 022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:18.13, start: 0.000000, bitrate: 13858 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13855 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 00000279596f0d40] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 00000279596f0d40] Error parsing a filter description around: 
+[AVFilterGraph @ 00000279596f0d40] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[23/34]
+============================================================
+  Processing: 023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:15.07, start: 0.000000, bitrate: 14041 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14038 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001edc203ac80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL'
+[AVFilterGraph @ 000001edc203ac80] Error parsing a filter description around: ,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 000001edc203ac80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[24/34]
+============================================================
+  Processing: 024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:14.20, start: 0.000000, bitrate: 14023 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14019 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000002ac7cc37880] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000002ac7cc37880] Error parsing a filter description around: 
+[AVFilterGraph @ 000002ac7cc37880] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[25/34]
+============================================================
+  Processing: 025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:15.67, start: 0.000000, bitrate: 13871 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13868 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000002bae1eceec0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing025__2026-02-23__TSC_vs_NEOFC__BUILD'
+[AVFilterGraph @ 000002bae1eceec0] Error parsing a filter description around: ,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 000002bae1eceec0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[26/34]
+============================================================
+  Processing: 026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:09.60, start: 0.000000, bitrate: 13209 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 13206 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000028fe178ec80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000028fe178ec80] Error parsing a filter description around: 
+[AVFilterGraph @ 0000028fe178ec80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[27/34]
+============================================================
+  Processing: 027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:14.60, start: 0.000000, bitrate: 14952 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14949 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001b44a268a80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing027__2026-02-23__TSC_vs_NEOFC__PRESSURE'
+[AVFilterGraph @ 000001b44a268a80] Error parsing a filter description around: ,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 000001b44a268a80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[28/34]
+============================================================
+  Processing: 028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:10.47, start: 0.000000, bitrate: 12506 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 12503 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001b0bbeb2a40] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001b0bbeb2a40] Error parsing a filter description around: 
+[AVFilterGraph @ 000001b0bbeb2a40] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[29/34]
+============================================================
+  Processing: 029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:15.60, start: 0.000000, bitrate: 14405 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14402 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000026601bc0680] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing029__2026-02-23__TSC_vs_NEOFC__DEFENSE'
+[AVFilterGraph @ 0000026601bc0680] Error parsing a filter description around: ,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 0000026601bc0680] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[30/34]
+============================================================
+  Processing: 030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:08.40, start: 0.000000, bitrate: 14375 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14372 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000025f1100afc0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000025f1100afc0] Error parsing a filter description around: 
+[AVFilterGraph @ 0000025f1100afc0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[31/34]
+============================================================
+  Processing: 031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:08.80, start: 0.000000, bitrate: 14126 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 14122 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000001cf582fce00] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 000001cf582fce00] Error parsing a filter description around: 
+[AVFilterGraph @ 000001cf582fce00] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[32/34]
+============================================================
+  Processing: 032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:17.00, start: 0.000000, bitrate: 15513 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 15511 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000021fb812f0c0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing032__2026-02-23__TSC_vs_NEOFC__DEFENSE'
+[AVFilterGraph @ 0000021fb812f0c0] Error parsing a filter description around: ,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 0000021fb812f0c0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[33/34]
+============================================================
+  Processing: 033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:17.67, start: 0.000000, bitrate: 15139 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 15136 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 000002399fceefc0] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing033__2026-02-23__TSC_vs_NEOFC__DEFENSE'
+[AVFilterGraph @ 000002399fceefc0] Error parsing a filter description around: ,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+[AVFilterGraph @ 000002399fceefc0] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: ,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+[34/34]
+============================================================
+  Processing: 034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait.mp4
+  [1/2] Vidstab stabilization...
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:09.00, start: 0.000000, bitrate: 15125 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1080x1920, 15122 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : VideoHandler
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+[AVFilterGraph @ 0000025d6ca80c80] No option name near 'Projectssoccer-videooutportrait_reels2026-02-23__TSC_vs_NEOFC_temp_processing034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3'
+[AVFilterGraph @ 0000025d6ca80c80] Error parsing a filter description around: 
+[AVFilterGraph @ 0000025d6ca80c80] Error parsing filterchain 'vidstabtransform=input=D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3' around: 
+Error opening output file D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\_temp_processing\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait_stab.mp4.
+Error opening output files: Invalid argument
+  ERROR in vidstab: Command '['ffmpeg', '-y', '-i', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait.mp4', '-vf', 'vidstabtransform=input=D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait.mp4.trf:smoothing=15:interpol=bicubic:crop=black:zoom=3', '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p', 'D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\_temp_processing\\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait_stab.mp4']' returned non-zero exit status 4294967274.
+
+============================================================
+BATCH COMPLETE in 6s (0.1 min)
+  OK: 0, Skipped: 1, Errors: 33
+EXITCODE=0 
