@@ -1,0 +1,19 @@
+{
+  "clip_id": "032",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Defense, Build & Shot",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Caroline", "position": "CM", "action": "intelligent pressure forces a heavy touch and panicked pass, then combines in a give and go to create a shot"},
+    {"name": "Sydney Shepelwich", "position": "CB", "action": "calm defensive presence, settles the ball and finds a quality pass out to the wing"},
+    {"name": "Langley", "position": "W", "action": "receives the pass on the wing, combines with Caroline in a give and go to get in behind and create a shot"}
+  ],
+  "narrative": "Intelligent pressure by {Caroline} in the midfield — great positioning forces a heavy touch and panicked pass. Calm defensive presence by {Sydney Shepelwich} to settle the ball and find a quality pass out to {Langley} on the wing, who combines in a give and go with {Caroline} to get in behind and create a shot blocked last minute by the defender.",
+  "caption_hook": "Pressure, poise, and a textbook give and go — Coach's gameplan in action!",
+  "mood": "hype",
+  "action_types": ["defense", "build_up", "shot"]
+}
