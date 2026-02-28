@@ -1,0 +1,17 @@
+{
+  "clip_id": "001",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Double Save",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Charlotte Robison", "position": "GK", "action": "makes an incredible save, then denies the rebound"}
+  ],
+  "narrative": "NEO FC fires a dangerous shot on goal — GK {Charlotte Robison} makes an incredible save, and when the rebound falls to the attacker she's right there again to shut the door!",
+  "caption_hook": "No. Way. Through. \uD83E\uDDE4",
+  "mood": "hype",
+  "action_types": ["save"]
+}
