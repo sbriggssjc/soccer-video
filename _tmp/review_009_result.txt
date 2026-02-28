@@ -1,0 +1,6 @@
+SUCCESS
+Clip: 009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00.mp4
+FINAL: 009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait__FINAL.mp4
+Frames: 14, Grid: 4x4
+Output: D:\Projects\soccer-video\_tmp\filmstrip_009.png (2.6 MB)
+Copied to: C:\Users\scott\Desktop\filmstrip_009.png

@@ -1,0 +1,6 @@
+SUCCESS
+Clip: 004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00.mp4
+FINAL: 004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait__FINAL.mp4
+Frames: 36, Grid: 4x9
+Output: D:\Projects\soccer-video\_tmp\filmstrip_004.png (7.0 MB)
+Copied to: C:\Users\scott\Desktop\filmstrip_004.png

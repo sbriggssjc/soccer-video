@@ -1,0 +1,6 @@
+SUCCESS
+Clip: 008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00.mp4
+FINAL: 008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait__FINAL.mp4
+Frames: 33, Grid: 4x9
+Output: D:\Projects\soccer-video\_tmp\filmstrip_008.png (5.9 MB)
+Copied to: C:\Users\scott\Desktop\filmstrip_008.png

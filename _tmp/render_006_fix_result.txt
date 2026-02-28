@@ -1,0 +1,15 @@
+Re-render clip 006 (telemetry fix)
+[12:22:46] Found 10 telemetry files: ['006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.ball.follow.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.ball.follow__smooth.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.ball.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.tracker_ball.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.tracker_ball.yolov8x.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.tracker_ball.yolov8x.jsonl.1280bak', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.yolo_ball.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.yolo_ball.yolov8x.jsonl', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.yolo_ball.yolov8x.jsonl.1280bak', '006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.yolo_person.jsonl']
+[12:22:46] ball: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.ball.jsonl
+[12:22:46] yolo: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.yolo_ball.yolov8x.jsonl
+[12:22:46] tracker: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.tracker_ball.yolov8x.jsonl
+[12:22:46] CSV: C:\Users\scott\Desktop\review_006.csv
+[12:22:46] 44 anchors, 634 frames
+[12:22:46] Telemetry written
+[12:22:46] Step 1: Portrait render...
+[12:29:23] Step 1 done: 34.2 MB
+[12:29:31] Step 2 done
+[12:30:14] Step 3 done
+[12:31:34] Step 4 done
+[12:31:34] COMPLETE: 8.8m, 82.4 MB
+[12:31:34] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL.mp4

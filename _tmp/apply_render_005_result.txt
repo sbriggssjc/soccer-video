@@ -1,0 +1,14 @@
+Apply + render clip 005
+[10:05:51] Anchors: 33 points, 474 total frames
+[10:05:51] Telemetry patched
+[10:05:51] STEP 1: Portrait render...
+[10:09:19] STEP 1 DONE: 208s, 26.8 MB
+[10:09:19] STEP 2: vidstab detect...
+[10:09:29] STEP 2 DONE: 10s
+[10:09:29] STEP 3: vidstab transform...
+[10:10:41] STEP 3 DONE: 72s
+[10:10:41] STEP 4: 4K upscale...
+[10:11:51] STEP 4 DONE: 70s
+[10:11:51] 
+SUCCESS - Total: 360s (6.0m), 67.0 MB
+[10:11:51] FINAL: out\portrait_reels\2026-02-23__TSC_vs_NEOFC\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait__FINAL.mp4

@@ -1,0 +1,6 @@
+SUCCESS
+Clip: 010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00.mp4
+FINAL: 010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait__FINAL.mp4
+Frames: 31, Grid: 4x8
+Output: D:\Projects\soccer-video\_tmp\filmstrip_010.png (5.6 MB)
+Copied to: C:\Users\scott\Desktop\filmstrip_010.png

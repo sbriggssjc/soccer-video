@@ -1,0 +1,9 @@
+SUCCESS
+Total frames in clip: 546
+Rows in CSV: 71
+  Standard (every 15): 37
+  Dense (f270-f520): 33
+Output: C:\Users\scott\Desktop\review_004.csv
+
+ball_x_pct = actual YOLO detection (interpolated)
+camera_x_pct = your current anchors (edit this)

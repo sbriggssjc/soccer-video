@@ -1,0 +1,14 @@
+Re-render clip 006 v2 (camera_x_pct fix)
+[13:02:32] ball: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.ball.jsonl
+[13:02:32] yolo: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.yolo_ball.yolov8x.jsonl
+[13:02:32] tracker: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.tracker_ball.yolov8x.jsonl
+[13:02:32] CSV: C:\Users\scott\Desktop\review_006.csv
+[13:02:32] 64 anchors, 630 frames
+[13:02:32] Telemetry written from camera_x_pct
+[13:02:32] Step 1: Portrait render...
+[13:10:07] Step 1 done: 34.1 MB
+[13:10:15] Step 2 done
+[13:11:03] Step 3 done
+[13:12:33] Step 4 done
+[13:12:33] COMPLETE: 10.0m, 82.8 MB
+[13:12:33] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL.mp4

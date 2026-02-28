@@ -1,0 +1,12 @@
+SUCCESS
+Clip: 010 (472 total frames)
+Sampled: 32 rows (every 15 frames)
+Output: D:\Projects\soccer-video\_tmp\review_010.csv
+Desktop: C:\Users\scott\Desktop\review_010.csv
+
+Columns:
+  frame - source frame number
+  time_s - timestamp in seconds
+  ball_x_pct - current ball x position (0-100%)
+  camera_x_pct - current camera center (0-100%) <-- EDIT THIS
+  notes - optional notes

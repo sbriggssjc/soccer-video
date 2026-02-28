@@ -1,0 +1,4 @@
+Converted 480 frames to follow_override JSONL at D:\Projects\soccer-video\out\telemetry\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00.follow_override.jsonl
+First: {"frame": 0, "cx": 1011.562060546875, "cy": 540.0, "zoom": 1.0}
+Last: {"frame": 479, "cx": 470.6920166015625, "cy": 540.0, "zoom": 1.0}
+Total lines: 480

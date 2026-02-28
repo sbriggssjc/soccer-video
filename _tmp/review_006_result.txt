@@ -1,0 +1,6 @@
+SUCCESS
+Clip: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.mp4
+FINAL: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL.mp4
+Frames: 42, Grid: 4x11
+Output: D:\Projects\soccer-video\_tmp\filmstrip_006.png (8.0 MB)
+Copied to: C:\Users\scott\Desktop\filmstrip_006.png

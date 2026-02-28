@@ -1,0 +1,6 @@
+SUCCESS
+Clip: 007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00.mp4
+FINAL: 007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait__FINAL.mp4
+Frames: 19, Grid: 4x5
+Output: D:\Projects\soccer-video\_tmp\filmstrip_007.png (3.5 MB)
+Copied to: C:\Users\scott\Desktop\filmstrip_007.png

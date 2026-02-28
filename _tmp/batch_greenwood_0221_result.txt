@@ -1,0 +1,107 @@
+Batch pipeline: 2026-02-21__TSC_vs_Greenwood
+Total clips: 20
+
+[09:46:05] === Clip 1/20: 001 SKIPPED (already done) ===
+[09:46:05] === Clip 2/20: 002 SKIPPED (already done) ===
+[09:46:05] === Clip 3/20: 003 SKIPPED (already done) ===
+[09:46:05] === Clip 4/20: 004 (004__Dribbling & Skill__1573.5-1586.53.mp4...) ===
+[09:46:05]   [004] Step 1: Portrait render...
+[09:48:19]   [004] Step 1 done: 134s, 26.8 MB
+[09:48:24]   [004] Step 2 done: 6s
+[09:48:52]   [004] Step 3 done: 27s
+[09:49:38]   [004] Step 4 done: 47s
+[09:49:38]   [004] COMPLETE: 214s (3.6m), 60.0 MB
+[09:49:38]   Progress: 4 done, 0 failed, ~14m remaining
+
+[09:49:38] === Clip 5/20: 005 (005__Corner, Shot & Goal__1624.73-1650.67.mp4...) ===
+[09:49:38]   [005] Step 1: Portrait render...
+[09:56:02]   [005] Step 1 done: 383s, 53.3 MB
+[09:56:19]   [005] Step 2 done: 17s
+[09:57:38]   [005] Step 3 done: 79s
+[09:59:49]   [005] Step 4 done: 132s
+[09:59:49]   [005] COMPLETE: 611s (10.2m), 113.7 MB
+[09:59:49]   Progress: 5 done, 0 failed, ~41m remaining
+
+[09:59:49] === Clip 6/20: 006 (006__Cross & Shot__1740.5-1748.37.mp4...) ===
+[09:59:49]   [006] Step 1: Portrait render...
+[10:01:04]   [006] Step 1 done: 75s, 16.3 MB
+[10:01:10]   [006] Step 2 done: 6s
+[10:01:34]   [006] Step 3 done: 24s
+[10:02:13]   [006] Step 4 done: 39s
+[10:02:13]   [006] COMPLETE: 144s (2.4m), 39.4 MB
+[10:02:13]   Progress: 6 done, 0 failed, ~38m remaining
+
+[10:02:13] === Clip 7/20: 007 (007__Defense, Build, Cross & Shot__1780.87-1802.2....) ===
+[10:02:13]   [007] Step 1: Portrait render...
+[10:04:45]   [007] Step 1 done: 152s, 43.0 MB
+[10:04:55]   [007] Step 2 done: 10s
+[10:05:56]   [007] Step 3 done: 61s
+[10:07:37]   [007] Step 4 done: 101s
+[10:07:37]   [007] COMPLETE: 324s (5.4m), 90.0 MB
+[10:07:37]   Progress: 7 done, 0 failed, ~40m remaining
+
+[10:07:37] === Clip 8/20: 008 (008__Free Kick__1839.63-1848.5.mp4...) ===
+[10:07:37]   [008] Step 1: Portrait render...
+[10:08:50]   [008] Step 1 done: 73s, 18.5 MB
+[10:08:56]   [008] Step 2 done: 5s
+[10:09:30]   [008] Step 3 done: 34s
+[10:10:28]   [008] Step 4 done: 58s
+[10:10:28]   [008] COMPLETE: 171s (2.9m), 37.7 MB
+[10:10:28]   Progress: 8 done, 0 failed, ~37m remaining
+
+[10:10:28] === Clip 9/20: 009 (009__Defense & Build__1929.17-1951.37.mp4...) ===
+[10:10:28]   [009] Step 1: Portrait render...
+[10:15:51]   [009] Step 1 done: 322s, 43.8 MB
+[10:16:03]   [009] Step 2 done: 12s
+[10:16:53]   [009] Step 3 done: 50s
+[10:18:21]   [009] Step 4 done: 88s
+[10:18:21]   [009] COMPLETE: 473s (7.9m), 96.3 MB
+[10:18:21]   Progress: 9 done, 0 failed, ~39m remaining
+
+[10:18:21] === Clip 10/20: 010 (010__Pressure & Goal__2007.87-2023.9.mp4...) ===
+[10:18:21]   [010] Step 1: Portrait render...
+[10:19:59]   [010] Step 1 done: 98s, 31.6 MB
+[10:20:06]   [010] Step 2 done: 7s
+[10:20:44]   [010] Step 3 done: 39s
+[10:21:50]   [010] Step 4 done: 65s
+[10:21:50]   [010] COMPLETE: 209s (3.5m), 72.3 MB
+[10:21:50]   Progress: 10 done, 0 failed, ~36m remaining
+
+[10:21:50] === Clip 11/20: 011 (011__Defense & Build__2050.8-2068.47.mp4...) ===
+[10:21:50]   [011] Step 1: Portrait render...
+[10:23:05]   [011] Step 1 done: 75s, 31.8 MB
+[10:23:14]   [011] Step 2 done: 9s
+[10:23:58]   [011] Step 3 done: 45s
+[10:24:59]   [011] Step 4 done: 61s
+[10:24:59]   [011] COMPLETE: 189s (3.2m), 79.1 MB
+[10:24:59]   Progress: 11 done, 0 failed, ~32m remaining
+
+[10:24:59] === Clip 12/20: 012 (012__Pressure & Shot__2139.2-2155.9.mp4...) ===
+[10:24:59]   [012] Step 1: Portrait render...
+[10:26:20]   [012] Step 1 done: 81s, 35.8 MB
+[10:26:26]   [012] Step 2 done: 7s
+[10:27:05]   [012] Step 3 done: 39s
+[10:28:05]   [012] Step 4 done: 59s
+[10:28:05]   [012] COMPLETE: 186s (3.1m), 79.2 MB
+[10:28:05]   Progress: 12 done, 0 failed, ~28m remaining
+
+[10:28:05] === Clip 13/20: 013 (013__Build, Dribble__2334.13-2352.27.mp4...) ===
+[10:28:05]   [013] Step 1: Portrait render...
+[10:29:20]   [013] Step 1 done: 75s, 36.8 MB
+[10:29:28]   [013] Step 2 done: 9s
+[10:30:10]   [013] Step 3 done: 42s
+[10:31:14]   [013] Step 4 done: 63s
+[10:31:14]   [013] COMPLETE: 189s (3.1m), 88.6 MB
+[10:31:14]   Progress: 13 done, 0 failed, ~24m remaining
+
+[10:31:14] === Clip 14/20: 014 (014__Free Kick & Goal__2410.93-2422.9.mp4...) ===
+[10:31:14]   [014] Step 1: Portrait render...
+[10:33:53]   [014] Step 1 done: 159s, 24.4 MB
+[10:33:59]   [014] Step 2 done: 6s
+[10:34:28]   [014] Step 3 done: 29s
+[10:35:19]   [014] Step 4 done: 51s
+[10:35:19]   [014] COMPLETE: 245s (4.1m), 49.7 MB
+[10:35:19]   Progress: 14 done, 0 failed, ~21m remaining
+
+[10:35:19] === Clip 15/20: 015 (015__Defense, Pressure & Build__2448.5-2501.37.mp4...) ===
+[10:35:19]   [015] Step 1: Portrait render...

@@ -1,0 +1,3 @@
+exit_code=0
+elapsed=70.5s
+output=26.0 MB, Fri Feb 27 21:48:02 2026

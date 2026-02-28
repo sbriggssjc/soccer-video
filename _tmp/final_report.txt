@@ -1,0 +1,50 @@
+PORTRAIT REEL FINAL VERIFICATION REPORT
+Game: 2026-02-23 TSC vs NEOFC
+Total clips: 34
+==========================================================================================
+
+  #  Resolution  Duration   Size MB  Frames  Filename
+------------------------------------------------------------------------------------------
+  1  2160x3840     16.0s     59.4     480  001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait_
+  2  2160x3840     16.5s     79.1     496  002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.0
+  3  2160x3840     18.5s     68.7     554  003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122
+  4  2160x3840     18.2s     69.3     546  004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t1
+  5  2160x3840     15.8s     67.4     474  005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.
+  6  2160x3840     21.1s     89.4     634  006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.
+  7  2160x3840      9.3s     39.7     280  007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portr
+  8  2160x3840     16.5s     63.0     496  008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__p
+  9  2160x3840      7.2s     29.4     216  009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__port
+ 10  2160x3840     15.7s     64.4     472  010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t8
+ 11  2160x3840     15.9s     66.4     478  011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t
+ 12  2160x3840      9.7s     43.2     292  012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__p
+ 13  2160x3840     19.4s     84.9     582  013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t
+ 14  2160x3840     20.3s     88.7     610  014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.
+ 15  2160x3840     33.3s    145.6     998  015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t112
+ 16  2160x3840     17.6s     75.0     527  016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t
+ 17  2160x3840     18.7s     82.5     560  017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t14
+ 18  2160x3840     29.0s    119.9     869  018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__por
+ 19  2160x3840     18.3s     80.9     550  019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t160
+ 20  2160x3840      8.5s     31.5     254  020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t
+ 21  2160x3840     17.0s     64.2     510  021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t
+ 22  2160x3840     18.1s     72.0     544  022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t172
+ 23  2160x3840     15.1s     64.0     452  023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT_
+ 24  2160x3840     14.2s     58.3     426  024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t
+ 25  2160x3840     15.7s     60.6     470  025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.
+ 26  2160x3840      9.6s     32.8     288  026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t
+ 27  2160x3840     14.6s     65.0     438  027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL_
+ 28  2160x3840     10.5s     36.3     314  028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__port
+ 29  2160x3840     15.6s     63.5     468  029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2
+ 30  2160x3840      8.4s     34.6     252  030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__port
+ 31  2160x3840      8.8s     38.4     264  031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__port
+ 32  2160x3840     17.0s     79.7     510  032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t286
+ 33  2160x3840     17.7s     73.4     530  033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__
+ 34  2160x3840      9.0s     41.2     270  034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t298
+
+==========================================================================================
+SUMMARY
+  Total clips:    34
+  Total duration: 536.8s (8.9 min)
+  Total size:     2232.4 MB (2.18 GB)
+  Avg clip size:  65.7 MB
+  Resolution errors: 0
+  ALL CLIPS VERIFIED: 2160x3840 (4K portrait)

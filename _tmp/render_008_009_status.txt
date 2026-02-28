@@ -1,0 +1,24 @@
+Render 008 + 009 started
+[11:34:20] === NEOFC clip 008 ===
+[11:34:20]   [008] 34 anchors, 496 frames
+[11:34:20]   [008] Telemetry written
+[11:34:20]   [008] Step 1: Portrait render...
+[11:39:51]   [008] Step 1 done: 26.0 MB
+[11:39:58]   [008] Step 2 done
+[11:40:39]   [008] Step 3 done
+[11:41:42]   [008] Step 4 done
+[11:41:42]   [008] COMPLETE: 7.4m, 64.6 MB
+[11:41:42] NEOFC 008: SUCCESS
+
+[11:41:42] === NEOFC clip 009 ===
+[11:41:42]   [009] 16 anchors, 216 frames
+[11:41:42]   [009] Telemetry written
+[11:41:42]   [009] Step 1: Portrait render...
+[11:44:50]   [009] Step 1 done: 12.5 MB
+[11:44:53]   [009] Step 2 done
+[11:45:11]   [009] Step 3 done
+[11:45:41]   [009] Step 4 done
+[11:45:41]   [009] COMPLETE: 4.0m, 25.1 MB
+[11:45:41] NEOFC 009: SUCCESS
+
+[11:45:41] ALL DONE

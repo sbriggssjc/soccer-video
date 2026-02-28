@@ -1,0 +1,14 @@
+Apply + render clip 004
+[09:24:43] Anchors: 71 points, 546 total frames
+[09:24:43] Telemetry patched
+[09:24:43] STEP 1: Portrait render...
+[09:26:13] STEP 1 DONE: 91s, 33.1 MB
+[09:26:13] STEP 2: vidstab detect...
+[09:26:25] STEP 2 DONE: 12s
+[09:26:25] STEP 3: vidstab transform...
+[09:27:14] STEP 3 DONE: 49s
+[09:27:14] STEP 4: 4K upscale...
+[09:28:26] STEP 4 DONE: 72s
+[09:28:26] 
+SUCCESS - Total: 224s (3.7m), 78.6 MB
+[09:28:26] FINAL: out\portrait_reels\2026-02-23__TSC_vs_NEOFC\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait__FINAL.mp4

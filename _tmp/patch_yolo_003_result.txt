@@ -1,0 +1,11 @@
+SUCCESS
+Backed up 003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00.yolo_ball.jsonl
+Backed up 003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00.tracker_ball.jsonl
+Wrote 554 dense YOLO entries
+Cleared tracker_ball.jsonl
+
+YOLO entries: 554
+Frame 0: cx=960.0, cy=970.0
+Frame 180: cx=1087.0, cy=922.0
+Frame 305: cx=1100.0, cy=940.0
+Frame 553: cx=523.46, cy=999.36

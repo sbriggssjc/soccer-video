@@ -1,0 +1,18 @@
+Re-render clip 004 v3 (wider zoom)
+[09:41:35] Anchors: 71 points, 546 total frames
+[09:41:35] Telemetry patched
+[09:41:35] STEP 1: Portrait render (wider zoom)...
+[09:42:51] STEP 4 DONE: 79s
+[09:42:51] 
+SUCCESS - Total: 231s (3.9m), 79.7 MB
+[09:42:51] Changes: --zoom-min 0.72, --zoom-out-max 1.5, vidstab zoom=1
+[09:43:50] STEP 1 DONE: 134s, 33.1 MB
+[09:43:50] STEP 2: vidstab detect...
+[09:43:58] STEP 2 DONE: 8s
+[09:43:58] STEP 3: vidstab transform (zoom=1)...
+[09:44:36] STEP 3 DONE: 38s
+[09:44:36] STEP 4: 4K upscale...
+[09:45:44] STEP 4 DONE: 68s
+[09:45:44] 
+SUCCESS - Total: 249s (4.2m), 79.7 MB
+[09:45:44] Changes: --zoom-min 0.72, --zoom-out-max 1.5, vidstab zoom=1

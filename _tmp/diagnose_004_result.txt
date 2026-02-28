@@ -1,0 +1,42 @@
+=== CLIP 004 FRAMING ANALYSIS ===
+Total frames: 546
+
+CROP DIMENSIONS:
+  Width:  min=474 max=658 avg=639
+  Height: min=843 max=1169 avg=1136
+  Portrait output: 1080x1920
+  Crop covers 25-34% of source width
+
+BALL OUT OF CROP: 0 frames
+
+SPEED LIMITED FRAMES: 0 / 546
+
+CAMERA-BALL LAG (frames where |cam - ball| > 10% of frame width):
+  f449-f477 (1.0s) max_lag=16%
+  f496-f503 (0.3s) max_lag=12%
+
+DETAILED: Fast movement zones (every 3 frames)
+  f450: ball=3% cam=17% crop_w=656 dte=55 [LAG=14%] [accel_zoom=0.780,keepin_zoom=1.300,edge_zoom=0.875]
+  f453: ball=2% cam=17% crop_w=658 dte=41 [LAG=15%] [edge_zoom=0.750]
+  f456: ball=2% cam=17% crop_w=658 dte=34 [LAG=15%] [edge_zoom=0.750]
+  f459: ball=2% cam=17% crop_w=658 dte=31 [LAG=16%] [edge_zoom=0.750]
+  f462: ball=2% cam=17% crop_w=658 dte=33 [LAG=15%] [edge_zoom=0.750]
+  f465: ball=2% cam=17% crop_w=658 dte=41 [LAG=15%] [edge_zoom=0.750]
+  f468: ball=3% cam=17% crop_w=658 dte=56 [LAG=14%] [edge_zoom=0.765]
+  f471: ball=5% cam=17% crop_w=658 dte=95 [LAG=12%] [edge_zoom=0.894]
+  f474: ball=5% cam=17% crop_w=658 dte=96 [LAG=12%] [edge_zoom=0.898]
+  f477: ball=7% cam=17% crop_w=658 dte=134 [LAG=10%] [accel_zoom=0.934,edge_zoom=0.994]
+  f480: ball=10% cam=17% crop_w=658 dte=192 [accel_zoom=0.934,edge_zoom=0.986]
+  f492: ball=12% cam=17% crop_w=658 dte=231 [accel_zoom=0.780,keepin_zoom=1.300,edge_zoom=0.960]
+  f495: ball=7% cam=17% crop_w=658 dte=137 [edge_zoom=0.985]
+  f498: ball=6% cam=17% crop_w=658 dte=112 [LAG=11%] [edge_zoom=0.937]
+  f501: ball=6% cam=17% crop_w=658 dte=108 [LAG=12%] [edge_zoom=0.944]
+  f504: ball=7% cam=17% crop_w=658 dte=142 [edge_zoom=0.993]
+  f507: ball=9% cam=17% crop_w=658 dte=169 [edge_zoom=0.990]
+  f510: ball=10% cam=17% crop_w=658 dte=194 [edge_zoom=0.990]
+
+VIDSTAB SETTINGS IMPACT:
+  Current: zoom=3 (adds 3% zoom on top of stabilization)
+  Current crop width avg: 639px = 33% of 1920
+  After vidstab zoom=3: effective crop ~32% of 1920
+  Consider: zoom=1 or zoom=0 for wider view during fast action

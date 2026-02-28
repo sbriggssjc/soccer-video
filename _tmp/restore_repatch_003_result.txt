@@ -1,0 +1,11 @@
+SUCCESS
+Restored from backup, then patched 370 frames.
+  Frame 0: cx=960.0, cy=970.0
+  Frame 100: cx=960.0, cy=970.0
+  Frame 160: cx=1087.0, cy=922.0
+  Frame 200: cx=1087.0, cy=922.0
+  Frame 240: cx=1087.0, cy=922.0
+  Frame 265: cx=1353.5, cy=967.2
+  Frame 305: cx=1100.0, cy=940.0
+  Frame 385: cx=1100.0, cy=940.0
+  Frame 410: cx=596.7, cy=1021.1

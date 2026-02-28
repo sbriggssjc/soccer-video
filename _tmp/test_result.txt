@@ -1,0 +1,8 @@
+Python is working
+Pattern: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\*__portrait.mp4
+Found: 34 files
+  001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait.mp4
+  002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00__portrait.mp4
+  003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait.mp4
+  004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait.mp4
+  005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait.mp4
