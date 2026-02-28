@@ -34,36 +34,37 @@ def probe_resolution(path):
     return 0, 0
 
 def vidstab(src, dst, clip_idx):
-    """Two-pass vidstab stabilization."""
-    # Use short numeric filename for trf to avoid ffmpeg filter path parsing issues
-    trf = os.path.join(TEMP_DIR, f"clip{clip_idx:03d}.trf").replace("\\", "/")
-    src_fwd = src.replace("\\", "/")
-    dst_fwd = dst.replace("\\", "/")
-    # Pass 1: detect
+    """Two-pass vidstab stabilization.
+    
+    Runs ffmpeg from TEMP_DIR with relative trf filename to avoid
+    ffmpeg filter parser choking on Windows drive letter colons.
+    """
+    trf_name = f"clip{clip_idx:03d}.trf"
+    trf_abs = os.path.join(TEMP_DIR, trf_name)
+    # Pass 1: detect — run from TEMP_DIR so result= uses relative path
     subprocess.run([
-        'ffmpeg', '-y', '-i', src_fwd,
-        '-vf', f'vidstabdetect=shakiness={VIDSTAB_SHAKINESS}:accuracy={VIDSTAB_ACCURACY}:result={trf}',
+        'ffmpeg', '-y', '-i', src,
+        '-vf', f'vidstabdetect=shakiness={VIDSTAB_SHAKINESS}:accuracy={VIDSTAB_ACCURACY}:result={trf_name}',
         '-f', 'null', '-'
-    ], capture_output=True)
-    # Pass 2: transform
+    ], capture_output=True, cwd=TEMP_DIR)
+    # Pass 2: transform — run from TEMP_DIR so input= uses relative path
     subprocess.check_call([
-        'ffmpeg', '-y', '-i', src_fwd,
-        '-vf', f'vidstabtransform=input={trf}:smoothing={VIDSTAB_SMOOTHING}:interpol=bicubic:crop=black:zoom={VIDSTAB_ZOOM}',
+        'ffmpeg', '-y', '-i', src,
+        '-vf', f'vidstabtransform=input={trf_name}:smoothing={VIDSTAB_SMOOTHING}:interpol=bicubic:crop=black:zoom={VIDSTAB_ZOOM}',
         '-c:v', 'libx264', '-crf', '17', '-preset', 'medium',
-        '-pix_fmt', 'yuv420p', dst_fwd
-    ])
+        '-pix_fmt', 'yuv420p', dst
+    ], cwd=TEMP_DIR)
     # Cleanup trf
-    trf_win = trf.replace("/", "\\")
-    if os.path.exists(trf_win):
-        os.remove(trf_win)
+    if os.path.exists(trf_abs):
+        os.remove(trf_abs)
 
 def upscale_4k(src, dst):
     """2x lanczos upscale with denoise + sharpen."""
     subprocess.check_call([
-        'ffmpeg', '-y', '-i', src.replace("\\", "/"),
+        'ffmpeg', '-y', '-i', src,
         '-vf', 'scale=iw*2:ih*2:flags=lanczos,hqdn3d=2:1:2:3,unsharp=5:5:0.5:5:5:0.0',
         '-c:v', 'libx264', '-preset', 'slow', '-crf', '17',
-        '-pix_fmt', 'yuv420p', dst.replace("\\", "/")
+        '-pix_fmt', 'yuv420p', dst
     ])
 
 def process_clip(portrait_mp4, clip_idx=0):
