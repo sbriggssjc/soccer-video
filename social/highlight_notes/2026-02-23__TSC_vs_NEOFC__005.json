@@ -1,0 +1,18 @@
+{
+  "clip_id": "005",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Build & Goal",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Caroline", "position": "CM", "action": "receives throw-in, turns and carries the ball, plays a great through ball out wide"},
+    {"name": "Langley", "position": "W", "action": "receives the through ball, dribbles and strikes a low, hard shot to the back post — GOAL"}
+  ],
+  "narrative": "Throw-in finds {Caroline} in midfield — she turns, carries the ball, and threads a perfect through ball out wide to {Langley}. {Langley} dribbles, picks her spot, and fires a low, hard strike to the back post. GOAL!",
+  "caption_hook": "Pick a corner. Bury it. That's a GOAL!",
+  "mood": "hype",
+  "action_types": ["build_up", "goal"]
+}
