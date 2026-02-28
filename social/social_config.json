@@ -1,0 +1,44 @@
+{
+  "club": {
+    "name": "Tulsa Soccer Club",
+    "short_name": "TSC",
+    "instagram": "@tulsasc"
+  },
+  "coach": {
+    "name": "Lebo Moloto",
+    "instagram_personal": "@lebo_moloto90",
+    "instagram_work": "@lebomolotosoccertraining"
+  },
+  "always_tag": ["@tulsasc", "@lebomolotosoccertraining"],
+  "opponents": {
+    "NEOFC": {"name": "NEO FC", "instagram": ""},
+    "Greenwood": {"name": "Greenwood", "instagram": ""},
+    "FC_Tulsa_Black": {"name": "FC Tulsa Black", "instagram": ""},
+    "RVFC": {"name": "RVFC", "instagram": ""},
+    "SLSG": {"name": "SLSG", "instagram": ""},
+    "BASC": {"name": "BASC", "instagram": ""},
+    "OK_Sporting": {"name": "OK Sporting", "instagram": ""},
+    "TSC_Navy": {"name": "TSC Navy", "instagram": ""},
+    "Arkansas": {"name": "Arkansas", "instagram": ""},
+    "Route_66": {"name": "Route 66", "instagram": ""}
+  },
+  "hashtags": {
+    "always": ["#TulsaSoccerClub", "#TSC", "#TSCSoccer"],
+    "broad": ["#Soccer", "#SoccerHighlights", "#SoccerReels", "#MatchDay", "#YouthSoccer", "#ClubSoccer"],
+    "regional": ["#OklahomaSoccer", "#TulsaSoccer"],
+    "action": {
+      "goal":     ["#Goal", "#GoalOfTheDay"],
+      "shot":     ["#Shot", "#PowerShot", "#SoccerShot"],
+      "save":     ["#Save", "#BigSave", "#GKSave"],
+      "dribble":  ["#SoccerSkills", "#Dribbling", "#Tekkers"],
+      "cross":    ["#Cross", "#Assist"],
+      "build_up": ["#BuildUpPlay", "#TeamWork", "#Passing"],
+      "defense":  ["#Defense", "#Tackle"]
+    }
+  },
+  "posting": {
+    "platform": "instagram",
+    "max_hashtags": 20,
+    "max_caption_length": 2200
+  }
+}
