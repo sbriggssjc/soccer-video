@@ -69,9 +69,10 @@ def resolve_handle(player_name: str, roster: dict[str, dict]) -> str | None:
 
 
 def expand_player_refs(narrative: str, roster: dict[str, dict]) -> str:
-    """Expand {PlayerName} placeholders to (#number - FirstName) format.
+    """Expand {PlayerName} placeholders to (No. number - FirstName) format.
 
-    E.g. '{Charlotte Robison}' -> '(#13 - Charlotte)'
+    Uses 'No.' instead of '#' to avoid Instagram counting them as hashtags.
+    E.g. '{Charlotte Robison}' -> '(No. 13 - Charlotte)'
     """
     def replace_match(m: re.Match) -> str:
         name = m.group(1)
@@ -80,7 +81,7 @@ def expand_player_refs(narrative: str, roster: dict[str, dict]) -> str:
             number = entry.get("PlayerNumber", "").strip()
             first_name = entry["PlayerName"].strip().split()[0]
             if number:
-                return f"(#{number} - {first_name})"
+                return f"(No. {number} - {first_name})"
             return f"({first_name})"
         return f"({name})"
 
