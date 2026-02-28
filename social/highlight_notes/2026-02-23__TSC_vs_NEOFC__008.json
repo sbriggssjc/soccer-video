@@ -1,0 +1,17 @@
+{
+  "clip_id": "008",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Dribbling",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Caroline", "position": "CM", "action": "receives the kickoff, dribbles and drives through midfield to create a shot"}
+  ],
+  "narrative": "{Caroline} receives the kickoff and takes matters into her own hands — dribbling and driving her way through the midfield before creating a shot on goal.",
+  "caption_hook": "Head down. Ball at her feet. Good luck stopping her.",
+  "mood": "hype",
+  "action_types": ["dribble", "shot"]
+}
