@@ -1,0 +1,20 @@
+{
+  "clip_id": "006",
+  "game_label": "2026-02-23__TSC_vs_NEOFC",
+  "event_date": "2026-02-22",
+  "event_name": "2016 Championship Game of the WSA Future's Cup",
+  "home_color": "Gold",
+  "away_color": "Blue",
+  "playtag": "Build & Shot",
+  "video_file": "D:\\Projects\\soccer-video\\out\\portrait_reels\\2026-02-23__TSC_vs_NEOFC\\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL.mp4",
+  "players_involved": [
+    {"name": "Caroline", "position": "CM", "action": "receives throw-in, controls and finds Hannah"},
+    {"name": "Hannah Landrum", "position": "MF", "action": "quickly plays the ball out wide to Langley"},
+    {"name": "Langley", "position": "W", "action": "receives in space, tries to get in behind with the dribble before the ball is cleared"},
+    {"name": "Sydney Shepelwich", "position": "CB", "action": "picks up the clearance, dribbles past a closing player and takes a shot from deep, just wide"}
+  ],
+  "narrative": "Throw-in to {Caroline} — she controls and finds {Hannah Landrum}, who quickly plays it out wide to {Langley} in space. {Langley} tries to get in behind with the dribble but the ball gets cleared. {Sydney Shepelwich} picks it up, dribbles by an oncoming player and lets one fly from deep — just wide of the goal!",
+  "caption_hook": "Keep the pressure on. Keep shooting.",
+  "mood": "hype",
+  "action_types": ["build_up", "shot"]
+}
