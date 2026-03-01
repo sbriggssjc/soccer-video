@@ -1,0 +1,16 @@
+Direct crop render clip 006 v4
+[14:25:38] Clip: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.mp4
+[14:25:38] Duration: 21.0s, 630 source frames
+[14:25:38] 64 anchors interpolated to 630 frames
+[14:25:38] Crop X range: 0-840
+[14:25:38] Actual crop: 607x1080 from 1920x1080
+[14:25:38] Crop X range (actual): 0-1313
+[14:25:38] Step 1: Direct crop with OpenCV...
+[14:25:38] Source: 30.0fps, 634 frames
+[14:25:43] Wrote 504 frames to temp portrait
+[14:26:03] Step 1 done: 47.5 MB
+[14:26:11] Step 2 done
+[14:26:51] Step 3 done
+[14:28:19] Step 4 done
+[14:28:19] COMPLETE: 2.7m, 103.4 MB
+[14:28:19] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL.mp4

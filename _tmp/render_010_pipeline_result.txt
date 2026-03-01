@@ -1,0 +1,14 @@
+Re-render clip 010 v3 (tight follow)
+[16:38:28] ball: 010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00.ball.jsonl
+[16:38:28] yolo: 010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00.yolo_ball.yolov8x.jsonl
+[16:38:28] 47 anchors, 360 frames
+[16:38:28] Telemetry written
+[16:38:28] Patched post_smooth_sigma=0 in cinematic preset
+[16:38:28] Step 1: Portrait render (tight follow)...
+[16:42:48] Restored original render script
+[16:42:48] Step 1 done: 25.0 MB
+[16:42:55] Step 2 done
+[16:43:30] Step 3 done
+[16:44:28] Step 4 done
+[16:44:28] COMPLETE: 6.0m, 63.8 MB
+[16:44:28] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait__FINAL.mp4
