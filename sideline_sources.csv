@@ -1,5 +1,5 @@
-game_label,sideline_path,sync_offset,pre_pad,post_pad
-2026-02-23__TSC_vs_NEOFC,D:\Projects\soccer-video\out\masters\2026-02-23__TSC_vs_NEOFC\SIDELINE.mp4,0.0,1.0,1.0
-2026-02-23__TSC_vs_Greenwood,D:\Projects\soccer-video\out\masters\2026-02-23__TSC_vs_Greenwood\SIDELINE.mp4,0.0,1.0,1.0
-2026-03-01__TSC_vs_OK_Celtic,SIDELINE_PATH_HERE,0.0,1.0,1.0
-2026-03-01__TSC_vs_North_OKC,SIDELINE_PATH_HERE,0.0,1.0,1.0
+game_label,sideline_path,sync_offset,pre_pad,post_pad,half_break_master,halftime_gap
+2026-02-23__TSC_vs_NEOFC,D:\Projects\soccer-video\out\masters\2026-02-23__TSC_vs_NEOFC\SIDELINE.mp4,0.0,1.0,1.0,0,0
+2026-02-23__TSC_vs_Greenwood,D:\Projects\soccer-video\out\masters\2026-02-23__TSC_vs_Greenwood\SIDELINE.mp4,0.0,1.0,1.0,0,0
+2026-03-01__TSC_vs_OK_Celtic,SIDELINE_PATH_HERE,0.0,1.0,1.0,1504,0
+2026-03-01__TSC_vs_North_OKC,SIDELINE_PATH_HERE,0.0,1.0,1.0,1494,0

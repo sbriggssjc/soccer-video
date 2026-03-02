@@ -13,6 +13,25 @@ offset is -30 (master t=30 maps to sideline t=0).  You can determine this
 by finding the same visible event (kickoff whistle, a goal, etc.) in both
 videos and computing: offset = sideline_time - master_time.
 
+Halftime gap handling
+~~~~~~~~~~~~~~~~~~~~~
+
+When the XBot Go master has halftime edited out (the video jumps directly
+from end of 1st half to start of 2nd half), the sideline camera's recording
+is continuous and includes halftime.  To correctly sync second-half plays,
+provide:
+
+- ``half_break_master``: seconds in the master where the 2nd half starts
+- ``halftime_gap``: seconds of real time that were cut from the master
+
+For second-half plays (master_start >= half_break_master), the effective
+sync offset becomes: ``sync_offset + halftime_gap``.
+
+To determine halftime_gap from the XBot Go clock overlay:
+  1. Note the overlay clock at the last first-half frame (e.g., 11:07:00)
+  2. Note the overlay clock at the first second-half frame (e.g., 11:32:23)
+  3. halftime_gap = 11:32:23 - 11:07:00 = 25m 23s = 1523 seconds
+
 Usage:
     # Preview what would be extracted
     python tools/extract_sideline_angles.py \\
@@ -21,11 +40,14 @@ Usage:
         --offset -12.5 \\
         --dry-run
 
-    # Extract sideline angles
+    # Extract with halftime gap correction
     python tools/extract_sideline_angles.py \\
-        --game 2026-02-23__TSC_vs_NEOFC \\
-        --sideline /path/to/sideline_NEOFC.mp4 \\
-        --offset -12.5
+        --game 2026-03-01__TSC_vs_OK_Celtic \\
+        --sideline /path/to/sideline.mp4 \\
+        --offset -5.0 \\
+        --half-break-master 1504 \\
+        --halftime-gap 1523 \\
+        --dry-run
 
     # Use a sideline_sources.csv config for batch processing
     python tools/extract_sideline_angles.py --from-config
@@ -58,9 +80,23 @@ class SidelineSource:
     """A sideline video source and its sync offset for a game."""
     game_label: str
     sideline_path: Path
-    sync_offset: float  # seconds to ADD to master timestamp
+    sync_offset: float  # seconds to ADD to master timestamp (1st half)
     pre_pad: float = 1.0  # extra seconds before the highlight
     post_pad: float = 1.0  # extra seconds after the highlight
+    half_break_master: float = 0.0  # master seconds where 2nd half starts (0 = no break)
+    halftime_gap: float = 0.0  # seconds of halftime cut from master but present in sideline
+
+    def offset_for_play(self, master_start: float) -> float:
+        """Return the correct sync offset for a play based on its half.
+
+        For first-half plays (or when no halftime gap is configured),
+        returns sync_offset.  For second-half plays, returns
+        sync_offset + halftime_gap to account for the halftime
+        that was cut from the master but is present in the sideline.
+        """
+        if self.half_break_master > 0 and master_start >= self.half_break_master:
+            return self.sync_offset + self.halftime_gap
+        return self.sync_offset
 
 
 @dataclass
@@ -101,7 +137,11 @@ def load_plays_manual(game_dir: Path) -> list[PlayEntry]:
 
 
 def load_sideline_config(config_path: Path) -> list[SidelineSource]:
-    """Load sideline_sources.csv."""
+    """Load sideline_sources.csv.
+
+    Supports optional ``half_break_master`` and ``halftime_gap`` columns
+    for games where the XBot Go master has halftime edited out.
+    """
     if not config_path.exists():
         print(f"Config not found: {config_path}")
         return []
@@ -114,6 +154,8 @@ def load_sideline_config(config_path: Path) -> list[SidelineSource]:
             offset = row.get("sync_offset", "0").strip()
             pre = row.get("pre_pad", "1.0").strip()
             post = row.get("post_pad", "1.0").strip()
+            hb_master = row.get("half_break_master", "0").strip()
+            ht_gap = row.get("halftime_gap", "0").strip()
             if not game or not path:
                 continue
             sources.append(SidelineSource(
@@ -122,6 +164,8 @@ def load_sideline_config(config_path: Path) -> list[SidelineSource]:
                 sync_offset=float(offset),
                 pre_pad=float(pre) if pre else 1.0,
                 post_pad=float(post) if post else 1.0,
+                half_break_master=float(hb_master) if hb_master else 0.0,
+                halftime_gap=float(ht_gap) if ht_gap else 0.0,
             ))
     return sources
 
@@ -171,9 +215,11 @@ def extract_sideline_clips(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for play in plays:
-        # Apply sync offset to convert master timestamps to sideline timestamps
-        sl_start = play.master_start + source.sync_offset - source.pre_pad
-        sl_end = play.master_end + source.sync_offset + source.post_pad
+        # Apply sync offset to convert master timestamps to sideline timestamps.
+        # Uses piecewise offset when halftime gap is configured.
+        effective_offset = source.offset_for_play(play.master_start)
+        sl_start = play.master_start + effective_offset - source.pre_pad
+        sl_end = play.master_end + effective_offset + source.post_pad
 
         # Clamp to valid range
         if sl_start < 0:
@@ -184,7 +230,7 @@ def extract_sideline_clips(
         # Check if the window is valid in the sideline video
         if sl_end <= sl_start:
             print(f"    SKIP #{play.clip_id:03d} {play.label:<30s} "
-                  f"out of sideline range (offset={source.sync_offset:+.1f}s)")
+                  f"out of sideline range (offset={effective_offset:+.1f}s)")
             stats["out_of_range"] += 1
             continue
 
@@ -208,9 +254,13 @@ def extract_sideline_clips(
         duration = sl_end - sl_start
 
         if dry_run:
+            half_tag = ""
+            if source.half_break_master > 0:
+                half_tag = " [2H]" if play.master_start >= source.half_break_master else " [1H]"
             print(f"    [DRY-RUN] #{play.clip_id:03d} {play.label:<30s} "
                   f"master t={play.master_start:.1f}-{play.master_end:.1f}s "
-                  f"-> sideline t={sl_start:.1f}-{sl_end:.1f}s ({duration:.1f}s)")
+                  f"-> sideline t={sl_start:.1f}-{sl_end:.1f}s ({duration:.1f}s)"
+                  f"{half_tag}")
             stats["extracted"] += 1
             continue
 
@@ -262,8 +312,16 @@ def process_game(
     print(f"\n  {game_label}")
     print(f"    Plays: {len(plays)}")
     print(f"    Sideline: {source.sideline_path}")
-    print(f"    Sync offset: {source.sync_offset:+.1f}s "
+    print(f"    Sync offset (1H): {source.sync_offset:+.1f}s "
           f"(pre_pad={source.pre_pad:.1f}s, post_pad={source.post_pad:.1f}s)")
+    if source.half_break_master > 0:
+        offset_2h = source.sync_offset + source.halftime_gap
+        first_half = sum(1 for p in plays if p.master_start < source.half_break_master)
+        second_half = len(plays) - first_half
+        print(f"    Half break at master t={source.half_break_master:.1f}s, "
+              f"halftime gap={source.halftime_gap:.1f}s")
+        print(f"    Sync offset (2H): {offset_2h:+.1f}s")
+        print(f"    1st half plays: {first_half}, 2nd half plays: {second_half}")
 
     out_dir = ATOMIC_DIR / game_label / "sideline"
     stats = extract_sideline_clips(
@@ -291,6 +349,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Extra seconds before each highlight (default: 1.0)")
     p.add_argument("--post-pad", type=float, default=1.0,
                    help="Extra seconds after each highlight (default: 1.0)")
+
+    # Halftime gap correction
+    p.add_argument("--half-break-master", type=float, default=0.0,
+                   help="Master timestamp (seconds) where 2nd half starts. "
+                        "Required when master has halftime cut out.")
+    p.add_argument("--halftime-gap", type=float, default=0.0,
+                   help="Duration (seconds) of halftime cut from master but "
+                        "present in sideline. Compute from XBotGo clock overlay: "
+                        "2nd_half_clock - 1st_half_end_clock.")
 
     # Config-based batch mode
     p.add_argument("--from-config", action="store_true",
@@ -348,6 +415,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             sync_offset=args.offset,
             pre_pad=args.pre_pad,
             post_pad=args.post_pad,
+            half_break_master=args.half_break_master,
+            halftime_gap=args.halftime_gap,
         )
         stats = process_game(
             args.game, source,
