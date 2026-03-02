@@ -477,7 +477,15 @@ def telemetry_path_for_video(video_path: str | Path) -> str:
 
 
 def load_ball_telemetry_for_clip(atomic_path: str) -> list[BallSample]:
-    """Discover and load telemetry for ``atomic_path`` if present."""
+    """Discover and load telemetry for ``atomic_path`` if present.
+
+    Discovery priority:
+    1. Fused multi-camera telemetry (``<stem>.ball_fused.jsonl``) — preferred
+       when available, as it incorporates cross-validated detections from
+       multiple camera angles.
+    2. Standard single-camera telemetry (``<stem>.ball.jsonl``).
+    3. Legacy formats (``.ball_path.jsonl``, ``.telemetry.jsonl``, etc.).
+    """
 
     clip_path = Path(atomic_path)
     samples: list[BallSample] = []
@@ -486,6 +494,11 @@ def load_ball_telemetry_for_clip(atomic_path: str) -> list[BallSample]:
     candidates = list(_candidate_paths(clip_path))
     if default_path not in candidates:
         candidates.insert(0, default_path)
+
+    # Prefer fused multi-camera telemetry when available (higher priority)
+    fused_path = default_path.parent / f"{clip_path.stem}.ball_fused.jsonl"
+    if fused_path not in candidates:
+        candidates.insert(0, fused_path)
 
     for candidate in candidates:
         if not candidate.is_file():
