@@ -6,14 +6,14 @@ Then vidstab + 4K upscale.
 import time, os, sys, csv, re, subprocess, traceback, tempfile
 import numpy as np
 
-CLIP_NUM = "034"
+CLIP_NUM = "002"
 SKIP_4K_UPSCALE = True  # Stay at 1080x1920 for cleaner image
 
 os.chdir(r"D:\Projects\soccer-video")
 RESULT = rf"D:\Projects\soccer-video\_tmp\render_direct_{CLIP_NUM}_result.txt"
 FFMPEG = "ffmpeg"
 TEMP_DIR = tempfile.gettempdir()
-GAME = "2026-02-23__TSC_vs_NEOFC"
+GAME = "2026-02-23__TSC_vs_Greenwood"
 
 SRC_W = 1920; SRC_H = 1080
 PORT_W = 1080; PORT_H = 1920
