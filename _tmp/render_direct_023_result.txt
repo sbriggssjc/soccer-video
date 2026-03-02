@@ -1,0 +1,13 @@
+Direct crop render clip 023
+[22:36:43] Clip: 023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00.mp4
+[22:36:43] Actual: 452 frames, 15.07s (filename said 13.0s)
+[22:36:43] 46 anchors, crop 608x1080
+[22:36:43] Step 1: Direct crop...
+[22:36:43] Source dims: 1920x1080
+[22:36:49] Wrote 361 frames
+[22:37:04] Step 1 done: 27.7 MB
+[22:37:10] Step 2 done
+[22:37:37] Step 3 done
+[22:37:37] Step 4 skipped (no 4K upscale)
+[22:37:37] COMPLETE: 0.9m, 22.5 MB
+[22:37:37] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait__FINAL.mp4

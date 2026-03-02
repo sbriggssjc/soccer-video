@@ -1,0 +1,13 @@
+Direct crop render clip 017
+[20:52:20] Clip: 017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00.mp4
+[20:52:20] Actual: 560 frames, 18.67s (filename said 16.0s)
+[20:52:20] 57 anchors, crop 608x1080
+[20:52:20] Step 1: Direct crop...
+[20:52:20] Source dims: 1920x1080
+[20:52:30] Wrote 448 frames
+[20:52:53] Step 1 done: 33.5 MB
+[20:53:06] Step 2 done
+[20:54:01] Step 3 done
+[20:54:01] Step 4 skipped (no 4K upscale)
+[20:54:01] COMPLETE: 1.7m, 32.2 MB
+[20:54:01] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait__FINAL.mp4
