@@ -6,7 +6,7 @@ Then vidstab + 4K upscale.
 import time, os, sys, csv, re, subprocess, traceback, tempfile
 import numpy as np
 
-CLIP_NUM = "003"
+CLIP_NUM = "004"
 SKIP_4K_UPSCALE = True  # Stay at 1080x1920 for cleaner image
 
 os.chdir(r"D:\Projects\soccer-video")
