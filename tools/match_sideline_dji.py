@@ -214,18 +214,32 @@ def match_and_extract(
     *,
     pre_pad: float = 2.0,
     post_pad: float = 2.0,
+    half_break_master: float = 0.0,
+    halftime_gap: float = 0.0,
     dry_run: bool = False,
     overwrite: bool = False,
 ) -> dict:
-    """Match events to DJI clips and extract overlapping portions."""
+    """Match events to DJI clips and extract overlapping portions.
+
+    When the master video has halftime edited out, second-half events need
+    a wall-clock correction.  Provide half_break_master (the master offset
+    in seconds where the 2nd half begins) and halftime_gap (the real-world
+    seconds of halftime that were cut).  For events at or past the break
+    point, halftime_gap is added to the computed wall-clock time.
+    """
     stats = {"matched": 0, "unmatched": 0, "clips_written": 0, "failed": 0}
 
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
 
     for event in events:
-        evt_start_wc = master_start + timedelta(seconds=event["master_start"] - pre_pad)
-        evt_end_wc = master_start + timedelta(seconds=event["master_end"] + post_pad)
+        # For second-half events, add the halftime gap that was cut from
+        # the master but elapsed in real (wall-clock) time.
+        ht_offset = 0.0
+        if half_break_master > 0 and event["master_start"] >= half_break_master:
+            ht_offset = halftime_gap
+        evt_start_wc = master_start + timedelta(seconds=event["master_start"] + ht_offset - pre_pad)
+        evt_end_wc = master_start + timedelta(seconds=event["master_end"] + ht_offset + post_pad)
 
         # Find overlapping DJI clips
         overlapping = [
@@ -235,11 +249,14 @@ def match_and_extract(
 
         safe_label = _sanitize_label(event["label"])
         eid = event["id"]
+        half_tag = ""
+        if half_break_master > 0:
+            half_tag = " [2H]" if ht_offset > 0 else " [1H]"
 
         if not overlapping:
             print(f"    [{eid:>3s}] {event['label']:<30s} "
                   f"({evt_start_wc.strftime('%H:%M:%S')}-"
-                  f"{evt_end_wc.strftime('%H:%M:%S')})  -> NO MATCH")
+                  f"{evt_end_wc.strftime('%H:%M:%S')})  -> NO MATCH{half_tag}")
             stats["unmatched"] += 1
             continue
 
@@ -322,6 +339,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Extra seconds before each event (default: 2.0)")
     p.add_argument("--post-pad", type=float, default=2.0,
                    help="Extra seconds after each event (default: 2.0)")
+
+    # Halftime gap correction (same concept as extract_sideline_angles.py)
+    p.add_argument("--half-break-master", type=float, default=0.0,
+                   help="Master offset (seconds) where 2nd half starts. "
+                        "Required when master has halftime edited out.")
+    p.add_argument("--halftime-gap", type=float, default=0.0,
+                   help="Real-world seconds of halftime that were cut from "
+                        "the master. For events past the break point, this "
+                        "is added to the wall-clock time.")
     p.add_argument("--dry-run", action="store_true",
                    help="Preview matches without extracting")
     p.add_argument("--overwrite", action="store_true",
@@ -370,6 +396,16 @@ def main(argv=None) -> int:
 
     print(f"  Master recording start (local): {master_start.strftime('%H:%M:%S')}")
 
+    # Halftime gap info
+    half_break_master = args.half_break_master
+    halftime_gap = args.halftime_gap
+    if half_break_master > 0:
+        first_half = sum(1 for e in events if e["master_start"] < half_break_master)
+        second_half = len(events) - first_half
+        print(f"  Halftime break at master t={half_break_master:.0f}s, "
+              f"gap={halftime_gap:.0f}s")
+        print(f"  1st half events: {first_half}, 2nd half events: {second_half}")
+
     # 3. Scan DJI clips
     dji_clips = scan_dji_clips(args.sideline_dir)
     if not dji_clips:
@@ -388,6 +424,7 @@ def main(argv=None) -> int:
     stats = match_and_extract(
         events, dji_clips, master_start, args.game, out_dir,
         pre_pad=args.pre_pad, post_pad=args.post_pad,
+        half_break_master=half_break_master, halftime_gap=halftime_gap,
         dry_run=args.dry_run, overwrite=args.overwrite,
     )
 
