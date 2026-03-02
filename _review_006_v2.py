@@ -5,7 +5,7 @@ import os, sys, csv, traceback, subprocess, shutil, re, json
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-CLIP_NUM = "033"
+CLIP_NUM = "034"
 GAME = "2026-02-23__TSC_vs_NEOFC"
 os.makedirs(r"D:\Projects\soccer-video\_tmp", exist_ok=True)
 
