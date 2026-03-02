@@ -212,7 +212,7 @@ def match_and_extract(
     game_label: str,
     out_dir: Path,
     *,
-    pre_pad: float = 2.0,
+    pre_pad: float = 5.0,
     post_pad: float = 2.0,
     half_break_master: float = 0.0,
     halftime_gap: float = 0.0,
@@ -335,8 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Override master start time in local wall-clock (HH:MM:SS)")
     p.add_argument("--utc-offset", type=float, default=-6,
                    help="Local timezone UTC offset in hours (default: -6 for CST)")
-    p.add_argument("--pre-pad", type=float, default=2.0,
-                   help="Extra seconds before each event (default: 2.0)")
+    p.add_argument("--pre-pad", type=float, default=5.0,
+                   help="Extra seconds before each event (default: 5.0)")
     p.add_argument("--post-pad", type=float, default=2.0,
                    help="Extra seconds after each event (default: 2.0)")
 
