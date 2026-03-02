@@ -204,9 +204,11 @@ def extract_sideline_clips(
     stats = {"extracted": 0, "skipped": 0, "failed": 0, "out_of_range": 0}
 
     if not source.sideline_path.exists():
-        print(f"  ERROR: Sideline video not found: {source.sideline_path}")
-        stats["failed"] = len(plays)
-        return stats
+        if not dry_run:
+            print(f"  ERROR: Sideline video not found: {source.sideline_path}")
+            stats["failed"] = len(plays)
+            return stats
+        print(f"  WARNING: Sideline video not found (dry-run continues): {source.sideline_path}")
 
     sideline_duration = _ffprobe_duration(source.sideline_path)
     if sideline_duration:
