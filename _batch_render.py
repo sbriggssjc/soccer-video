@@ -18,7 +18,7 @@ FPS_OUT = 30; FPS_SRC = 30
 ZOOM_OVERRIDE = {}
 DEFAULT_ZOOM = 1
 
-CLIP_NUMS = ["001", "002", "003", "004", "005"]
+CLIP_NUMS = ["010"]
 
 RESULT_FILE = r"D:\Projects\soccer-video\_tmp\batch_render_result.txt"
 os.makedirs(r"D:\Projects\soccer-video\_tmp", exist_ok=True)
@@ -34,7 +34,7 @@ def log(msg):
 
 def render_clip(clip_num):
     zoom = ZOOM_OVERRIDE.get(clip_num, DEFAULT_ZOOM)
-    csv_path = rf"C:\Users\scott\Desktop\review_neofc_{clip_num}.csv"
+    csv_path = rf"C:\Users\scott\Desktop\review_gw_{clip_num}.csv"
     clips_dir = Path(f"out/atomic_clips/{GAME}")
     clip_file = next(clips_dir.glob(f"{clip_num}__*.mp4"))
     stem = clip_file.stem

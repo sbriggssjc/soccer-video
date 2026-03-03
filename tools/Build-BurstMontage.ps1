@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════
 # TSC Season Burst Montage — Build Script
-# Generated: 2026-03-03T20:25:03
+# Generated: 2026-03-03T21:56:21
 # ═══════════════════════════════════════════════════════════
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +28,7 @@ if (Test-Path $slateFile) { $concatEntries += "file '$slateFile'" }
 # Clip 005: BUILD AND GOAL (score=9.0, burst=5.0s @ 8.9s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__005__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -66,7 +66,7 @@ if (Test-Path $srcClip) {
 # Clip 027: PRESSURE, DRIBBLING AND GOAL (score=9.0, burst=5.0s @ 8.0s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__027__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -104,7 +104,7 @@ if (Test-Path $srcClip) {
 # Clip 002: BUILD AND SHOTS (score=5.8, burst=4.0s @ 11.2s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__002__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -142,7 +142,7 @@ if (Test-Path $srcClip) {
 # Clip 004: PRESSURE AND SHOT (score=5.8, burst=3.5s @ 12.4s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__004__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -180,7 +180,7 @@ if (Test-Path $srcClip) {
 # Clip 019: BUILD AND SHOT (score=5.8, burst=4.0s @ 12.7s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__019__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -218,7 +218,7 @@ if (Test-Path $srcClip) {
 # Clip 020: PRESSURE AND SHOT (score=5.8, burst=3.5s @ 4.8s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__020__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -256,7 +256,7 @@ if (Test-Path $srcClip) {
 # Clip 021: PRESSURE AND SHOT (score=5.8, burst=3.5s @ 11.5s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__021__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -294,7 +294,7 @@ if (Test-Path $srcClip) {
 # Clip 022: BUILD AND SHOT (score=5.8, burst=4.0s @ 12.5s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__022__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -332,7 +332,7 @@ if (Test-Path $srcClip) {
 # Clip 023: THROUGH BALL, SKILL AND SHOT (score=5.8, burst=3.5s @ 10.0s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__023__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -370,7 +370,7 @@ if (Test-Path $srcClip) {
 # Clip 024: PRESSURE AND SHOT (score=5.8, burst=3.5s @ 9.3s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__024__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -408,7 +408,7 @@ if (Test-Path $srcClip) {
 # Clip 025: BUILD, CROSS AND SHOT (score=5.8, burst=4.0s @ 10.5s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__025__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -446,7 +446,7 @@ if (Test-Path $srcClip) {
 # Clip 026: PRESSURE AND SHOT (score=5.8, burst=3.5s @ 5.7s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__026__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -484,7 +484,7 @@ if (Test-Path $srcClip) {
 # Clip 028: SHOT (score=5.8, burst=3.5s @ 6.4s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__028__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -522,7 +522,7 @@ if (Test-Path $srcClip) {
 # Clip 029: DEFENSE, COUNTER AND SHOT (score=5.8, burst=3.5s @ 10.4s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__029__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -560,7 +560,7 @@ if (Test-Path $srcClip) {
 # Clip 030: SHOT (score=5.8, burst=3.5s @ 4.8s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__030__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -598,7 +598,7 @@ if (Test-Path $srcClip) {
 # Clip 031: SHOT (score=5.8, burst=3.5s @ 5.1s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__031__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -636,7 +636,7 @@ if (Test-Path $srcClip) {
 # Clip 032: DEFENSE, BUILD AND SHOT (score=5.8, burst=4.0s @ 11.6s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__032__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -674,7 +674,7 @@ if (Test-Path $srcClip) {
 # Clip 033: DEFENSE, DRIBBLING AND SHOT (score=5.8, burst=3.5s @ 12.0s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__033__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -712,7 +712,7 @@ if (Test-Path $srcClip) {
 # Clip 034: CROSS AND SHOT (score=5.8, burst=3.5s @ 5.0s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__034__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -750,7 +750,7 @@ if (Test-Path $srcClip) {
 # Clip 015: BUILD AND GOAL (score=5.2, burst=5.0s @ 21.4s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__015__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -788,7 +788,7 @@ if (Test-Path $srcClip) {
 # Clip 003: BUILD AND CROSS (score=4.8, burst=3.5s @ 10.8s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__003__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -826,7 +826,7 @@ if (Test-Path $srcClip) {
 # Clip 006: BUILD AND SHOT (score=4.8, burst=4.0s @ 14.9s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__006__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -864,7 +864,7 @@ if (Test-Path $srcClip) {
 # Clip 007: CROSS (score=4.8, burst=3.5s @ 4.6s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__007__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -902,7 +902,7 @@ if (Test-Path $srcClip) {
 # Clip 010: DEFENSE AND CROSS (score=4.8, burst=3.5s @ 8.9s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__010__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -940,7 +940,7 @@ if (Test-Path $srcClip) {
 # Clip 011: PRESSURE AND CROSS (score=4.8, burst=3.5s @ 9.1s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__011__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -978,7 +978,7 @@ if (Test-Path $srcClip) {
 # Clip 013: PRESSURE AND CROSS (score=4.8, burst=3.5s @ 11.4s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__013__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1016,7 +1016,7 @@ if (Test-Path $srcClip) {
 # Clip 014: BUILD, CROSS AND SHOT (score=4.8, burst=4.0s @ 14.3s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__014__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1054,7 +1054,7 @@ if (Test-Path $srcClip) {
 # Clip 017: DEFENSE, BUILD AND CROSS (score=4.8, burst=3.5s @ 10.9s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__017__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1092,7 +1092,7 @@ if (Test-Path $srcClip) {
 # Clip 001: SAVE (score=4.7, burst=4.0s @ 10.0s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__001__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1130,7 +1130,7 @@ if (Test-Path $srcClip) {
 # Clip 012: FREE KICK (score=3.6, burst=3.5s @ 5.3s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__012__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1168,7 +1168,7 @@ if (Test-Path $srcClip) {
 # Clip 009: CORNER (score=3.0, burst=4.0s @ 3.2s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__009__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1206,7 +1206,7 @@ if (Test-Path $srcClip) {
 # Clip 008: DRIBBLING (score=2.6, burst=4.0s @ 6.3s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__008__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1244,7 +1244,7 @@ if (Test-Path $srcClip) {
 # Clip 016: DEFENSE AND BUILD (score=2.4, burst=3.5s @ 7.9s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__016__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true
@@ -1282,7 +1282,7 @@ if (Test-Path $srcClip) {
 # Clip 018: BUILD (score=2.0, burst=4.0s @ 16.8s, fps=30.000)
 $burstOut = "$burstDir\2026-02-23__TSC_vs_NEOFC__018__burst.mp4"
 # Prefer portrait reel, fall back to atomic clip
-$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00*portrait_FINAL*.mp4" -ErrorAction SilentlyContinue)
+$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter "018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait__FINAL*.mp4" -ErrorAction SilentlyContinue)
 if ($portraitHits.Count -gt 0) {
   $srcClip = $portraitHits[0].FullName
   $isPortrait = $true

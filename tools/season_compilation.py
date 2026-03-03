@@ -1309,7 +1309,7 @@ def build_burst_montage_script(
             lines.append(f'$burstOut = "{burst_file}"')
             lines.append(f'# Prefer portrait reel, fall back to atomic clip')
             lines.append(f'$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse '
-                         f'-Filter "{clip_stem}*portrait_FINAL*.mp4" '
+                         f'-Filter "{clip_stem}__portrait__FINAL*.mp4" '
                          f'-ErrorAction SilentlyContinue)')
             lines.append(f'if ($portraitHits.Count -gt 0) {{')
             lines.append(f'  $srcClip = $portraitHits[0].FullName')

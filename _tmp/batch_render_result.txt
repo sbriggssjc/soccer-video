@@ -1,70 +1,18 @@
-Batch render started 15:37:44
-[15:37:44] --- CLIP 001 (zoom=1) ---
-[15:37:44] File: 001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00.mp4
-[15:37:44] Actual: 480 frames, 16.00s (filename said -2024.0s)
-[15:37:44] 33 anchors, crop 608x1080
-[15:37:54] Wrote 480 frames
-[15:38:15] Step 1 done: 27.7 MB
-[15:38:25] Step 2 done
-[15:39:10] Step 3 ffmpeg returned 0
-[15:39:10] Step 3 done: 25.8 MB
-[15:39:10] Step 4 done (renamed to FINAL)
-[15:39:10] COMPLETE 001: 1.4m, 25.8 MB
-[15:39:10] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait__FINAL.mp4
-[15:39:10] --- CLIP 002 (zoom=1) ---
-[15:39:10] File: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.mp4
-[15:39:10] Actual: 496 frames, 16.53s (filename said -2024.0s)
-[15:39:10] 34 anchors, crop 608x1080
-[15:39:20] Wrote 496 frames
-[15:39:41] Step 1 done: 28.7 MB
-[15:39:52] Step 2 done
-[15:40:40] Step 3 ffmpeg returned 0
-[15:40:40] Step 3 done: 27.1 MB
-[15:40:40] Step 4 done (renamed to FINAL)
-[15:40:40] COMPLETE 002: 1.5m, 27.1 MB
-[15:40:40] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00__portrait__FINAL.mp4
-[15:40:40] --- CLIP 003 (zoom=1) ---
-[15:40:40] File: 003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00.mp4
-[15:40:40] Actual: 554 frames, 18.47s (filename said -2024.0s)
-[15:40:40] 38 anchors, crop 608x1080
-[15:40:53] Wrote 554 frames
-[15:41:16] Step 1 done: 32.7 MB
-[15:41:30] Step 2 done
-[15:42:22] Step 3 ffmpeg returned 0
-[15:42:22] Step 3 done: 30.0 MB
-[15:42:22] Step 4 done (renamed to FINAL)
-[15:42:22] COMPLETE 003: 1.7m, 30.0 MB
-[15:42:22] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait__FINAL.mp4
-[15:42:22] --- CLIP 004 (zoom=1) ---
-[15:42:22] File: 004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00.mp4
-[15:42:22] Actual: 546 frames, 18.20s (filename said -2024.0s)
-[15:42:22] 38 anchors, crop 608x1080
-[15:42:33] Wrote 546 frames
-[15:42:54] Step 1 done: 34.4 MB
-[15:43:08] Step 2 done
-[15:43:59] Step 3 ffmpeg returned 0
-[15:43:59] Step 3 done: 29.9 MB
-[15:43:59] Step 4 done (renamed to FINAL)
-[15:43:59] COMPLETE 004: 1.6m, 29.9 MB
-[15:43:59] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait__FINAL.mp4
-[15:43:59] --- CLIP 005 (zoom=1) ---
-[15:43:59] File: 005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00.mp4
-[15:43:59] Actual: 474 frames, 15.80s (filename said -2024.0s)
-[15:43:59] 33 anchors, crop 608x1080
-[15:44:09] Wrote 474 frames
-[15:44:28] Step 1 done: 28.7 MB
-[15:44:40] Step 2 done
-[15:45:26] Step 3 ffmpeg returned 0
-[15:45:26] Step 3 done: 27.2 MB
-[15:45:26] Step 4 done (renamed to FINAL)
-[15:45:26] COMPLETE 005: 1.4m, 27.2 MB
-[15:45:26] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait__FINAL.mp4
-[15:45:26] 
+Batch render started 15:52:06
+[15:52:06] --- CLIP 010 (zoom=1) ---
+[15:52:06] File: 010__2026-02-23__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t1145.00-t1169.00.mp4
+[15:52:06] Actual: 786 frames, 26.20s (filename said -2024.0s)
+[15:52:06] 54 anchors, crop 608x1080
+[15:52:27] Wrote 786 frames
+[15:53:17] Step 1 done: 50.8 MB
+[15:53:50] Step 2 done
+[15:56:04] Step 3 ffmpeg returned 0
+[15:56:04] Step 3 done: 46.5 MB
+[15:56:04] Step 4 done (renamed to FINAL)
+[15:56:04] COMPLETE 010: 4.0m, 46.5 MB
+[15:56:04] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_Greenwood\010__2026-02-23__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t1145.00-t1169.00__portrait__FINAL.mp4
+[15:56:04] 
 === BATCH SUMMARY ===
-[15:45:26]   001: OK
-[15:45:26]   002: OK
-[15:45:26]   003: OK
-[15:45:26]   004: OK
-[15:45:26]   005: OK
-[15:45:26] Total batch time: 7.7m
-[15:45:26] BATCH DONE
+[15:56:04]   010: OK
+[15:56:04] Total batch time: 4.0m
+[15:56:04] BATCH DONE
