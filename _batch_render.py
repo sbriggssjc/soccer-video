@@ -7,7 +7,7 @@ from pathlib import Path
 os.chdir(r"D:\Projects\soccer-video")
 FFMPEG = "ffmpeg"
 TEMP_DIR = tempfile.gettempdir()
-GAME = "2026-02-23__TSC_vs_NEOFC"
+GAME = "2026-02-23__TSC_vs_Greenwood"
 SKIP_4K_UPSCALE = True
 
 SRC_W = 1920; SRC_H = 1080
