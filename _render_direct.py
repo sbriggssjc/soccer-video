@@ -17,7 +17,7 @@ GAME = "2026-02-23__TSC_vs_Greenwood"
 
 SRC_W = 1920; SRC_H = 1080
 PORT_W = 1080; PORT_H = 1920
-FPS_OUT = 24; FPS_SRC = 30
+FPS_OUT = 30; FPS_SRC = 30
 
 def log(msg):
     with open(RESULT, "a") as f:

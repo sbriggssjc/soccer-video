@@ -1,5 +1,5 @@
-"""Batch direct crop renderer for clips 006-015."""
-import time, os, sys, csv, re, subprocess, traceback, tempfile, shutil
+"""Batch direct crop renderer for North OKC clips 001-010."""
+import time, os, sys, csv, re, subprocess, traceback, tempfile, shutil, gc
 import numpy as np
 import cv2
 from pathlib import Path
@@ -12,12 +12,12 @@ SKIP_4K_UPSCALE = True
 
 SRC_W = 1920; SRC_H = 1080
 PORT_W = 1080; PORT_H = 1920
-FPS_OUT = 24; FPS_SRC = 30
+FPS_OUT = 30; FPS_SRC = 30
 
 # Edge-hugging clips get zoom=1, all others zoom=3
-ZOOM_OVERRIDE = {"007": 1, "013": 1}
+ZOOM_OVERRIDE = {"017": 1, "019": 1, "020": 1, "022": 1, "024": 1, "026": 1}
 
-CLIP_NUMS = ["007","008","009","010","011","012","013","014","015"]
+CLIP_NUMS = ["016","017","018","019","020","022","023","024","025","026","027"]
 
 RESULT_FILE = r"D:\Projects\soccer-video\_tmp\batch_render_result.txt"
 os.makedirs(r"D:\Projects\soccer-video\_tmp", exist_ok=True)
@@ -137,9 +137,9 @@ def render_clip(clip_num):
         "-c:v", "libx264", "-preset", "slow", "-crf", "17",
         "-c:a", "aac", "-b:a", "128k",
         "-t", f"{out_duration:.3f}",
-        portrait_str], capture_output=True, text=True, timeout=300)
+        portrait_str], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
     if r.returncode != 0:
-        log(f"FAIL encode: {(r.stderr or '')[-500:]}"); return False
+        log(f"FAIL encode step 1"); return False
     os.remove(portrait_tmp)
     log(f"Step 1 done: {portrait.stat().st_size/(1024*1024):.1f} MB")
 
@@ -147,25 +147,41 @@ def render_clip(clip_num):
     trf = f"batch{clip_num}_transforms.trf"
     r1 = subprocess.run([FFMPEG, "-y", "-i", portrait_str, "-vf",
         f"vidstabdetect=shakiness=5:accuracy=15:result='{trf}'",
-        "-f", "null", "-"], capture_output=True, text=True, timeout=300, cwd=TEMP_DIR)
+        "-f", "null", "-"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300, cwd=TEMP_DIR)
     if r1.returncode != 0: log("FAIL vidstab detect"); return False
     log("Step 2 done")
 
-    # Step 3: vidstab transform
-    stab_tmp = os.path.join(TEMP_DIR, f"batch{clip_num}_stab.mp4")
-    r2 = subprocess.run([FFMPEG, "-y", "-i", portrait_str, "-vf",
-        f"vidstabtransform=input='{trf}':smoothing=15:interpol=bicubic:crop=black:zoom={zoom}",
-        "-c:v", "libx264", "-preset", "slow", "-crf", "17",
-        "-c:a", "aac", "-b:a", "128k", stab_tmp],
-        capture_output=True, text=True, timeout=600, cwd=TEMP_DIR)
-    if r2.returncode != 0: log("FAIL vidstab transform"); return False
-    log("Step 3 done")
+    # Step 3: vidstab transform — output directly to D: to avoid cross-drive move
+    stab_tmp = str((reels_dir / f"{clip_num}__stab_tmp.mp4").resolve())
+    stderr_log = os.path.join(TEMP_DIR, f"batch{clip_num}_ffmpeg_stderr.txt")
+    with open(stderr_log, "w") as ef:
+        r2 = subprocess.run([FFMPEG, "-y", "-i", portrait_str, "-vf",
+            f"vidstabtransform=input='{trf}':smoothing=15:interpol=bicubic:crop=black:zoom={zoom}",
+            "-c:v", "libx264", "-preset", "slow", "-crf", "17",
+            "-c:a", "aac", "-b:a", "128k", stab_tmp],
+            stdout=subprocess.DEVNULL, stderr=ef, timeout=600, cwd=TEMP_DIR)
+    log(f"Step 3 ffmpeg returned {r2.returncode}")
+    if r2.returncode != 0:
+        # Read last 500 chars of stderr
+        try:
+            with open(stderr_log) as ef:
+                err = ef.read()[-500:]
+            log(f"FAIL vidstab transform: {err}")
+        except: log("FAIL vidstab transform (no stderr)")
+        return False
+    log(f"Step 3 done: {os.path.getsize(stab_tmp)/(1024*1024):.1f} MB")
 
-    # Step 4: skip 4K upscale
+    # Step 4: rename stab to FINAL
     fa = str(final.resolve())
-    if os.path.exists(fa): os.remove(fa)
-    shutil.move(stab_tmp, fa)
-    log("Step 4 skipped (no 4K upscale)")
+    try:
+        if os.path.exists(fa): os.remove(fa)
+        os.rename(stab_tmp, fa)
+        log("Step 4 done (renamed to FINAL)")
+    except Exception as e:
+        log(f"Step 4 rename failed: {e}, trying copy")
+        shutil.copy2(stab_tmp, fa)
+        os.remove(stab_tmp)
+        log("Step 4 done (copy+delete)")
 
     # Cleanup intermediates
     for tmp in [os.path.join(TEMP_DIR, trf)]:
@@ -194,6 +210,7 @@ for cn in CLIP_NUMS:
         log(f"EXCEPTION {cn}: {e}")
         traceback.print_exc()
         results[cn] = f"ERROR: {e}"
+    gc.collect()
 
 log(f"\n=== BATCH SUMMARY ===")
 for cn, status in results.items():

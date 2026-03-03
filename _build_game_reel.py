@@ -2,7 +2,7 @@
 import os, subprocess, time, glob
 from pathlib import Path
 
-GAME = "2026-02-23__TSC_vs_NEOFC"
+GAME = "2026-02-23__TSC_vs_Greenwood"
 reels_dir = Path(rf"D:\Projects\soccer-video\out\portrait_reels\{GAME}")
 output = reels_dir / f"{GAME}__GAME_REEL.mp4"
 concat_list = Path(r"D:\Projects\soccer-video\_tmp\concat_list.txt")
