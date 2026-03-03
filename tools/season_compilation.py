@@ -1008,17 +1008,17 @@ def cmd_canva_slates(args):
 #   burst_duration: how long the extracted burst should be
 
 BURST_PROFILES: Dict[str, Tuple[float, float]] = {
-    # Goals — the strike and celebration are near the end
-    "GOAL":              (0.80, 4.0),
+    # Goals — approach, strike, and net; peak shifted earlier to catch contact
+    "GOAL":              (0.72, 5.0),
     # Shots — the strike is near the end
     "SHOT":              (0.78, 3.5),
-    # Build-up ending in goal — finale is the payoff
-    "BUILD_UP_GOAL":     (0.85, 4.5),
-    "BUILD_GOAL":        (0.85, 4.5),
-    "PRESSURE_GOAL":     (0.82, 4.0),
-    "CROSS_GOAL":        (0.82, 4.0),
-    "CORNER_GOAL":       (0.80, 4.0),
-    "FREE_KICK_GOAL":    (0.80, 4.0),
+    # Build-up ending in goal — match GOAL timing
+    "BUILD_UP_GOAL":     (0.72, 5.0),
+    "BUILD_GOAL":        (0.72, 5.0),
+    "PRESSURE_GOAL":     (0.72, 5.0),
+    "CROSS_GOAL":        (0.72, 5.0),
+    "CORNER_GOAL":       (0.72, 5.0),
+    "FREE_KICK_GOAL":    (0.72, 5.0),
     # Build-up ending in shot — shot attempt at end
     "BUILD_UP_SHOT":     (0.80, 4.0),
     "BUILD_SHOT":        (0.80, 4.0),
@@ -1194,7 +1194,6 @@ def build_burst_montage_script(
     config: dict,
     output_path: Path,
     slate_dir: Path,
-    portrait_root: str = r"D:\Projects\soccer-video\out\portrait_reels",
     slate_duration: float = 1.5,
     out_w: int = 1080,
     out_h: int = 1920,
@@ -1204,7 +1203,7 @@ def build_burst_montage_script(
     """Generate a PowerShell script to extract bursts and assemble the montage.
 
     Two-pass approach:
-      Pass 1: FFmpeg extracts each burst from its portrait reel into a temp file
+      Pass 1: FFmpeg extracts each burst from its atomic clip into a temp file
       Pass 2: Concat all burst clips + slates into the final montage
     """
     lines = [
@@ -1219,9 +1218,6 @@ def build_burst_montage_script(
         f"$outH = {out_h}",
         f"$fps = {fps}",
         f"$crf = {crf}",
-        "",
-        "# Portrait reel root (preferred source — polished 1080x1920)",
-        f'$portraitRoot = "{portrait_root}"',
         "",
         "# Working directory for extracted bursts",
         '$burstDir = Join-Path $PSScriptRoot "burst_clips"',
@@ -1254,10 +1250,9 @@ def build_burst_montage_script(
         for i, burst in enumerate(bursts, 1):
             total_bursts += 1
 
-            # Atomic clip path (landscape fallback)
-            atomic_path = burst.clip_path
-            if not atomic_path:
-                atomic_path = (
+            clip_path = burst.clip_path
+            if not clip_path:
+                clip_path = (
                     f"D:\\Projects\\soccer-video\\out\\atomic_clips\\"
                     f"{burst.game_label}\\{burst.clip.clip_folder}"
                 )
@@ -1265,43 +1260,19 @@ def build_burst_montage_script(
             safe_name = re.sub(r'[^\w\-.]', '_', f"{game.game_label}__{burst.clip.idx}")
             burst_file = f"$burstDir\\{safe_name}__burst.mp4"
 
-            # Portrait reel glob: {portrait_root}/{game_label}/{idx}__*.mp4
-            portrait_glob = (
-                f"$portraitRoot\\{burst.game_label}\\{burst.clip.idx}__*.mp4"
-            )
-
             lines.append(f"# Clip {burst.clip.idx}: {burst.clip.label} "
                          f"(score={burst.clip.social_score:.1f}, "
                          f"burst={burst.burst_duration:.1f}s @ {burst.burst_start:.1f}s)")
+            lines.append(f'$srcClip = "{clip_path}"')
             lines.append(f'$burstOut = "{burst_file}"')
-            lines.append(f'# Prefer portrait reel, fall back to atomic clip')
-            lines.append(f'$portraitHits = @(Get-ChildItem -Path "{portrait_glob}" -ErrorAction SilentlyContinue)')
-            lines.append(f'if ($portraitHits.Count -gt 0) {{')
-            lines.append(f'  $srcClip = $portraitHits[0].FullName')
-            lines.append(f'  $isPortrait = $true')
-            lines.append(f'}} else {{')
-            lines.append(f'  $srcClip = "{atomic_path}"')
-            lines.append(f'  $isPortrait = $false')
-            lines.append(f'}}')
             lines.append(f'if (Test-Path $srcClip) {{')
-            lines.append(f'  if ($isPortrait) {{')
-            lines.append(f'    # Portrait reel: already 1080x1920, just trim')
-            lines.append(f'    ffmpeg -hide_banner -loglevel warning -y `')
-            lines.append(f'      -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
-            lines.append(f'      -i $srcClip `')
-            lines.append(f'      -c:v libx264 -crf $crf -preset fast -an `')
-            lines.append(f'      $burstOut')
-            lines.append(f'  }} else {{')
-            lines.append(f'    # Landscape fallback: scale + letterbox to portrait')
-            lines.append(f'    Write-Warning "Using landscape fallback for clip {burst.clip.idx}"')
-            lines.append(f'    ffmpeg -hide_banner -loglevel warning -y `')
-            lines.append(f'      -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
-            lines.append(f'      -i $srcClip `')
-            lines.append(f'      -vf "scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,'
+            lines.append(f'  ffmpeg -hide_banner -loglevel warning -y `')
+            lines.append(f'    -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
+            lines.append(f'    -i $srcClip `')
+            lines.append(f'    -vf "scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,'
                          f'pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1" `')
-            lines.append(f'      -c:v libx264 -crf $crf -preset fast -an `')
-            lines.append(f'      $burstOut')
-            lines.append(f'  }}')
+            lines.append(f'    -c:v libx264 -crf $crf -preset fast -an `')
+            lines.append(f'    $burstOut')
             lines.append(f'  $concatEntries += "file \'$burstOut\'"')
             lines.append(f'  $extractCount++')
             lines.append(f'}} else {{')
@@ -1512,10 +1483,8 @@ def cmd_burst_build(args):
 
     # Generate build script
     output_video = out_dir / "TSC_Season_BurstMontage_2025-26.mp4"
-    portrait_root = getattr(args, 'portrait_root', r"D:\Projects\soccer-video\out\portrait_reels")
     script = build_burst_montage_script(
         game_bursts, config, output_video, slate_dir,
-        portrait_root=portrait_root,
     )
     script_path = out_dir / "Build-BurstMontage.ps1"
     with open(script_path, "w", encoding="utf-8") as f:
@@ -1562,9 +1531,6 @@ def main():
                                help="Minimum social_score to include a clip")
     p_burst_plan.add_argument("--game", type=str, default=None,
                                help="Filter to a single game (fuzzy match, e.g. 'NEOFC' or '2026-02-23__TSC_vs_NEOFC')")
-    p_burst_plan.add_argument("--portrait-root", type=str,
-                               default=r"D:\Projects\soccer-video\out\portrait_reels",
-                               help="Root of portrait_reels directory tree")
 
     p_burst_build = sub.add_parser("burst-build",
                                     help="Generate burst extraction + assembly script")
@@ -1573,9 +1539,6 @@ def main():
                                 help="Minimum social_score to include a clip")
     p_burst_build.add_argument("--game", type=str, default=None,
                                 help="Filter to a single game (fuzzy match, e.g. 'NEOFC' or '2026-02-23__TSC_vs_NEOFC')")
-    p_burst_build.add_argument("--portrait-root", type=str,
-                                default=r"D:\Projects\soccer-video\out\portrait_reels",
-                                help="Root of portrait_reels directory tree")
 
     args = parser.parse_args()
     if args.command == "plan":

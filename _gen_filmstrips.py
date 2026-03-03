@@ -18,9 +18,9 @@ import numpy as np
 from pathlib import Path
 
 # ===== CONFIGURE THESE =====
-GAME = "2026-03-01__TSC_vs_OK_Celtic"
-PREFIX = "celtic_"  # prefix for Desktop files to avoid collision ("" for none)
-CLIP_NUMS = ["001","002","003","004","005","006","007","008","009","010"]
+GAME = "2026-02-23__TSC_vs_NEOFC"
+PREFIX = "neofc_"  # prefix for Desktop files to avoid collision ("" for none)
+CLIP_NUMS = ["001","002","003","004","005"]
 # ============================
 
 os.chdir(r"D:\Projects\soccer-video")

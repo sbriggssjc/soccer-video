@@ -4,16 +4,20 @@ import cv2, csv, os, sys
 import numpy as np
 from pathlib import Path
 
-GAME = "2026-02-23__TSC_vs_Greenwood"
+GAME = "2026-02-23__TSC_vs_NEOFC"
 SRC_DIR = Path(rf"D:\Projects\soccer-video\out\atomic_clips\{GAME}")
 REEL_DIR = Path(rf"D:\Projects\soccer-video\out\portrait_reels\{GAME}")
 TMP_DIR = r"D:\Projects\soccer-video\_tmp"
+PREFIX = "neofc_"  # prefix for Desktop CSV filenames
 FPS_SRC = 30
-SAMPLE_EVERY = 10  # every 10 source frames = 3fps sampling
+SAMPLE_EVERY = 15  # every 15 source frames = 2fps sampling (matches filmstrip CSVs)
 
-CLIP_NUMS = ["001","002","003","004","005",
-             "006","007","008","009","010",
-             "011","012","013","014","015"]
+CLIP_NUMS = ["006","007","008","009","010",
+             "011","012","013","014","015",
+             "016","017","018","019","020",
+             "021","022","023","024","025",
+             "026","027","028","029","030",
+             "031","032","033","034"]
 
 def extract_clip(clip_num):
     src_file = next(SRC_DIR.glob(f"{clip_num}__*.mp4"))
@@ -115,8 +119,8 @@ def extract_clip(clip_num):
     fin_cap.release()
     
     # Write CSV to _tmp (as backup) and Desktop
-    csv_path_tmp = os.path.join(TMP_DIR, f"review_{clip_num}.csv")
-    csv_path_desk = rf"C:\Users\scott\Desktop\review_{clip_num}.csv"
+    csv_path_tmp = os.path.join(TMP_DIR, f"review_{PREFIX}{clip_num}.csv")
+    csv_path_desk = rf"C:\Users\scott\Desktop\review_{PREFIX}{clip_num}.csv"
     
     for csv_path in [csv_path_tmp, csv_path_desk]:
         with open(csv_path, "w", newline="") as f:

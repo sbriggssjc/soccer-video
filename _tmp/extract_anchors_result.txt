@@ -1,0 +1,31 @@
+Extracting anchor positions from rendered clips...
+006: 43 anchors, avg confidence=0.347 *** 43 LOW CONFIDENCE
+007: 19 anchors, avg confidence=0.465 *** 19 LOW CONFIDENCE
+008: 34 anchors, avg confidence=0.316 *** 34 LOW CONFIDENCE
+009: 15 anchors, avg confidence=0.203 *** 15 LOW CONFIDENCE
+010: 32 anchors, avg confidence=0.319 *** 32 LOW CONFIDENCE
+011: 32 anchors, avg confidence=0.496 *** 32 LOW CONFIDENCE
+012: 20 anchors, avg confidence=0.490 *** 20 LOW CONFIDENCE
+013: 39 anchors, avg confidence=0.412 *** 39 LOW CONFIDENCE
+014: 41 anchors, avg confidence=0.305 *** 41 LOW CONFIDENCE
+015: 67 anchors, avg confidence=0.269 *** 67 LOW CONFIDENCE
+016: 36 anchors, avg confidence=0.373 *** 36 LOW CONFIDENCE
+017: 38 anchors, avg confidence=0.351 *** 38 LOW CONFIDENCE
+018: 58 anchors, avg confidence=0.431 *** 58 LOW CONFIDENCE
+019: 37 anchors, avg confidence=0.276 *** 37 LOW CONFIDENCE
+020: 17 anchors, avg confidence=0.556 *** 17 LOW CONFIDENCE
+021: 34 anchors, avg confidence=0.350 *** 34 LOW CONFIDENCE
+022: 37 anchors, avg confidence=0.401 *** 37 LOW CONFIDENCE
+023: 31 anchors, avg confidence=0.276 *** 31 LOW CONFIDENCE
+024: 29 anchors, avg confidence=0.371 *** 29 LOW CONFIDENCE
+025: 32 anchors, avg confidence=0.456 *** 32 LOW CONFIDENCE
+026: 20 anchors, avg confidence=0.023 *** 20 LOW CONFIDENCE
+027: 30 anchors, avg confidence=0.161 *** 30 LOW CONFIDENCE
+028: 21 anchors, avg confidence=0.363 *** 21 LOW CONFIDENCE
+029: 32 anchors, avg confidence=0.271 *** 32 LOW CONFIDENCE
+030: 17 anchors, avg confidence=0.235 *** 17 LOW CONFIDENCE
+031: 18 anchors, avg confidence=0.205 *** 18 LOW CONFIDENCE
+032: 34 anchors, avg confidence=0.443 *** 34 LOW CONFIDENCE
+033: 36 anchors, avg confidence=0.235 *** 36 LOW CONFIDENCE
+034: 18 anchors, avg confidence=0.246 *** 18 LOW CONFIDENCE
+DONE

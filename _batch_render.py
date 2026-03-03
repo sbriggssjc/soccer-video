@@ -1,4 +1,4 @@
-"""Batch direct crop renderer for North OKC clips 001-010."""
+"""Batch direct crop renderer for NEOFC clips 006-034 (30fps re-render with recovered anchors)."""
 import time, os, sys, csv, re, subprocess, traceback, tempfile, shutil, gc
 import numpy as np
 import cv2
@@ -7,30 +7,34 @@ from pathlib import Path
 os.chdir(r"D:\Projects\soccer-video")
 FFMPEG = "ffmpeg"
 TEMP_DIR = tempfile.gettempdir()
-GAME = "2026-02-23__TSC_vs_Greenwood"
+GAME = "2026-02-23__TSC_vs_NEOFC"
 SKIP_4K_UPSCALE = True
 
 SRC_W = 1920; SRC_H = 1080
 PORT_W = 1080; PORT_H = 1920
 FPS_OUT = 30; FPS_SRC = 30
 
-# Edge-hugging clips get zoom=1, all others zoom=3
-ZOOM_OVERRIDE = {"017": 1, "019": 1, "020": 1, "022": 1, "024": 1, "026": 1}
+# All clips use zoom=1 now (wider framing)
+ZOOM_OVERRIDE = {}
+DEFAULT_ZOOM = 1
 
-CLIP_NUMS = ["016","017","018","019","020","022","023","024","025","026","027"]
+CLIP_NUMS = [f"{i:03d}" for i in range(6, 35)]
 
 RESULT_FILE = r"D:\Projects\soccer-video\_tmp\batch_render_result.txt"
 os.makedirs(r"D:\Projects\soccer-video\_tmp", exist_ok=True)
 
 def log(msg):
     line = f"[{time.strftime('%H:%M:%S')}] {msg}"
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except OSError:
+        pass  # stdout redirect may be invalid; result file is the real log
     with open(RESULT_FILE, "a") as f:
         f.write(line + "\n")
 
 def render_clip(clip_num):
-    zoom = ZOOM_OVERRIDE.get(clip_num, 3)
-    csv_path = rf"C:\Users\scott\Desktop\review_{clip_num}.csv"
+    zoom = ZOOM_OVERRIDE.get(clip_num, DEFAULT_ZOOM)
+    csv_path = rf"C:\Users\scott\Desktop\review_neofc_{clip_num}.csv"
     clips_dir = Path(f"out/atomic_clips/{GAME}")
     clip_file = next(clips_dir.glob(f"{clip_num}__*.mp4"))
     stem = clip_file.stem
@@ -46,9 +50,12 @@ def render_clip(clip_num):
     total_src_frames = int(cap_probe.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_src_frames / FPS_SRC
     cap_probe.release()
-    m = re.search(r"t([\d.]+)-t([\d.]+)", stem)
-    fname_dur = float(m.group(2)) - float(m.group(1))
-    log(f"Actual: {total_src_frames} frames, {duration:.2f}s (filename said {fname_dur}s)")
+    m = re.search(r"t?([\d.]+)-t?([\d.]+)", stem)
+    if m:
+        fname_dur = float(m.group(2)) - float(m.group(1))
+        log(f"Actual: {total_src_frames} frames, {duration:.2f}s (filename said {fname_dur}s)")
+    else:
+        log(f"Actual: {total_src_frames} frames, {duration:.2f}s")
 
     # Read anchors
     with open(csv_path, "r") as f:

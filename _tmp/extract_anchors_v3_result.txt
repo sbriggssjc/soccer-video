@@ -1,0 +1,31 @@
+Extracting anchors v3 (1D scanline match)...
+006: 43 anchors, avg conf=0.361 *** 37 LOW
+007: 19 anchors, avg conf=0.295 *** 19 LOW
+008: 34 anchors, avg conf=0.377 *** 30 LOW
+009: 15 anchors, avg conf=0.237 *** 15 LOW
+010: 32 anchors, avg conf=0.280 *** 32 LOW
+011: 32 anchors, avg conf=0.288 *** 32 LOW
+012: 20 anchors, avg conf=0.205 *** 20 LOW
+013: 39 anchors, avg conf=0.246 *** 39 LOW
+014: 41 anchors, avg conf=0.344 *** 37 LOW
+015: 67 anchors, avg conf=0.274 *** 66 LOW
+016: 36 anchors, avg conf=0.289 *** 35 LOW
+017: 38 anchors, avg conf=0.243 *** 38 LOW
+018: 58 anchors, avg conf=0.328 *** 54 LOW
+019: 37 anchors, avg conf=0.338 *** 37 LOW
+020: 17 anchors, avg conf=0.331 *** 17 LOW
+021: 34 anchors, avg conf=0.308 *** 31 LOW
+022: 37 anchors, avg conf=0.246 *** 37 LOW
+023: 31 anchors, avg conf=0.282 *** 30 LOW
+024: 29 anchors, avg conf=0.467 *** 14 LOW
+025: 32 anchors, avg conf=0.232 *** 32 LOW
+026: 20 anchors, avg conf=0.268 *** 17 LOW
+027: 30 anchors, avg conf=0.266 *** 30 LOW
+028: 21 anchors, avg conf=0.294 *** 21 LOW
+029: 32 anchors, avg conf=0.358 *** 29 LOW
+030: 17 anchors, avg conf=0.250 *** 17 LOW
+031: 18 anchors, avg conf=0.328 *** 17 LOW
+032: 34 anchors, avg conf=0.275 *** 34 LOW
+033: 36 anchors, avg conf=0.307 *** 34 LOW
+034: 18 anchors, avg conf=0.219 *** 18 LOW
+DONE

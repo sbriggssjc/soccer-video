@@ -1,0 +1,11 @@
+011: 304 frames, 21 samples -> Desktop
+012: 326 frames, 22 samples -> Desktop
+013: 386 frames, 26 samples -> Desktop
+014: 382 frames, 26 samples -> Desktop
+015: 434 frames, 29 samples -> Desktop
+016: 846 frames, 57 samples -> Desktop
+017: 426 frames, 29 samples -> Desktop
+018: 1696 frames, 114 samples -> Desktop
+019: 362 frames, 25 samples -> Desktop
+
+Done! North OKC 011-019 filmstrips on Desktop.

@@ -1,0 +1,14 @@
+011: 330 frames, 22 samples, grid 4x6 -> Desktop (CSV + filmstrip)
+012: 398 frames, 27 samples, grid 4x7 -> Desktop (CSV + filmstrip)
+013: 624 frames, 42 samples, grid 4x11 -> Desktop (CSV + filmstrip)
+014: 577 frames, 39 samples, grid 4x10 -> Desktop (CSV + filmstrip)
+015: 680 frames, 46 samples, grid 4x12 -> Desktop (CSV + filmstrip)
+016: 384 frames, 26 samples, grid 4x7 -> Desktop (CSV + filmstrip)
+017: 782 frames, 53 samples, grid 4x14 -> Desktop (CSV + filmstrip)
+018: 289 frames, 20 samples, grid 4x5 -> Desktop (CSV + filmstrip)
+019: 606 frames, 41 samples, grid 4x11 -> Desktop (CSV + filmstrip)
+020: 811 frames, 55 samples, grid 4x14 -> Desktop (CSV + filmstrip)
+
+Done! Filmstrips + CSVs on Desktop.
+Instructions: Open each filmstrip, note where the ball/action is
+as a percentage (0-100) using the guidelines, fill in camera_x_pct.

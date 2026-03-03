@@ -1,0 +1,31 @@
+Extracting anchor positions (v2, zoom-aware)...
+006: 43 anchors, avg conf=0.329 *** 37 LOW
+007: 19 anchors, avg conf=0.236 *** 19 LOW
+008: 34 anchors, avg conf=0.316 *** 32 LOW
+009: 15 anchors, avg conf=0.427 *** 7 LOW
+010: 32 anchors, avg conf=0.355 *** 28 LOW
+011: 32 anchors, avg conf=0.424 *** 28 LOW
+012: 20 anchors, avg conf=0.495 *** 10 LOW
+013: 39 anchors, avg conf=0.399 *** 36 LOW
+014: 41 anchors, avg conf=0.245 *** 41 LOW
+015: 67 anchors, avg conf=0.204 *** 64 LOW
+016: 36 anchors, avg conf=0.281 *** 36 LOW
+017: 38 anchors, avg conf=0.302 *** 38 LOW
+018: 58 anchors, avg conf=0.354 *** 54 LOW
+019: 37 anchors, avg conf=0.237 *** 37 LOW
+020: 17 anchors, avg conf=0.354 *** 16 LOW
+021: 34 anchors, avg conf=0.162 *** 34 LOW
+022: 37 anchors, avg conf=0.339 *** 32 LOW
+023: 31 anchors, avg conf=0.141 *** 31 LOW
+024: 29 anchors, avg conf=0.277 *** 29 LOW
+025: 32 anchors, avg conf=0.340 *** 27 LOW
+026: 20 anchors, avg conf=0.200 *** 20 LOW
+027: 30 anchors, avg conf=0.137 *** 30 LOW
+028: 21 anchors, avg conf=0.216 *** 21 LOW
+029: 32 anchors, avg conf=0.314 *** 30 LOW
+030: 17 anchors, avg conf=0.101 *** 17 LOW
+031: 18 anchors, avg conf=0.270 *** 17 LOW
+032: 34 anchors, avg conf=0.390 *** 29 LOW
+033: 36 anchors, avg conf=0.171 *** 36 LOW
+034: 18 anchors, avg conf=0.168 *** 18 LOW
+DONE

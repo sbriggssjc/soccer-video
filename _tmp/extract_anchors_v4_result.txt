@@ -1,0 +1,31 @@
+Extracting anchors v4 (ORB feature matching)...
+006: 43 anchors, avg conf=0.016, avg matches=31
+007: 19 anchors, avg conf=0.028, avg matches=55
+008: 34 anchors, avg conf=0.011, avg matches=22
+009: 15 anchors, avg conf=0.007, avg matches=14
+010: 32 anchors, avg conf=0.112, avg matches=224
+011: 32 anchors, avg conf=0.091, avg matches=181
+012: 20 anchors, avg conf=0.034, avg matches=69
+013: 39 anchors, avg conf=0.102, avg matches=205
+014: 41 anchors, avg conf=0.148, avg matches=296
+015: 67 anchors, avg conf=0.116, avg matches=232
+016: 36 anchors, avg conf=0.119, avg matches=238
+017: 38 anchors, avg conf=0.186, avg matches=372
+018: 58 anchors, avg conf=0.182, avg matches=364
+019: 37 anchors, avg conf=0.121, avg matches=243
+020: 17 anchors, avg conf=0.121, avg matches=241
+021: 34 anchors, avg conf=0.108, avg matches=215
+022: 37 anchors, avg conf=0.119, avg matches=238
+023: 31 anchors, avg conf=0.131, avg matches=263
+024: 29 anchors, avg conf=0.079, avg matches=158
+025: 32 anchors, avg conf=0.159, avg matches=317
+026: 20 anchors, avg conf=0.018, avg matches=36
+027: 30 anchors, avg conf=0.140, avg matches=281
+028: 21 anchors, avg conf=0.148, avg matches=297
+029: 32 anchors, avg conf=0.093, avg matches=186
+030: 17 anchors, avg conf=0.102, avg matches=204
+031: 18 anchors, avg conf=0.075, avg matches=151
+032: 34 anchors, avg conf=0.034, avg matches=67
+033: 36 anchors, avg conf=0.116, avg matches=232
+034: 18 anchors, avg conf=0.128, avg matches=257
+DONE

@@ -1,0 +1,31 @@
+Extracting anchors v5 (ORB + RANSAC homography)...
+006: 43/43 valid, avg inliers=34
+007: 19/19 valid, avg inliers=74
+008: 34/34 valid, avg inliers=9
+009: 15/15 valid, avg inliers=5
+010: 32/32 valid, avg inliers=472
+011: 32/32 valid, avg inliers=381
+012: 20/20 valid, avg inliers=123
+013: 39/39 valid, avg inliers=454
+014: 41/41 valid, avg inliers=623
+015: 67/67 valid, avg inliers=515
+016: 36/36 valid, avg inliers=505
+017: 38/38 valid, avg inliers=830
+018: 58/58 valid, avg inliers=835
+019: 37/37 valid, avg inliers=530
+020: 17/17 valid, avg inliers=525
+021: 34/34 valid, avg inliers=446
+022: 37/37 valid, avg inliers=527
+023: 31/31 valid, avg inliers=553
+024: 29/29 valid, avg inliers=319
+025: 32/32 valid, avg inliers=733
+026: 20/20 valid, avg inliers=56
+027: 30/30 valid, avg inliers=607
+028: 21/21 valid, avg inliers=638
+029: 32/32 valid, avg inliers=394
+030: 17/17 valid, avg inliers=427
+031: 18/18 valid, avg inliers=331
+032: 34/34 valid, avg inliers=118
+033: 36/36 valid, avg inliers=505
+034: 18/18 valid, avg inliers=571
+DONE
