@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 GAME = "2026-02-23__TSC_vs_Greenwood"
-CLIP_NUMS = ["006","007","008","009","010","011","012","013","014","015"]
+CLIP_NUMS = ["016","017","018","019","020","022","023","024","025","026","027"]
 
 FPS_SRC = 30
 EXTRACT_FPS = 3
