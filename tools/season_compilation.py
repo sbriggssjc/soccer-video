@@ -1028,8 +1028,8 @@ def cmd_canva_slates(args):
 BURST_PROFILES: Dict[str, Tuple[float, float]] = {
     # Goals — approach, strike, and net; peak shifted earlier to catch contact
     "GOAL":              (0.72, 5.0),
-    # Shots — the strike is near the end
-    "SHOT":              (0.78, 3.5),
+    # Shots — approach, strike, and reaction; match goal timing
+    "SHOT":              (0.72, 5.0),
     # Build-up ending in goal — match GOAL timing
     "BUILD_UP_GOAL":     (0.72, 5.0),
     "BUILD_GOAL":        (0.72, 5.0),
@@ -1037,11 +1037,11 @@ BURST_PROFILES: Dict[str, Tuple[float, float]] = {
     "CROSS_GOAL":        (0.72, 5.0),
     "CORNER_GOAL":       (0.72, 5.0),
     "FREE_KICK_GOAL":    (0.72, 5.0),
-    # Build-up ending in shot — shot attempt at end
-    "BUILD_UP_SHOT":     (0.80, 4.0),
-    "BUILD_SHOT":        (0.80, 4.0),
-    "PRESSURE_SHOT":     (0.78, 3.5),
-    "CROSS_SHOT":        (0.75, 3.5),
+    # Build-up ending in shot — match SHOT timing
+    "BUILD_UP_SHOT":     (0.72, 5.0),
+    "BUILD_SHOT":        (0.72, 5.0),
+    "PRESSURE_SHOT":     (0.72, 5.0),
+    "CROSS_SHOT":        (0.72, 5.0),
     # Dribbling / skill — the move itself is in the middle
     "DRIBBL":            (0.50, 4.0),
     "SKILL":             (0.50, 4.0),
@@ -1297,26 +1297,46 @@ def build_burst_montage_script(
             safe_name = re.sub(r'[^\w\-.]', '_', f"{game.game_label}__{burst.clip.idx}")
             burst_file = f"$burstDir\\{safe_name}__burst.mp4"
 
-            # Portrait reel search: recursive glob under $portraitRoot
-            # Matches: {clip_stem}*portrait_FINAL*.mp4  (in clean/ or game subdir)
+            # Portrait reel search — tiered, newest-first
+            # 1. Game subfolder (most specific)
+            # 2. clean/ subfolder
+            # 3. Recursive fallback
+            # Always picks newest file to avoid stale renders
             clip_stem = burst.clip_stem
             clip_fps = burst.fps
+            portrait_filter = f"{clip_stem}__portrait__FINAL*.mp4"
 
             lines.append(f"# Clip {burst.clip.idx}: {burst.clip.label} "
                          f"(score={burst.clip.social_score:.1f}, "
                          f"burst={burst.burst_duration:.1f}s @ {burst.burst_start:.1f}s, "
                          f"fps={clip_fps:.3f})")
             lines.append(f'$burstOut = "{burst_file}"')
-            lines.append(f'# Prefer portrait reel, fall back to atomic clip')
-            lines.append(f'$portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse '
-                         f'-Filter "{clip_stem}__portrait__FINAL*.mp4" '
-                         f'-ErrorAction SilentlyContinue)')
+            lines.append(f'$srcClip = $null')
+            lines.append(f'$isPortrait = $false')
+            lines.append(f'# Tiered portrait search: game subfolder > clean/ > recursive')
+            lines.append(f'$gameDir = Join-Path $portraitRoot "{burst.game_label}"')
+            lines.append(f'$cleanDir = Join-Path $portraitRoot "clean"')
+            lines.append(f'$pFilter = "{portrait_filter}"')
+            lines.append(f'$portraitHits = @()')
+            lines.append(f'if (Test-Path $gameDir) {{')
+            lines.append(f'  $portraitHits = @(Get-ChildItem -Path $gameDir -Filter $pFilter -ErrorAction SilentlyContinue)')
+            lines.append(f'}}')
+            lines.append(f'if ($portraitHits.Count -eq 0 -and (Test-Path $cleanDir)) {{')
+            lines.append(f'  $portraitHits = @(Get-ChildItem -Path $cleanDir -Filter $pFilter -ErrorAction SilentlyContinue)')
+            lines.append(f'}}')
+            lines.append(f'if ($portraitHits.Count -eq 0) {{')
+            lines.append(f'  $portraitHits = @(Get-ChildItem -Path $portraitRoot -Recurse -Filter $pFilter -ErrorAction SilentlyContinue)')
+            lines.append(f'}}')
             lines.append(f'if ($portraitHits.Count -gt 0) {{')
-            lines.append(f'  $srcClip = $portraitHits[0].FullName')
+            lines.append(f'  # Pick newest render to avoid stale files')
+            lines.append(f'  $newest = $portraitHits | Sort-Object LastWriteTime -Descending | Select-Object -First 1')
+            lines.append(f'  $srcClip = $newest.FullName')
             lines.append(f'  $isPortrait = $true')
+            lines.append(f'  if ($portraitHits.Count -gt 1) {{')
+            lines.append(f'    Write-Host "  [{burst.clip.idx}] Found $($portraitHits.Count) portrait renders, using newest: $($newest.Name)"')
+            lines.append(f'  }}')
             lines.append(f'}} else {{')
             lines.append(f'  $srcClip = "{atomic_path}"')
-            lines.append(f'  $isPortrait = $false')
             lines.append(f'}}')
             lines.append(f'if (Test-Path $srcClip) {{')
             lines.append(f'  if ($isPortrait) {{')
