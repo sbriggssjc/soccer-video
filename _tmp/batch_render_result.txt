@@ -1,382 +1,70 @@
-Batch render started 12:15:50
-[12:15:50] --- CLIP 006 (zoom=1) ---
-[12:15:50] File: 006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00.mp4
-[12:15:50] Actual: 634 frames, 21.13s (filename said -2024.0s)
-[12:15:50] 44 anchors, crop 608x1080
-[12:16:06] Wrote 634 frames
-[12:16:40] Step 1 done: 37.4 MB
-[12:16:55] Step 2 done
-[12:18:23] Step 3 ffmpeg returned 0
-[12:18:23] Step 3 done: 34.9 MB
-[12:18:23] Step 4 done (renamed to FINAL)
-[12:18:23] COMPLETE 006: 2.5m, 34.9 MB
-[12:18:23] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\006__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t456.00-t477.00__portrait__FINAL.mp4
-[12:18:23] --- CLIP 007 (zoom=1) ---
-[12:18:23] File: 007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00.mp4
-[12:18:23] Actual: 280 frames, 9.33s (filename said -2024.0s)
-[12:18:23] 20 anchors, crop 608x1080
-[12:18:31] Wrote 280 frames
-[12:18:48] Step 1 done: 16.8 MB
-[12:18:55] Step 2 done
-[12:19:35] Step 3 ffmpeg returned 0
-[12:19:35] Step 3 done: 16.1 MB
-[12:19:35] Step 4 done (renamed to FINAL)
-[12:19:35] COMPLETE 007: 1.2m, 16.1 MB
-[12:19:35] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\007__2026-02-23__TSC_vs_NEOFC__CROSS__t649.00-t656.00__portrait__FINAL.mp4
-[12:19:35] --- CLIP 008 (zoom=1) ---
-[12:19:35] File: 008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00.mp4
-[12:19:35] Actual: 496 frames, 16.53s (filename said -2024.0s)
-[12:19:35] 34 anchors, crop 608x1080
-[12:19:45] Wrote 496 frames
-[12:20:05] Step 1 done: 27.1 MB
-[12:20:16] Step 2 done
-[12:21:09] Step 3 ffmpeg returned 0
-[12:21:09] Step 3 done: 20.8 MB
-[12:21:09] Step 4 done (renamed to FINAL)
-[12:21:09] COMPLETE 008: 1.6m, 20.8 MB
-[12:21:09] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\008__2026-02-23__TSC_vs_NEOFC__DRIBBLING__t796.00-t808.00__portrait__FINAL.mp4
-[12:21:09] --- CLIP 009 (zoom=1) ---
-[12:21:09] File: 009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00.mp4
-[12:21:09] Actual: 216 frames, 7.20s (filename said -2024.0s)
-[12:21:09] 16 anchors, crop 608x1080
-[12:21:13] Wrote 216 frames
-[12:21:23] Step 1 done: 13.5 MB
-[12:21:29] Step 2 done
-[12:21:53] Step 3 ffmpeg returned 0
-[12:21:53] Step 3 done: 9.0 MB
-[12:21:53] Step 4 done (renamed to FINAL)
-[12:21:53] COMPLETE 009: 0.7m, 9.0 MB
-[12:21:53] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\009__2026-02-23__TSC_vs_NEOFC__CORNER__t850.00-t856.00__portrait__FINAL.mp4
-[12:21:53] --- CLIP 010 (zoom=1) ---
-[12:21:53] File: 010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00.mp4
-[12:21:53] Actual: 472 frames, 15.73s (filename said -2024.0s)
-[12:21:53] 33 anchors, crop 608x1080
-[12:22:02] Wrote 472 frames
-[12:22:22] Step 1 done: 28.0 MB
-[12:22:34] Step 2 done
-[12:23:23] Step 3 ffmpeg returned 0
-[12:23:23] Step 3 done: 26.9 MB
-[12:23:23] Step 4 done (renamed to FINAL)
-[12:23:23] COMPLETE 010: 1.5m, 26.9 MB
-[12:23:23] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\010__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_CROSS__t863.00-t875.00__portrait__FINAL.mp4
-[12:23:24] --- CLIP 011 (zoom=1) ---
-[12:23:24] File: 011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00.mp4
-[12:23:24] Actual: 478 frames, 15.93s (filename said -2024.0s)
-[12:23:24] 33 anchors, crop 608x1080
-[12:23:33] Wrote 478 frames
-[12:23:54] Step 1 done: 29.0 MB
-[12:24:07] Step 2 done
-[12:24:57] Step 3 ffmpeg returned 0
-[12:24:57] Step 3 done: 27.6 MB
-[12:24:57] Step 4 done (renamed to FINAL)
-[12:24:57] COMPLETE 011: 1.6m, 27.6 MB
-[12:24:57] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\011__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t883.00-t896.00__portrait__FINAL.mp4
-[12:24:57] --- CLIP 012 (zoom=1) ---
-[12:24:57] File: 012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00.mp4
-[12:24:57] Actual: 292 frames, 9.73s (filename said -2024.0s)
-[12:24:57] 21 anchors, crop 608x1080
-[12:25:03] Wrote 292 frames
-[12:25:16] Step 1 done: 19.4 MB
-[12:25:24] Step 2 done
-[12:25:55] Step 3 ffmpeg returned 0
-[12:25:55] Step 3 done: 18.4 MB
-[12:25:55] Step 4 done (renamed to FINAL)
-[12:25:55] COMPLETE 012: 1.0m, 18.4 MB
-[12:25:55] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\012__2026-02-23__TSC_vs_NEOFC__FREE_KICK__t950.00-t957.00__portrait__FINAL.mp4
-[12:25:55] --- CLIP 013 (zoom=1) ---
-[12:25:55] File: 013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00.mp4
-[12:25:55] Actual: 582 frames, 19.40s (filename said -2024.0s)
-[12:25:55] 40 anchors, crop 608x1080
-[12:26:06] Wrote 582 frames
-[12:26:31] Step 1 done: 36.8 MB
-[12:26:47] Step 2 done
-[12:27:48] Step 3 ffmpeg returned 0
-[12:27:48] Step 3 done: 35.1 MB
-[12:27:48] Step 4 done (renamed to FINAL)
-[12:27:48] COMPLETE 013: 1.9m, 35.1 MB
-[12:27:48] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\013__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_CROSS__t967.00-t982.00__portrait__FINAL.mp4
-[12:27:48] --- CLIP 014 (zoom=1) ---
-[12:27:48] File: 014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00.mp4
-[12:27:48] Actual: 610 frames, 20.33s (filename said -2024.0s)
-[12:27:48] 42 anchors, crop 608x1080
-[12:28:00] Wrote 610 frames
-[12:28:26] Step 1 done: 39.6 MB
-[12:28:42] Step 2 done
-[12:29:46] Step 3 ffmpeg returned 0
-[12:29:46] Step 3 done: 37.7 MB
-[12:29:46] Step 4 done (renamed to FINAL)
-[12:29:46] COMPLETE 014: 2.0m, 37.7 MB
-[12:29:46] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\014__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t1031.00-t1050.00__portrait__FINAL.mp4
-[12:29:46] --- CLIP 015 (zoom=1) ---
-[12:29:46] File: 015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00.mp4
-[12:29:46] Actual: 998 frames, 33.27s (filename said -2024.0s)
-[12:29:46] 68 anchors, crop 608x1080
-[12:30:06] Wrote 998 frames
-[12:30:48] Step 1 done: 62.1 MB
-[12:31:11] Step 2 done
-[12:32:57] Step 3 ffmpeg returned 0
-[12:32:57] Step 3 done: 58.9 MB
-[12:32:57] Step 4 done (renamed to FINAL)
-[12:32:57] COMPLETE 015: 3.2m, 58.9 MB
-[12:32:57] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\015__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t1091.00-t1120.00__portrait__FINAL.mp4
-[12:32:57] --- CLIP 016 (zoom=1) ---
-[12:32:57] File: 016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00.mp4
-[12:32:57] Actual: 527 frames, 17.57s (filename said -2024.0s)
-[12:32:57] 37 anchors, crop 608x1080
-[12:33:07] Wrote 527 frames
-[12:33:31] Step 1 done: 34.2 MB
-[12:33:43] Step 2 done
-[12:34:40] Step 3 ffmpeg returned 0
-[12:34:40] Step 3 done: 32.2 MB
-[12:34:40] Step 4 done (renamed to FINAL)
-[12:34:40] COMPLETE 016: 1.7m, 32.2 MB
-[12:34:40] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\016__2026-02-23__TSC_vs_NEOFC__DEFENSE_AND_BUILD__t1269.00-t1286.00__portrait__FINAL.mp4
-[12:34:40] --- CLIP 017 (zoom=1) ---
-[12:34:40] File: 017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00.mp4
-[12:34:40] Actual: 560 frames, 18.67s (filename said -2024.0s)
-[12:34:40] 39 anchors, crop 608x1080
-[12:34:51] Wrote 560 frames
-[12:35:15] Step 1 done: 36.7 MB
-[12:35:29] Step 2 done
-[12:36:31] Step 3 ffmpeg returned 0
-[12:36:31] Step 3 done: 35.5 MB
-[12:36:31] Step 4 done (renamed to FINAL)
-[12:36:31] COMPLETE 017: 1.8m, 35.5 MB
-[12:36:31] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\017__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_CROSS__t1437.00-t1453.00__portrait__FINAL.mp4
-[12:36:31] --- CLIP 018 (zoom=1) ---
-[12:36:31] File: 018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00.mp4
-[12:36:31] Actual: 869 frames, 28.97s (filename said -2024.0s)
-[12:36:31] 59 anchors, crop 608x1080
-[12:36:48] Wrote 869 frames
-[12:37:27] Step 1 done: 57.3 MB
-[12:37:47] Step 2 done
-[12:39:20] Step 3 ffmpeg returned 0
-[12:39:20] Step 3 done: 52.0 MB
-[12:39:20] Step 4 done (renamed to FINAL)
-[12:39:20] COMPLETE 018: 2.8m, 52.0 MB
-[12:39:20] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\018__2026-02-23__TSC_vs_NEOFC__BUILD__t1535.00-t1561.00__portrait__FINAL.mp4
-[12:39:20] --- CLIP 019 (zoom=1) ---
-[12:39:20] File: 019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00.mp4
-[12:39:20] Actual: 550 frames, 18.33s (filename said -2024.0s)
-[12:39:20] 38 anchors, crop 608x1080
-[12:39:30] Wrote 550 frames
-[12:39:53] Step 1 done: 34.5 MB
-[12:40:07] Step 2 done
-[12:41:06] Step 3 ffmpeg returned 0
-[12:41:06] Step 3 done: 32.5 MB
-[12:41:06] Step 4 done (renamed to FINAL)
-[12:41:06] COMPLETE 019: 1.8m, 32.5 MB
-[12:41:06] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\019__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1585.00-t1602.00__portrait__FINAL.mp4
-[12:41:06] --- CLIP 020 (zoom=1) ---
-[12:41:06] File: 020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00.mp4
-[12:41:06] Actual: 254 frames, 8.47s (filename said -2024.0s)
-[12:41:06] 18 anchors, crop 608x1080
-[12:41:11] Wrote 254 frames
-[12:41:23] Step 1 done: 15.2 MB
-[12:41:27] Step 2 done
-[12:41:56] Step 3 ffmpeg returned 0
-[12:41:56] Step 3 done: 13.6 MB
-[12:41:56] Step 4 done (renamed to FINAL)
-[12:41:56] COMPLETE 020: 0.8m, 13.6 MB
-[12:41:56] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\020__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1627.00-t1634.00__portrait__FINAL.mp4
-[12:41:56] --- CLIP 021 (zoom=1) ---
-[12:41:56] File: 021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00.mp4
-[12:41:56] Actual: 510 frames, 17.00s (filename said -2024.0s)
-[12:41:56] 35 anchors, crop 608x1080
-[12:42:07] Wrote 510 frames
-[12:42:29] Step 1 done: 30.3 MB
-[12:42:40] Step 2 done
-[12:43:36] Step 3 ffmpeg returned 0
-[12:43:36] Step 3 done: 27.5 MB
-[12:43:36] Step 4 done (renamed to FINAL)
-[12:43:36] COMPLETE 021: 1.7m, 27.5 MB
-[12:43:36] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\021__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t1639.00-t1653.00__portrait__FINAL.mp4
-[12:43:36] --- CLIP 022 (zoom=1) ---
-[12:43:36] File: 022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00.mp4
-[12:43:36] Actual: 544 frames, 18.13s (filename said -2024.0s)
-[12:43:36] 38 anchors, crop 608x1080
-[12:43:46] Wrote 544 frames
-[12:44:09] Step 1 done: 34.3 MB
-[12:44:22] Step 2 done
-[12:45:21] Step 3 ffmpeg returned 0
-[12:45:21] Step 3 done: 32.9 MB
-[12:45:21] Step 4 done (renamed to FINAL)
-[12:45:21] COMPLETE 022: 1.8m, 32.9 MB
-[12:45:21] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\022__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOT__t1712.00-t1727.00__portrait__FINAL.mp4
-[12:45:21] --- CLIP 023 (zoom=1) ---
-[12:45:21] File: 023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00.mp4
-[12:45:21] Actual: 452 frames, 15.07s (filename said -2024.0s)
-[12:45:21] 32 anchors, crop 608x1080
-[12:45:30] Wrote 452 frames
-[12:45:50] Step 1 done: 28.8 MB
-[12:46:01] Step 2 done
-[12:46:50] Step 3 ffmpeg returned 0
-[12:46:50] Step 3 done: 26.0 MB
-[12:46:50] Step 4 done (renamed to FINAL)
-[12:46:50] COMPLETE 023: 1.5m, 26.0 MB
-[12:46:50] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\023__2026-02-23__TSC_vs_NEOFC__THROUGH_BALL,_SKILL_AND_SHOT__t2178.00-t2191.00__portrait__FINAL.mp4
-[12:46:50] --- CLIP 024 (zoom=1) ---
-[12:46:50] File: 024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00.mp4
-[12:46:50] Actual: 426 frames, 14.20s (filename said -2024.0s)
-[12:46:50] 30 anchors, crop 608x1080
-[12:46:58] Wrote 426 frames
-[12:47:18] Step 1 done: 23.5 MB
-[12:47:27] Step 2 done
-[12:48:13] Step 3 ffmpeg returned 0
-[12:48:13] Step 3 done: 21.4 MB
-[12:48:13] Step 4 done (renamed to FINAL)
-[12:48:13] COMPLETE 024: 1.4m, 21.4 MB
-[12:48:13] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\024__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2247.00-t2257.00__portrait__FINAL.mp4
-[12:48:13] --- CLIP 025 (zoom=1) ---
-[12:48:13] File: 025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00.mp4
-[12:48:13] Actual: 470 frames, 15.67s (filename said -2024.0s)
-[12:48:13] 33 anchors, crop 608x1080
-[12:48:22] Wrote 470 frames
-[12:48:43] Step 1 done: 28.4 MB
-[12:48:53] Step 2 done
-[12:49:44] Step 3 ffmpeg returned 0
-[12:49:44] Step 3 done: 26.6 MB
-[12:49:44] Step 4 done (renamed to FINAL)
-[12:49:44] COMPLETE 025: 1.5m, 26.6 MB
-[12:49:44] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\025__2026-02-23__TSC_vs_NEOFC__BUILD,_CROSS_AND_SHOT__t2280.00-t2295.00__portrait__FINAL.mp4
-[12:49:44] --- CLIP 026 (zoom=1) ---
-[12:49:44] File: 026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00.mp4
-[12:49:44] Actual: 288 frames, 9.60s (filename said -2024.0s)
-[12:49:44] 21 anchors, crop 608x1080
-[12:49:50] Wrote 288 frames
-[12:50:02] Step 1 done: 15.2 MB
-[12:50:08] Step 2 done
-[12:50:40] Step 3 ffmpeg returned 0
-[12:50:40] Step 3 done: 12.8 MB
-[12:50:40] Step 4 done (renamed to FINAL)
-[12:50:40] COMPLETE 026: 0.9m, 12.8 MB
-[12:50:40] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\026__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t2317.00-t2325.00__portrait__FINAL.mp4
-[12:50:40] --- CLIP 027 (zoom=1) ---
-[12:50:40] File: 027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00.mp4
-[12:50:40] Actual: 438 frames, 14.60s (filename said -2024.0s)
-[12:50:40] 31 anchors, crop 608x1080
-[12:50:49] Wrote 438 frames
-[12:51:08] Step 1 done: 29.2 MB
-[12:51:18] Step 2 done
-[12:52:08] Step 3 ffmpeg returned 0
-[12:52:08] Step 3 done: 26.6 MB
-[12:52:08] Step 4 done (renamed to FINAL)
-[12:52:08] COMPLETE 027: 1.5m, 26.6 MB
-[12:52:08] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00__portrait__FINAL.mp4
-[12:52:08] --- CLIP 028 (zoom=1) ---
-[12:52:08] File: 028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00.mp4
-[12:52:08] Actual: 314 frames, 10.47s (filename said -2024.0s)
-[12:52:08] 22 anchors, crop 608x1080
-[12:52:14] Wrote 314 frames
-[12:52:27] Step 1 done: 17.2 MB
-[12:52:34] Step 2 done
-[12:53:10] Step 3 ffmpeg returned 0
-[12:53:10] Step 3 done: 16.0 MB
-[12:53:10] Step 4 done (renamed to FINAL)
-[12:53:10] COMPLETE 028: 1.0m, 16.0 MB
-[12:53:10] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\028__2026-02-23__TSC_vs_NEOFC__SHOT__t2434.00-t2440.00__portrait__FINAL.mp4
-[12:53:10] --- CLIP 029 (zoom=1) ---
-[12:53:10] File: 029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00.mp4
-[12:53:10] Actual: 468 frames, 15.60s (filename said -2024.0s)
-[12:53:10] 33 anchors, crop 608x1080
-[12:53:19] Wrote 468 frames
-[12:53:41] Step 1 done: 28.1 MB
-[12:53:53] Step 2 done
-[12:54:43] Step 3 ffmpeg returned 0
-[12:54:43] Step 3 done: 26.5 MB
-[12:54:43] Step 4 done (renamed to FINAL)
-[12:54:43] COMPLETE 029: 1.6m, 26.5 MB
-[12:54:43] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\029__2026-02-23__TSC_vs_NEOFC__DEFENSE,_COUNTER_AND_SHOT__t2478.00-t2492.00__portrait__FINAL.mp4
-[12:54:43] --- CLIP 030 (zoom=1) ---
-[12:54:43] File: 030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00.mp4
-[12:54:43] Actual: 252 frames, 8.40s (filename said -2024.0s)
-[12:54:43] 18 anchors, crop 608x1080
-[12:54:48] Wrote 252 frames
-[12:55:01] Step 1 done: 15.6 MB
-[12:55:07] Step 2 done
-[12:55:35] Step 3 ffmpeg returned 0
-[12:55:35] Step 3 done: 14.8 MB
-[12:55:35] Step 4 done (renamed to FINAL)
-[12:55:35] COMPLETE 030: 0.9m, 14.8 MB
-[12:55:35] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\030__2026-02-23__TSC_vs_NEOFC__SHOT__t2793.00-t2801.00__portrait__FINAL.mp4
-[12:55:35] --- CLIP 031 (zoom=1) ---
-[12:55:35] File: 031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00.mp4
-[12:55:35] Actual: 264 frames, 8.80s (filename said -2024.0s)
-[12:55:35] 19 anchors, crop 608x1080
-[12:55:40] Wrote 264 frames
-[12:55:52] Step 1 done: 15.3 MB
-[12:55:59] Step 2 done
-[12:56:29] Step 3 ffmpeg returned 0
-[12:56:29] Step 3 done: 13.2 MB
-[12:56:29] Step 4 done (renamed to FINAL)
-[12:56:29] COMPLETE 031: 0.9m, 13.2 MB
-[12:56:29] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\031__2026-02-23__TSC_vs_NEOFC__SHOT__t2844.00-t2848.00__portrait__FINAL.mp4
-[12:56:29] --- CLIP 032 (zoom=1) ---
-[12:56:29] File: 032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00.mp4
-[12:56:29] Actual: 510 frames, 17.00s (filename said -2024.0s)
-[12:56:29] 35 anchors, crop 608x1080
-[12:56:39] Wrote 510 frames
-[12:57:01] Step 1 done: 34.8 MB
-[12:57:14] Step 2 done
-[12:58:11] Step 3 ffmpeg returned 0
-[12:58:11] Step 3 done: 32.7 MB
-[12:58:11] Step 4 done (renamed to FINAL)
-[12:58:11] COMPLETE 032: 1.7m, 32.7 MB
-[12:58:11] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\032__2026-02-23__TSC_vs_NEOFC__DEFENSE,_BUILD_AND_SHOT__t2864.00-t2877.00__portrait__FINAL.mp4
-[12:58:11] --- CLIP 033 (zoom=1) ---
-[12:58:11] File: 033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00.mp4
-[12:58:12] Actual: 530 frames, 17.67s (filename said -2024.0s)
-[12:58:12] 37 anchors, crop 608x1080
-[12:58:21] Wrote 530 frames
-[12:58:45] Step 1 done: 35.3 MB
-[12:58:59] Step 2 done
-[12:59:58] Step 3 ffmpeg returned 0
-[12:59:58] Step 3 done: 33.0 MB
-[12:59:58] Step 4 done (renamed to FINAL)
-[12:59:58] COMPLETE 033: 1.8m, 33.0 MB
-[12:59:58] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\033__2026-02-23__TSC_vs_NEOFC__DEFENSE,_DRIBBLING_AND_SHOT__t2941.00-t2955.00__portrait__FINAL.mp4
-[12:59:58] --- CLIP 034 (zoom=1) ---
-[12:59:58] File: 034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00.mp4
-[12:59:58] Actual: 270 frames, 9.00s (filename said -2024.0s)
-[12:59:58] 19 anchors, crop 608x1080
-[13:00:03] Wrote 270 frames
-[13:00:16] Step 1 done: 17.9 MB
-[13:00:23] Step 2 done
-[13:00:55] Step 3 ffmpeg returned 0
-[13:00:55] Step 3 done: 16.8 MB
-[13:00:55] Step 4 done (renamed to FINAL)
-[13:00:55] COMPLETE 034: 0.9m, 16.8 MB
-[13:00:55] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\034__2026-02-23__TSC_vs_NEOFC__CROSS_AND_SHOT__t2976.00-t2983.00__portrait__FINAL.mp4
-[13:00:55] 
+Batch render started 15:37:44
+[15:37:44] --- CLIP 001 (zoom=1) ---
+[15:37:44] File: 001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00.mp4
+[15:37:44] Actual: 480 frames, 16.00s (filename said -2024.0s)
+[15:37:44] 33 anchors, crop 608x1080
+[15:37:54] Wrote 480 frames
+[15:38:15] Step 1 done: 27.7 MB
+[15:38:25] Step 2 done
+[15:39:10] Step 3 ffmpeg returned 0
+[15:39:10] Step 3 done: 25.8 MB
+[15:39:10] Step 4 done (renamed to FINAL)
+[15:39:10] COMPLETE 001: 1.4m, 25.8 MB
+[15:39:10] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\001__2026-02-23__TSC_vs_NEOFC__SAVE__t1.00-t16.00__portrait__FINAL.mp4
+[15:39:10] --- CLIP 002 (zoom=1) ---
+[15:39:10] File: 002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.mp4
+[15:39:10] Actual: 496 frames, 16.53s (filename said -2024.0s)
+[15:39:10] 34 anchors, crop 608x1080
+[15:39:20] Wrote 496 frames
+[15:39:41] Step 1 done: 28.7 MB
+[15:39:52] Step 2 done
+[15:40:40] Step 3 ffmpeg returned 0
+[15:40:40] Step 3 done: 27.1 MB
+[15:40:40] Step 4 done (renamed to FINAL)
+[15:40:40] COMPLETE 002: 1.5m, 27.1 MB
+[15:40:40] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00__portrait__FINAL.mp4
+[15:40:40] --- CLIP 003 (zoom=1) ---
+[15:40:40] File: 003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00.mp4
+[15:40:40] Actual: 554 frames, 18.47s (filename said -2024.0s)
+[15:40:40] 38 anchors, crop 608x1080
+[15:40:53] Wrote 554 frames
+[15:41:16] Step 1 done: 32.7 MB
+[15:41:30] Step 2 done
+[15:42:22] Step 3 ffmpeg returned 0
+[15:42:22] Step 3 done: 30.0 MB
+[15:42:22] Step 4 done (renamed to FINAL)
+[15:42:22] COMPLETE 003: 1.7m, 30.0 MB
+[15:42:22] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\003__2026-02-23__TSC_vs_NEOFC__BUILD_AND_CROSS__t106.00-t122.00__portrait__FINAL.mp4
+[15:42:22] --- CLIP 004 (zoom=1) ---
+[15:42:22] File: 004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00.mp4
+[15:42:22] Actual: 546 frames, 18.20s (filename said -2024.0s)
+[15:42:22] 38 anchors, crop 608x1080
+[15:42:33] Wrote 546 frames
+[15:42:54] Step 1 done: 34.4 MB
+[15:43:08] Step 2 done
+[15:43:59] Step 3 ffmpeg returned 0
+[15:43:59] Step 3 done: 29.9 MB
+[15:43:59] Step 4 done (renamed to FINAL)
+[15:43:59] COMPLETE 004: 1.6m, 29.9 MB
+[15:43:59] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__portrait__FINAL.mp4
+[15:43:59] --- CLIP 005 (zoom=1) ---
+[15:43:59] File: 005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00.mp4
+[15:43:59] Actual: 474 frames, 15.80s (filename said -2024.0s)
+[15:43:59] 33 anchors, crop 608x1080
+[15:44:09] Wrote 474 frames
+[15:44:28] Step 1 done: 28.7 MB
+[15:44:40] Step 2 done
+[15:45:26] Step 3 ffmpeg returned 0
+[15:45:26] Step 3 done: 27.2 MB
+[15:45:26] Step 4 done (renamed to FINAL)
+[15:45:26] COMPLETE 005: 1.4m, 27.2 MB
+[15:45:26] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\005__2026-02-23__TSC_vs_NEOFC__BUILD_AND_GOAL__t416.00-t430.00__portrait__FINAL.mp4
+[15:45:26] 
 === BATCH SUMMARY ===
-[13:00:55]   006: OK
-[13:00:55]   007: OK
-[13:00:55]   008: OK
-[13:00:55]   009: OK
-[13:00:55]   010: OK
-[13:00:55]   011: OK
-[13:00:55]   012: OK
-[13:00:55]   013: OK
-[13:00:55]   014: OK
-[13:00:55]   015: OK
-[13:00:55]   016: OK
-[13:00:55]   017: OK
-[13:00:55]   018: OK
-[13:00:55]   019: OK
-[13:00:55]   020: OK
-[13:00:55]   021: OK
-[13:00:55]   022: OK
-[13:00:55]   023: OK
-[13:00:55]   024: OK
-[13:00:55]   025: OK
-[13:00:55]   026: OK
-[13:00:55]   027: OK
-[13:00:55]   028: OK
-[13:00:55]   029: OK
-[13:00:55]   030: OK
-[13:00:55]   031: OK
-[13:00:55]   032: OK
-[13:00:55]   033: OK
-[13:00:55]   034: OK
-[13:00:55] Total batch time: 45.1m
-[13:00:55] BATCH DONE
+[15:45:26]   001: OK
+[15:45:26]   002: OK
+[15:45:26]   003: OK
+[15:45:26]   004: OK
+[15:45:26]   005: OK
+[15:45:26] Total batch time: 7.7m
+[15:45:26] BATCH DONE

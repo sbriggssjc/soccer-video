@@ -1,4 +1,4 @@
-"""Batch direct crop renderer for NEOFC clips 006-034 (30fps re-render with recovered anchors)."""
+"""Batch direct crop renderer for Greenwood clip 010."""
 import time, os, sys, csv, re, subprocess, traceback, tempfile, shutil, gc
 import numpy as np
 import cv2
@@ -18,7 +18,7 @@ FPS_OUT = 30; FPS_SRC = 30
 ZOOM_OVERRIDE = {}
 DEFAULT_ZOOM = 1
 
-CLIP_NUMS = [f"{i:03d}" for i in range(6, 35)]
+CLIP_NUMS = ["001", "002", "003", "004", "005"]
 
 RESULT_FILE = r"D:\Projects\soccer-video\_tmp\batch_render_result.txt"
 os.makedirs(r"D:\Projects\soccer-video\_tmp", exist_ok=True)
