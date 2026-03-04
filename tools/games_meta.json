@@ -75,9 +75,12 @@
     "venue": ""
   },
   "2026-03-01__TSC_vs_North_OKC": {
-    "score": "5-0",
-    "tournament": "Celtic Cup 2026",
-    "venue": "Norman, OK - Championship Match"
+    "score": "",
+    "tournament": "OSSL Spring 2026",
+    "venue": "",
+    "burst_overrides": {
+      "018": {"start": 8.0, "duration": 5.0}
+    }
   },
   "2026-03-01__TSC_vs_OK_Celtic": {
     "score": "",

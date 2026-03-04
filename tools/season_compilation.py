@@ -174,6 +174,8 @@ class GameMeta:
     tournament: str = ""       # e.g. "Spring 2026", "OSSL Fall League"
     venue: str = ""
     notes: str = ""
+    burst_overrides: Dict[str, dict] = field(default_factory=dict)
+    # burst_overrides: { "018": {"start": 8.0, "duration": 5.0}, ... }
 
 
 GAMES_META_PATH = ROOT / "out" / "catalog" / "games_meta.json"
@@ -188,8 +190,14 @@ def load_games_meta() -> Dict[str, GameMeta]:
     result: Dict[str, GameMeta] = {}
     for key, val in raw.items():
         if isinstance(val, dict):
-            result[key] = GameMeta(**{k: v for k, v in val.items()
-                                      if k in GameMeta.__dataclass_fields__})
+            # Separate burst_overrides from scalar fields
+            overrides = val.get("burst_overrides", {})
+            scalar = {k: v for k, v in val.items()
+                      if k in GameMeta.__dataclass_fields__ and k != "burst_overrides"}
+            meta = GameMeta(**scalar)
+            if isinstance(overrides, dict):
+                meta.burst_overrides = overrides
+            result[key] = meta
     return result
 
 
@@ -1181,6 +1189,11 @@ def _resolve_burst_profile(label: str) -> Tuple[float, float]:
     return BURST_DEFAULT
 
 
+# Clips longer than this get end-biased peak placement + manual review flag
+LONG_CLIP_THRESHOLD = 30.0
+LONG_CLIP_PEAK_RATIO = 0.88  # shift to last ~12% of clip
+
+
 @dataclass
 class BurstSpec:
     """A trimmed burst window from an atomic clip."""
@@ -1193,6 +1206,7 @@ class BurstSpec:
     profile_label: str        # which heuristic profile matched
     master_burst_start: float # absolute time in the master video
     master_burst_end: float   # absolute time in the master video
+    long_clip_flag: bool = False  # True when clip exceeded threshold → needs review
 
     @property
     def clip_path(self) -> str:
@@ -1221,13 +1235,52 @@ class BurstSpec:
         return self.clip.idx
 
 
-def compute_burst_window(clip: ClipRecord) -> BurstSpec:
-    """Compute the optimal 3-5 second burst window for a clip."""
-    peak_ratio, burst_dur = _resolve_burst_profile(clip.label)
+def compute_burst_window(
+    clip: ClipRecord,
+    override: Optional[dict] = None,
+) -> BurstSpec:
+    """Compute the optimal 3-5 second burst window for a clip.
 
+    If override is provided (from games_meta.json burst_overrides),
+    it takes priority:  {"start": 8.0, "duration": 5.0}
+
+    For clips longer than LONG_CLIP_THRESHOLD (30s), the heuristic peak
+    ratio is unreliable, so we shift to an end-biased extraction (88%)
+    and flag the clip for manual review.
+    """
     clip_dur = clip.duration
     if clip_dur <= 0:
         clip_dur = clip.t_end - clip.t_start if clip.t_end > clip.t_start else 5.0
+
+    game_label = f"{clip.date}__{clip.home}_vs_{clip.away}"
+
+    # Manual override — exact window specified by user
+    if override and "start" in override:
+        burst_start = float(override["start"])
+        burst_dur = float(override.get("duration", 5.0))
+        burst_end = min(burst_start + burst_dur, clip_dur)
+        burst_start = max(0.0, burst_start)
+        master_burst_start = clip.t_start + burst_start
+        master_burst_end = clip.t_start + burst_end
+        return BurstSpec(
+            clip=clip,
+            game_label=game_label,
+            burst_start=round(burst_start, 2),
+            burst_end=round(burst_end, 2),
+            burst_duration=round(burst_end - burst_start, 2),
+            peak_ratio=-1.0,  # sentinel: manual override
+            profile_label=f"MANUAL ({clip.label})",
+            master_burst_start=round(master_burst_start, 2),
+            master_burst_end=round(master_burst_end, 2),
+            long_clip_flag=False,  # override resolves the flag
+        )
+
+    peak_ratio, burst_dur = _resolve_burst_profile(clip.label)
+
+    # End-bias override for long clips
+    long_flag = clip_dur > LONG_CLIP_THRESHOLD
+    if long_flag:
+        peak_ratio = LONG_CLIP_PEAK_RATIO
 
     # Clamp burst duration to clip duration
     burst_dur = min(burst_dur, clip_dur)
@@ -1253,8 +1306,6 @@ def compute_burst_window(clip: ClipRecord) -> BurstSpec:
     master_burst_start = clip.t_start + burst_start
     master_burst_end = clip.t_start + burst_end
 
-    game_label = f"{clip.date}__{clip.home}_vs_{clip.away}"
-
     return BurstSpec(
         clip=clip,
         game_label=game_label,
@@ -1265,25 +1316,35 @@ def compute_burst_window(clip: ClipRecord) -> BurstSpec:
         profile_label=clip.label,
         master_burst_start=round(master_burst_start, 2),
         master_burst_end=round(master_burst_end, 2),
+        long_clip_flag=long_flag,
     )
 
 
 def compute_all_bursts(
     games: List[GameSummary],
     min_score: float = 0.0,
+    games_meta: Optional[Dict[str, "GameMeta"]] = None,
 ) -> List[Tuple[GameSummary, List[BurstSpec]]]:
     """Compute burst windows for every clip in every game.
+
+    If games_meta contains burst_overrides for a game, those clip-level
+    overrides ({"start": X, "duration": Y}) take priority over heuristics.
 
     Returns: list of (game, [bursts]) sorted by game date then clip score.
     """
     results = []
     for game in games:
+        # Look up per-clip overrides from games_meta
+        meta = (games_meta or {}).get(game.game_label)
+        overrides = meta.burst_overrides if meta else {}
+
         bursts = []
         ranked = sorted(game.all_clips, key=lambda c: (-c.social_score, -c.priority))
         for clip in ranked:
             if clip.social_score < min_score:
                 continue
-            burst = compute_burst_window(clip)
+            clip_override = overrides.get(clip.idx)
+            burst = compute_burst_window(clip, override=clip_override)
             bursts.append(burst)
         results.append((game, bursts))
     return results
@@ -1302,6 +1363,7 @@ def _ps_brand_clip_function(out_w: int = 1080, out_h: int = 1920) -> str:
     """Generate a PowerShell function definition for branding individual burst clips.
 
     Adds corner watermark (65% opacity) + action label flash (1.5s, gold text).
+    Uses single-quoted strings to avoid PS interpreting FFmpeg [labels] as types.
     """
     return f'''function Brand-BurstClip {{
   param(
@@ -1321,25 +1383,25 @@ def _ps_brand_clip_function(out_w: int = 1080, out_h: int = 1920) -> str:
   $esc = $Label -replace ':','\\\\:' -replace "'","\\\\'" -replace '%','%%'
 
   if ($IsPortrait) {{
-    $scaleF = "[0:v]copy[base]"
+    $scaleF = '[0:v]copy[base]'
   }} else {{
-    $scaleF = "[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[base]"
+    $scaleF = '[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[base]'
   }}
 
-  # Filter graph: scale → watermark → action label
-  $filterG = "$scaleF;[base][1:v]overlay=W-w-32:32:format=auto:alpha=0.65[wm];[wm]drawtext=fontfile='$ffFont':text='$esc':fontsize=56:fontcolor=0xB7A37C:borderw=3:bordercolor=0x1F2B3D@0.8:x=(w-text_w)/2:y=h-220:enable='between(t\\,0\\,1.5)'[out]"
+  # Filter graph: scale -> watermark -> action label (single-quoted to protect [brackets])
+  $filterG = '{{0}};[base][1:v]overlay=W-w-32:32:format=auto:alpha=0.65[wm];[wm]drawtext=fontfile=''{{1}}'':text=''{{2}}'':fontsize=56:fontcolor=0xB7A37C:borderw=3:bordercolor=0x1F2B3D@0.8:x=(w-text_w)/2:y=h-220:enable=''between(t\\,0\\,1.5)''[out]' -f $scaleF, $ffFont, $esc
 
   ffmpeg -hide_banner -loglevel warning -y `
     -ss $Start -t $Duration -i $SrcClip `
     -i $watermarkPNG `
     -filter_complex $filterG `
-    -map "[out]" `
+    -map '[out]' `
     -r $Fps -c:v libx264 -crf $crf -preset fast -an `
     $OutFile
 }}
 
 function Brand-BurstClipSimple {{
-  # Fallback when brand assets are missing — just trim, no overlays
+  # Fallback when brand assets are missing - just trim, no overlays
   param(
     [string]$SrcClip,
     [string]$OutFile,
@@ -1454,7 +1516,7 @@ def _ps_intro_card_block(
         '    -c:v libx264 -crf $crf -preset fast -pix_fmt yuv420p -an `',
         '    $introCard',
         '} else {',
-        f'  # No font — plain navy card',
+        f'  # No font - plain navy card',
         f'  ffmpeg -hide_banner -loglevel warning -y '
         f'-f lavfi -i "color=c={FF_NAVY}:s={out_w}x{out_h}:r=30:d={duration}" `',
         '    -c:v libx264 -crf $crf -preset fast -pix_fmt yuv420p -an `',
@@ -1524,7 +1586,7 @@ def build_burst_montage_script(
 
     lines = [
         "# ═══════════════════════════════════════════════════════════",
-        "# TSC Season Burst Montage — Build Script",
+        "# TSC Season Burst Montage - Build Script",
         f"# Generated: {datetime.now().isoformat(timespec='seconds')}",
         "# ═══════════════════════════════════════════════════════════",
         "",
@@ -1534,7 +1596,7 @@ def build_burst_montage_script(
         f"$outH = {out_h}",
         f"$crf = {crf}",
         "",
-        "# Portrait reel root (preferred source — polished 1080x1920)",
+        "# Portrait reel root (preferred source - polished 1080x1920)",
         f'$portraitRoot = "{portrait_root}"',
         "",
     ]
@@ -1549,7 +1611,7 @@ def build_burst_montage_script(
             f'$fontPathSemi = "{font_dir_win}\\Montserrat-SemiBold.ttf"',
             '$hasBrandAssets = (Test-Path $watermarkPNG) -and (Test-Path $fontPath)',
             'if (-not $hasBrandAssets) {',
-            '  Write-Warning "Brand assets missing — watermark and labels will be skipped"',
+            '  Write-Warning "Brand assets missing - watermark and labels will be skipped"',
             '  Write-Warning "  Watermark: $watermarkPNG"',
             '  Write-Warning "  Font: $fontPath"',
             '}',
@@ -1626,17 +1688,29 @@ def build_burst_montage_script(
             else:
                 portrait_filter = f"{clip_stem}__portrait__FINAL*.mp4"
 
+            is_manual = burst.peak_ratio < 0
+            if is_manual:
+                suffix = " [MANUAL OVERRIDE]"
+            elif burst.long_clip_flag:
+                suffix = f" ⚠ END-BIASED (clip={burst.clip.duration:.0f}s, review recommended)"
+            else:
+                suffix = ""
             lines.append(f"# Clip {burst.clip.idx}: {burst.clip.label} "
                          f"(score={burst.clip.social_score:.1f}, "
                          f"burst={burst.burst_duration:.1f}s @ {burst.burst_start:.1f}s, "
-                         f"fps={clip_fps:.3f})")
+                         f"fps={clip_fps:.3f}){suffix}")
+            if burst.long_clip_flag:
+                # Sanitize label for PS double-quoted string (& and () are special)
+                safe_label = burst.clip.label.replace("&", "+")
+                lines.append(f'Write-Warning "Clip {burst.clip.idx} `({safe_label}`) is {burst.clip.duration:.0f}s -- '
+                             f'end-biased burst at {burst.burst_start:.1f}-{burst.burst_end:.1f}s may need manual review"')
             lines.append(f'$burstOut = "{burst_file}"')
             lines.append(f'$srcClip = $null')
             lines.append(f'$isPortrait = $false')
             lines.append(f'# Tiered portrait search: game subfolder > clean/ > recursive')
             lines.append(f'$gameDir = Join-Path $portraitRoot "{burst.game_label}"')
             lines.append(f'$cleanDir = Join-Path $portraitRoot "clean"')
-            lines.append(f'$pFilter = "{portrait_filter}"')
+            lines.append(f"$pFilter = '{portrait_filter}'")
             lines.append(f'$portraitHits = @()')
             lines.append(f'if (Test-Path $gameDir) {{')
             lines.append(f'  $portraitHits = @(Get-ChildItem -Path $gameDir -Filter $pFilter -ErrorAction SilentlyContinue)')
@@ -1656,7 +1730,7 @@ def build_burst_montage_script(
             lines.append(f'    Write-Host "  [{burst.clip.idx}] Found $($portraitHits.Count) portrait renders, using newest: $($newest.Name)"')
             lines.append(f'  }}')
             lines.append(f'}} else {{')
-            lines.append(f'  $srcClip = "{atomic_path}"')
+            lines.append(f"  $srcClip = '{atomic_path}'")
             lines.append(f'}}')
             headline = extract_headline_action(burst.clip.label)
 
@@ -1716,7 +1790,7 @@ def build_burst_montage_script(
         'if (!(Test-Path $outputDir)) { New-Item -ItemType Directory -Force $outputDir | Out-Null }',
         "",
         'Write-Host ""',
-        'Write-Host "Assembling $extractCount bursts ($skipCount skipped)..."',
+        'Write-Host "Assembling $extractCount bursts `($skipCount skipped`)..."',
         "",
         'ffmpeg -y -f concat -safe 0 -i $concatFile `',
         f'  -c:v libx264 -crf $crf -preset medium `',
@@ -1727,7 +1801,7 @@ def build_burst_montage_script(
         'Write-Host ""',
         'Write-Host "Done! Montage: $output"',
         'Write-Host "  Bursts extracted: $extractCount"',
-        'Write-Host "  Skipped (missing): $skipCount"',
+        'Write-Host "  Skipped `(missing`): $skipCount"',
         "",
         "# Cleanup burst clips (uncomment to keep them)",
         '# Remove-Item $burstDir -Recurse -Force',
@@ -1766,7 +1840,8 @@ def cmd_burst_plan(args):
                 print(f"  {g.game_label}", file=sys.stderr)
             return 1
 
-    game_bursts = compute_all_bursts(games, min_score=float(args.min_score))
+    meta = load_games_meta()
+    game_bursts = compute_all_bursts(games, min_score=float(args.min_score), games_meta=meta)
 
     total_bursts = 0
     total_burst_dur = 0.0
@@ -1794,15 +1869,19 @@ def cmd_burst_plan(args):
             total_orig_dur += c.duration
 
             label_trunc = c.label[:28]
+            flag = " M" if burst.peak_ratio < 0 else (" ⚠" if burst.long_clip_flag else "")
             print(f"  │  {c.idx:>4}  {label_trunc:<28} {c.social_score:>5.1f}  "
                   f"{c.duration:>5.1f}s  {burst.burst_duration:>5.1f}s  "
-                  f"{burst.burst_start:.1f}–{burst.burst_end:.1f}s")
+                  f"{burst.burst_start:.1f}–{burst.burst_end:.1f}s{flag}")
 
         print(f"  └─")
 
     n_games = sum(1 for _, b in game_bursts if b)
     slate_dur = n_games * 1.5
     est_total = total_burst_dur + slate_dur
+
+    # Collect flagged clips for review
+    flagged = [(g, b) for g, bursts in game_bursts for b in bursts if b.long_clip_flag]
 
     print(f"\n  {'═' * 72}")
     print(f"  📊 MONTAGE SUMMARY")
@@ -1816,6 +1895,15 @@ def cmd_burst_plan(args):
     print(f"  + Transition slates:  {slate_dur:.0f}s ({n_games} × 1.5s)")
     print(f"  ─────────────────────────────────")
     print(f"  Est. montage length:  {est_total:.0f}s ({est_total/60:.1f} min)")
+
+    if flagged:
+        print(f"\n  ⚠ REVIEW NEEDED — {len(flagged)} clip(s) over {LONG_CLIP_THRESHOLD:.0f}s (end-biased):")
+        for game, burst in flagged:
+            away = opponent_display_name(game.away, config)
+            print(f"    [{burst.clip.idx}] {burst.clip.label} "
+                  f"({burst.clip.duration:.0f}s → burst {burst.burst_start:.1f}–{burst.burst_end:.1f}s) "
+                  f"— vs {away}")
+
     print(f"  {'═' * 72}\n")
 
     return 0
@@ -1843,7 +1931,8 @@ def cmd_burst_build(args):
             print(f"No game matching '{args.game}'.", file=sys.stderr)
             return 1
 
-    game_bursts = compute_all_bursts(games, min_score=float(args.min_score))
+    meta = load_games_meta()
+    game_bursts = compute_all_bursts(games, min_score=float(args.min_score), games_meta=meta)
     slates = build_slate_specs(games, config)
 
     out_dir = ROOT / "out" / "compilation"
@@ -1892,6 +1981,7 @@ def cmd_burst_build(args):
                 "clip_path": b.clip_path,
                 "master_burst_start": b.master_burst_start,
                 "master_burst_end": b.master_burst_end,
+                "long_clip_flag": b.long_clip_flag,
             })
         manifest_data["games"].append(game_data)
 
@@ -1917,14 +2007,14 @@ def cmd_burst_build(args):
     do_brand = not getattr(args, 'no_brand', False)
     score = getattr(args, 'score', '') or ''
     tournament = getattr(args, 'tournament', '') or ''
-    meta = load_games_meta() if do_brand else {}
+    meta_for_brand = meta if do_brand else {}
 
     output_video = out_dir / f"{file_base}.mp4"
     script = build_burst_montage_script(
         game_bursts, config, output_video, slate_dir,
         portrait_root=portrait_root,
         brand=do_brand,
-        games_meta=meta,
+        games_meta=meta_for_brand,
         score_override=score,
         tournament_override=tournament,
     )
@@ -1933,6 +2023,12 @@ def cmd_burst_build(args):
         f.write(script)
     print(f"  Build script: {script_path}")
     print(f"  Total bursts: {total_bursts}")
+
+    flagged = [(g, b) for g, bursts in game_bursts for b in bursts if b.long_clip_flag]
+    if flagged:
+        print(f"  ⚠ {len(flagged)} clip(s) over {LONG_CLIP_THRESHOLD:.0f}s "
+              f"(end-biased, review recommended)")
+
     print(f"\n  Run {script_path.name} on your PC to assemble the montage.")
 
     return 0
