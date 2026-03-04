@@ -245,13 +245,23 @@ def _extract_label_from_clip_stem(stem: str, game_folder: str) -> str:
       Old: 001__2025-09-13__TSC_vs_NEOFC__SHOT__t155.50-t166.40
       New: 001__Free Kick & Goal__551.43-567.97
     """
-    # Old convention: strip idx, game label, and timestamp → action tokens remain
+    # Old convention with timestamps: 001__2025-09-13__TSC_vs_NEOFC__SHOT__t155.50-t166.40
     old_m = re.match(
         r"\d+__\d{4}-\d{2}-\d{2}__\w+_vs_\w+__(.+?)__t[\d.]+-t[\d.]+$",
         stem,
     )
     if old_m:
         return old_m.group(1).replace("_", " ")
+
+    # Old convention without timestamps (e.g. sideline clips):
+    # 002__2026-03-01__TSC_vs_North_OKC__SIDELINE__BUILD_AND_SHOT
+    # 014__2026-03-01__TSC_vs_North_OKC__SIDELINE__PRESSURE_AND_SHOT_part1
+    old_no_ts = re.match(
+        r"\d+__\d{4}-\d{2}-\d{2}__\w+_vs_\w+__(?:SIDELINE__)?(.+?)(?:_part\d+)?$",
+        stem,
+    )
+    if old_no_ts:
+        return old_no_ts.group(1).replace("_", " ")
 
     # New convention: strip idx and trailing timestamp
     new_m = re.match(r"\d+__(.+?)__[\d.]+-[\d.]+$", stem)
@@ -282,6 +292,10 @@ def load_clips_from_atomic_index(csv_path: Path) -> List[ClipRecord]:
         for row in reader:
             clip_rel = row.get("clip_rel", "") or row.get("clip_path", "")
             stem = row.get("clip_stem", "")
+
+            # Skip sideline angle clips and part-split fragments
+            if "__SIDELINE__" in stem or re.search(r"_part\d+$", stem):
+                continue
 
             # Identify the game from the folder path
             m = re.search(r"atomic_clips[/\\]([^/\\]+)", clip_rel)
@@ -407,25 +421,23 @@ def load_all_clips(
       3. AtomicClips.All.csv — legacy fallback (only if nothing else found)
     """
     clips: List[ClipRecord] = []
-    seen_games: set = set()
+    seen_clips: set = set()   # (date|home|away|idx) — clip-level dedup
 
     # 1. atomic_index.csv
     if atomic_index_path and atomic_index_path.exists():
         ai_clips = load_clips_from_atomic_index(atomic_index_path)
         clips.extend(ai_clips)
         for c in ai_clips:
-            seen_games.add(f"{c.date}|{c.home}|{c.away}")
+            seen_clips.add(f"{c.date}|{c.home}|{c.away}|{c.idx}")
 
-    # 2. events_selected.csv — only for games NOT already covered
+    # 2. events_selected.csv — only clips NOT already in atomic_index
     if catalog_dir and catalog_dir.exists():
         es_clips = load_clips_from_events_selected(catalog_dir)
         for c in es_clips:
-            game_key = f"{c.date}|{c.home}|{c.away}"
-            if game_key not in seen_games:
+            clip_key = f"{c.date}|{c.home}|{c.away}|{c.idx}"
+            if clip_key not in seen_clips:
                 clips.append(c)
-        # track newly added games
-        for c in es_clips:
-            seen_games.add(f"{c.date}|{c.home}|{c.away}")
+                seen_clips.add(clip_key)
 
     # 3. Legacy fallback
     if legacy_csv_path and legacy_csv_path.exists() and not clips:
@@ -1562,24 +1574,34 @@ def cmd_burst_build(args):
 
     manifest_data["total_bursts"] = total_bursts
 
-    manifest_path = out_dir / "burst_montage_manifest.json"
+    # Per-game naming when filtering to specific game(s)
+    if args.game and len(games) == 1:
+        game_label = games[0].game_label
+        file_base = f"BurstHighlights__{game_label}"
+    elif args.game:
+        # Multiple games matched the filter
+        file_base = f"BurstHighlights__multi_{len(games)}games"
+    else:
+        file_base = "TSC_Season_BurstMontage_2025-26"
+
+    manifest_path = out_dir / f"{file_base}__manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_data, f, indent=2, ensure_ascii=False)
     print(f"  Manifest: {manifest_path}")
 
     # Generate build script
     portrait_root = getattr(args, 'portrait_root', r"D:\Projects\soccer-video\out\portrait_reels")
-    output_video = out_dir / "TSC_Season_BurstMontage_2025-26.mp4"
+    output_video = out_dir / f"{file_base}.mp4"
     script = build_burst_montage_script(
         game_bursts, config, output_video, slate_dir,
         portrait_root=portrait_root,
     )
-    script_path = out_dir / "Build-BurstMontage.ps1"
+    script_path = out_dir / f"Build-{file_base}.ps1"
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(script)
     print(f"  Build script: {script_path}")
     print(f"  Total bursts: {total_bursts}")
-    print(f"\n  Run Build-BurstMontage.ps1 on your PC to assemble the montage.")
+    print(f"\n  Run {script_path.name} on your PC to assemble the montage.")
 
     return 0
 
