@@ -1,4 +1,4 @@
-"""Batch direct crop renderer for OK Celtic clips 011-020."""
+"""Batch direct crop renderer for OK Celtic clips 021-030."""
 import time, os, sys, csv, re, subprocess, traceback, tempfile, shutil, gc
 import numpy as np
 import cv2
@@ -18,7 +18,7 @@ FPS_OUT = 30; FPS_SRC = 30
 ZOOM_OVERRIDE = {}
 DEFAULT_ZOOM = 1
 
-CLIP_NUMS = [f"{i:03d}" for i in range(11, 21)]
+CLIP_NUMS = [f"{i:03d}" for i in range(21, 31)]
 
 RESULT_FILE = r"D:\Projects\soccer-video\_tmp\batch_render_result.txt"
 os.makedirs(r"D:\Projects\soccer-video\_tmp", exist_ok=True)
