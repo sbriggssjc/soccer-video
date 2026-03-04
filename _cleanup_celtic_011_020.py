@@ -1,4 +1,4 @@
-"""Update atomic index with new FINAL paths for Celtic 011-020, then clean desktop CSVs."""
+"""Update atomic index with new FINAL paths for Celtic 021-030, then clean desktop CSVs."""
 import csv, os, re
 from pathlib import Path
 
@@ -16,7 +16,7 @@ updated = 0
 for row in rows:
     if row["date"] == "2026-03-01" and row["away"] == "OK_Celtic":
         idx = int(row["idx"])
-        if 11 <= idx <= 20:
+        if 21 <= idx <= 30:
             # Find the FINAL file
             finals = list(REEL_DIR.glob(f"{row['idx']}__*__portrait__FINAL.mp4"))
             if finals:
@@ -33,7 +33,7 @@ print(f"Updated {updated} index entries with FINAL paths")
 
 # Clean desktop CSVs
 removed = 0
-for i in range(11, 21):
+for i in range(21, 31):
     csv_file = DESKTOP / f"review_celtic_{i:03d}.csv"
     if csv_file.exists():
         try:
@@ -44,7 +44,7 @@ for i in range(11, 21):
             print(f"  FAILED {csv_file.name}: {e}")
 
 # Also check for filmstrip PNGs
-for i in range(11, 21):
+for i in range(21, 31):
     for pat in [f"filmstrip_celtic_{i:03d}*", f"celtic_{i:03d}*filmstrip*"]:
         for f in DESKTOP.glob(pat):
             try:

@@ -1,104 +1,265 @@
-Batch render started 22:28:09
-[22:28:09] --- CLIP 021 (zoom=1) ---
-[22:28:09] File: 021__Pressure & Shot__1707-1722.mp4
-[22:28:09] Actual: 464 frames, 15.47s (filename said 15.0s)
-[22:28:09] 31 anchors, crop 608x1080
-[22:28:16] Wrote 450 frames
-[22:28:29] Step 1 done: 22.7 MB
-[22:28:34] Step 2 done
-[22:29:08] Step 3 ffmpeg returned 0
-[22:29:08] Step 3 done: 21.7 MB
-[22:29:08] Step 4 done (renamed to FINAL)
-[22:29:08] COMPLETE 021: 1.0m, 21.7 MB
-[22:29:08] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\021__Pressure & Shot__1707-1722__portrait__FINAL.mp4
-[22:29:08] --- CLIP 022 (zoom=1) ---
-[22:29:08] File: 022__Pressure & Shot__1724-1739.mp4
-[22:29:08] Actual: 512 frames, 17.07s (filename said 15.0s)
-[22:29:08] 31 anchors, crop 608x1080
-[22:29:15] Wrote 450 frames
-[22:29:28] Step 1 done: 23.3 MB
-[22:29:34] Step 2 done
-[22:30:08] Step 3 ffmpeg returned 0
-[22:30:08] Step 3 done: 21.8 MB
-[22:30:08] Step 4 done (renamed to FINAL)
-[22:30:08] COMPLETE 022: 1.0m, 21.8 MB
-[22:30:08] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\022__Pressure & Shot__1724-1739__portrait__FINAL.mp4
-[22:30:08] --- CLIP 023 (zoom=1) ---
-[22:30:08] File: 023__Free Kick__1808-1814.mp4
-[22:30:09] Actual: 314 frames, 10.47s (filename said 6.0s)
-[22:30:09] 13 anchors, crop 608x1080
-[22:30:12] Wrote 180 frames
-[22:30:18] Step 1 done: 9.5 MB
-[22:30:20] Step 2 done
-[22:30:33] Step 3 ffmpeg returned 0
-[22:30:33] Step 3 done: 9.0 MB
-[22:30:33] Step 4 done (renamed to FINAL)
-[22:30:33] COMPLETE 023: 0.4m, 9.0 MB
-[22:30:33] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\023__Free Kick__1808-1814__portrait__FINAL.mp4
-[22:30:33] --- CLIP 024 (zoom=1) ---
-[22:30:33] File: 024__Corner__1912-1930.mp4
-[22:30:33] Actual: 562 frames, 18.73s (filename said 18.0s)
-[22:30:33] 37 anchors, crop 608x1080
-[22:30:41] Wrote 540 frames
-[22:30:57] Step 1 done: 26.5 MB
-[22:31:03] Step 2 done
-[22:31:45] Step 3 ffmpeg returned 0
-[22:31:45] Step 3 done: 24.8 MB
-[22:31:45] Step 4 done (renamed to FINAL)
-[22:31:45] COMPLETE 024: 1.2m, 24.8 MB
-[22:31:45] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\024__Corner__1912-1930__portrait__FINAL.mp4
-[22:31:45] --- CLIP 025 (zoom=1) ---
-[22:31:45] File: 025__Corner & Goal__1952-1966.mp4
-[22:31:45] Actual: 572 frames, 19.07s (filename said 14.0s)
-[22:31:45] 29 anchors, crop 608x1080
-[22:31:52] Wrote 420 frames
-[22:32:05] Step 1 done: 21.4 MB
-[22:32:11] Step 2 done
-[22:32:44] Step 3 ffmpeg returned 0
-[22:32:44] Step 3 done: 20.5 MB
-[22:32:44] Step 4 done (renamed to FINAL)
-[22:32:44] COMPLETE 025: 1.0m, 20.5 MB
-[22:32:44] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\025__Corner & Goal__1952-1966__portrait__FINAL.mp4
-[22:32:44] --- CLIP 026 (zoom=1) ---
-[22:32:44] File: 026__Free Kick & Goal__2309-2328.mp4
-[22:32:44] Actual: 661 frames, 22.03s (filename said 19.0s)
-[22:32:44] 39 anchors, crop 608x1080
-[22:32:52] Wrote 570 frames
-[22:33:08] Step 1 done: 28.1 MB
-[22:33:15] Step 2 done
-[22:33:59] Step 3 ffmpeg returned 0
-[22:33:59] Step 3 done: 27.1 MB
-[22:33:59] Step 4 done (renamed to FINAL)
-[22:33:59] COMPLETE 026: 1.2m, 27.1 MB
-[22:33:59] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\026__Free Kick & Goal__2309-2328__portrait__FINAL.mp4
-[22:33:59] --- CLIP 027 (zoom=1) ---
-[22:33:59] File: 027__Goal__2482-2493.mp4
-[22:33:59] Actual: 384 frames, 12.80s (filename said 11.0s)
-[22:33:59] 23 anchors, crop 608x1080
-[22:34:04] Wrote 330 frames
-[22:34:15] Step 1 done: 19.5 MB
-[22:34:19] Step 2 done
-[22:34:44] Step 3 ffmpeg returned 0
-[22:34:44] Step 3 done: 18.6 MB
-[22:34:44] Step 4 done (renamed to FINAL)
-[22:34:44] COMPLETE 027: 0.7m, 18.6 MB
-[22:34:44] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\027__Goal__2482-2493__portrait__FINAL.mp4
-[22:34:44] --- CLIP 028 (zoom=1) ---
-[22:34:44] File: 028__Pressure & Shot__2729-2740.mp4
-[22:34:44] Actual: 408 frames, 13.60s (filename said 11.0s)
-[22:34:44] 23 anchors, crop 608x1080
-[22:34:50] Wrote 330 frames
-[22:35:01] Step 1 done: 19.3 MB
-[22:35:05] Step 2 done
-[22:35:32] Step 3 ffmpeg returned 0
-[22:35:32] Step 3 done: 18.0 MB
-[22:35:32] Step 4 done (renamed to FINAL)
-[22:35:32] COMPLETE 028: 0.8m, 18.0 MB
-[22:35:32] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-03-01__TSC_vs_OK_Celtic\028__Pressure & Shot__2729-2740__portrait__FINAL.mp4
-[22:35:32] --- CLIP 029 (zoom=1) ---
-[22:35:32] File: 029__Defense, Build & Shot__2827-2845.mp4
-[22:35:32] Actual: 632 frames, 21.07s (filename said 18.0s)
-[22:35:32] 37 anchors, crop 608x1080
-[22:35:44] Wrote 540 frames
-[22:36:13] Step 1 done: 31.0 MB
-[22:36:26] Step 2 done
+Batch render started 23:02:41
+[23:02:41] --- CLIP 001 (zoom=1) ---
+[23:02:41] File: 001__Free Kick & Goal__551.43-567.97.mp4
+[23:02:41] Actual: 520 frames, 17.33s (filename said 16.540000000000077s)
+[23:02:41] 35 anchors, crop 608x1080
+[23:02:48] Wrote 496 frames
+[23:03:04] Step 1 done: 36.8 MB
+[23:03:13] Step 2 done
+[23:03:50] Step 3 ffmpeg returned 0
+[23:03:50] Step 3 done: 35.2 MB
+[23:03:50] Step 4 done (renamed to FINAL)
+[23:03:50] COMPLETE 001: 1.2m, 35.2 MB
+[23:03:50] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\001__Free Kick & Goal__551.43-567.97__portrait__FINAL.mp4
+[23:03:50] --- CLIP 002 (zoom=1) ---
+[23:03:50] File: 002__Goal__751.47-763.77.mp4
+[23:03:51] Actual: 375 frames, 12.50s (filename said 12.299999999999955s)
+[23:03:51] 26 anchors, crop 608x1080
+[23:03:56] Wrote 369 frames
+[23:04:08] Step 1 done: 23.4 MB
+[23:04:14] Step 2 done
+[23:04:42] Step 3 ffmpeg returned 0
+[23:04:42] Step 3 done: 20.7 MB
+[23:04:42] Step 4 done (renamed to FINAL)
+[23:04:42] COMPLETE 002: 0.9m, 20.7 MB
+[23:04:42] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\002__Goal__751.47-763.77__portrait__FINAL.mp4
+[23:04:42] --- CLIP 003 (zoom=1) ---
+[23:04:42] File: 003__Build Up & Shot__971.5-989.5.mp4
+[23:04:43] Actual: 664 frames, 22.13s (filename said 18.0s)
+[23:04:43] 37 anchors, crop 608x1080
+[23:04:51] Wrote 540 frames
+[23:05:08] Step 1 done: 39.0 MB
+[23:05:18] Step 2 done
+[23:06:00] Step 3 ffmpeg returned 0
+[23:06:00] Step 3 done: 37.5 MB
+[23:06:00] Step 4 done (renamed to FINAL)
+[23:06:00] COMPLETE 003: 1.3m, 37.5 MB
+[23:06:00] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\003__Build Up & Shot__971.5-989.5__portrait__FINAL.mp4
+[23:06:00] --- CLIP 004 (zoom=1) ---
+[23:06:00] File: 004__Dribbling & Skill__1573.5-1586.53.mp4
+[23:06:00] Actual: 535 frames, 17.83s (filename said 13.029999999999973s)
+[23:06:00] 28 anchors, crop 608x1080
+[23:06:06] Wrote 391 frames
+[23:06:19] Step 1 done: 28.1 MB
+[23:06:26] Step 2 done
+[23:06:57] Step 3 ffmpeg returned 0
+[23:06:57] Step 3 done: 25.3 MB
+[23:06:57] Step 4 done (renamed to FINAL)
+[23:06:57] COMPLETE 004: 0.9m, 25.3 MB
+[23:06:57] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\004__Dribbling & Skill__1573.5-1586.53__portrait__FINAL.mp4
+[23:06:57] --- CLIP 005 (zoom=1) ---
+[23:06:57] File: 005__Corner, Shot & Goal__1624.73-1650.67.mp4
+[23:06:57] Actual: 917 frames, 30.57s (filename said 25.940000000000055s)
+[23:06:57] 53 anchors, crop 608x1080
+[23:07:10] Wrote 778 frames
+[23:07:34] Step 1 done: 58.1 MB
+[23:07:45] Step 2 done
+[23:08:45] Step 3 ffmpeg returned 0
+[23:08:45] Step 3 done: 52.2 MB
+[23:08:45] Step 4 done (renamed to FINAL)
+[23:08:45] COMPLETE 005: 1.8m, 52.2 MB
+[23:08:45] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\005__Corner, Shot & Goal__1624.73-1650.67__portrait__FINAL.mp4
+[23:08:45] --- CLIP 006 (zoom=1) ---
+[23:08:45] File: 006__Cross & Shot__1740.5-1748.37.mp4
+[23:08:46] Actual: 302 frames, 10.07s (filename said 7.869999999999891s)
+[23:08:46] 17 anchors, crop 608x1080
+[23:08:49] Wrote 236 frames
+[23:08:58] Step 1 done: 17.0 MB
+[23:09:01] Step 2 done
+[23:09:20] Step 3 ffmpeg returned 0
+[23:09:20] Step 3 done: 16.2 MB
+[23:09:20] Step 4 done (renamed to FINAL)
+[23:09:20] COMPLETE 006: 0.6m, 16.2 MB
+[23:09:20] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\006__Cross & Shot__1740.5-1748.37__portrait__FINAL.mp4
+[23:09:20] --- CLIP 007 (zoom=1) ---
+[23:09:20] File: 007__Defense, Build, Cross & Shot__1780.87-1802.2.mp4
+[23:09:20] Actual: 671 frames, 22.37s (filename said 21.330000000000155s)
+[23:09:20] 44 anchors, crop 608x1080
+[23:09:30] Wrote 640 frames
+[23:09:52] Step 1 done: 46.4 MB
+[23:10:02] Step 2 done
+[23:10:59] Step 3 ffmpeg returned 0
+[23:10:59] Step 3 done: 41.0 MB
+[23:10:59] Step 4 done (renamed to FINAL)
+[23:10:59] COMPLETE 007: 1.6m, 41.0 MB
+[23:10:59] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\007__Defense, Build, Cross & Shot__1780.87-1802.2__portrait__FINAL.mp4
+[23:10:59] --- CLIP 008 (zoom=1) ---
+[23:10:59] File: 008__Free Kick__1839.63-1848.5.mp4
+[23:11:00] Actual: 356 frames, 11.87s (filename said 8.86999999999989s)
+[23:11:00] 19 anchors, crop 608x1080
+[23:11:05] Wrote 266 frames
+[23:11:21] Step 1 done: 19.5 MB
+[23:11:25] Step 2 done
+[23:11:46] Step 3 ffmpeg returned 0
+[23:11:46] Step 3 done: 16.0 MB
+[23:11:46] Step 4 done (renamed to FINAL)
+[23:11:46] COMPLETE 008: 0.8m, 16.0 MB
+[23:11:46] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\008__Free Kick__1839.63-1848.5__portrait__FINAL.mp4
+[23:11:46] --- CLIP 009 (zoom=1) ---
+[23:11:46] File: 009__Defense & Build__1929.17-1951.37.mp4
+[23:11:47] Actual: 810 frames, 27.00s (filename said 22.199999999999818s)
+[23:11:47] 46 anchors, crop 608x1080
+[23:11:57] Wrote 666 frames
+[23:12:21] Step 1 done: 46.8 MB
+[23:12:32] Step 2 done
+[23:13:23] Step 3 ffmpeg returned 0
+[23:13:23] Step 3 done: 43.7 MB
+[23:13:23] Step 4 done (renamed to FINAL)
+[23:13:23] COMPLETE 009: 1.6m, 43.7 MB
+[23:13:23] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\009__Defense & Build__1929.17-1951.37__portrait__FINAL.mp4
+[23:13:23] --- CLIP 010 (zoom=1) ---
+[23:13:23] File: 010__Pressure & Goal__2007.87-2023.9.mp4
+[23:13:23] Actual: 512 frames, 17.07s (filename said 16.0300000000002s)
+[23:13:23] 34 anchors, crop 608x1080
+[23:13:30] Wrote 481 frames
+[23:13:47] Step 1 done: 35.0 MB
+[23:13:54] Step 2 done
+[23:14:31] Step 3 ffmpeg returned 0
+[23:14:31] Step 3 done: 31.7 MB
+[23:14:31] Step 4 done (renamed to FINAL)
+[23:14:31] COMPLETE 010: 1.1m, 31.7 MB
+[23:14:31] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\010__Pressure & Goal__2007.87-2023.9__portrait__FINAL.mp4
+[23:14:31] --- CLIP 011 (zoom=1) ---
+[23:14:31] File: 011__Defense & Build__2050.8-2068.47.mp4
+[23:14:31] Actual: 603 frames, 20.10s (filename said 17.669999999999618s)
+[23:14:31] 37 anchors, crop 608x1080
+[23:14:39] Wrote 530 frames
+[23:14:58] Step 1 done: 33.6 MB
+[23:15:06] Step 2 done
+[23:15:46] Step 3 ffmpeg returned 0
+[23:15:46] Step 3 done: 32.4 MB
+[23:15:46] Step 4 done (renamed to FINAL)
+[23:15:46] COMPLETE 011: 1.2m, 32.4 MB
+[23:15:46] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\011__Defense & Build__2050.8-2068.47__portrait__FINAL.mp4
+[23:15:46] --- CLIP 012 (zoom=1) ---
+[23:15:46] File: 012__Pressure & Shot__2139.2-2155.9.mp4
+[23:15:46] Actual: 596 frames, 19.87s (filename said 16.700000000000273s)
+[23:15:46] 35 anchors, crop 608x1080
+[23:15:54] Wrote 501 frames
+[23:16:13] Step 1 done: 37.9 MB
+[23:16:21] Step 2 done
+[23:17:00] Step 3 ffmpeg returned 0
+[23:17:00] Step 3 done: 36.0 MB
+[23:17:00] Step 4 done (renamed to FINAL)
+[23:17:00] COMPLETE 012: 1.2m, 36.0 MB
+[23:17:00] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\012__Pressure & Shot__2139.2-2155.9__portrait__FINAL.mp4
+[23:17:00] --- CLIP 013 (zoom=1) ---
+[23:17:00] File: 013__Build, Dribble__2334.13-2352.27.mp4
+[23:17:00] Actual: 640 frames, 21.33s (filename said 18.139999999999873s)
+[23:17:00] 38 anchors, crop 608x1080
+[23:17:09] Wrote 544 frames
+[23:17:28] Step 1 done: 40.7 MB
+[23:17:38] Step 2 done
+[23:18:20] Step 3 ffmpeg returned 0
+[23:18:20] Step 3 done: 39.5 MB
+[23:18:20] Step 4 done (renamed to FINAL)
+[23:18:20] COMPLETE 013: 1.3m, 39.5 MB
+[23:18:20] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\013__Build, Dribble__2334.13-2352.27__portrait__FINAL.mp4
+[23:18:20] --- CLIP 014 (zoom=1) ---
+[23:18:20] File: 014__Free Kick & Goal__2410.93-2422.9.mp4
+[23:18:21] Actual: 434 frames, 14.47s (filename said 11.970000000000255s)
+[23:18:21] 25 anchors, crop 608x1080
+[23:18:26] Wrote 359 frames
+[23:18:39] Step 1 done: 27.8 MB
+[23:18:45] Step 2 done
+[23:19:14] Step 3 ffmpeg returned 0
+[23:19:14] Step 3 done: 24.4 MB
+[23:19:14] Step 4 done (renamed to FINAL)
+[23:19:14] COMPLETE 014: 0.9m, 24.4 MB
+[23:19:14] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\014__Free Kick & Goal__2410.93-2422.9__portrait__FINAL.mp4
+[23:19:14] --- CLIP 015 (zoom=1) ---
+[23:19:14] File: 015__Defense, Pressure & Build__2448.5-2501.37.mp4
+[23:19:14] Actual: 1700 frames, 56.67s (filename said 52.86999999999989s)
+[23:19:14] 107 anchors, crop 608x1080
+[23:19:36] Wrote 1586 frames
+[23:20:32] Step 1 done: 120.0 MB
+[23:20:57] Step 2 done
+[23:22:59] Step 3 ffmpeg returned 0
+[23:22:59] Step 3 done: 107.2 MB
+[23:22:59] Step 4 done (renamed to FINAL)
+[23:22:59] COMPLETE 015: 3.8m, 107.2 MB
+[23:22:59] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\015__Defense, Pressure & Build__2448.5-2501.37__portrait__FINAL.mp4
+[23:22:59] --- CLIP 016 (zoom=1) ---
+[23:22:59] File: 016__Skill & Shot__2573.5-2592.4.mp4
+[23:22:59] Actual: 583 frames, 19.43s (filename said 18.90000000000009s)
+[23:22:59] 39 anchors, crop 608x1080
+[23:23:08] Wrote 567 frames
+[23:23:26] Step 1 done: 40.9 MB
+[23:23:34] Step 2 done
+[23:24:19] Step 3 ffmpeg returned 0
+[23:24:19] Step 3 done: 35.6 MB
+[23:24:19] Step 4 done (renamed to FINAL)
+[23:24:19] COMPLETE 016: 1.3m, 35.6 MB
+[23:24:19] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\016__Skill & Shot__2573.5-2592.4__portrait__FINAL.mp4
+[23:24:19] --- CLIP 017 (zoom=1) ---
+[23:24:19] File: 017__Corner & Own Goal__2735.87-2747.27.mp4
+[23:24:20] Actual: 453 frames, 15.10s (filename said 11.400000000000091s)
+[23:24:20] 24 anchors, crop 608x1080
+[23:24:26] Wrote 342 frames
+[23:24:38] Step 1 done: 26.8 MB
+[23:24:43] Step 2 done
+[23:25:10] Step 3 ffmpeg returned 0
+[23:25:10] Step 3 done: 23.6 MB
+[23:25:10] Step 4 done (renamed to FINAL)
+[23:25:10] COMPLETE 017: 0.8m, 23.6 MB
+[23:25:10] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\017__Corner & Own Goal__2735.87-2747.27__portrait__FINAL.mp4
+[23:25:10] --- CLIP 018 (zoom=1) ---
+[23:25:10] File: 018__Defense, Cross & Shot__2807.57-2824.8.mp4
+[23:25:11] Actual: 621 frames, 20.70s (filename said 17.230000000000018s)
+[23:25:11] 36 anchors, crop 608x1080
+[23:25:19] Wrote 517 frames
+[23:25:37] Step 1 done: 36.6 MB
+[23:25:46] Step 2 done
+[23:26:26] Step 3 ffmpeg returned 0
+[23:26:26] Step 3 done: 34.3 MB
+[23:26:26] Step 4 done (renamed to FINAL)
+[23:26:26] COMPLETE 018: 1.3m, 34.3 MB
+[23:26:26] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\018__Defense, Cross & Shot__2807.57-2824.8__portrait__FINAL.mp4
+[23:26:26] --- CLIP 019 (zoom=1) ---
+[23:26:26] File: 019__Defense & Shot__2845.33-2853.4.mp4
+[23:26:26] Actual: 243 frames, 8.10s (filename said 8.070000000000164s)
+[23:26:26] 18 anchors, crop 608x1080
+[23:26:30] Wrote 242 frames
+[23:26:38] Step 1 done: 17.7 MB
+[23:26:42] Step 2 done
+[23:27:02] Step 3 ffmpeg returned 0
+[23:27:02] Step 3 done: 15.5 MB
+[23:27:02] Step 4 done (renamed to FINAL)
+[23:27:02] COMPLETE 019: 0.6m, 15.5 MB
+[23:27:02] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\019__Defense & Shot__2845.33-2853.4__portrait__FINAL.mp4
+[23:27:02] --- CLIP 020 (zoom=1) ---
+[23:27:02] File: 020__Defense & Goal__3020.83-3038.03.mp4
+[23:27:02] Actual: 670 frames, 22.33s (filename said 17.200000000000273s)
+[23:27:02] 36 anchors, crop 608x1080
+[23:27:11] Wrote 516 frames
+[23:27:27] Step 1 done: 37.5 MB
+[23:27:34] Step 2 done
+[23:28:15] Step 3 ffmpeg returned 0
+[23:28:15] Step 3 done: 33.6 MB
+[23:28:15] Step 4 done (renamed to FINAL)
+[23:28:15] COMPLETE 020: 1.2m, 33.6 MB
+[23:28:15] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-21__TSC_vs_Greenwood\020__Defense & Goal__3020.83-3038.03__portrait__FINAL.mp4
+[23:28:15] 
+=== BATCH SUMMARY ===
+[23:28:15]   001: OK
+[23:28:15]   002: OK
+[23:28:15]   003: OK
+[23:28:15]   004: OK
+[23:28:15]   005: OK
+[23:28:15]   006: OK
+[23:28:15]   007: OK
+[23:28:15]   008: OK
+[23:28:15]   009: OK
+[23:28:15]   010: OK
+[23:28:15]   011: OK
+[23:28:15]   012: OK
+[23:28:15]   013: OK
+[23:28:15]   014: OK
+[23:28:15]   015: OK
+[23:28:15]   016: OK
+[23:28:15]   017: OK
+[23:28:15]   018: OK
+[23:28:15]   019: OK
+[23:28:15]   020: OK
+[23:28:15] Total batch time: 25.6m
+[23:28:15] BATCH DONE
