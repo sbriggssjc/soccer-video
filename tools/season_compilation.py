@@ -167,6 +167,54 @@ class SlateSpec:
     duration: float = 2.5
 
 
+@dataclass
+class GameMeta:
+    """Optional game metadata for branded intros (score, tournament, etc.)."""
+    score: str = ""            # e.g. "4-0", "3-1 W"
+    tournament: str = ""       # e.g. "Spring 2026", "OSSL Fall League"
+    venue: str = ""
+    notes: str = ""
+
+
+GAMES_META_PATH = ROOT / "out" / "catalog" / "games_meta.json"
+
+
+def load_games_meta() -> Dict[str, GameMeta]:
+    """Load per-game metadata from games_meta.json (optional file)."""
+    if not GAMES_META_PATH.exists():
+        return {}
+    with open(GAMES_META_PATH, encoding="utf-8") as f:
+        raw = json.load(f)
+    result: Dict[str, GameMeta] = {}
+    for key, val in raw.items():
+        if isinstance(val, dict):
+            result[key] = GameMeta(**{k: v for k, v in val.items()
+                                      if k in GameMeta.__dataclass_fields__})
+    return result
+
+
+# Headline action priority for on-screen label flashes
+HEADLINE_PRIORITY = [
+    "GOAL", "SHOT", "SAVE", "CROSS", "FREE KICK", "CORNER",
+    "DRIBBLE", "BUILD", "PRESSURE",
+]
+
+
+def extract_headline_action(label: str) -> str:
+    """Pick the most impactful action from a compound label.
+
+    'Build, Cross & Goal' → 'GOAL'
+    'Pressure & Shot'     → 'SHOT'
+    'Free Kick'           → 'FREE KICK'
+    """
+    upper = label.upper()
+    for action in HEADLINE_PRIORITY:
+        if action in upper:
+            return action
+    # Fallback: first token before comma or ampersand
+    return upper.split(",")[0].split("&")[0].strip()
+
+
 # ---------------------------------------------------------------------------
 # Catalog parsing
 # ---------------------------------------------------------------------------
@@ -1156,12 +1204,21 @@ class BurstSpec:
 
     @property
     def clip_stem(self) -> str:
-        """Clip stem (filename without extension) for portrait reel matching."""
+        """Clip stem (filename without extension) for portrait reel matching.
+
+        For atomic index clips: returns the atomic clip filename stem.
+        For events_selected clips: returns idx (e.g. '006') since the path
+        points to the master video, not the atomic clip.
+        """
         p = self.clip.clip_folder_path
         if p:
             from pathlib import PureWindowsPath
-            return PureWindowsPath(p).stem
-        return ""
+            stem = PureWindowsPath(p).stem
+            # If the path points to a master video, use idx-based matching
+            if stem.upper() in ("MASTER", "MASTER_STAB"):
+                return self.clip.idx
+            return stem
+        return self.clip.idx
 
 
 def compute_burst_window(clip: ClipRecord) -> BurstSpec:
@@ -1232,6 +1289,206 @@ def compute_all_bursts(
     return results
 
 
+def _ffmpeg_drawtext_escape(text: str) -> str:
+    """Escape text for FFmpeg drawtext filter (colon, quote, backslash, percent)."""
+    return (text
+            .replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "\\'")
+            .replace("%", "%%"))
+
+
+def _ps_brand_clip_function(out_w: int = 1080, out_h: int = 1920) -> str:
+    """Generate a PowerShell function definition for branding individual burst clips.
+
+    Adds corner watermark (65% opacity) + action label flash (1.5s, gold text).
+    """
+    return f'''function Brand-BurstClip {{
+  param(
+    [string]$SrcClip,
+    [string]$OutFile,
+    [double]$Start,
+    [double]$Duration,
+    [double]$Fps,
+    [string]$Label,
+    [bool]$IsPortrait
+  )
+  # Convert paths to FFmpeg format (forward slashes, escaped drive letter)
+  $ffFont = ($fontPath -replace '\\\\', '/') -replace '^([A-Za-z]):','$1\\\\:'
+  $ffWM = ($watermarkPNG -replace '\\\\', '/') -replace '^([A-Za-z]):','$1\\\\:'
+
+  # Escape label for FFmpeg drawtext
+  $esc = $Label -replace ':','\\\\:' -replace "'","\\\\'" -replace '%','%%'
+
+  if ($IsPortrait) {{
+    $scaleF = "[0:v]copy[base]"
+  }} else {{
+    $scaleF = "[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[base]"
+  }}
+
+  # Filter graph: scale → watermark → action label
+  $filterG = "$scaleF;[base][1:v]overlay=W-w-32:32:format=auto:alpha=0.65[wm];[wm]drawtext=fontfile='$ffFont':text='$esc':fontsize=56:fontcolor=0xB7A37C:borderw=3:bordercolor=0x1F2B3D@0.8:x=(w-text_w)/2:y=h-220:enable='between(t\\,0\\,1.5)'[out]"
+
+  ffmpeg -hide_banner -loglevel warning -y `
+    -ss $Start -t $Duration -i $SrcClip `
+    -i $watermarkPNG `
+    -filter_complex $filterG `
+    -map "[out]" `
+    -r $Fps -c:v libx264 -crf $crf -preset fast -an `
+    $OutFile
+}}
+
+function Brand-BurstClipSimple {{
+  # Fallback when brand assets are missing — just trim, no overlays
+  param(
+    [string]$SrcClip,
+    [string]$OutFile,
+    [double]$Start,
+    [double]$Duration,
+    [double]$Fps,
+    [bool]$IsPortrait
+  )
+  if ($IsPortrait) {{
+    ffmpeg -hide_banner -loglevel warning -y `
+      -ss $Start -t $Duration -i $SrcClip `
+      -r $Fps -c:v libx264 -crf $crf -preset fast -an `
+      $OutFile
+  }} else {{
+    ffmpeg -hide_banner -loglevel warning -y `
+      -ss $Start -t $Duration -i $SrcClip `
+      -vf "scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1" `
+      -r $Fps -c:v libx264 -crf $crf -preset fast -an `
+      $OutFile
+  }}
+}}'''
+
+
+def _ps_intro_card_block(
+    game: "GameSummary",
+    config: dict,
+    meta: Optional["GameMeta"],
+    score_override: str = "",
+    tournament_override: str = "",
+    duration: float = 3.0,
+    out_w: int = 1080,
+    out_h: int = 1920,
+) -> List[str]:
+    """Generate PowerShell lines to create a branded intro card video.
+
+    Navy background with gold/white text: opponent, date, score, tournament.
+    """
+    away_name = opponent_display_name(game.away, config)
+    game_date = format_game_date(game.date)
+    score = score_override or (meta.score if meta else "")
+    tournament = tournament_override or (meta.tournament if meta else "")
+
+    # FFmpeg drawtext filter chain on navy background
+    filters = [
+        # Red accent bars
+        f"drawbox=x=0:y=0:w={out_w}:h=6:c={FF_RED}:t=fill",
+        f"drawbox=x=0:y={out_h-6}:w={out_w}:h=6:c={FF_RED}:t=fill",
+        # Gold divider lines
+        f"drawbox=x=80:y={out_h//2 - 180}:w={out_w-160}:h=3:c={FF_GOLD}@0.6:t=fill",
+        f"drawbox=x=80:y={out_h//2 + 180}:w={out_w-160}:h=3:c={FF_GOLD}@0.6:t=fill",
+    ]
+
+    # Club name top
+    esc_club = _ffmpeg_drawtext_escape("TULSA SOCCER CLUB")
+    filters.append(
+        f"drawtext=text='{esc_club}':fontsize=32:fontcolor={FF_GOLD}@0.85"
+        f":x=(w-text_w)/2:y=200"
+    )
+
+    # Matchup
+    esc_matchup = _ffmpeg_drawtext_escape(f"TSC vs {away_name}")
+    filters.append(
+        f"drawtext=text='{esc_matchup}':fontsize=72:fontcolor={FF_WHITE}"
+        f":x=(w-text_w)/2:y=(h-text_h)/2-80"
+    )
+
+    # Date
+    esc_date = _ffmpeg_drawtext_escape(game_date)
+    filters.append(
+        f"drawtext=text='{esc_date}':fontsize=40:fontcolor={FF_GOLD}@0.9"
+        f":x=(w-text_w)/2:y=(h)/2+10"
+    )
+
+    # Score (if available)
+    if score:
+        esc_score = _ffmpeg_drawtext_escape(score)
+        filters.append(
+            f"drawtext=text='{esc_score}':fontsize=56:fontcolor={FF_WHITE}"
+            f":x=(w-text_w)/2:y=(h)/2+70"
+        )
+
+    # Tournament (if available)
+    if tournament:
+        y_pos = (out_h // 2 + 140) if score else (out_h // 2 + 70)
+        esc_tourn = _ffmpeg_drawtext_escape(tournament)
+        filters.append(
+            f"drawtext=text='{esc_tourn}':fontsize=28:fontcolor={FF_WHITE}@0.6"
+            f":x=(w-text_w)/2:y={y_pos}"
+        )
+
+    # Add font file to all drawtext filters
+    filter_str = ",".join(filters)
+
+    lines = [
+        "# ─── Generate branded intro card ───",
+        f'$introCard = Join-Path $burstDir "intro_{game.game_label}.mp4"',
+        "$introFont = ($fontPath -replace '\\\\\\\\', '/') -replace '^([A-Za-z]):','$1\\\\:'",
+    ]
+
+    # Build the ffmpeg command with font injection
+    # We need to add fontfile to each drawtext in PS since font path is a variable
+    lines.append(f'$introFilters = "{filter_str}"')
+    lines.append(
+        '$introFilters = $introFilters -replace '
+        "'drawtext=','drawtext=fontfile=''$introFont'':'"
+    )
+    lines.extend([
+        'if (Test-Path $fontPath) {',
+        f'  ffmpeg -hide_banner -loglevel warning -y '
+        f'-f lavfi -i "color=c={FF_NAVY}:s={out_w}x{out_h}:r=30:d={duration}" `',
+        '    -vf $introFilters `',
+        '    -c:v libx264 -crf $crf -preset fast -pix_fmt yuv420p -an `',
+        '    $introCard',
+        '} else {',
+        f'  # No font — plain navy card',
+        f'  ffmpeg -hide_banner -loglevel warning -y '
+        f'-f lavfi -i "color=c={FF_NAVY}:s={out_w}x{out_h}:r=30:d={duration}" `',
+        '    -c:v libx264 -crf $crf -preset fast -pix_fmt yuv420p -an `',
+        '    $introCard',
+        '}',
+        'if (Test-Path $introCard) {',
+        '  $concatEntries += "file \'$introCard\'"',
+        '  Write-Host "  Intro card generated"',
+        '}',
+        "",
+    ])
+
+    return lines
+
+
+def _ps_end_card_block(duration: float = 3.0) -> List[str]:
+    """Generate PowerShell lines to create end card video from PNG."""
+    return [
+        "# ─── Generate end card ───",
+        '$endCardVid = Join-Path $burstDir "end_card.mp4"',
+        'if (Test-Path $endCardPNG) {',
+        f'  ffmpeg -hide_banner -loglevel warning -y '
+        f'-loop 1 -t {duration} -i $endCardPNG `',
+        '    -c:v libx264 -crf $crf -preset fast -pix_fmt yuv420p -an `',
+        '    $endCardVid',
+        '  $concatEntries += "file \'$endCardVid\'"',
+        '  Write-Host "  End card generated"',
+        '} else {',
+        '  Write-Warning "End card PNG not found: $endCardPNG"',
+        '}',
+        "",
+    ]
+
+
 def build_burst_montage_script(
     game_bursts: List[Tuple[GameSummary, List[BurstSpec]]],
     config: dict,
@@ -1242,6 +1499,10 @@ def build_burst_montage_script(
     out_w: int = 1080,
     out_h: int = 1920,
     crf: int = 18,
+    brand: bool = True,
+    games_meta: Optional[Dict[str, GameMeta]] = None,
+    score_override: str = "",
+    tournament_override: str = "",
 ) -> str:
     """Generate a PowerShell script to extract bursts and assemble the montage.
 
@@ -1251,7 +1512,16 @@ def build_burst_montage_script(
 
     Clip source priority: portrait reel > atomic clip (landscape fallback).
     Uses each clip's native frame rate instead of a global fps.
+
+    Branding (when brand=True):
+      - Corner watermark (TSC logo, top-right, 65% opacity) on every burst
+      - Action label flash (headline action, gold text, 1.5s fade)
+      - Intro title card (3s) with game info, score, tournament
+      - End card (3s) from brand assets
     """
+    brand_dir_win = r"D:\Projects\soccer-video\brand\tsc"
+    font_dir_win = r"D:\Projects\soccer-video\fonts"
+
     lines = [
         "# ═══════════════════════════════════════════════════════════",
         "# TSC Season Burst Montage — Build Script",
@@ -1267,6 +1537,28 @@ def build_burst_montage_script(
         "# Portrait reel root (preferred source — polished 1080x1920)",
         f'$portraitRoot = "{portrait_root}"',
         "",
+    ]
+
+    # Brand asset paths
+    if brand:
+        lines.extend([
+            "# Brand assets",
+            f'$watermarkPNG = "{brand_dir_win}\\watermark_corner_256_transparent.png"',
+            f'$endCardPNG = "{brand_dir_win}\\end_card_1080x1920.png"',
+            f'$fontPath = "{font_dir_win}\\Montserrat-ExtraBold.ttf"',
+            f'$fontPathSemi = "{font_dir_win}\\Montserrat-SemiBold.ttf"',
+            '$hasBrandAssets = (Test-Path $watermarkPNG) -and (Test-Path $fontPath)',
+            'if (-not $hasBrandAssets) {',
+            '  Write-Warning "Brand assets missing — watermark and labels will be skipped"',
+            '  Write-Warning "  Watermark: $watermarkPNG"',
+            '  Write-Warning "  Font: $fontPath"',
+            '}',
+            "",
+            _ps_brand_clip_function(out_w, out_h),
+            "",
+        ])
+
+    lines.extend([
         "# Working directory for extracted bursts",
         '$burstDir = Join-Path $PSScriptRoot "burst_clips"',
         'if (!(Test-Path $burstDir)) { New-Item -ItemType Directory -Force $burstDir | Out-Null }',
@@ -1275,7 +1567,7 @@ def build_burst_montage_script(
         '$extractCount = 0',
         '$skipCount = 0',
         "",
-    ]
+    ])
 
     total_bursts = 0
 
@@ -1288,6 +1580,17 @@ def build_burst_montage_script(
 
         lines.append(f"# ─── {game_date}: TSC vs {away_name} ({len(bursts)} bursts) ───")
         lines.append("")
+
+        # Branded intro card for this game
+        if brand:
+            meta = (games_meta or {}).get(game.game_label)
+            intro_lines = _ps_intro_card_block(
+                game, config, meta,
+                score_override=score_override,
+                tournament_override=tournament_override,
+                out_w=out_w, out_h=out_h,
+            )
+            lines.extend(intro_lines)
 
         # Slate for this game
         slate_file = f"slates\\{game.game_label}__slate.mp4"
@@ -1316,7 +1619,12 @@ def build_burst_montage_script(
             # Always picks newest file to avoid stale renders
             clip_stem = burst.clip_stem
             clip_fps = burst.fps
-            portrait_filter = f"{clip_stem}__portrait__FINAL*.mp4"
+            # When clip_stem is just the idx (from events_selected),
+            # use broader wildcard to match any portrait file for that clip
+            if re.match(r"^\d{3}$", clip_stem):
+                portrait_filter = f"{clip_stem}__*portrait*FINAL*.mp4"
+            else:
+                portrait_filter = f"{clip_stem}__portrait__FINAL*.mp4"
 
             lines.append(f"# Clip {burst.clip.idx}: {burst.clip.label} "
                          f"(score={burst.clip.social_score:.1f}, "
@@ -1350,27 +1658,38 @@ def build_burst_montage_script(
             lines.append(f'}} else {{')
             lines.append(f'  $srcClip = "{atomic_path}"')
             lines.append(f'}}')
+            headline = extract_headline_action(burst.clip.label)
+
             lines.append(f'if (Test-Path $srcClip) {{')
-            lines.append(f'  if ($isPortrait) {{')
-            lines.append(f'    # Portrait reel: already 1080x1920, just trim at native fps')
-            lines.append(f'    ffmpeg -hide_banner -loglevel warning -y `')
-            lines.append(f'      -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
-            lines.append(f'      -i $srcClip `')
-            lines.append(f'      -r {clip_fps:.3f} `')
-            lines.append(f'      -c:v libx264 -crf $crf -preset fast -an `')
-            lines.append(f'      $burstOut')
-            lines.append(f'  }} else {{')
-            lines.append(f'    # Landscape fallback: scale + letterbox to portrait')
-            lines.append(f'    Write-Warning "Using landscape fallback for clip {burst.clip.idx}"')
-            lines.append(f'    ffmpeg -hide_banner -loglevel warning -y `')
-            lines.append(f'      -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
-            lines.append(f'      -i $srcClip `')
-            lines.append(f'      -vf "scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,'
-                         f'pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1" `')
-            lines.append(f'      -r {clip_fps:.3f} `')
-            lines.append(f'      -c:v libx264 -crf $crf -preset fast -an `')
-            lines.append(f'      $burstOut')
-            lines.append(f'  }}')
+            if brand:
+                lines.append(f'  if ($hasBrandAssets) {{')
+                lines.append(f'    Brand-BurstClip -SrcClip $srcClip -OutFile $burstOut `')
+                lines.append(f'      -Start {burst.burst_start:.2f} -Duration {burst.burst_duration:.2f} `')
+                lines.append(f'      -Fps {clip_fps:.3f} -Label "{headline}" -IsPortrait $isPortrait')
+                lines.append(f'  }} else {{')
+                lines.append(f'    Brand-BurstClipSimple -SrcClip $srcClip -OutFile $burstOut `')
+                lines.append(f'      -Start {burst.burst_start:.2f} -Duration {burst.burst_duration:.2f} `')
+                lines.append(f'      -Fps {clip_fps:.3f} -IsPortrait $isPortrait')
+                lines.append(f'  }}')
+            else:
+                lines.append(f'  if ($isPortrait) {{')
+                lines.append(f'    ffmpeg -hide_banner -loglevel warning -y `')
+                lines.append(f'      -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
+                lines.append(f'      -i $srcClip `')
+                lines.append(f'      -r {clip_fps:.3f} `')
+                lines.append(f'      -c:v libx264 -crf $crf -preset fast -an `')
+                lines.append(f'      $burstOut')
+                lines.append(f'  }} else {{')
+                lines.append(f'    Write-Warning "Using landscape fallback for clip {burst.clip.idx}"')
+                lines.append(f'    ffmpeg -hide_banner -loglevel warning -y `')
+                lines.append(f'      -ss {burst.burst_start:.2f} -t {burst.burst_duration:.2f} `')
+                lines.append(f'      -i $srcClip `')
+                lines.append(f'      -vf "scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,'
+                             f'pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1" `')
+                lines.append(f'      -r {clip_fps:.3f} `')
+                lines.append(f'      -c:v libx264 -crf $crf -preset fast -an `')
+                lines.append(f'      $burstOut')
+                lines.append(f'  }}')
             lines.append(f'  $concatEntries += "file \'$burstOut\'"')
             lines.append(f'  $extractCount++')
             lines.append(f'}} else {{')
@@ -1378,6 +1697,10 @@ def build_burst_montage_script(
             lines.append(f'  $skipCount++')
             lines.append(f'}}')
             lines.append("")
+
+    # End card
+    if brand:
+        lines.extend(_ps_end_card_block())
 
     # Pass 2: concat
     lines.extend([
@@ -1591,10 +1914,19 @@ def cmd_burst_build(args):
 
     # Generate build script
     portrait_root = getattr(args, 'portrait_root', r"D:\Projects\soccer-video\out\portrait_reels")
+    do_brand = not getattr(args, 'no_brand', False)
+    score = getattr(args, 'score', '') or ''
+    tournament = getattr(args, 'tournament', '') or ''
+    meta = load_games_meta() if do_brand else {}
+
     output_video = out_dir / f"{file_base}.mp4"
     script = build_burst_montage_script(
         game_bursts, config, output_video, slate_dir,
         portrait_root=portrait_root,
+        brand=do_brand,
+        games_meta=meta,
+        score_override=score,
+        tournament_override=tournament,
     )
     script_path = out_dir / f"Build-{file_base}.ps1"
     with open(script_path, "w", encoding="utf-8") as f:
@@ -1655,6 +1987,12 @@ def main():
     p_burst_build.add_argument("--portrait-root", type=str,
                                 default=r"D:\Projects\soccer-video\out\portrait_reels",
                                 help="Root of portrait_reels directory tree")
+    p_burst_build.add_argument("--score", type=str, default="",
+                                help="Game score override (e.g. '4-0', '3-1 W')")
+    p_burst_build.add_argument("--tournament", type=str, default="",
+                                help="Tournament name override (e.g. 'OSSL Spring 2026')")
+    p_burst_build.add_argument("--no-brand", action="store_true",
+                                help="Skip branding (no watermark, labels, intro/end cards)")
 
     args = parser.parse_args()
     if args.command == "plan":
