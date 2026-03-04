@@ -79,7 +79,7 @@
     "tournament": "OSSL Spring 2026",
     "venue": "",
     "burst_overrides": {
-      "018": {"start": 8.0, "duration": 5.0}
+      "018": {"start": 42.0, "duration": 51.0}
     }
   },
   "2026-03-01__TSC_vs_OK_Celtic": {
