@@ -70,21 +70,48 @@
     "venue": ""
   },
   "2026-02-23__TSC_vs_NEOFC": {
-    "score": "",
-    "tournament": "OSSL Spring 2026",
-    "venue": ""
+    "score": "3-5 Loss",
+    "tournament": "WSA Futures Cup - Championship Match",
+    "burst_overrides": {
+      "004": {"start": 15.0, "duration": 15.6},
+      "005": {"start": 3.5, "duration": 13.0},
+      "002": {"start": 4.0, "duration": 16.0},
+      "019": {"start": 6.5, "duration": 18.0},
+      "023": {"start": 4.0, "duration": 13.33},
+      "022": {"start": 6.0, "duration": 18.0},
+      "025": {"start": 1.0, "duration": 12.0},
+      "029": {"start": 2.0, "duration": 15.5},
+      "032": {"start": 9.0, "duration": 17.0},
+      "033": {"start": 11.0, "duration": 16.8},
+      "034": {"start": 1.0, "duration": 8.88},
+      "003": {"start": 4.0, "duration": 18.0},
+      "006": {"start": 1.0, "duration": 11.0},
+      "010": {"start": 8.0, "duration": 15.7},
+      "011": {"start": 7.0, "duration": 15.9},
+      "013": {"start": 13.5, "duration": 19.0},
+      "014": {"start": 7.0, "duration": 19.0},
+      "017": {"start": 7.0, "duration": 17.0},
+      "001": {"start": 12.0, "duration": 16.0},
+      "016": {"start": 14.0, "duration": 17.25},
+      "018": {"start": 12.0, "duration": 20.0}
+      },
+    "venue": "West Bank Soccer Complex"
   },
   "2026-03-01__TSC_vs_North_OKC": {
-    "score": "",
-    "tournament": "OSSL Spring 2026",
-    "venue": "",
+    "score": "5-0 Win",
+    "tournament": "Celtic Cup 2026",
+    "venue": "Normam Celtic Park",
     "burst_overrides": {
       "018": {"start": 42.0, "duration": 11.0}
     }
   },
   "2026-03-01__TSC_vs_OK_Celtic": {
-    "score": "",
-    "tournament": "OSSL Spring 2026",
-    "venue": ""
+    "score": "7-0 Win",
+    "tournament": "Celtic Cup 2026",
+    "venue": "Normam Celtic Park",
+    "burst_overrides": {
+      "009": {"start": 3.0, "duration": 8.5},
+      "026": {"start": 8.5, "duration": 12.0}
+    }
   }
 }
