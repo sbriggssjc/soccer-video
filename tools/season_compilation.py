@@ -433,6 +433,10 @@ def load_clips_from_events_selected(catalog_dir: Path) -> List[ClipRecord]:
         with open(es_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                idx = row.get("id", "").strip()
+                if not idx:
+                    continue  # skip empty/trailing rows
+
                 ms = row.get("master_start", "0")
                 me = row.get("master_end", "0")
                 t_start = _parse_time(ms)
@@ -440,7 +444,6 @@ def load_clips_from_events_selected(catalog_dir: Path) -> List[ClipRecord]:
                 duration = t_end - t_start if t_end > t_start else 0.0
 
                 label = row.get("playtag", "").strip() or "HIGHLIGHT"
-                idx = row.get("id", "000").strip()
 
                 pri = compute_priority(label)
                 score = compute_social_score(label, duration)
