@@ -65,9 +65,30 @@
     "venue": ""
   },
   "2026-02-23__TSC_vs_Greenwood": {
-    "score": "",
-    "tournament": "OSSL Spring 2026",
-    "venue": ""
+    "score": "5-0 Win",
+    "tournament": "WSA Futures Cup - Semi-Final Match",
+    "venue": "West Bank Soccer Complex",
+    "burst_overrides": {
+      "012": {"start": 5.0, "duration": 9.0},
+      "027": {"start": 11.0, "duration": 18.0},
+      "014": {"start": 13.0, "duration": 21.0},
+      "001": {"start": 2.0, "duration": 11.0},
+      "005": {"start": 4.0, "duration": 15.0},
+      "006": {"start": 4.0, "duration": 15.0},
+      "010": {"start": 19.0, "duration": 24.0},
+      "011": {"start": 7.0, "duration": 11.0},
+      "015": {"start": 16.0, "duration": 24.0},
+      "022": {"start": 8.0, "duration": 21.0},
+      "023": {"start": 8.0, "duration": 20.0},
+      "024": {"start": 6.0, "duration": 12.0},
+      "025": {"start": 14.0, "duration": 19.5},
+      "016": {"start": 13.0, "duration": 21.0},
+      "003": {"start": 7.0, "duration": 16.0},
+      "007": {"start": 11.0, "duration": 23.0},
+      "008": {"start": 17.0, "duration": 29.0},
+      "004": {"start": 1.0, "duration": 8.0},
+      "021": {"start": 15.0, "duration": 22.5}
+    }
   },
   "2026-02-23__TSC_vs_NEOFC": {
     "score": "3-5 Loss",
