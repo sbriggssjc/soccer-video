@@ -1,18 +1,57 @@
-Batch render started 13:32:30
-[13:32:30] --- CLIP 021 (zoom=1) ---
-[13:32:30] File: 021__2026-02-23__TSC_vs_Greenwood__BUILD_PRESSURE_AND_SHOT__t2319.00-t2359.00.mp4
-[13:32:30] Actual: 1262 frames, 42.07s (filename said -2024.0s)
-[13:32:30] 86 anchors, crop 608x1080
-[13:32:48] Wrote 1262 frames
-[13:33:29] Step 1 done: 68.6 MB
-[13:33:47] Step 2 done
-[13:35:27] Step 3 ffmpeg returned 0
-[13:35:27] Step 3 done: 64.9 MB
-[13:35:27] Step 4 done (renamed to FINAL)
-[13:35:27] COMPLETE 021: 3.0m, 64.9 MB
-[13:35:27] Saved to: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_Greenwood\021__2026-02-23__TSC_vs_Greenwood__BUILD_PRESSURE_AND_SHOT__t2319.00-t2359.00__portrait__FINAL.mp4
-[13:35:27] 
+Batch render started 19:26:30
+[19:26:30] --- CLIP 001 (zoom=1) ---
+[19:26:30] File: 001__2025-11-22__TSC_vs_OK_Sporting__GOAL__t192.70-t208.30.mp4
+[19:26:30] Actual: 515 frames, 17.17s (filename said -2014.0s)
+[19:26:30] 36 anchors, crop 608x1080
+[19:26:33] Wrote 515 frames
+[19:26:49] Step 1 done: 27.2 MB
+[19:26:57] Step 2 done
+[19:27:37] Step 3 ffmpeg returned 0
+[19:27:37] Step 3 done: 25.6 MB
+[19:27:37] Step 4 done (renamed to FINAL)
+[19:27:38] COMPLETE 001: 1.1m, 25.6 MB
+[19:27:38] Saved to: D:\Projects\soccer-video\out\portrait_reels\2025-11-22__TSC_vs_OK_Sporting\001__2025-11-22__TSC_vs_OK_Sporting__GOAL__t192.70-t208.30__portrait__FINAL.mp4
+[19:27:38] --- CLIP 002 (zoom=1) ---
+[19:27:38] File: 002__2025-11-22__TSC_vs_OK_Sporting__SHOT__t1153.50-t1165.90.mp4
+[19:27:38] Actual: 380 frames, 12.67s (filename said -2014.0s)
+[19:27:38] 27 anchors, crop 608x1080
+[19:27:40] Wrote 380 frames
+[19:27:51] Step 1 done: 16.8 MB
+[19:27:56] Step 2 done
+[19:28:25] Step 3 ffmpeg returned 0
+[19:28:25] Step 3 done: 15.8 MB
+[19:28:25] Step 4 done (renamed to FINAL)
+[19:28:25] COMPLETE 002: 0.8m, 15.8 MB
+[19:28:25] Saved to: D:\Projects\soccer-video\out\portrait_reels\2025-11-22__TSC_vs_OK_Sporting\002__2025-11-22__TSC_vs_OK_Sporting__SHOT__t1153.50-t1165.90__portrait__FINAL.mp4
+[19:28:25] --- CLIP 003 (zoom=1) ---
+[19:28:25] File: 003__2025-11-22__TSC_vs_OK_Sporting__HIGHLIGHT__t1228.00-t1248.80.mp4
+[19:28:25] Actual: 776 frames, 25.87s (filename said -2014.0s)
+[19:28:25] 53 anchors, crop 608x1080
+[19:28:30] Wrote 776 frames
+[19:28:52] Step 1 done: 36.8 MB
+[19:29:02] Step 2 done
+[19:30:00] Step 3 ffmpeg returned 0
+[19:30:00] Step 3 done: 33.8 MB
+[19:30:00] Step 4 done (renamed to FINAL)
+[19:30:00] COMPLETE 003: 1.6m, 33.8 MB
+[19:30:00] Saved to: D:\Projects\soccer-video\out\portrait_reels\2025-11-22__TSC_vs_OK_Sporting\003__2025-11-22__TSC_vs_OK_Sporting__HIGHLIGHT__t1228.00-t1248.80__portrait__FINAL.mp4
+[19:30:00] --- CLIP 004 (zoom=1) ---
+[19:30:00] File: 004__2025-11-22__TSC_vs_OK_Sporting__GOAL__t2494.30-t2507.00.mp4
+[19:30:00] Actual: 444 frames, 14.80s (filename said -2014.0s)
+[19:30:00] 31 anchors, crop 608x1080
+[19:30:03] Wrote 444 frames
+[19:30:16] Step 1 done: 19.4 MB
+[19:30:23] Step 2 done
+[19:31:02] Step 3 ffmpeg returned 0
+[19:31:02] Step 3 done: 18.9 MB
+[19:31:02] Step 4 done (renamed to FINAL)
+[19:31:02] COMPLETE 004: 1.0m, 18.9 MB
+[19:31:02] Saved to: D:\Projects\soccer-video\out\portrait_reels\2025-11-22__TSC_vs_OK_Sporting\004__2025-11-22__TSC_vs_OK_Sporting__GOAL__t2494.30-t2507.00__portrait__FINAL.mp4
+[19:31:02] 
 === BATCH SUMMARY ===
-[13:35:27]   021: OK
-[13:35:27] Total batch time: 3.0m
-[13:35:27] BATCH DONE
+[19:31:02]   001: OK
+[19:31:02]   002: OK
+[19:31:02]   003: OK
+[19:31:02]   004: OK
+[19:31:02] Total batch time: 4.5m
+[19:31:02] BATCH DONE
