@@ -1,0 +1,24 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_RVFC\\041__2025-09-20__TSC_vs_RVFC__CORNER__t2712.00-t2722.00.mp4",
+  "source_sha1_64": "31748da7262a2652",
+  "meta": {
+    "duration_s": 10.252,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\041__2025-09-20__TSC_vs_RVFC__CORNER__t2712.00-t2722.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T06:54:08+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
+  "t_start_s": 2712.0,
+  "t_end_s": 2722.0
+}

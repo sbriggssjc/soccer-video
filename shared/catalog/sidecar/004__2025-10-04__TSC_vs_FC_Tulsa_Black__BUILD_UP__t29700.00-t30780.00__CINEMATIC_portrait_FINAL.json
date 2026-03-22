@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\004__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t29700.00-t30780.00__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\004__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t29700.00-t30780.00__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-18T22:44:23+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

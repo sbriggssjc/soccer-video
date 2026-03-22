@@ -1,0 +1,7 @@
+{
+  "ball_conf_coverage": 0.9700996677740864,
+  "action_valid_coverage": 1.0,
+  "ball_conf_threshold": 0.35,
+  "frames": 301,
+  "telemetry": "C:\\Users\\scott\\soccer-video\\out\\telemetry\\001__SHOT__t155.50-t166.40.action.jsonl"
+}

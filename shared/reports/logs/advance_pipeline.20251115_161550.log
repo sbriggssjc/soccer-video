@@ -1,0 +1,35 @@
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40_portrait_FINAL.mp4
+
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022a3efaa440] moov atom not found
+[in#0 @ 0000022a3efaa2c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40__x2.mp4.
+Error opening input files: Invalid data found when processing input
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40.__CINEMATIC__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40.__CINEMATIC_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40.__CINEMATIC__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40.__CINEMATIC_portrait_FINAL.mp4
+
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000018e8f8ba400] moov atom not found
+[in#0 @ 0000018e8f8a7840] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40.__CINEMATIC__x2.mp4.
+Error opening input files: Invalid data found when processing input
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__GOAL__t180.80-t191.20.__CINEMATIC.__CINEMATIC.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\002__GOAL__t180.80-t191.20.__CINEMATIC.__CINEMATIC_portrait_FINAL.mp4" "-Aspect" "9x16"

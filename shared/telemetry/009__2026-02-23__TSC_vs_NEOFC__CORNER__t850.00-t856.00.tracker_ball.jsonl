@@ -1,0 +1,16 @@
+{"_meta": true, "yolo_hash": "77476d6463287e8efddcd0e4aab70177", "bbox_size": 48, "version": 1}
+{"frame": 60, "cx": 388.0, "cy": 688.0, "conf": 0.7, "gap_start": 60, "gap_end": 64}
+{"frame": 61, "cx": 388.0, "cy": 687.0, "conf": 0.7, "gap_start": 60, "gap_end": 64}
+{"frame": 62, "cx": 387.5, "cy": 686.5, "conf": 0.7, "gap_start": 60, "gap_end": 64}
+{"frame": 63, "cx": 387.5, "cy": 686.5, "conf": 0.7, "gap_start": 60, "gap_end": 64}
+{"frame": 64, "cx": 388.5, "cy": 683.5, "conf": 0.7, "gap_start": 60, "gap_end": 64}
+{"frame": 71, "cx": 204.5, "cy": 635.5, "conf": 0.7, "gap_start": 71, "gap_end": 73}
+{"frame": 72, "cx": 204.5, "cy": 635.5, "conf": 0.7, "gap_start": 71, "gap_end": 73}
+{"frame": 73, "cx": 204.0, "cy": 635.0, "conf": 0.7, "gap_start": 71, "gap_end": 73}
+{"frame": 109, "cx": 1388.5, "cy": 1021.5, "conf": 0.7, "gap_start": 109, "gap_end": 112}
+{"frame": 110, "cx": 1390.0, "cy": 1023.0, "conf": 0.7, "gap_start": 109, "gap_end": 112}
+{"frame": 111, "cx": 1390.0, "cy": 1023.0, "conf": 0.7, "gap_start": 109, "gap_end": 112}
+{"frame": 112, "cx": 1390.0, "cy": 1023.0, "conf": 0.7, "gap_start": 109, "gap_end": 112}
+{"frame": 121, "cx": 1274.0, "cy": 803.0, "conf": 0.7, "gap_start": 121, "gap_end": 123}
+{"frame": 122, "cx": 1273.5, "cy": 803.5, "conf": 0.7, "gap_start": 121, "gap_end": 123}
+{"frame": 123, "cx": 1275.0, "cy": 804.0, "conf": 0.7, "gap_start": 121, "gap_end": 123}

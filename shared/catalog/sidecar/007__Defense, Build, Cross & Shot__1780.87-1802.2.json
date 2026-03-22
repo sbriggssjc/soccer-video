@@ -1,0 +1,26 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2026-02-21__TSC_vs_Greenwood\\007__Defense, Build, Cross & Shot__1780.87-1802.2.mp4",
+  "source_sha1_64": "3a48510937b15829",
+  "meta": {
+    "duration_s": 21.339,
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": false,
+      "preset": "auto",
+      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 106: character maps to <undefined>"
+    }
+  },
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 106: character maps to <undefined>",
+      "at": "2026-02-23T18:03:59+00:00"
+    }
+  ],
+  "master_path": "D:/Projects/soccer-video/out/games/2026-02-21__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2026-02-21__TSC_vs_Greenwood/MASTER.mp4"
+}

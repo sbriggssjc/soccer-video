@@ -1,0 +1,26 @@
+{
+  "num_spans": 14,
+  "num_goals_found": 13,
+  "num_shots_found": 1,
+  "num_saves_found": 0,
+  "num_woodwork_found": 0,
+  "total_duration": 139.4179999999999,
+  "avg_in_play_ratio": 0.5260859972670022,
+  "coverage_of_resets": 0.0,
+  "uncovered_resets": [
+    1012.85,
+    1707.64,
+    1765.65,
+    1859.66,
+    1965.68,
+    2178.38,
+    2321.74,
+    2333.08,
+    2361.08,
+    2393.75,
+    2607.79,
+    2629.13,
+    3081.87,
+    3089.21
+  ]
+}

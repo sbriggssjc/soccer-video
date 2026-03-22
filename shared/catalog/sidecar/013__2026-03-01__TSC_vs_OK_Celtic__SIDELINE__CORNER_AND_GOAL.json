@@ -1,0 +1,22 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2026-03-01__TSC_vs_OK_Celtic\\sideline\\013__2026-03-01__TSC_vs_OK_Celtic__SIDELINE__CORNER_AND_GOAL.mp4",
+  "source_sha1_64": "fba1f677082a860d",
+  "meta": {
+    "duration_s": 9.408,
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\013__2026-03-01__TSC_vs_OK_Celtic__SIDELINE__CORNER_AND_GOAL__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-03-02T23:55:07+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2026-02-21__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2026-02-21__TSC_vs_Greenwood/MASTER.mp4"
+}

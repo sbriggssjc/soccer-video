@@ -1,0 +1,2 @@
+file 'C:\Users\scott\soccer-video\out\opener\TEST__Claire_Briggs__OPENER.mp4'
+file 'C:\Users\scott\soccer-video\out\opener\TEST__Claire_Briggs__TAIL.mp4'

@@ -1,0 +1,18 @@
+{"_meta": true, "yolo_hash": "d9b523dfe800168dc34c5bb5cc364cf4", "bbox_size": 48, "version": 1}
+{"frame": 1, "cx": 396.0, "cy": 332.0, "conf": 0.7, "gap_start": 1, "gap_end": 5}
+{"frame": 2, "cx": 391.0, "cy": 333.0, "conf": 0.7, "gap_start": 1, "gap_end": 5}
+{"frame": 3, "cx": 385.0, "cy": 333.0, "conf": 0.7, "gap_start": 1, "gap_end": 5}
+{"frame": 4, "cx": 378.0, "cy": 332.0, "conf": 0.7, "gap_start": 1, "gap_end": 5}
+{"frame": 5, "cx": 371.5, "cy": 331.5, "conf": 0.7, "gap_start": 1, "gap_end": 5}
+{"frame": 7, "cx": 389.5, "cy": 332.5, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 8, "cx": 382.0, "cy": 332.0, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 9, "cx": 375.5, "cy": 333.5, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 10, "cx": 370.0, "cy": 333.0, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 11, "cx": 364.0, "cy": 333.0, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 12, "cx": 359.0, "cy": 332.0, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 13, "cx": 352.0, "cy": 331.0, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 14, "cx": 346.5, "cy": 330.5, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 15, "cx": 341.5, "cy": 331.5, "conf": 0.7, "gap_start": 7, "gap_end": 15}
+{"frame": 17, "cx": 373.0, "cy": 332.0, "conf": 0.7, "gap_start": 17, "gap_end": 19}
+{"frame": 18, "cx": 370.0, "cy": 332.0, "conf": 0.7, "gap_start": 17, "gap_end": 19}
+{"frame": 19, "cx": 368.5, "cy": 331.5, "conf": 0.7, "gap_start": 17, "gap_end": 19}

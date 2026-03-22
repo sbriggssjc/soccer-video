@@ -1,0 +1,19 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\path\\to\\006__...__t674.00-t720.00.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "portrait_render": {
+      "done": false,
+      "preset": "auto",
+      "error": "probe: file not found"
+    }
+  },
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "probe: file not found",
+      "at": "2026-02-20T13:45:27+00:00"
+    }
+  ]
+}

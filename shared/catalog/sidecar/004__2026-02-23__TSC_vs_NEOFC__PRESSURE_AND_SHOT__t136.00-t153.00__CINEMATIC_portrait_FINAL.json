@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\004__2026-02-23__TSC_vs_NEOFC__PRESSURE_AND_SHOT__t136.00-t153.00__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-23T17:44:43+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

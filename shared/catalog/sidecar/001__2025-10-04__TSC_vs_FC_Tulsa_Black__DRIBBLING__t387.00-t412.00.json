@@ -1,0 +1,25 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-10-04__TSC_vs_FC_Tulsa_Black\\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t387.00-t412.00.mp4",
+  "source_sha1_64": "806df60137188408",
+  "meta": {
+    "duration_s": 29.7,
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t387.00-t412.00__CINEMATIC_portrait_FINAL.mp4",
+      "at": "2026-02-18T20:37:51.707943+00:00",
+      "preset": "cinematic",
+      "portrait": "1080x1920",
+      "reconciled": true
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4",
+  "master_rel": "out/games/2025-10-04__TSC_vs_FC_Tulsa_Black/MASTER.mp4",
+  "t_start_s": 387.0,
+  "t_end_s": 412.0
+}

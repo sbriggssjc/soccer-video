@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Users\scott\soccer-video\track_person_fit_once.py", line 188, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\scott\soccer-video\track_person_fit_once.py", line 77, in main
+    FPS=cap.get(cv2.CAP_FPS) or 30.0; N=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+                ^^^^^^^^^^^
+AttributeError: module 'cv2' has no attribute 'CAP_FPS'

@@ -1,0 +1,120 @@
+[INFO] [MOTION] Using user-supplied telemetry: out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.jsonl
+[INFO] [BALL-TELEMETRY] ball_src_x=[247.2, 1754.7], ball_src_y=[709.0, 1014.9], kept=496/496, conf=0.84
+[INFO] [BALL-CAM RAW] N=496, ball_cx_range=[247.2, 1754.7], ball_cy_range=[709.0, 1014.9], vpos=0.55
+[INFO] [BALL-CAM STRICT] N=496, cx_range=[304.0, 1616.0], cy_range=[540.0, 540.0], lead_frames=3, smooth_window=5, max_speed_px=120.0, margin=80.0, vpos=0.60
+[INFO] [BALL-CAM COVERAGE] ball_in_crop: 100.0% (496/496), strict_with_margin: 77.2% (383/496)
+[INFO] [BALL-CAM] coverage: 100.0% (conf=0.84, quality=0.79), path: 496 frames, cx range=[304.0, 1616.0], jerk95_raw=4042.1, jerk95_cam=5818.7 px/s^3
+[INFO] [BALL-CAM] ball_in_crop_horiz: 100.0% (496/496)
+[INFO] [PLANNER] Using YOLO+centroid fusion: 496/496 frames covered, avg confidence=0.34
+[INFO] [TRACKER] CSRT filled 147 gap frames with real pixel data
+[INFO] [PLANNER] Position smoothing: 496 frames (312 high-conf protected), max delta 1379.5->931.0 px/frame
+[INFO] [TRAJ-SMOOTH] Velocity-adaptive Gaussian (sigma=8): 18% of frames heavily smoothed, v_range=[0.0, 931.0] px/f
+[INFO] [POST-SMOOTH] Ball-in-crop guarantee: adjusted 65/496 frames (margin=60px)
+[INFO] [POST-SMOOTH] BIC re-applied after smooth: 22 frames
+[INFO] [POST-SMOOTH] BIC convergence pass: 15 frames
+[INFO] [CINEMA-SMOOTH] Final smooth pass (sigma=3.0) applied to 496 frames
+[INFO] [PAN] CameraPlanner driving panning directly (Option C disabled)
+[INFO] [PAN-DEBUG] src=(1920,1080) portrait_target=(608.0,1080.0) scale_x=0.3167 offset_x=0.00
+[INFO] [STAB] Stabilisation active: 496 frames, peak_y=11.4px, peak_x=40.0px, overscan=1.027
+[YOLO] Loaded 59 cached YOLO detections from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.jsonl
+[FUSION] v22p conf floor: dropped 13 false YOLO (conf <= 0.25)
+  [DROPPED] f25
+  [DROPPED] f45
+  [DROPPED] f69
+  [DROPPED] f120
+  [DROPPED] f121
+  [DROPPED] f186
+  [DROPPED] f198
+  [DROPPED] f199
+  [DROPPED] f268
+  [DROPPED] f269
+  [DROPPED] f332
+  [DROPPED] f466
+  [DROPPED] f494
+[FUSION] Sparse YOLO (9.3%): lowered conf_threshold to 0.17
+[FUSION] Sparse YOLO (9.3%): gating stale_frames=52, hold_blend=0.51
+[FUSION] 496/496 frames covered (100.0%): yolo=46, centroid=450, blended=0, avg_conf=0.27
+[FUSION] Sparse YOLO: extended LONG_INTERP_GAP 90->124 frames
+[FUSION] Shot-hold: frames 314->425 (111 frames), holding near x=1607 (endpoint x=95 ignored, dist=1607px)
+[FUSION] Backward-hold: filled 60 leading frames from first YOLO at frame 95
+[FUSION] Interpolated 366 frames between YOLO detections (short_gap=15, long_gap=124) (long-flight=247)
+[FUSION] Velocity extrapolation: filled 33 frames during high-speed ball flight (speed_thr=4.0 px/f, decel=0.920, fps_scale=1.00)
+[FUSION] YOLO-anchor blend: adjusted 43 centroid frames (density=9.3%, range=90f, max_disp=200px, capped=16)
+[FUSION] Long-flight: frames 126->144 (t=4.2s->4.8s, 18 frames), ball x=888->1410 (536px) [ease_out]
+[FUSION] Long-flight: frames 144->171 (t=4.8s->5.7s, 27 frames), ball x=1410->1681 (352px) [linear]
+[FUSION] Long-flight: frames 171->202 (t=5.7s->6.7s, 31 frames), ball x=1681->1524 (190px) [linear]
+[FUSION] Long-flight: frames 254->272 (t=8.5s->9.1s, 18 frames), ball x=1379->1727 (349px) [linear]
+[FUSION] Long-flight: frames 314->425 (t=10.5s->14.2s, 111 frames), ball x=1607->95 (1607px) [shot_hold]
+[FUSION] Long-flight: frames 431->479 (t=14.4s->16.0s, 48 frames), ball x=111->406 (386px) [smoothstep]
+[FUSION] Ball x timeline (1s steps): f0=784, f30=1203, f60=850, f90=850, f120=1259, f150=1470, f180=1636, f210=1449, f240=1378, f270=1688, f300=1784, f330=1357, f360=1357, f390=1357, f420=1357, f450=213, f480=407, f495=407
+[TRACKER] Loaded 147 cached tracker positions from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.tracker_ball.jsonl
+[YOLO] Loaded 6127 cached person detections (496 frames) from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_person.jsonl
+[DEBUG] num_frames=496 fps=30.0 positions=496 duration=16.533333333333335
+[DEBUG] ball_samples=496
+[GLOBAL-PATH] Legacy Gaussian: replaced 492/496 frames, mean_delta=8.9px/f, max_delta=299.8px/f
+[CAMERA] Speed limiter (preset): clamped 19/496 frames (max 50.0px/f = 1500px/s, trans=75.0px/f, catchup=60.0px/f)
+[CAMERA] cx: range=1262px, max_delta=50.0px/f, mean_delta=6.8px/f, p95_delta=37.3px/f, reversals=23, deadzone_hold=11%, still=35%
+[CAMERA] zoom: range=0.05, max_delta=0.0070/f, mean_delta=0.0004/f, reversals=16, person_ctx=24f, flight=466f
+[DIAG] Ball in crop: 484/496 (97.6%) | Outside: 12 frames | Max escape: 533px
+[DIAG] Source breakdown: yolo=46(3 out/7%), centroid=37(0 out/0%), interp=130(5 out/4%), hold=26(0 out/0%), shot_hold=110(0 out/0%), tracker=147(4 out/3%)
+[DIAG] WARNING: 303/496 frames (61%) use synthetic positions (interp=130, hold=26, shot_hold=110, centroid=37). Ball-in-crop metric is unreliable — actual ball may be outside the crop.
+[DIAG] YOLO-only ball in crop: 43/193 (22.3%) | Interpolated/held frames (not checked): 156
+[DIAG] Speed-limited: 12f (2%) | Keepinview: 144f (29%)
+[DIAG] Confidence-weighted ball-in-crop: 96.4% (weighted frames: 196/496)
+[DIAG] Camera cx timeline (1s): f0=818, f30=1037, f60=669, f90=819, f120=908, f150=1470, f180=1591, f210=1454, f240=1407, f270=1591, f300=1591, f330=1362, f360=1357, f390=1356, f420=1273, f450=329, f480=401, f495=406
+[DIAG] Worst escapes: f426:533px(yolo), f425:505px(yolo), f427:475px(tracker), f428:426px(tracker), f429:375px(tracker)
+[DIAG] Per-frame CSV: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__v22p.diag.csv
+ffmpeg version 8.0-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+Input #0, image2, from 'D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames\frame_%06d.png':
+  Duration: 00:00:00.97, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1080x1920, 30 fps, 30 tbr, 30 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 0000025233597280] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0000025233597280] profile High, level 5.0, 4:2:0, 8-bit
+[libx264 @ 0000025233597280] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=5 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=8 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=2 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=18 lookahead_threads=3 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=3 weightb=1 open_gop=0 weightp=2 keyint=96 keyint_min=9 scenecut=40 intra_refresh=0 rc_lookahead=50 rc=crf mbtree=1 crf=17.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\.tmp.002__v22p.mp4':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1080x1920, q=2-31, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:01.12    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:01.67    frame=   18 fps=8.1 q=-1.0 size=     768KiB time=00:00:00.53 bitrate=11797.2kbits/s speed=0.241x elapsed=0:00:02.20    frame=   20 fps=7.2 q=-1.0 size=     768KiB time=00:00:00.60 bitrate=10486.4kbits/s speed=0.217x elapsed=0:00:02.76    [out#0/mp4 @ 0000025233595fc0] video:1486KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.074672%
+frame=   29 fps=9.0 q=-1.0 Lsize=    1487KiB time=00:00:00.90 bitrate=13532.9kbits/s speed=0.28x elapsed=0:00:03.21    
+[libx264 @ 0000025233597280] frame I:1     Avg QP:17.64  size:262035
+[libx264 @ 0000025233597280] frame P:17    Avg QP:19.17  size: 63794
+[libx264 @ 0000025233597280] frame B:11    Avg QP:22.85  size: 15828
+[libx264 @ 0000025233597280] consecutive B-frames: 37.9% 27.6% 20.7% 13.8%
+[libx264 @ 0000025233597280] mb I  I16..4:  0.1% 95.3%  4.6%
+[libx264 @ 0000025233597280] mb P  I16..4:  0.0%  5.0%  0.4%  P16..4: 32.8% 20.9% 13.2%  0.0%  0.0%    skip:27.7%
+[libx264 @ 0000025233597280] mb B  I16..4:  0.0%  0.3%  0.1%  B16..8: 58.2%  9.3%  2.8%  direct: 2.6%  skip:26.8%  L0:39.0% L1:50.9% BI:10.0%
+[libx264 @ 0000025233597280] 8x8 transform intra:93.1% inter:64.7%
+[libx264 @ 0000025233597280] direct mvs  spatial:54.5% temporal:45.5%
+[libx264 @ 0000025233597280] coded y,uvDC,uvAC intra: 96.8% 31.5% 17.1% inter: 26.8% 5.9% 0.2%
+[libx264 @ 0000025233597280] i16 v,h,dc,p: 15% 65%  3% 18%
+[libx264 @ 0000025233597280] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 10% 26%  6%  8%  9%  8%  9% 10% 14%
+[libx264 @ 0000025233597280] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 11% 20%  4%  7% 11% 12% 12% 10% 14%
+[libx264 @ 0000025233597280] i8c dc,h,v,p: 62% 20% 11%  7%
+[libx264 @ 0000025233597280] Weighted P-Frames: Y:5.9% UV:0.0%
+[libx264 @ 0000025233597280] ref P L0: 86.2%  8.7%  3.2%  0.7%  0.5%  0.3%  0.4%
+[libx264 @ 0000025233597280] ref B L0: 97.7%  1.7%  0.6%  0.1%
+[libx264 @ 0000025233597280] ref B L1: 99.4%  0.6%
+[libx264 @ 0000025233597280] kb/s:12584.53
+[VALIDATE] Checked 23 portrait frames: ball_detected=0, ball_missing=0, edge_warnings=0, corrections=0
+[VALIDATE] Pass 1: PASSED â€” no corrections needed
+[FFMPEG] Stitching frames from D:\Projects\soccer-video\out\_scratch\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\autoframe_work\cinematic\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\frames -> D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__v22p.mp4
+[DONE] Video stitched successfully.
+
+D:\Projects\soccer-video>

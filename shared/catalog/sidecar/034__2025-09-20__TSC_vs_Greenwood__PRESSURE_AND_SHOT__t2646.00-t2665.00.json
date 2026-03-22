@@ -1,0 +1,24 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\034__2025-09-20__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t2646.00-t2665.00.mp4",
+  "source_sha1_64": "f1c056d227c21134",
+  "meta": {
+    "duration_s": 19.962,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24000/1001"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\034__2025-09-20__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t2646.00-t2665.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-23T17:39:13+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "t_start_s": 2646.0,
+  "t_end_s": 2665.0
+}

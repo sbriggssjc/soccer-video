@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\028__2026-03-01__TSC_vs_OK_Celtic__SIDELINE__PRESSURE_AND_SHOT_part2__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\028__2026-03-01__TSC_vs_OK_Celtic__SIDELINE__PRESSURE_AND_SHOT_part2__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-03-03T00:54:55+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

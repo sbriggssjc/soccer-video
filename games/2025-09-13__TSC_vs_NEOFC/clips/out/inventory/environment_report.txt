@@ -1,0 +1,8 @@
+RepoClean Doctor Report
+Generated: 2025-11-02 12:26:09Z
+
+ffprobe detected at C:\Users\scott\scoop\shims\ffprobe.exe
+PowerShell version: 5.1.26100.6899
+Running on Windows PowerShell; parallel inventory will be sequential.
+NTFS detected; hardlink dedupe available.
+Long path support disabled. Enable Windows 10+ long paths for best results.

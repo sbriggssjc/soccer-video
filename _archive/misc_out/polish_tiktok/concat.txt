@@ -1,0 +1,3 @@
+file 'C:\Users\scott\soccer-video\out\polish_tiktok\intro_a.mp4'
+file 'C:\Users\scott\soccer-video\out\polish_tiktok\main_48k.mp4'
+file 'C:\Users\scott\soccer-video\out\polish_tiktok\outro_a.mp4'

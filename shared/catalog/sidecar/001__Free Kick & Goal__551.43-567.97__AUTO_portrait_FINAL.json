@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\001__Free Kick & Goal__551.43-567.97__AUTO_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\001__Free Kick & Goal__551.43-567.97__AUTO_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-22T03:25:59+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

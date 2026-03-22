@@ -1,0 +1,326 @@
+ffmpeg version 8.0.1-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers
+  built with gcc 15.2.0 (Rev8, Built by MSYS2 project)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-w32threads --disable-autodetect --enable-fontconfig --enable-iconv --enable-gnutls --enable-lcms2 --enable-libxml2 --enable-gmp --enable-bzlib --enable-lzma --enable-libsnappy --enable-zlib --enable-librist --enable-libsrt --enable-libssh --enable-libzmq --enable-avisynth --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-sdl2 --enable-libaribb24 --enable-libaribcaption --enable-libdav1d --enable-libdavs2 --enable-libopenjpeg --enable-libquirc --enable-libuavs3d --enable-libxevd --enable-libzvbi --enable-liboapv --enable-libqrencode --enable-librav1e --enable-libsvtav1 --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs2 --enable-libxeve --enable-libxvid --enable-libaom --enable-libjxl --enable-libvpx --enable-mediafoundation --enable-libass --enable-frei0r --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-liblensfun --enable-libvidstab --enable-libvmaf --enable-libzimg --enable-amf --enable-cuda-llvm --enable-cuvid --enable-dxva2 --enable-d3d11va --enable-d3d12va --enable-ffnvcodec --enable-libvpl --enable-nvdec --enable-nvenc --enable-vaapi --enable-libshaderc --enable-vulkan --enable-libplacebo --enable-opencl --enable-libcdio --enable-openal --enable-libgme --enable-libmodplug --enable-libopenmpt --enable-libopencore-amrwb --enable-libmp3lame --enable-libshine --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libcodec2 --enable-libilbc --enable-libgsm --enable-liblc3 --enable-libopencore-amrnb --enable-libopus --enable-libspeex --enable-libvorbis --enable-ladspa --enable-libbs2b --enable-libflite --enable-libmysofa --enable-librubberband --enable-libsoxr --enable-chromaprint --enable-whisper
+  libavutil      60.  8.100 / 60.  8.100
+  libavcodec     62. 11.100 / 62. 11.100
+  libavformat    62.  3.100 / 62.  3.100
+  libavdevice    62.  1.100 / 62.  1.100
+  libavfilter    11.  4.100 / 11.  4.100
+  libswscale      9.  1.100 /  9.  1.100
+  libswresample   6.  1.100 /  6.  1.100
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061f5f0c0] Auto-inserting h264_mp4toannexb bitstream filter
+Input #0, concat, from 'D:\Projects\soccer-video\out\masters\2026-03-01__TSC_vs_North_OKC\concat_list.txt':
+  Duration: N/A, start: -0.047891, bitrate: 3514 kb/s
+  Stream #0:0(und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 122 kb/s, start -0.047891
+    Metadata:
+      creation_time   : 2026-03-02T04:18:00.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+  Stream #0:1(und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1280x720, 3391 kb/s, 30 fps, 30 tbr, 600 tbn
+    Metadata:
+      creation_time   : 2026-03-02T04:18:00.000000Z
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+    Side data:
+      displaymatrix: rotation of -180.00 degrees
+Stream mapping:
+  Stream #0:1 -> #0:0 (copy)
+  Stream #0:0 -> #0:1 (copy)
+Output #0, mp4, to 'D:\Projects\soccer-video\out\masters\2026-03-01__TSC_vs_North_OKC\SIDELINE.mp4':
+  Metadata:
+    encoder         : Lavf62.3.100
+  Stream #0:0(und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1280x720, q=2-31, 3391 kb/s, 30 fps, 30 tbr, 19200 tbn
+    Metadata:
+      creation_time   : 2026-03-02T04:18:00.000000Z
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+    Side data:
+      displaymatrix: rotation of -180.00 degrees
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 122 kb/s
+    Metadata:
+      creation_time   : 2026-03-02T04:18:00.000000Z
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+Press [q] to stop, [?] for help
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061f66bc0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 431104, current: 429167; changing to 431105. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 431105, current: 430191; changing to 431106. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061f65900] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 755823, current: 753890; changing to 755824. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 755824, current: 754914; changing to 755825. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 1486050, current: 1484112; changing to 1486051. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 1486051, current: 1485136; changing to 1486052. This may result in incorrect timestamps in the output file.
+frame= 1040 fps=0.0 q=-1.0 size=   14848KiB time=00:00:36.00 bitrate=3378.6kbits/s speed=66.6x elapsed=0:00:00.54    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 2407760, current: 2405802; changing to 2407761. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 2407761, current: 2406826; changing to 2407762. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 3329450, current: 3327933; changing to 3329451. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 3329451, current: 3328957; changing to 3329452. This may result in incorrect timestamps in the output file.
+frame= 2742 fps=2554 q=-1.0 size=   39168KiB time=00:01:33.71 bitrate=3424.0kbits/s speed=87.3x elapsed=0:00:01.07    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 5238717, current: 5237316; changing to 5238718. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 5238718, current: 5238340; changing to 5238719. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 5670468, current: 5668982; changing to 5670469. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 5670469, current: 5670006; changing to 5670470. This may result in incorrect timestamps in the output file.
+frame= 4183 fps=2600 q=-1.0 size=   59648KiB time=00:02:22.63 bitrate=3425.9kbits/s speed=88.6x elapsed=0:00:01.60    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 6314102, current: 6312034; changing to 6314103. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 6314103, current: 6313058; changing to 6314104. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 6314104, current: 6314082; changing to 6314105. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 6945890, current: 6943987; changing to 6945891. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 6945891, current: 6945011; changing to 6945892. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fe5c00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 7567603, current: 7565651; changing to 7567604. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 7567604, current: 7566675; changing to 7567605. This may result in incorrect timestamps in the output file.
+frame= 5420 fps=2524 q=-1.0 size=   77312KiB time=00:03:05.23 bitrate=3419.1kbits/s speed=86.3x elapsed=0:00:02.14    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 8513875, current: 8511890; changing to 8513876. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 8513876, current: 8512914; changing to 8513877. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 10082706, current: 10080748; changing to 10082707. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 10082707, current: 10081772; changing to 10082708. This may result in incorrect timestamps in the output file.
+frame= 7080 fps=2654 q=-1.0 size=  100864KiB time=00:04:01.47 bitrate=3421.9kbits/s speed=90.5x elapsed=0:00:02.66    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 11474412, current: 11473131; changing to 11474413. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 11474413, current: 11474155; changing to 11474414. This may result in incorrect timestamps in the output file.
+frame= 8781 fps=2752 q=-1.0 size=  125184KiB time=00:04:59.08 bitrate=3428.9kbits/s speed=93.7x elapsed=0:00:03.19    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 13191403, current: 13190239; changing to 13191404. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 13191404, current: 13191263; changing to 13191405. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 14227551, current: 14225634; changing to 14227552. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 14227552, current: 14226658; changing to 14227553. This may result in incorrect timestamps in the output file.
+frame= 9850 fps=2646 q=-1.0 size=  140288KiB time=00:05:35.19 bitrate=3428.6kbits/s speed=  90x elapsed=0:00:03.72    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 14803170, current: 14801654; changing to 14803171. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 14803171, current: 14802678; changing to 14803172. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624f0d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 15705846, current: 15704528; changing to 15705847. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 15705847, current: 15705552; changing to 15705848. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002206293a100] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 15956432, current: 15954721; changing to 15956433. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 15956433, current: 15955745; changing to 15956434. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002206293a380] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 16079649, current: 16078348; changing to 16079650. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 16079650, current: 16079372; changing to 16079651. This may result in incorrect timestamps in the output file.
+frame=10964 fps=2588 q=-1.0 size=  156160KiB time=00:06:14.53 bitrate=3415.6kbits/s speed=88.4x elapsed=0:00:04.23    [mov,mp4,m4a,3gp,3g2,mj2 @ 000002206293a640] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 16732684, current: 16731322; changing to 16732685. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 16732685, current: 16732346; changing to 16732686. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220623fc3c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 17813690, current: 17811700; changing to 17813691. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 17813691, current: 17812724; changing to 17813692. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062c39ac0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 18096372, current: 18094601; changing to 18096373. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 18096373, current: 18095625; changing to 18096374. This may result in incorrect timestamps in the output file.
+frame=12203 fps=2553 q=-1.0 size=  174080KiB time=00:06:57.19 bitrate=3418.3kbits/s speed=87.3x elapsed=0:00:04.77    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062c39ac0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 20053513, current: 20052200; changing to 20053514. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 20053514, current: 20053224; changing to 20053515. This may result in incorrect timestamps in the output file.
+frame=13783 fps=2603 q=-1.0 size=  196608KiB time=00:07:50.28 bitrate=3424.8kbits/s speed=88.8x elapsed=0:00:05.29    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062c39300] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 20999400, current: 20998219; changing to 20999401. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 20999401, current: 20999243; changing to 20999402. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062c39d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 22109259, current: 22107922; changing to 22109260. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 22109260, current: 22108946; changing to 22109261. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062c39d80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 22304530, current: 22303285; changing to 22304531. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 22304531, current: 22304309; changing to 22304532. This may result in incorrect timestamps in the output file.
+frame=15330 fps=2638 q=-1.0 size=  218880KiB time=00:08:43.63 bitrate=3424.3kbits/s speed=90.1x elapsed=0:00:05.81    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062516680] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 23094837, current: 23092896; changing to 23094838. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 23094838, current: 23093920; changing to 23094839. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062514f00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 23294624, current: 23293183; changing to 23294625. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 23294625, current: 23294207; changing to 23294626. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fb36c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 23752959, current: 23751236; changing to 23752960. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 23752960, current: 23752260; changing to 23752961. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fb36c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 24124996, current: 24123881; changing to 24124997. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 24124997, current: 24124905; changing to 24124998. This may result in incorrect timestamps in the output file.
+frame=16226 fps=2556 q=-1.0 size=  231680KiB time=00:09:14.84 bitrate=3420.7kbits/s speed=87.4x elapsed=0:00:06.34    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624ee300] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 24492521, current: 24490867; changing to 24492522. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 24492522, current: 24491891; changing to 24492523. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624ed880] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 25014131, current: 25012716; changing to 25014132. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 25014132, current: 25013740; changing to 25014133. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624ee840] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 25465324, current: 25463565; changing to 25465325. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 25465325, current: 25464589; changing to 25465326. This may result in incorrect timestamps in the output file.
+frame=17407 fps=2518 q=-1.0 size=  248576KiB time=00:09:55.58 bitrate=3419.0kbits/s speed=86.2x elapsed=0:00:06.91    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624ed5c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 26286861, current: 26285736; changing to 26286862. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 26286862, current: 26286760; changing to 26286863. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624ecb40] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 26986152, current: 26984354; changing to 26986153. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 26986153, current: 26985378; changing to 26986154. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624ee040] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 28301218, current: 28299931; changing to 28301219. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 28301219, current: 28300955; changing to 28301220. This may result in incorrect timestamps in the output file.
+frame=18810 fps=2533 q=-1.0 size=  268800KiB time=00:10:43.67 bitrate=3421.0kbits/s speed=86.7x elapsed=0:00:07.42    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fae140] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 29427355, current: 29425804; changing to 29427356. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 29427356, current: 29426828; changing to 29427357. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220627f00c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 30743692, current: 30741895; changing to 30743693. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 30743693, current: 30742919; changing to 30743694. This may result in incorrect timestamps in the output file.
+frame=20426 fps=2559 q=-1.0 size=  291840KiB time=00:11:38.37 bitrate=3423.3kbits/s speed=87.5x elapsed=0:00:07.98    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062a79400] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 32428423, current: 32426442; changing to 32428424. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 32428424, current: 32427466; changing to 32428425. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062a79180] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 33408458, current: 33406712; changing to 33408459. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 33408459, current: 33407736; changing to 33408460. This may result in incorrect timestamps in the output file.
+frame=22231 fps=2613 q=-1.0 size=  317440KiB time=00:12:39.47 bitrate=3424.1kbits/s speed=89.3x elapsed=0:00:08.50    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062a796c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 33795832, current: 33794057; changing to 33795833. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 33795833, current: 33795081; changing to 33795834. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062a79400] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 34311177, current: 34309439; changing to 34311178. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 34311178, current: 34310463; changing to 34311179. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002206259a300] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 34909503, current: 34907950; changing to 34909504. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 34909504, current: 34908974; changing to 34909505. This may result in incorrect timestamps in the output file.
+frame=23549 fps=2608 q=-1.0 size=  336384KiB time=00:13:24.74 bitrate=3424.3kbits/s speed=89.1x elapsed=0:00:09.02    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062599dc0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 36167470, current: 36165609; changing to 36167471. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 36167471, current: 36166633; changing to 36167472. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002206279dd00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 36674537, current: 36673200; changing to 36674538. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 36674538, current: 36674224; changing to 36674539. This may result in incorrect timestamps in the output file.
+frame=24492 fps=2566 q=-1.0 size=  349696KiB time=00:13:57.10 bitrate=3422.2kbits/s speed=87.7x elapsed=0:00:09.54    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fed480] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 36937392, current: 36935963; changing to 36937393. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 36937393, current: 36936987; changing to 36937394. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062799f80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 37702939, current: 37701245; changing to 37702940. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 37702940, current: 37702269; changing to 37702941. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002206279a240] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 38209149, current: 38207513; changing to 38209150. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 38209150, current: 38208537; changing to 38209151. This may result in incorrect timestamps in the output file.
+frame=25811 fps=2563 q=-1.0 size=  368640KiB time=00:14:42.39 bitrate=3422.4kbits/s speed=87.6x elapsed=0:00:10.06    frame=27660 fps=2612 q=-1.0 size=  395008KiB time=00:15:44.06 bitrate=3427.6kbits/s speed=89.2x elapsed=0:00:10.58    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062401480] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 41903129, current: 41901623; changing to 41903130. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 41903130, current: 41902647; changing to 41903131. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002206292a880] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 42311223, current: 42309916; changing to 42311224. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 42311224, current: 42310940; changing to 42311225. This may result in incorrect timestamps in the output file.
+frame=29455 fps=2640 q=-1.0 size=  420608KiB time=00:16:44.75 bitrate=3429.3kbits/s speed=  90x elapsed=0:00:11.15    [mov,mp4,m4a,3gp,3g2,mj2 @ 000002206252b540] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 44353820, current: 44352261; changing to 44353821. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 44353821, current: 44353285; changing to 44353822. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062625c80] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 45559557, current: 45557808; changing to 45559558. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 45559558, current: 45558832; changing to 45559559. This may result in incorrect timestamps in the output file.
+frame=31106 fps=2665 q=-1.0 size=  444160KiB time=00:17:40.73 bitrate=3430.2kbits/s speed=90.9x elapsed=0:00:11.67    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e985c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 47178800, current: 47177601; changing to 47178801. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 47178801, current: 47178625; changing to 47178802. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e985c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 47467393, current: 47465501; changing to 47467394. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 47467394, current: 47466525; changing to 47467395. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e98080] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 48061469, current: 48060337; changing to 48061470. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 48061470, current: 48061361; changing to 48061471. This may result in incorrect timestamps in the output file.
+frame=31963 fps=2620 q=-1.0 size=  456448KiB time=00:18:10.68 bitrate=3428.3kbits/s speed=89.4x elapsed=0:00:12.20    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e98080] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 48675761, current: 48674650; changing to 48675762. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 48675762, current: 48675674; changing to 48675763. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624cdb00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 49296218, current: 49295064; changing to 49296219. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 49296219, current: 49296088; changing to 49296220. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220625e83c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 50294488, current: 50292827; changing to 50294489. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 50294489, current: 50293851; changing to 50294490. This may result in incorrect timestamps in the output file.
+frame=33485 fps=2627 q=-1.0 size=  478208KiB time=00:19:02.84 bitrate=3427.8kbits/s speed=89.7x elapsed=0:00:12.74    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624cddc0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 50519131, current: 50517810; changing to 50519132. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 50519132, current: 50518834; changing to 50519133. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220624cd340] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 50877234, current: 50875902; changing to 50877235. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 50877235, current: 50876926; changing to 50877236. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fb36c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 51399166, current: 51397752; changing to 51399167. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 51399167, current: 51398776; changing to 51399168. This may result in incorrect timestamps in the output file.
+frame=34481 fps=2600 q=-1.0 size=  492544KiB time=00:19:37.36 bitrate=3427.1kbits/s speed=88.8x elapsed=0:00:13.26    frame=34685 fps=2517 q=-1.0 size=  495360KiB time=00:19:44.16 bitrate=3426.9kbits/s speed=85.9x elapsed=0:00:13.78    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fb2ec0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 52313208, current: 52311284; changing to 52313209. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 52313209, current: 52312308; changing to 52313210. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061fb2ec0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 52403444, current: 52401983; changing to 52403445. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 52403445, current: 52403007; changing to 52403446. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e98080] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 52769599, current: 52767793; changing to 52769600. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 52769600, current: 52768817; changing to 52769601. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220625abb00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 53143601, current: 53142055; changing to 53143602. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 53143602, current: 53143079; changing to 53143603. This may result in incorrect timestamps in the output file.
+frame=35303 fps=2470 q=-1.0 size=  504064KiB time=00:20:06.58 bitrate=3422.3kbits/s speed=84.4x elapsed=0:00:14.29    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e98340] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 54390311, current: 54389203; changing to 54390312. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 54390312, current: 54390227; changing to 54390313. This may result in incorrect timestamps in the output file.
+frame=36720 fps=2475 q=-1.0 size=  524288KiB time=00:20:54.26 bitrate=3424.3kbits/s speed=84.5x elapsed=0:00:14.83    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e98b00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 55593427, current: 55592178; changing to 55593428. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 55593428, current: 55593202; changing to 55593429. This may result in incorrect timestamps in the output file.
+frame=38004 fps=2472 q=-1.0 size=  542720KiB time=00:21:37.50 bitrate=3426.5kbits/s speed=84.4x elapsed=0:00:15.37    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce5800] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 57241842, current: 57240269; changing to 57241843. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 57241843, current: 57241293; changing to 57241844. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062771380] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 58773197, current: 58771642; changing to 58773198. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 58773198, current: 58772666; changing to 58773199. This may result in incorrect timestamps in the output file.
+frame=39549 fps=2487 q=-1.0 size=  564736KiB time=00:22:29.90 bitrate=3427.1kbits/s speed=84.9x elapsed=0:00:15.90    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022061f82ac0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 59551930, current: 59550301; changing to 59551931. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 59551931, current: 59551325; changing to 59551932. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220628e4080] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 60161629, current: 60160057; changing to 60161630. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 60161630, current: 60161081; changing to 60161631. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220625e8bc0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 60739641, current: 60737620; changing to 60739642. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 60739642, current: 60738644; changing to 60739643. This may result in incorrect timestamps in the output file.
+frame=40669 fps=2475 q=-1.0 size=  580608KiB time=00:23:08.55 bitrate=3425.4kbits/s speed=84.5x elapsed=0:00:16.43    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220625e8680] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 61257812, current: 61255722; changing to 61257813. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 61257813, current: 61256746; changing to 61257814. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 61257814, current: 61257770; changing to 61257815. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062772dc0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 61598762, current: 61597130; changing to 61598763. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 61598763, current: 61598154; changing to 61598764. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062771380] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 62483914, current: 62482511; changing to 62483915. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 62483915, current: 62483535; changing to 62483916. This may result in incorrect timestamps in the output file.
+frame=41829 fps=2466 q=-1.0 size=  597248KiB time=00:23:49.00 bitrate=3423.8kbits/s speed=84.2x elapsed=0:00:16.96    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062772340] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 63021135, current: 63019796; changing to 63021136. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 63021136, current: 63020820; changing to 63021137. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220627718c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 64167700, current: 64165808; changing to 64167701. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 64167701, current: 64166832; changing to 64167702. This may result in incorrect timestamps in the output file.
+frame=42858 fps=2451 q=-1.0 size=  611840KiB time=00:24:23.88 bitrate=3423.9kbits/s speed=83.7x elapsed=0:00:17.48    frame=42973 fps=2385 q=-1.0 size=  613632KiB time=00:24:27.62 bitrate=3425.2kbits/s speed=81.5x elapsed=0:00:18.01    [mov,mp4,m4a,3gp,3g2,mj2 @ 00000220627725c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 64745392, current: 64743518; changing to 64745393. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 64745393, current: 64744542; changing to 64745394. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220627725c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 64881758, current: 64880155; changing to 64881759. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 64881759, current: 64881179; changing to 64881760. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062a59640] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 65318427, current: 65317039; changing to 65318428. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 65318428, current: 65318063; changing to 65318429. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000220626257c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 66405551, current: 66404325; changing to 66405552. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 66405552, current: 66405349; changing to 66405553. This may result in incorrect timestamps in the output file.
+frame=44120 fps=2381 q=-1.0 size=  630016KiB time=00:25:07.71 bitrate=3423.1kbits/s speed=81.4x elapsed=0:00:18.52    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce26c0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 67604453, current: 67603330; changing to 67604454. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 67604454, current: 67604354; changing to 67604455. This may result in incorrect timestamps in the output file.
+frame=44971 fps=2362 q=-1.0 size=  642304KiB time=00:25:36.50 bitrate=3424.5kbits/s speed=80.7x elapsed=0:00:19.04    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce1700] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 68801410, current: 68799322; changing to 68801411. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 68801411, current: 68800346; changing to 68801412. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 68801412, current: 68801370; changing to 68801413. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce1700] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 69467994, current: 69466555; changing to 69467995. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 69467995, current: 69467579; changing to 69467996. This may result in incorrect timestamps in the output file.
+frame=46534 fps=2378 q=-1.0 size=  664576KiB time=00:26:29.48 bitrate=3425.1kbits/s speed=81.2x elapsed=0:00:19.57    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce3400] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 70117819, current: 70115854; changing to 70117820. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 70117820, current: 70116878; changing to 70117821. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce1700] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 70743566, current: 70741707; changing to 70743567. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 70743567, current: 70742731; changing to 70743568. This may result in incorrect timestamps in the output file.
+frame=48078 fps=2392 q=-1.0 size=  686336KiB time=00:27:21.80 bitrate=3424.6kbits/s speed=81.7x elapsed=0:00:20.10    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce2ec0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 72426187, current: 72424196; changing to 72426188. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 72426188, current: 72425220; changing to 72426189. This may result in incorrect timestamps in the output file.
+frame=49770 fps=2409 q=-1.0 size=  710400KiB time=00:28:18.65 bitrate=3426.0kbits/s speed=82.2x elapsed=0:00:20.65    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce2ec0] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 77146884, current: 77145689; changing to 77146885. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 77146885, current: 77146713; changing to 77146886. This may result in incorrect timestamps in the output file.
+frame=51641 fps=2439 q=-1.0 size=  737024KiB time=00:29:21.48 bitrate=3427.6kbits/s speed=83.2x elapsed=0:00:21.17    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce3140] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 78256729, current: 78254804; changing to 78256730. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 78256730, current: 78255828; changing to 78256731. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062e98880] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 78765780, current: 78764527; changing to 78765781. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 78765781, current: 78765551; changing to 78765782. This may result in incorrect timestamps in the output file.
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce2c00] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 79206895, current: 79205233; changing to 79206896. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 79206896, current: 79206257; changing to 79206897. This may result in incorrect timestamps in the output file.
+frame=52807 fps=2435 q=-1.0 size=  753664KiB time=00:30:01.71 bitrate=3426.7kbits/s speed=83.1x elapsed=0:00:21.68    [mov,mp4,m4a,3gp,3g2,mj2 @ 0000022062ce2440] Auto-inserting h264_mp4toannexb bitstream filter
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 79801201, current: 79799187; changing to 79801202. This may result in incorrect timestamps in the output file.
+[aost#0:1/copy @ 00000220624f1840] Non-monotonic DTS; previous: 79801202, current: 79800211; changing to 79801203. This may result in incorrect timestamps in the output file.
+[mp4 @ 00000220625ae880] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0000022061f6f540] video:733479KiB audio:27867KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.249676%
+frame=53329 fps=2295 q=-1.0 Lsize=  763247KiB time=00:30:19.55 bitrate=3436.3kbits/s speed=78.3x elapsed=0:00:23.23    

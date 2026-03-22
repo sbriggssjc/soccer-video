@@ -1,0 +1,46 @@
+{
+  "anchors": [
+    {
+      "frame": 0,
+      "bbox": null
+    },
+    {
+      "frame": 30,
+      "bbox": null
+    },
+    {
+      "frame": 60,
+      "bbox": null
+    },
+    {
+      "frame": 90,
+      "bbox": null
+    },
+    {
+      "frame": 120,
+      "bbox": null
+    },
+    {
+      "frame": 180,
+      "bbox": null
+    },
+    {
+      "frame": 210,
+      "bbox": null
+    },
+    {
+      "frame": 270,
+      "bbox": null
+    },
+    {
+      "frame": 300,
+      "bbox": null
+    },
+    {
+      "frame": 360,
+      "bbox": null
+    }
+  ],
+  "total_frames": 365,
+  "fps": 30.0
+}

@@ -1,0 +1,7 @@
+{"_meta": true, "yolo_hash": "f7e8b58d9e5dd6fa5ae466ec89ce0ac1", "bbox_size": 48, "version": 1}
+{"frame": 127, "cx": 633.5, "cy": 370.5, "conf": 0.7, "gap_start": 127, "gap_end": 132}
+{"frame": 128, "cx": 643.5, "cy": 369.5, "conf": 0.7, "gap_start": 127, "gap_end": 132}
+{"frame": 129, "cx": 652.5, "cy": 370.5, "conf": 0.7, "gap_start": 127, "gap_end": 132}
+{"frame": 130, "cx": 659.5, "cy": 371.5, "conf": 0.7, "gap_start": 127, "gap_end": 132}
+{"frame": 131, "cx": 667.5, "cy": 371.5, "conf": 0.7, "gap_start": 127, "gap_end": 132}
+{"frame": 132, "cx": 673.5, "cy": 372.5, "conf": 0.7, "gap_start": 127, "gap_end": 132}

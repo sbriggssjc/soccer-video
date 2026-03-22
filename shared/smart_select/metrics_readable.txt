@@ -1,0 +1,26 @@
+Smart Select metrics report
+==========================
+Spans exported : 14
+Goals detected : 13
+Shots detected : 1
+Woodwork hits  : 0
+Saves detected : 0
+Total duration : 139.4 s
+Avg in-play    : 0.526
+Goal coverage  : 0.000
+
+Uncovered goal resets:
+  - Reset @ 1012.85s needs review
+  - Reset @ 1707.64s needs review
+  - Reset @ 1765.65s needs review
+  - Reset @ 1859.66s needs review
+  - Reset @ 1965.68s needs review
+  - Reset @ 2178.38s needs review
+  - Reset @ 2321.74s needs review
+  - Reset @ 2333.08s needs review
+  - Reset @ 2361.08s needs review
+  - Reset @ 2393.75s needs review
+  - Reset @ 2607.79s needs review
+  - Reset @ 2629.13s needs review
+  - Reset @ 3081.87s needs review
+  - Reset @ 3089.21s needs review

@@ -1,0 +1,105 @@
+repo_relpath,reasons
+02_detect_scenes.py,no references detected
+03_shrink_highlights.py,no references detected
+07_merge_csv.py,no references detected
+08_build_top10.py,no references detected
+Parse-YOLO.ps1,no references detected
+_labels_to_csv.py,no references detected
+action_director.py,no references detected
+analyze_tracking.py,no references detected
+ball_fit_expr.py,no references detected
+ball_fit_pred.py,no references detected
+curate_merge_render_v5.ps1,non-core category
+map_and_plan.py,no references detected
+map_plan_follow.py,no references detected
+pipeline/apply_zooms.ps1,no references detected
+plan_render_cli.py,non-core category
+probe_ball_candidates.py,no references detected
+probe_ball_masked.py,no references detected
+probe_cv.py,no references detected
+recipes/tsc_example.ps1,no references detected
+recipes/tsc_reel_example.ps1,no references detected
+render_follow.py,no references detected;non-core category
+render_follow_autoz.py,non-core category
+render_follow_autoz_cinematic.py,no references detected;non-core category
+render_follow_autoz_cinematic_v3.py,no references detected;non-core category
+render_follow_autoz_gentle.py,no references detected;non-core category
+render_follow_autoz_realzoom.py,no references detected;non-core category
+render_follow_cli.py,non-core category
+render_overlay.py,no references detected;non-core category
+render_overlay_seq.py,non-core category
+scripts/Build-Reel.backup.ps1,no references detected
+scripts/Build-Reel.ps1,no references detected
+scripts/Generate-Missing-Vars.ps1,no references detected
+scripts/Test-NewVF.ps1,no references detected
+scripts/apply_zooms.ps1,no references detected
+scripts/fit_utils.py,no references detected
+scripts/make_overlay.py,non-core category
+scripts/quick_test_goal_clip.ps1,no references detected;non-core category
+scripts/refit_goal_clip.ps1,no references detected;non-core category
+scripts/render_reel.ps1,no references detected;non-core category
+scripts/run_highlights.ps1,no references detected
+scripts/run_highlights_compat.ps1,no references detected
+scripts/test_selection.ps1,no references detected
+scripts/tighten_highlights.py,no references detected
+scripts/write_probe_vf.py,no references detected
+select_person_multiframe.py,no references detected
+select_player_multi.py,no references detected
+smart_plan_one.py,no references detected
+soccer_highlights/__main__.py,no references detected
+soccer_highlights/_loguru.py,no references detected;non-core category
+soccer_highlights/_pydantic_compat.py,no references detected
+soccer_highlights/_tqdm.py,no references detected
+soccer_highlights/ball_tracker.py,no references detected
+soccer_highlights/build_up.py,no references detected
+soccer_highlights/cli.py,no references detected
+soccer_highlights/clip_gating.py,no references detected;non-core category
+soccer_highlights/clips.py,non-core category
+soccer_highlights/colors.py,no references detected
+soccer_highlights/io.py,no references detected
+tests/test_ball_tracker.py,no references detected
+tests/test_blocking.py,no references detected
+tests/test_build_up.py,no references detected
+tests/test_fit_expr_csv.py,no references detected
+tests/test_goals.py,no references detected
+tests/test_pipeline.py,no references detected
+tests/test_tools.py,no references detected
+tests/test_top10_cheers.py,no references detected
+tools/_normalize_inplay.py,no references detected
+tools/_patch_selector.py,no references detected
+tools/auto_timing.py,no references detected
+tools/ball_in_play.py,no references detected
+tools/derive_params.py,no references detected
+tools/export_clips.py,no references detected;non-core category
+tools/export_reels.py,no references detected
+tools/ffconcat.py,no references detected
+tools/force_events_audio.py,no references detected
+tools/index_events.py,no references detected
+tools/inplay_to_spans.py,no references detected
+tools/make_reels.py,no references detected
+tools/metrics.py,no references detected
+tools/norm_inplay.py,no references detected
+tools/normalize_events.py,no references detected
+tools/normalize_inplay.py,no references detected
+tools/normalize_motion.py,no references detected
+tools/reels_profiles.py,no references detected
+tools/repo_cleanup_plan.ps1,no references detected
+tools/signal_features.py,no references detected
+tools/smart_select.py,no references detected
+tools/tighten_windows.py,no references detected
+tools/track_orange_ball.py,no references detected
+tools/tsc_brand.ps1,non-core category
+tools/tsc_brand.py,no references detected;non-core category
+tools/tsc_brand_quick.ps1,no references detected;non-core category
+tools/tsc_brand_reel.ps1,non-core category
+track_crop.py,no references detected
+track_person_fit.py,no references detected
+track_person_fit_autopick.py,no references detected
+track_person_fit_once.py,no references detected
+track_person_fit_select.py,no references detected
+track_person_select_once.py,no references detected
+track_plan_render.py,no references detected;non-core category
+track_plan_render_multisel.py,no references detected;non-core category
+track_player_csrt_lock.py,no references detected
+tracker_vis.py,no references detected
+vfCore.ps1,no references detected

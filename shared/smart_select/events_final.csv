@@ -1,0 +1,15 @@
+label,start,end,score,src,notes
+GOAL,984.7,993.7,117.74,forced,reset@1012.9
+SHOT,1322.1,1331.234,87.899,detected,
+GOAL,1660.9,1664.0,108.0,forced,reset@1707.6:synthetic
+GOAL,1717.15,1731.15,108.0,forced,reset@1765.7:synthetic
+GOAL,1811.16,1825.16,108.0,forced,reset@1859.7:synthetic
+GOAL,1928.1,1931.18,108.0,forced,reset@1965.7:synthetic
+GOAL,2129.88,2143.88,108.0,forced,reset@2178.4:synthetic
+GOAL,2266.684,2272.4,115.696,forced+forced,reset@2321.7;reset@2333.1
+GOAL,2312.58,2326.58,108.0,forced,reset@2361.1:synthetic
+GOAL,2345.25,2359.25,108.0,forced,reset@2393.8:synthetic
+GOAL,2559.29,2573.29,108.0,forced,reset@2607.8:synthetic
+GOAL,2589.9,2594.63,108.0,forced,reset@2629.1:synthetic
+GOAL,3033.37,3048.9,108.0,forced+forced,reset@3081.9:synthetic;reset@3089.2:synthetic
+GOAL,3114.9,3120.028,112.011,detected,

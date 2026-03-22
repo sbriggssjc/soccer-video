@@ -1,0 +1,25 @@
+{"_meta": true, "yolo_hash": "972a2cd74c21116a1effce13520bcc81", "bbox_size": 48, "version": 1}
+{"frame": 135, "cx": 1753.5, "cy": 1010.5, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 136, "cx": 1752.5, "cy": 1011.5, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 137, "cx": 1753.5, "cy": 1010.5, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 138, "cx": 1753.5, "cy": 1011.5, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 139, "cx": 1753.0, "cy": 1011.0, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 140, "cx": 1753.0, "cy": 1011.0, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 141, "cx": 1752.5, "cy": 1010.5, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 142, "cx": 1753.5, "cy": 1011.5, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 143, "cx": 1754.0, "cy": 1012.0, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 144, "cx": 1754.0, "cy": 1012.0, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 145, "cx": 1753.0, "cy": 1011.0, "conf": 0.7, "gap_start": 135, "gap_end": 145}
+{"frame": 421, "cx": 1872.0, "cy": 821.0, "conf": 0.7, "gap_start": 421, "gap_end": 423}
+{"frame": 422, "cx": 1863.0, "cy": 816.0, "conf": 0.7, "gap_start": 421, "gap_end": 423}
+{"frame": 423, "cx": 1863.0, "cy": 816.0, "conf": 0.7, "gap_start": 421, "gap_end": 423}
+{"frame": 427, "cx": 1857.0, "cy": 814.0, "conf": 0.7, "gap_start": 427, "gap_end": 431}
+{"frame": 428, "cx": 1857.0, "cy": 814.0, "conf": 0.7, "gap_start": 427, "gap_end": 431}
+{"frame": 429, "cx": 1850.5, "cy": 818.5, "conf": 0.7, "gap_start": 427, "gap_end": 431}
+{"frame": 430, "cx": 1843.0, "cy": 820.0, "conf": 0.7, "gap_start": 427, "gap_end": 431}
+{"frame": 431, "cx": 1837.0, "cy": 820.0, "conf": 0.7, "gap_start": 427, "gap_end": 431}
+{"frame": 439, "cx": 1807.0, "cy": 823.0, "conf": 0.7, "gap_start": 439, "gap_end": 443}
+{"frame": 440, "cx": 1806.0, "cy": 827.0, "conf": 0.7, "gap_start": 439, "gap_end": 443}
+{"frame": 441, "cx": 1803.0, "cy": 830.0, "conf": 0.7, "gap_start": 439, "gap_end": 443}
+{"frame": 442, "cx": 1799.5, "cy": 827.5, "conf": 0.7, "gap_start": 439, "gap_end": 443}
+{"frame": 443, "cx": 1799.5, "cy": 827.5, "conf": 0.7, "gap_start": 439, "gap_end": 443}

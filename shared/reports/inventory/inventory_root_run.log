@@ -1,0 +1,26 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20251103061817
+Username: GARYBUILT\scott
+RunAs User: GARYBUILT\scott
+Configuration Name: 
+Machine: GARYBUILT (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 23124
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Users\scott\soccer-video\out\inventory\inventory_root_run.log
+PS C:\Users\scott\soccer-video> powershell -ExecutionPolicy Bypass -File $Path -Mode Inventory -Root $Root -Verbose
+
+PS C:\Users\scott\soccer-video> Stop-Transcript
+**********************
+Windows PowerShell transcript end
+End time: 20251103061818
+**********************

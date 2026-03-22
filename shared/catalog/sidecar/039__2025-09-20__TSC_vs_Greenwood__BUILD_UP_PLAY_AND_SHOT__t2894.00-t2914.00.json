@@ -1,0 +1,28 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\039__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_AND_SHOT__t2894.00-t2914.00.mp4",
+  "source_sha1_64": "fd5fa1989618130c",
+  "meta": {
+    "duration_s": 20.922,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": false,
+      "preset": "auto",
+      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 106: character maps to <undefined>"
+    }
+  },
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 106: character maps to <undefined>",
+      "at": "2026-02-23T17:52:12+00:00"
+    }
+  ],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "t_start_s": 2894.0,
+  "t_end_s": 2914.0
+}

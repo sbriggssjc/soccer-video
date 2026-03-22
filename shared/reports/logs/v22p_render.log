@@ -1,0 +1,119 @@
+[INFO] [MOTION] Using user-supplied telemetry: out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.ball.jsonl
+[INFO] [BALL-TELEMETRY] ball_src_x=[247.2, 1754.7], ball_src_y=[709.0, 1014.9], kept=496/496, conf=0.84
+[INFO] [BALL-CAM RAW] N=496, ball_cx_range=[247.2, 1754.7], ball_cy_range=[709.0, 1014.9], vpos=0.55
+[INFO] [BALL-CAM STRICT] N=496, cx_range=[304.0, 1616.0], cy_range=[540.0, 540.0], lead_frames=3, smooth_window=5, max_speed_px=120.0, margin=80.0, vpos=0.60
+[INFO] [BALL-CAM COVERAGE] ball_in_crop: 100.0% (496/496), strict_with_margin: 77.2% (383/496)
+[INFO] [BALL-CAM] coverage: 100.0% (conf=0.84, quality=0.79), path: 496 frames, cx range=[304.0, 1616.0], jerk95_raw=4042.1, jerk95_cam=5818.7 px/s^3
+[INFO] [BALL-CAM] ball_in_crop_horiz: 100.0% (496/496)
+[INFO] [PLANNER] Using YOLO+centroid fusion: 496/496 frames covered, avg confidence=0.34
+[INFO] [TRACKER] CSRT filled 147 gap frames with real pixel data
+[INFO] [PLANNER] Position smoothing: 496 frames (312 high-conf protected), max delta 1379.5->931.0 px/frame
+[INFO] [TRAJ-SMOOTH] Velocity-adaptive Gaussian (sigma=8): 18% of frames heavily smoothed, v_range=[0.0, 931.0] px/f
+[INFO] [POST-SMOOTH] Ball-in-crop guarantee: adjusted 65/496 frames (margin=60px)
+[INFO] [POST-SMOOTH] BIC re-applied after smooth: 22 frames
+[INFO] [POST-SMOOTH] BIC convergence pass: 15 frames
+[INFO] [CINEMA-SMOOTH] Final smooth pass (sigma=3.0) applied to 496 frames
+[INFO] [PAN] CameraPlanner driving panning directly (Option C disabled)
+Traceback (most recent call last):
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12963, in <module>
+    main()
+    ~~~~^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12956, in main
+    run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12344, in run
+    jerk95 = renderer.write_frames(
+        states,
+        follow_centers=follow_centers_int or follow_centers,
+        pan_x_plan=pan_plan_for_render,
+    )
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 7806, in write_frames
+    shutil.rmtree(frames_dir)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 790, in rmtree
+    return _rmtree_unsafe(path, onexc)
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 629, in _rmtree_unsafe
+    onexc(os.unlink, fullname, err)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 625, in _rmtree_unsafe
+    os.unlink(fullname)
+    ~~~~~~~~~^^^^^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'D:\\Projects\\soccer-video\\out\\_scratch\\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\\autoframe_work\\cinematic\\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\\frames\\frame_000374.png'
+[YOLO] Loaded 59 cached YOLO detections from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_ball.jsonl
+[FUSION] v22p conf floor: dropped 13 false YOLO (conf <= 0.25)
+  [DROPPED] f25
+  [DROPPED] f45
+  [DROPPED] f69
+  [DROPPED] f120
+  [DROPPED] f121
+  [DROPPED] f186
+  [DROPPED] f198
+  [DROPPED] f199
+  [DROPPED] f268
+  [DROPPED] f269
+  [DROPPED] f332
+  [DROPPED] f466
+  [DROPPED] f494
+[FUSION] Sparse YOLO (9.3%): lowered conf_threshold to 0.17
+[FUSION] Sparse YOLO (9.3%): gating stale_frames=52, hold_blend=0.51
+[FUSION] 496/496 frames covered (100.0%): yolo=46, centroid=450, blended=0, avg_conf=0.27
+[FUSION] Sparse YOLO: extended LONG_INTERP_GAP 90->124 frames
+[FUSION] Shot-hold: frames 314->425 (111 frames), holding near x=1607 (endpoint x=95 ignored, dist=1607px)
+[FUSION] Backward-hold: filled 60 leading frames from first YOLO at frame 95
+[FUSION] Interpolated 366 frames between YOLO detections (short_gap=15, long_gap=124) (long-flight=247)
+[FUSION] Velocity extrapolation: filled 33 frames during high-speed ball flight (speed_thr=4.0 px/f, decel=0.920, fps_scale=1.00)
+[FUSION] YOLO-anchor blend: adjusted 43 centroid frames (density=9.3%, range=90f, max_disp=200px, capped=16)
+[FUSION] Long-flight: frames 126->144 (t=4.2s->4.8s, 18 frames), ball x=888->1410 (536px) [ease_out]
+[FUSION] Long-flight: frames 144->171 (t=4.8s->5.7s, 27 frames), ball x=1410->1681 (352px) [linear]
+[FUSION] Long-flight: frames 171->202 (t=5.7s->6.7s, 31 frames), ball x=1681->1524 (190px) [linear]
+[FUSION] Long-flight: frames 254->272 (t=8.5s->9.1s, 18 frames), ball x=1379->1727 (349px) [linear]
+[FUSION] Long-flight: frames 314->425 (t=10.5s->14.2s, 111 frames), ball x=1607->95 (1607px) [shot_hold]
+[FUSION] Long-flight: frames 431->479 (t=14.4s->16.0s, 48 frames), ball x=111->406 (386px) [smoothstep]
+[FUSION] Ball x timeline (1s steps): f0=784, f30=1203, f60=850, f90=850, f120=1259, f150=1470, f180=1636, f210=1449, f240=1378, f270=1688, f300=1784, f330=1357, f360=1357, f390=1357, f420=1357, f450=213, f480=407, f495=407
+[TRACKER] Loaded 147 cached tracker positions from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.tracker_ball.jsonl
+[YOLO] Loaded 6127 cached person detections (496 frames) from out\telemetry\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00.yolo_person.jsonl
+[DEBUG] num_frames=496 fps=30.0 positions=496 duration=16.533333333333335
+[DEBUG] ball_samples=496
+[GLOBAL-PATH] Legacy Gaussian: replaced 492/496 frames, mean_delta=8.9px/f, max_delta=299.8px/f
+[CAMERA] Speed limiter (preset): clamped 19/496 frames (max 50.0px/f = 1500px/s, trans=75.0px/f, catchup=60.0px/f)
+[CAMERA] cx: range=1262px, max_delta=50.0px/f, mean_delta=6.8px/f, p95_delta=37.3px/f, reversals=23, deadzone_hold=11%, still=35%
+[CAMERA] zoom: range=0.05, max_delta=0.0070/f, mean_delta=0.0004/f, reversals=16, person_ctx=24f, flight=466f
+[DIAG] Ball in crop: 484/496 (97.6%) | Outside: 12 frames | Max escape: 533px
+[DIAG] Source breakdown: yolo=46(3 out/7%), centroid=37(0 out/0%), interp=130(5 out/4%), hold=26(0 out/0%), shot_hold=110(0 out/0%), tracker=147(4 out/3%)
+[DIAG] WARNING: 303/496 frames (61%) use synthetic positions (interp=130, hold=26, shot_hold=110, centroid=37). Ball-in-crop metric is unreliable — actual ball may be outside the crop.
+[DIAG] YOLO-only ball in crop: 43/193 (22.3%) | Interpolated/held frames (not checked): 156
+[DIAG] Speed-limited: 12f (2%) | Keepinview: 144f (29%)
+[DIAG] Confidence-weighted ball-in-crop: 96.4% (weighted frames: 196/496)
+[DIAG] Camera cx timeline (1s): f0=818, f30=1037, f60=669, f90=819, f120=908, f150=1470, f180=1591, f210=1454, f240=1407, f270=1591, f300=1591, f330=1362, f360=1357, f390=1356, f420=1273, f450=329, f480=401, f495=406
+[DIAG] Worst escapes: f426:533px(yolo), f425:505px(yolo), f427:475px(tracker), f428:426px(tracker), f429:375px(tracker)
+[DIAG] Per-frame CSV: D:\Projects\soccer-video\out\portrait_reels\2026-02-23__TSC_vs_NEOFC\002__v22p.diag.csv
+
+[FATAL] Unhandled exception in render_follow_unified.py:
+  PermissionError(13, 'The process cannot access the file because it is being used by another process')
+Traceback (most recent call last):
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12963, in <module>
+    main()
+    ~~~~^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12956, in main
+    run(args, telemetry_path=render_telemetry_path, telemetry_simple_path=telemetry_simple_path)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 12344, in run
+    jerk95 = renderer.write_frames(
+        states,
+        follow_centers=follow_centers_int or follow_centers,
+        pan_x_plan=pan_plan_for_render,
+    )
+  File "D:\Projects\soccer-video\tools\render_follow_unified.py", line 7806, in write_frames
+    shutil.rmtree(frames_dir)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 790, in rmtree
+    return _rmtree_unsafe(path, onexc)
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 629, in _rmtree_unsafe
+    onexc(os.unlink, fullname, err)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\scott\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 625, in _rmtree_unsafe
+    os.unlink(fullname)
+    ~~~~~~~~~^^^^^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'D:\\Projects\\soccer-video\\out\\_scratch\\002__2026_02_23__TSC_vs_NEOFC__B_6180b164\\autoframe_work\\cinematic\\002__2026-02-23__TSC_vs_NEOFC__BUILD_AND_SHOTS__t17.00-t32.00\\frames\\frame_000374.png'
+
+D:\Projects\soccer-video>

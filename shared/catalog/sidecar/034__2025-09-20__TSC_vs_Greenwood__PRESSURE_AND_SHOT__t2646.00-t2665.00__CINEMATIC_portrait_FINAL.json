@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\034__2025-09-20__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t2646.00-t2665.00__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\034__2025-09-20__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t2646.00-t2665.00__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-18T22:45:41+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

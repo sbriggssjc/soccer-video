@@ -1,0 +1,39 @@
+2025-10-07 09:43:08,683 [INFO] Starting repository index for C:\Users\scott\soccer-video
+2025-10-07 09:43:18,951 [INFO] Discovered 260 files to scan
+2025-10-07 09:43:31,403 [WARNING] Graphviz rendering unavailable: No module named 'graphviz'
+2025-10-07 09:43:31,404 [INFO] Repository index completed. Outputs:
+2025-10-07 09:43:31,404 [INFO]   C:\Users\scott\soccer-video\out\repo_index.json
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\repo_index.csv
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\repo_index.xlsx
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\folder_rollup.csv
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\duplicates.csv
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\process_graph.dot
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\process_graph.png
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\orphan_signals.csv
+2025-10-07 09:43:31,405 [INFO]   C:\Users\scott\soccer-video\out\SUMMARY.md
+2025-10-07 09:43:31,865 [INFO] Starting repository index for C:\Users\scott\soccer-video
+2025-10-07 09:43:39,847 [INFO] Discovered 20402 files to scan
+2025-10-07 10:04:04,642 [WARNING] Graphviz rendering unavailable: No module named 'graphviz'
+2025-10-07 10:04:04,653 [INFO] Repository index completed. Outputs:
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\repo_index.json
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\repo_index.csv
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\repo_index.xlsx
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\folder_rollup.csv
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\duplicates.csv
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\process_graph.dot
+2025-10-07 10:04:04,653 [INFO]   C:\Users\scott\soccer-video\out\process_graph.png
+2025-10-07 10:04:04,654 [INFO]   C:\Users\scott\soccer-video\out\orphan_signals.csv
+2025-10-07 10:04:04,654 [INFO]   C:\Users\scott\soccer-video\out\SUMMARY.md
+2025-10-07 12:35:26,474 [INFO] Starting repository index for C:\Users\scott\soccer-video
+2025-10-07 12:35:36,421 [INFO] Discovered 251 files to scan
+2025-10-07 12:35:47,050 [WARNING] Graphviz rendering unavailable: No module named 'graphviz'
+2025-10-07 12:35:47,051 [INFO] Repository index completed. Outputs:
+2025-10-07 12:35:47,051 [INFO]   C:\Users\scott\soccer-video\out\repo_index.json
+2025-10-07 12:35:47,051 [INFO]   C:\Users\scott\soccer-video\out\repo_index.csv
+2025-10-07 12:35:47,051 [INFO]   C:\Users\scott\soccer-video\out\repo_index.xlsx
+2025-10-07 12:35:47,051 [INFO]   C:\Users\scott\soccer-video\out\folder_rollup.csv
+2025-10-07 12:35:47,052 [INFO]   C:\Users\scott\soccer-video\out\duplicates.csv
+2025-10-07 12:35:47,052 [INFO]   C:\Users\scott\soccer-video\out\process_graph.dot
+2025-10-07 12:35:47,052 [INFO]   C:\Users\scott\soccer-video\out\process_graph.png
+2025-10-07 12:35:47,052 [INFO]   C:\Users\scott\soccer-video\out\orphan_signals.csv
+2025-10-07 12:35:47,052 [INFO]   C:\Users\scott\soccer-video\out\SUMMARY.md

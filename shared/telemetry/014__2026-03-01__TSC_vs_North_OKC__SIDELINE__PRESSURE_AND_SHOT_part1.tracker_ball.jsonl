@@ -1,0 +1,5 @@
+{"_meta": true, "yolo_hash": "e968bd5a409f10409734689bd5371792", "bbox_size": 48, "version": 1}
+{"frame": 95, "cx": 1010.5, "cy": 375.5, "conf": 0.7, "gap_start": 95, "gap_end": 98}
+{"frame": 96, "cx": 990.0, "cy": 373.0, "conf": 0.7, "gap_start": 95, "gap_end": 98}
+{"frame": 97, "cx": 967.0, "cy": 372.0, "conf": 0.7, "gap_start": 95, "gap_end": 98}
+{"frame": 98, "cx": 944.5, "cy": 371.5, "conf": 0.7, "gap_start": 95, "gap_end": 98}

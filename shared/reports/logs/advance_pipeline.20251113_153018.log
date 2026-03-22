@@ -1,0 +1,287 @@
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t18900.00-t20340.00__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t18900.00-t20340.00_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t18900.00-t20340.00__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t18900.00-t20340.00_portrait_FINAL.mp4
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\scott\soccer-video\out\upscaled\001__2025-09-20__TSC_vs_Greenwood__BUILD_UP_PLAY_SHOT__t18900.00-t20340.00__x2.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: N/A, bitrate: N/A
+Input #1, png_pipe, from 'C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgba(pc, gbr/unknown/unknown), 235x276, 25 fps, 25 tbr, 25 tbn
+[out#0/mp4 @ 00000286d1c21ec0] Codec AVOption b:a (set bitrate (in bits/s)) has not been used for any stream. The most likely reason is either wrong type (e.g. a video option with no video streams) or that it is a private option of some decoder which was not actually used for any stream.
+[fc#0 @ 00000286d0226700] Stream specifier ':v' in filtergraph description [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] matches no streams.
+Error binding filtergraph inputs/outputs: Invalid argument
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__2025-09-20__TSC_vs_RVFC__SHOT__t7320.00-t7860.00__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__2025-09-20__TSC_vs_RVFC__SHOT__t7320.00-t7860.00_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__2025-09-20__TSC_vs_RVFC__SHOT__t7320.00-t7860.00__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__2025-09-20__TSC_vs_RVFC__SHOT__t7320.00-t7860.00_portrait_FINAL.mp4
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\scott\soccer-video\out\upscaled\001__2025-09-20__TSC_vs_RVFC__SHOT__t7320.00-t7860.00__x2.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: N/A, bitrate: N/A
+Input #1, png_pipe, from 'C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgba(pc, gbr/unknown/unknown), 235x276, 25 fps, 25 tbr, 25 tbn
+[out#0/mp4 @ 00000176f69c4040] Codec AVOption b:a (set bitrate (in bits/s)) has not been used for any stream. The most likely reason is either wrong type (e.g. a video option with no video streams) or that it is a private option of some decoder which was not actually used for any stream.
+[fc#0 @ 00000176f69b6700] Stream specifier ':v' in filtergraph description [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] matches no streams.
+Error binding filtergraph inputs/outputs: Invalid argument
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t23220.00-t24720.00__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t23220.00-t24720.00_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t23220.00-t24720.00__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t23220.00-t24720.00_portrait_FINAL.mp4
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\scott\soccer-video\out\upscaled\001__2025-10-04__TSC_vs_FC_Tulsa_Black__DRIBBLING__t23220.00-t24720.00__x2.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: N/A, bitrate: N/A
+Input #1, png_pipe, from 'C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgba(pc, gbr/unknown/unknown), 235x276, 25 fps, 25 tbr, 25 tbn
+[out#0/mp4 @ 0000024826781ec0] Codec AVOption b:a (set bitrate (in bits/s)) has not been used for any stream. The most likely reason is either wrong type (e.g. a video option with no video streams) or that it is a private option of some decoder which was not actually used for any stream.
+[fc#0 @ 0000024826366700] Stream specifier ':v' in filtergraph description [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] matches no streams.
+Error binding filtergraph inputs/outputs: Invalid argument
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40_portrait_FINAL.mp4
+
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000001f21b5aa440] moov atom not found
+[in#0 @ 000001f21b5aa2c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40__x2.mp4.
+Error opening input files: Invalid data found when processing input
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40.__CINEMATIC__x2.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40.__CINEMATIC_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40.__CINEMATIC__x2.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\001__SHOT__t155.50-t166.40.__CINEMATIC_portrait_FINAL.mp4
+
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000001e3211ca400] moov atom not found
+[in#0 @ 000001e3211b7840] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\scott\soccer-video\out\upscaled\001__SHOT__t155.50-t166.40.__CINEMATIC__x2.mp4.
+Error opening input files: Invalid data found when processing input
+Branding pass failed
+At C:\Users\scott\soccer-video\tools\tsc_brand.ps1:339 char:3
++   throw "Branding pass failed"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Branding pass failed:String) [], RuntimeException
+    + FullyQualifiedErrorId : Branding pass failed
+ 
+
+ExitCode=1
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00_portrait_FINAL.mp4
+[brand] Created C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00_portrait_FINAL.mp4
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:01.27, start: 0.000000, bitrate: 19084 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080, 20043 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 191 kb/s (default)
+    Metadata:
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+Input #1, png_pipe, from 'C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgba(pc, gbr/unknown/unknown), 235x276, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (h264) -> scale:default
+  Stream #1:0 (png) -> overlay
+  format:default -> Stream #0:0 (libx264)
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[af#0:1 @ 0000020c898dd400] No filtered frames for output stream, trying to initialize anyway.
+[fc#0 @ 0000020c898b67c0] [vo0->#0:0 @ 0000020c898cc340] No filtered frames for output stream, trying to initialize anyway.
+[libx264 @ 0000020c8994d7c0] using SAR=1/1
+[libx264 @ 0000020c8994d7c0] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0000020c8994d7c0] profile High, level 4.1, 4:2:0, 8-bit
+[libx264 @ 0000020c8994d7c0] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=18 lookahead_threads=3 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=cbr mbtree=1 bitrate=20000 ratetol=1.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 vbv_maxrate=20000 vbv_bufsize=40000 nal_hrd=none filler=0 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_Greenwood__GOAL__t20400.00-t21180.00_portrait_FINAL.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(progressive), 1080x1920 [SAR 1:1 DAR 9:16], q=2-31, 20000 kb/s, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 20000000/0/20000000 buffer size: 40000000 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.11.100 aac
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+[mp4 @ 0000020c898c8380] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0000020c8b89dc40] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+[out#0/mp4 @ 0000020c8b89dc40] Output file is empty, nothing was encoded(check -ss / -t / -frames parameters if used)
+frame=    0 fps=0.0 q=0.0 Lsize=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.12    
+[aac @ 0000020c8994eb40] Qavg: nan
+
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00_portrait_FINAL.mp4
+[brand] Created C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00_portrait_FINAL.mp4
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:00.79, start: 0.000000, bitrate: 8811 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080, 10147 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 188 kb/s (default)
+    Metadata:
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+Input #1, png_pipe, from 'C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgba(pc, gbr/unknown/unknown), 235x276, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (h264) -> scale:default
+  Stream #1:0 (png) -> overlay
+  format:default -> Stream #0:0 (libx264)
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[af#0:1 @ 000001b8b9f9e540] No filtered frames for output stream, trying to initialize anyway.
+[fc#0 @ 000001b8b9f767c0] [vo0->#0:0 @ 000001b8b9f8c340] No filtered frames for output stream, trying to initialize anyway.
+[libx264 @ 000001b8b9fee5c0] using SAR=1/1
+[libx264 @ 000001b8b9fee5c0] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 000001b8b9fee5c0] profile High, level 4.1, 4:2:0, 8-bit
+[libx264 @ 000001b8b9fee5c0] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=18 lookahead_threads=3 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=cbr mbtree=1 bitrate=20000 ratetol=1.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 vbv_maxrate=20000 vbv_bufsize=40000 nal_hrd=none filler=0 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-09-20__TSC_vs_RVFC__PRESSURE_SHOT__t7920.00-t8880.00_portrait_FINAL.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(progressive), 1080x1920 [SAR 1:1 DAR 9:16], q=2-31, 20000 kb/s, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 20000000/0/20000000 buffer size: 40000000 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.11.100 aac
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+[mp4 @ 000001b8ba00e600] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 000001b8ba00e500] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+[out#0/mp4 @ 000001b8ba00e500] Output file is empty, nothing was encoded(check -ss / -t / -frames parameters if used)
+frame=    0 fps=0.0 q=0.0 Lsize=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.05    
+[aac @ 000001b8ba689040] Qavg: nan
+
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00_portrait_FINAL.mp4" "-Aspect" "9x16"
+WARNING: Font file not found: \\..\\fonts\\Montserrat-ExtraBold.ttf (titles will render without text)
+[brand] ffmpeg -hide_banner -y -i C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00.mp4 -i C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png -filter_complex [0:v]scale=1080:1920:flags=lanczos,setsar=1,setpts=PTS-STARTPTS[base];[base][1:v]overlay=32:main_h-overlay_h-32:format=auto[ov1];[ov1]format=yuv420p[ov2] -map [ov2] -map 0:a? -c:v libx264 -profile:v high -pix_fmt yuv420p -b:v 20M -maxrate 20M -bufsize 40M -c:a aac -b:a 192k -ar 48000 -movflags +faststart C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00_portrait_FINAL.mp4
+[brand] Created C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00_portrait_FINAL.mp4
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Duration: 00:00:01.18, start: 0.000000, bitrate: 17849 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1920x1080, 18384 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+    Metadata:
+      handler_name    : Core Media Video
+      vendor_id       : [0][0][0][0]
+      encoder         : Lavc62.11.100 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 194 kb/s (default)
+    Metadata:
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+Input #1, png_pipe, from 'C:\Users\scott\soccer-video\brand\tsc\watermark_corner_256.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgba(pc, gbr/unknown/unknown), 235x276, 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (h264) -> scale:default
+  Stream #1:0 (png) -> overlay
+  format:default -> Stream #0:0 (libx264)
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[af#0:1 @ 000001e4644c7440] No filtered frames for output stream, trying to initialize anyway.
+[fc#0 @ 000001e4644b6700] [vo0->#0:0 @ 000001e4644cb340] No filtered frames for output stream, trying to initialize anyway.
+[libx264 @ 000001e465229ac0] using SAR=1/1
+[libx264 @ 000001e465229ac0] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 000001e465229ac0] profile High, level 4.1, 4:2:0, 8-bit
+[libx264 @ 000001e465229ac0] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=18 lookahead_threads=3 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=cbr mbtree=1 bitrate=20000 ratetol=1.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 vbv_maxrate=20000 vbv_bufsize=40000 nal_hrd=none filler=0 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'C:\Users\scott\soccer-video\out\portrait_reels\clean\002__2025-10-04__TSC_vs_FC_Tulsa_Black__BUILD_UP__t25260.00-t26940.00_portrait_FINAL.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf62.3.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(progressive), 1080x1920 [SAR 1:1 DAR 9:16], q=2-31, 20000 kb/s, 30 fps, 15360 tbn
+    Metadata:
+      encoder         : Lavc62.11.100 libx264
+    Side data:
+      cpb: bitrate max/min/avg: 20000000/0/20000000 buffer size: 40000000 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 192 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.11.100 aac
+      handler_name    : Core Media Audio
+      vendor_id       : [0][0][0][0]
+[mp4 @ 000001e4652282c0] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 000001e464b60d00] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+[out#0/mp4 @ 000001e464b60d00] Output file is empty, nothing was encoded(check -ss / -t / -frames parameters if used)
+frame=    0 fps=0.0 q=0.0 Lsize=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.09    
+[aac @ 000001e4644c4080] Qavg: nan
+
+"powershell" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:\Users\scott\soccer-video\tools\tsc_brand.ps1" "-In" "C:\Users\scott\soccer-video\out\atomic_clips\_quarantine\002__GOAL__t180.80-t191.20.mp4" "-Out" "C:\Users\scott\soccer-video\out\portrait_reels\clean\002__GOAL__t180.80-t191.20_portrait_FINAL.mp4" "-Aspect" "9x16"

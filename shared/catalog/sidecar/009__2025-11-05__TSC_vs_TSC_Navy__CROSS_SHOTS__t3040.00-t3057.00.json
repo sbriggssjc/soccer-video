@@ -1,0 +1,24 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-11-05__TSC_vs_TSC_Navy\\009__2025-11-05__TSC_vs_TSC_Navy__CROSS_SHOTS__t3040.00-t3057.00.mp4",
+  "source_sha1_64": "567b2fe0b2a1fed2",
+  "meta": {
+    "duration_s": 17.088,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\009__2025-11-05__TSC_vs_TSC_Navy__CROSS_SHOTS__t3040.00-t3057.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T10:14:29+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "master_rel": "out/games/2025-11-05__TSC_vs_TSC_Navy/MASTER.mp4",
+  "t_start_s": 3040.0,
+  "t_end_s": 3057.0
+}

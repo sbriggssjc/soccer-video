@@ -1,0 +1,22 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2026-02-21__TSC_vs_Greenwood\\019__Defense & Shot__2845.33-2853.4.mp4",
+  "source_sha1_64": "55c5125a5e141d63",
+  "meta": {
+    "duration_s": 8.078,
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\019__Defense & Shot__2845.33-2853.4__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T17:09:35+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2026-02-21__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2026-02-21__TSC_vs_Greenwood/MASTER.mp4"
+}

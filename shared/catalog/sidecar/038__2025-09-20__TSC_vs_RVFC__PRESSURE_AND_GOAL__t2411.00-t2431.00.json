@@ -1,0 +1,24 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_RVFC\\038__2025-09-20__TSC_vs_RVFC__PRESSURE_AND_GOAL__t2411.00-t2431.00.mp4",
+  "source_sha1_64": "33f5df86dec28efa",
+  "meta": {
+    "duration_s": 20.295,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\038__2025-09-20__TSC_vs_RVFC__PRESSURE_AND_GOAL__t2411.00-t2431.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T06:41:59+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_RVFC/MASTER.mp4",
+  "t_start_s": 2411.0,
+  "t_end_s": 2431.0
+}

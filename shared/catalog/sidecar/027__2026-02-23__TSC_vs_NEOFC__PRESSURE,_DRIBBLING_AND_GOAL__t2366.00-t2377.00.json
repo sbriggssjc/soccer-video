@@ -1,0 +1,16 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2026-02-23__TSC_vs_NEOFC\\027__2026-02-23__TSC_vs_NEOFC__PRESSURE,_DRIBBLING_AND_GOAL__t2366.00-t2377.00.mp4",
+  "source_sha1_64": "6d2c6c9771578099",
+  "meta": {
+    "duration_s": 14.6,
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1"
+  },
+  "steps": {},
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2026-02-23__TSC_vs_NEOFC/MASTER.mp4",
+  "master_rel": "out/games/2026-02-23__TSC_vs_NEOFC/MASTER.mp4",
+  "t_start_s": 2366.0,
+  "t_end_s": 2377.0
+}

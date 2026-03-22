@@ -1,0 +1,24 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\011__2025-09-13__TSC_vs_NEOFC__SHOTS__t1655.00-t1670.30.mp4",
+  "source_sha1_64": "e1e49b17709fd5fb",
+  "meta": {
+    "duration_s": 15.418,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\011__2025-09-13__TSC_vs_NEOFC__SHOTS__t1655.00-t1670.30__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T01:02:55+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "master_rel": "out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "t_start_s": 1655.0,
+  "t_end_s": 1670.3
+}

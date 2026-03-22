@@ -69,3 +69,7 @@ raw/
 out/atomic_clips/
 out/portrait_reels/
 out/stabilized/
+
+# Generated reports kept out of git
+shared/reports/inventory/*.csv
+shared/reports/logs/*.csv

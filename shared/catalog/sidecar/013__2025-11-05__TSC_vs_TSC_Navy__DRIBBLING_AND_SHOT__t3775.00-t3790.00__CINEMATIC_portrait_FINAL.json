@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\013__2025-11-05__TSC_vs_TSC_Navy__DRIBBLING_AND_SHOT__t3775.00-t3790.00__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\013__2025-11-05__TSC_vs_TSC_Navy__DRIBBLING_AND_SHOT__t3775.00-t3790.00__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-18T22:46:06+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

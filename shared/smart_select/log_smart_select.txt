@@ -1,0 +1,11 @@
+2025-09-22 13:20:25,318 [INFO] smart_select: Video: out\full_game_stabilized.mp4
+2025-09-22 13:20:46,304 [INFO] smart_select: Audio frames: 67225
+2025-09-22 13:31:39,971 [INFO] smart_select: Motion samples: 24971
+2025-09-22 13:31:39,977 [INFO] smart_select: Loaded in-play mask from out\in_play_spans.csv (105 spans)
+2025-09-22 13:31:40,000 [INFO] smart_select: Loaded 21 goal resets from .\out\goal_resets_filtered.csv
+2025-09-22 13:31:40,000 [INFO] smart_select: Goal resets considered: 14
+2025-09-22 13:31:40,031 [INFO] smart_select: Selector thresholds: combined>=0.278 audio_z>=0.60 motion_z>=0.60
+2025-09-22 13:31:40,031 [INFO] smart_select: Window ranges goal=(8.0, 14.0)/(6.0, 9.0) shot=(4.0, 8.0)/(4.0, 6.0) save=(4.0, 6.0)/(4.0, 6.0) buildup=(3.0, 5.0)/(3.0, 5.0)
+2025-09-22 13:31:40,034 [INFO] smart_select: Exported 14 events to out\smart_select\events_final.csv
+2025-09-22 13:31:40,039 [INFO] smart_select: ffconcat totals: {'total_all': 139.4179999999999, 'total_goals': 130.28399999999988, 'total_shots': 9.134000000000015, 'total_capped': 139.4179999999999}
+2025-09-22 13:31:40,045 [INFO] smart_select: Metrics: Metrics(num_spans=14, num_goals_found=13, num_shots_found=1, num_saves_found=0, num_woodwork_found=0, total_duration=139.4179999999999, avg_in_play_ratio=0.5260859972670022, coverage_of_resets=0.0, uncovered_resets=[1012.85, 1707.64, 1765.65, 1859.66, 1965.68, 2178.38, 2321.74, 2333.08, 2361.08, 2393.75, 2607.79, 2629.13, 3081.87, 3089.21])

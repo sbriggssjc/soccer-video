@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\002__2025-09-13__TSC_vs_NEOFC__GOAL__t180.80-t191.20__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\002__2025-09-13__TSC_vs_NEOFC__GOAL__t180.80-t191.20__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-18T22:45:24+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

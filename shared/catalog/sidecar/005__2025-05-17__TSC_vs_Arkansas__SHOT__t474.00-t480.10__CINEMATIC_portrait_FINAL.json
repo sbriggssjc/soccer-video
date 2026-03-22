@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\005__2025-05-17__TSC_vs_Arkansas__SHOT__t474.00-t480.10__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\005__2025-05-17__TSC_vs_Arkansas__SHOT__t474.00-t480.10__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-18T21:51:41+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

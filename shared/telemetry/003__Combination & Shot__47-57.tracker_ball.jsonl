@@ -1,0 +1,23 @@
+{"_meta": true, "yolo_hash": "b4b072324cf02e119945588da1b784fe", "bbox_size": 48, "version": 1}
+{"frame": 162, "cx": 794.5, "cy": 483.5, "conf": 0.7, "gap_start": 162, "gap_end": 167}
+{"frame": 163, "cx": 795.0, "cy": 483.0, "conf": 0.7, "gap_start": 162, "gap_end": 167}
+{"frame": 164, "cx": 795.0, "cy": 483.0, "conf": 0.7, "gap_start": 162, "gap_end": 167}
+{"frame": 165, "cx": 796.0, "cy": 483.0, "conf": 0.7, "gap_start": 162, "gap_end": 167}
+{"frame": 166, "cx": 795.5, "cy": 481.5, "conf": 0.7, "gap_start": 162, "gap_end": 167}
+{"frame": 167, "cx": 795.5, "cy": 481.5, "conf": 0.7, "gap_start": 162, "gap_end": 167}
+{"frame": 241, "cx": 634.5, "cy": 491.5, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 242, "cx": 657.0, "cy": 490.0, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 243, "cx": 668.0, "cy": 491.0, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 244, "cx": 680.0, "cy": 491.0, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 245, "cx": 697.0, "cy": 490.0, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 246, "cx": 697.0, "cy": 490.0, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 247, "cx": 712.5, "cy": 488.5, "conf": 0.7, "gap_start": 241, "gap_end": 247}
+{"frame": 254, "cx": 605.0, "cy": 492.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 255, "cx": 605.0, "cy": 492.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 256, "cx": 616.0, "cy": 492.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 257, "cx": 626.0, "cy": 490.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 258, "cx": 637.0, "cy": 490.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 259, "cx": 652.0, "cy": 489.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 260, "cx": 668.0, "cy": 489.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 261, "cx": 668.0, "cy": 489.0, "conf": 0.7, "gap_start": 254, "gap_end": 262}
+{"frame": 262, "cx": 675.5, "cy": 487.5, "conf": 0.7, "gap_start": 254, "gap_end": 262}

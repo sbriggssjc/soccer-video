@@ -1,0 +1,15 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\010__2025-09-20__TSC_vs_Greenwood__DEFENSE_BUILD_UP__t49260.00-t50880.00__CINEMATIC_portrait_FINAL.mp4",
+  "source_sha1_64": "",
+  "meta": {},
+  "steps": {
+    "upscale": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\upscaled\\010__2025-09-20__TSC_vs_Greenwood__DEFENSE_BUILD_UP__t49260.00-t50880.00__CINEMATIC_portrait_FINAL__x2__lanczos.mp4",
+      "at": "2026-02-18T22:06:12+00:00",
+      "scale": 2,
+      "model": "lanczos"
+    }
+  },
+  "errors": []
+}

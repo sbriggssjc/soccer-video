@@ -1,0 +1,30 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-13__TSC_vs_NEOFC\\004__2025-09-13__TSC_vs_NEOFC__GOAL__t266.50-t283.10.mp4",
+  "source_sha1_64": "b7aa7384aa26a7c9",
+  "meta": {
+    "duration_s": 17.043,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24000/1001"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\004__2025-09-13__TSC_vs_NEOFC__GOAL__t266.50-t283.10__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T00:47:53+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "UnboundLocalError: cannot access local variable 'render_fps' where it is not associated with a value",
+      "at": "2026-02-21T03:58:18+00:00"
+    }
+  ],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "master_rel": "out/games/2025-09-13__TSC_vs_NEOFC/MASTER.mp4",
+  "t_start_s": 266.5,
+  "t_end_s": 283.1
+}

@@ -1,0 +1,24 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-10-12__TSC_vs_SLSG\\007__2025-10-12__TSC_vs_SLSG__CROSS__t2212.00-t2228.00.mp4",
+  "source_sha1_64": "52eaf946bcebfe53",
+  "meta": {
+    "duration_s": 16.252,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": true,
+      "out": "D:\\Projects\\soccer-video\\out\\portrait_reels\\clean\\007__2025-10-12__TSC_vs_SLSG__CROSS__t2212.00-t2228.00__AUTO_portrait_FINAL.mp4",
+      "at": "2026-02-22T08:50:47+00:00",
+      "preset": "auto",
+      "portrait": "1080x1920"
+    }
+  },
+  "errors": [],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
+  "master_rel": "out/games/2025-10-12__TSC_vs_SLSG/MASTER.mp4",
+  "t_start_s": 2212.0,
+  "t_end_s": 2228.0
+}

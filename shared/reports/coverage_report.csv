@@ -1,0 +1,2 @@
+﻿clip,attempt,coverage,frames_ok,frames_total,first_miss_frame,first_miss_time,ball_x,ball_y,need_dx,need_dy,used_params
+004__PRESSURE__t640.00-t663.00,1,99.82%,551,552,286,11.92,1034.3,1020.1,0,-8,"--follow-zeta 1.10 --follow-wn 5.4 --deadzone 2.5 --max-vel 900 --max-acc 4500 --lookahead 10 --pre-smooth 0.18 --zoom-out-max 1.45 --zoom-edge-frac 0.72 --cy-frac 0.46"

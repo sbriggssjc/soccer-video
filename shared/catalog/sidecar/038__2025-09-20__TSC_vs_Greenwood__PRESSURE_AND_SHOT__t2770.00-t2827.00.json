@@ -1,0 +1,28 @@
+{
+  "clip_path": "D:\\Projects\\soccer-video\\out\\atomic_clips\\2025-09-20__TSC_vs_Greenwood\\038__2025-09-20__TSC_vs_Greenwood__PRESSURE_AND_SHOT__t2770.00-t2827.00.mp4",
+  "source_sha1_64": "641ce18625e69f2c",
+  "meta": {
+    "duration_s": 57.925,
+    "width": 1920,
+    "height": 1080,
+    "fps": "24/1"
+  },
+  "steps": {
+    "portrait_render": {
+      "done": false,
+      "preset": "auto",
+      "error": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 106: character maps to <undefined>"
+    }
+  },
+  "errors": [
+    {
+      "step": "portrait_render",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192' in position 106: character maps to <undefined>",
+      "at": "2026-02-23T17:50:42+00:00"
+    }
+  ],
+  "master_path": "D:/Projects/soccer-video/out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "master_rel": "out/games/2025-09-20__TSC_vs_Greenwood/MASTER.mp4",
+  "t_start_s": 2770.0,
+  "t_end_s": 2827.0
+}
